@@ -33,6 +33,7 @@ import type {
 } from '@swarmy/core/protocol';
 import { RUN_ONCE_OUTPUT_TAIL_BYTES } from '@swarmy/core/protocol';
 import { presentOrFallback, pullWithFallback } from './pull-fallback';
+import { putSecretFiles } from './secret-file';
 
 // ── secrets ──────────────────────────────────────────────────────────────────
 
@@ -169,6 +170,8 @@ export async function runOnce(docker: DockerClient, p: RunOncePayload): Promise<
   let timedOut = false;
   let killTimer: ReturnType<typeof setTimeout> | undefined;
   try {
+    // Credentials land as 0600 files, never in the container's Env.
+    await putSecretFiles(container, p.secretFiles);
     // Extra networks (the first rides HostConfig.NetworkMode) attach pre-start.
     for (const net of p.networks?.slice(1) ?? []) {
       await d.getNetwork(net).connect({ Container: container.id }).catch(() => undefined);

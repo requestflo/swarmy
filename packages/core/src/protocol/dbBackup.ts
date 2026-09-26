@@ -86,8 +86,9 @@ export function isPhysicalEngine(e: DbBackupEngine): boolean {
 
 /**
  * A one-shot Postgres connection. The password is resolved just-in-time by the
- * controller (read from live Docker service env) and only becomes `PGPASSWORD`
- * inside the sidecar container.
+ * controller (read from the cluster's Docker secret inside a running member)
+ * and becomes a 0600 PGPASSFILE put into the sidecar before it starts — never
+ * the sidecar's env.
  */
 export const DbConnection = z.object({
   host: z.string(),

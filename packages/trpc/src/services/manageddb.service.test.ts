@@ -99,7 +99,7 @@ describe('managedPgSpecs — persistent storage layout golden', () => {
     stack: 'hello',
     cluster: 'main',
     image: 'pgvector/pgvector:pg17',
-    password: 'pw',
+    passwordSecret: 'hello_main-pg-password__v1',
     database: 'app',
     replicas: 2,
     dataVolume: primaryDataVolumeName('hello', 'main'),
@@ -146,23 +146,29 @@ describe('managedPgSpecs — persistent storage layout golden', () => {
       expect(spec.args).toBeUndefined();
       expect(JSON.stringify(spec.env)).not.toContain('POSTGRESQL_');
     }
+    // The password is a Docker secret FILE — no member env carries a value.
+    const file = '/run/secrets/hello_main-pg-password';
     expect(primarySpec.env).toEqual({
       SWARMY_PG_ROLE: 'primary',
-      POSTGRES_PASSWORD: 'pw',
+      POSTGRES_PASSWORD_FILE: file,
       POSTGRES_DB: 'app',
       PGDATA: '/var/lib/postgresql/data/pgdata',
       SWARMY_PG_REPLICATION_USER: 'repl',
-      SWARMY_PG_REPLICATION_PASSWORD: 'pw',
+      SWARMY_PG_REPLICATION_PASSWORD_FILE: file,
     });
     expect(replicaSpec.env).toEqual({
       SWARMY_PG_ROLE: 'replica',
-      POSTGRES_PASSWORD: 'pw',
+      POSTGRES_PASSWORD_FILE: file,
       PGDATA: '/var/lib/postgresql/data/pgdata',
       SWARMY_PG_REPLICATION_USER: 'repl',
-      SWARMY_PG_REPLICATION_PASSWORD: 'pw',
+      SWARMY_PG_REPLICATION_PASSWORD_FILE: file,
       SWARMY_PG_PRIMARY_HOST: 'hello_main-primary',
       SWARMY_PG_PRIMARY_PORT: '5432',
     });
+    for (const spec of [primarySpec, replicaSpec]) {
+      expect(spec.secrets).toEqual([{ source: 'hello_main-pg-password__v1', target: 'hello_main-pg-password' }]);
+      expect(spec.labels?.['swarmy.db.passwordSecret']).toBe('hello_main-pg-password__v1');
+    }
   });
 
   it('single-node swarm: replica has no anti-affinity (would be unschedulable)', () => {
@@ -170,7 +176,7 @@ describe('managedPgSpecs — persistent storage layout golden', () => {
       stack: 'hello',
       cluster: 'main',
       image: 'i',
-      password: 'pw',
+      passwordSecret: 'hello_main-pg-password__v1',
       database: 'app',
       replicas: 1,
       dataVolume: 'hello_main-primary-data',
@@ -186,7 +192,7 @@ describe('managedPgSpecs — persistent storage layout golden', () => {
       stack: 'hello',
       cluster: 'main',
       image: 'i',
-      password: 'pw',
+      passwordSecret: 'hello_main-pg-password__v1',
       database: 'app',
       replicas: 1,
       dataVolume: 'hello_main-primary-data',

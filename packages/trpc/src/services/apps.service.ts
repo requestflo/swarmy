@@ -47,6 +47,7 @@ import {
   primaryDataVolumeName,
   ProvisionCacheInput,
   replicaDataVolumeName,
+  PG_PASSWORD_FROM_MEMBER,
 } from '@swarmy/core';
 import type { RunOnceResult } from '@swarmy/core/protocol';
 import type { Auth } from '@swarmy/auth';
@@ -692,7 +693,7 @@ async function seedPreviewDatabase(
     await execInService(
       ctx,
       primary,
-      `echo '${b64}' | base64 -d | PGPASSWORD="$POSTGRES_PASSWORD" psql -U postgres -h 127.0.0.1 -p 5432 -v ON_ERROR_STOP=1 -d '${database.replace(/'/g, '')}'`,
+      `echo '${b64}' | base64 -d | ${PG_PASSWORD_FROM_MEMBER} psql -U postgres -h 127.0.0.1 -p 5432 -v ON_ERROR_STOP=1 -d '${database.replace(/'/g, '')}'`,
     );
   }
   await writeAudit(ctx, {

@@ -10,6 +10,7 @@ import {
   provisionDb,
   removeDb,
   revealDbPassword,
+  rotateDbPassword,
   setRegionReplicas,
   setReplicas,
   setTopology,
@@ -86,6 +87,16 @@ export const managedDbRouter = router({
   revealPassword: abacProcedure('secrets.read', resolveStackByName)
     .input(z.object({ stack: stackName, cluster: clusterName }))
     .mutation(({ ctx, input }) => revealDbPassword(ctx, input)),
+
+  /**
+   * Rotate a cluster's password: a new `<family>__v<n+1>` secret, the writers
+   * (a brief restart) then standbys then every wired app move onto it, old
+   * versions removed. Owner/admin-only (`secret.delete`: it retires the old
+   * secret versions); audited `db.password.rotate`. Returns no password.
+   */
+  rotatePassword: abacProcedure('secret.delete', resolveStackByName)
+    .input(z.object({ stack: stackName, cluster: clusterName }))
+    .mutation(({ ctx, input }) => rotateDbPassword(ctx, input)),
 
   /** Read the managed-DB topology for a stack (clusters + health + rw/ro hosts). */
   get: orgProcedure

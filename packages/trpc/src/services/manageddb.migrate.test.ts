@@ -194,7 +194,9 @@ describe('basebackupRunOncePayload — golden', () => {
     expect(p).toMatchObject({
       image: IMAGE,
       entrypoint: ['/bin/sh', '-c'],
-      env: { SRC_HOST: PRIMARY, PGUSER: 'repl', PGPASSWORD: 'replpw' },
+      env: { SRC_HOST: PRIMARY, PGUSER: 'repl', PGPASSFILE: '/tmp/.swarmy-pgpass' },
+      // The credential is a 0600 passfile put in before start — never container env.
+      secretFiles: [{ dir: '/tmp', name: '.swarmy-pgpass', contents: '*:*:*:*:replpw\n', mode: 0o600, uid: 0, gid: 0 }],
       binds: [`${TARGET}:/var/lib/postgresql/data`],
       networks: [NET],
       user: '0:0',
@@ -205,6 +207,7 @@ describe('basebackupRunOncePayload — golden', () => {
     expect(script).toContain('pg_basebackup -h "$SRC_HOST" -p 5432 -U "$PGUSER" -w -D /var/lib/postgresql/data/pgdata -X stream -c fast -P');
     expect(script).toContain('chown -R postgres:postgres /var/lib/postgresql/data');
     expect(script).not.toContain('replpw'); // never argv
+    expect(JSON.stringify(p.env)).not.toContain('replpw'); // never env
   });
 });
 
@@ -236,8 +239,12 @@ describe('migrateStorage — online copy, stop only after verification', () => {
       networks: [NET],
       binds: [`${TARGET}:/var/lib/postgresql/data`],
       user: '0:0',
-      env: { SRC_HOST: PRIMARY, PGUSER: 'repl', PGPASSWORD: 'replpw' },
+      env: { SRC_HOST: PRIMARY, PGUSER: 'repl', PGPASSFILE: '/tmp/.swarmy-pgpass' },
     });
+    // No runOnce of the migration carries a password in its env.
+    for (const c of calls.filter((x) => x.cmd === 'container.runOnce')) {
+      expect(JSON.stringify(c.payload.env ?? {})).not.toContain('replpw');
+    }
 
     const cut = calls[firstDeploy]!.payload.spec as {
       name: string;

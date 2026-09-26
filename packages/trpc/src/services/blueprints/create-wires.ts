@@ -58,3 +58,59 @@ export function withCreateTimeWires(
   if (secretEnv.size) next.secretEnv = [...secretEnv].sort();
   return next;
 }
+
+// ── Credential env → secret (no plaintext credential in any spec) ────────────
+
+const FAMILY_MAX = 56; // Docker's 64-char cap minus `__v<n>` (secretsMgr)
+
+function shortHash(s: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, '0');
+}
+
+/** A secret family for one credential env var of one blueprint service. */
+export function credentialEnvFamily(stack: string, service: string, key: string): string {
+  const full = `${stack}_${service}_${key}`.replace(/[^A-Za-z0-9_.-]/g, '-').replace(/^[^A-Za-z0-9]+/, '');
+  const safe = full.replace(/__v\d+$/, (m) => m.replace('__', '_'));
+  return safe.length <= FAMILY_MAX ? safe : `${safe.slice(0, FAMILY_MAX - 9)}-${shortHash(full)}`;
+}
+
+/**
+ * PURE — turn every `env` wire entry whose value carries a CREDENTIAL token
+ * (a DB/cache password or URL, a generated secret) into a secret wire
+ * delivered as env by the secret-env shim. The spec then names a Docker
+ * secret, never the value (`docker service inspect` shows no password).
+ * Returns the rewritten wires + the secret families to create, with the raw
+ * (token-bearing) template each one holds.
+ */
+export function credentialEnvToSecrets(
+  wires: readonly WireAction[],
+  stack: string,
+  credentialTokens: ReadonlySet<string>,
+): { wires: WireAction[]; families: Array<{ family: string; template: string }> } {
+  const out: WireAction[] = [];
+  const families: Array<{ family: string; template: string }> = [];
+  const carries = (v: string) => [...credentialTokens].some((t) => v.includes(t));
+  for (const w of wires) {
+    if (w.type !== 'env') {
+      out.push(w);
+      continue;
+    }
+    const plain: Record<string, string> = {};
+    for (const [key, value] of Object.entries(w.env)) {
+      if (!carries(value)) {
+        plain[key] = value;
+        continue;
+      }
+      const family = credentialEnvFamily(stack, w.service, key);
+      families.push({ family, template: value });
+      out.push({ type: 'secret', service: w.service, family, envName: key, delivery: 'env' });
+    }
+    if (Object.keys(plain).length) out.push({ ...w, env: plain });
+  }
+  return { wires: out, families };
+}

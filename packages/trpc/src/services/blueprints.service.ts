@@ -27,6 +27,7 @@ import {
   createSecretFamily,
 } from './secretsMgr.service';
 import { deployFromCompose } from './stack.service';
+import { ensureBlueprintSecretFamily } from './secret-owner.service';
 import { setServiceRoutes } from './ingress-routes-api';
 import {
   buildPlanSummary,
@@ -45,7 +46,7 @@ import {
 } from './blueprints/catalog';
 import { ALL_BLUEPRINTS, findBlueprint } from './blueprints/registry';
 import { TemplateCompileError } from './blueprints/from-app-config';
-import { isCreateTimeWire, withCreateTimeWires, type CreateTimeWire } from './blueprints/create-wires';
+import { credentialEnvToSecrets, isCreateTimeWire, withCreateTimeWires, type CreateTimeWire } from './blueprints/create-wires';
 
 /**
  * Blueprints (slice F3) — list the static catalog, dry-run a plan, and deploy
@@ -237,6 +238,10 @@ export function generateSecretValue(
 }
 
 interface StepContext {
+  /** The blueprint being deployed — stamped as the owner of its generated secrets (QA-078). */
+  blueprint: string;
+  /** The whole plan: does anything besides a secret step need its generated value? */
+  steps: readonly PlanStep[];
   /** `__SWARMY_*__` → resolved value (passwords, generated secrets). */
   tokens: Record<string, string>;
   /** One-time reveals surfaced ONCE in the deploy result. */
@@ -245,6 +250,8 @@ interface StepContext {
   bucketIds: Record<string, string>;
   /** Created secret family → its physical Docker secret (wired at create). */
   secretNames: Record<string, string>;
+  /** Tokens resolving to a credential (generated secrets) — never plain env. */
+  credentialTokens?: Set<string>;
 }
 
 async function ensureOverlayNetwork(ctx: OrgContext, name: string): Promise<void> {
@@ -388,14 +395,31 @@ async function runStep(
       return `Bucket ${bucket.name} created`;
     }
     case 'secret': {
-      const value = generateSecretValue(step.payload.format, step.payload.length);
-      const created = await createSecretFamily(ctx, { family: step.payload.family, value });
-      sctx.secretNames[step.payload.family] = created.name;
-      if (step.payload.token) sctx.tokens[step.payload.token] = value;
+      // Owner-labelled so stack delete removes it and a redeploy of the same
+      // stack + blueprint adopts a leftover instead of failing (QA-078). An
+      // adopted family keeps its value (a surviving data volume was initialised
+      // with it); when the plan needs the value itself it is rotated instead.
+      const { token, revealNote } = step.payload;
+      const needValue =
+        !!revealNote || (!!token && sctx.steps.some((s) => s !== step && JSON.stringify(s).includes(token)));
+      const ensured = await ensureBlueprintSecretFamily(ctx, {
+        family: step.payload.family,
+        owner: { stack, blueprint: sctx.blueprint },
+        generate: () => generateSecretValue(step.payload.format, step.payload.length),
+        needValue,
+      });
+      sctx.secretNames[step.payload.family] = ensured.name;
+      const value = ensured.outcome === 'adopted' ? undefined : ensured.value;
+      if (step.payload.token && value !== undefined) {
+        sctx.tokens[step.payload.token] = value;
+        (sctx.credentialTokens ??= new Set()).add(step.payload.token);
+      }
       if (step.payload.revealNote) {
         sctx.notes.push(substituteTokens(step.payload.revealNote, sctx.tokens));
       }
-      return `Secret ${step.payload.family} created (v1, write-only)`;
+      return ensured.outcome === 'adopted'
+        ? `Secret ${step.payload.family} reused (left by an earlier ${stack} deploy)`
+        : `Secret ${step.payload.family} ${ensured.outcome === 'rotated' ? 'rotated' : 'created (v1, write-only)'}`;
     }
     case 'stack.deploy': {
       for (const net of step.payload.ensureNetworks) {
@@ -406,7 +430,19 @@ async function runStep(
       // Generated secrets + credential env go on the spec each service is FIRST
       // created with — a database reads its password once, on first boot, so
       // attaching it afterwards leaves it without its user (QA-073).
-      const atCreate = step.payload.wires.filter(
+      // A credential in env (DB/cache password or URL, a generated secret)
+      // becomes a secret delivered as env — no spec ever holds the value.
+      const split = credentialEnvToSecrets(
+        step.payload.wires,
+        stack,
+        new Set([TOKEN_DB_PASSWORD, TOKEN_DB_URL, TOKEN_REDIS_PASSWORD, TOKEN_REDIS_URL, ...(sctx.credentialTokens ?? [])]),
+      );
+      for (const f of split.families) {
+        const created = await createSecretFamily(ctx, { family: f.family, value: substituteTokens(f.template, sctx.tokens) });
+        sctx.secretNames[f.family] = created.name;
+      }
+      const wires = split.wires;
+      const atCreate = wires.filter(
         (w): w is CreateTimeWire => isCreateTimeWire(w) && (w.type === 'env' || w.family in sctx.secretNames),
       );
       await deployFromCompose(ctx, {
@@ -442,7 +478,7 @@ async function runStep(
           throw mapDispatchError(e);
         }
       }
-      for (const wire of step.payload.wires) {
+      for (const wire of wires) {
         if (atCreate.includes(wire as CreateTimeWire)) continue;
         await applyWire(ctx, stack, { ...wire, service: stackServiceName(stack, wire.service) }, sctx);
       }
@@ -494,7 +530,7 @@ export async function deployBlueprint(
 
   const env = await planEnv(ctx, entry, input);
   const steps = planSteps(entry, input, env);
-  const sctx: StepContext = { tokens: {}, notes: [], bucketIds: {}, secretNames: {} };
+  const sctx: StepContext = { blueprint: input.id, steps, tokens: {}, notes: [], bucketIds: {}, secretNames: {} };
   const results: BlueprintStepResultView[] = [];
   let failed = false;
   let url: string | null = null;

@@ -18,7 +18,7 @@
  * server's disk is ever deleted.
  */
 import { backupTargets } from './backups.repo';
-import { MOVER_IMAGE, isValidVolumeName, repinSpec, PINNED_DATA_LABELS } from '@swarmy/core';
+import { MOVER_IMAGE, isValidVolumeName, repinSpec, PINNED_DATA_LABELS, PG_PASSWORD_FROM_MEMBER } from '@swarmy/core';
 import type { ContainerInfo, ServiceSpec } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import { commandRejected, notFound } from '../errors';
@@ -234,7 +234,7 @@ async function waitUntil(deps: MoverDeps, ms: number, cond: () => boolean | Prom
 
 function psql(ctx: Ctx) {
   return (service: string, sql: string) =>
-    execInService(ctx, service, `PGPASSWORD="$POSTGRES_PASSWORD" psql -U postgres -h 127.0.0.1 -p 5432 -tAc "${sql}"`);
+    execInService(ctx, service, `${PG_PASSWORD_FROM_MEMBER} psql -U postgres -h 127.0.0.1 -p 5432 -tAc "${sql}"`);
 }
 
 async function nodeUpdate(ctx: Ctx, nodeId: string, patch: Record<string, unknown>): Promise<void> {

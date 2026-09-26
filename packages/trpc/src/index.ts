@@ -272,6 +272,8 @@ export {
 // sweep the manageddb-reconcile worker resolves off the package root.
 export { ensureAutoBackups } from './services/autoBackup.service';
 export { runScheduledAppDbDump } from './services/appDbBackup.service';
+// Managed Postgres credentials: the reconcile migrates plain-env passwords onto Docker secrets.
+export { migrateDbCredentials } from './services/manageddb.service';
 // In-cluster restic destinations (native Garage) need the swarmy overlay — workers too.
 export { resticNetworkFor } from './services/backups.service';
 // Managed data node-pinning (cache/search/vector reconcile workers) + the

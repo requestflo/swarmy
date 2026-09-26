@@ -2,6 +2,20 @@ import { randomBytes } from 'node:crypto';
 import {
   MANAGED_PG_ROOT,
   PG_ENV,
+  PG_ONESHOT_PASSFILE,
+  PG_ONESHOT_PASSFILE_PATH,
+  pgPassfileLine,
+  DB_PASSWORD_SECRET_LABEL,
+  DB_SECRET_KIND_LABEL,
+  DB_SECRET_OF_LABEL,
+  applyPgBoot,
+  applyPgCredential,
+  dbPasswordPath,
+  dbSecretFamily,
+  dbSecretName,
+  parseDbSecretName,
+  pgNeedsCredentialMigration,
+  type DbSecretKind,
   pgBootRole,
   pgPrimaryEnv,
   pgReplicaEnv,
@@ -46,6 +60,7 @@ import { writeAudit } from './audit.service';
 import { placeOnDefaultDisk } from './disks.service';
 import { AUTO_BACKUP_RETENTION_DAYS } from './autoBackup';
 import { resolveManagerNode } from './dispatch.service';
+import { resolveExecTarget } from './live-resolve';
 import { patchLiveService } from './service-patch';
 
 /**
@@ -431,11 +446,13 @@ export interface ProvisionDbResult {
   /** True when `replicas` was not given and the server-count default chose it. */
   replicasDefaulted: boolean;
   /**
-   * The name of the env var holding the superuser password on the members.
+   * The env var naming the password FILE on the members (`POSTGRES_PASSWORD_FILE`).
    * The password itself is NEVER in this result: a client sees it only via
    * the audited, `secrets.read`-gated `db.revealPassword` ({@link revealDbPassword}).
    */
   passwordEnv: string;
+  /** The Docker secret holding it (a name, never a value). */
+  passwordSecret: string;
 }
 
 /**
@@ -457,7 +474,8 @@ export interface ManagedPgSpecInput {
   stack: string;
   cluster: string;
   image: string;
-  password: string;
+  /** The cluster's password Docker secret (`<family>__v<n>`) — the spec carries only its file path. */
+  passwordSecret: string;
   database: string;
   replicas: number;
   /** Named volume holding the primary's data root (`/var/lib/postgresql/data`). */
@@ -482,13 +500,15 @@ export function managedPgSpecs(input: ManagedPgSpecInput): {
   primarySpec: ServiceSpec;
   replicaSpec: ServiceSpec;
 } {
-  const { stack, cluster, password } = input;
+  const { stack, cluster } = input;
   const primary = primaryServiceName(stack, cluster);
   const network = clusterNetworkName(stack, cluster);
+  const credential: Record<string, string> = { [DB_PASSWORD_SECRET_LABEL]: input.passwordSecret };
   const primaryLabels = {
     ...(input.carryLabels ?? {}),
     ...dbLabels(stack, cluster, 'primary', input.replicas),
     ...dbStorageLabels({ dataVolume: input.dataVolume, pinNode: input.pinNode }),
+    ...credential,
   };
   // A re-provision keeps a selected topology rather than resetting it.
   if (input.carryLabels?.[DB_TOPOLOGY_LABEL]) {
@@ -500,12 +520,7 @@ export function managedPgSpecs(input: ManagedPgSpecInput): {
       image: input.image,
       mode: { replicated: { replicas: 1 } },
       labels: primaryLabels,
-      env: pgPrimaryEnv({
-        password,
-        database: input.database,
-        replicationUser: REPLICATION_USER,
-        replicationPassword: password,
-      }),
+      env: pgPrimaryEnv({ database: input.database, replicationUser: REPLICATION_USER }),
       networks: [network],
     },
     primaryLabels,
@@ -517,6 +532,7 @@ export function managedPgSpecs(input: ManagedPgSpecInput): {
       dataVolume: input.replicaVolume,
       ...(input.multiNode ? { avoidNode: input.pinNode } : {}),
     }),
+    ...credential,
   };
   const replicaSpec: ServiceSpec = applyPgMember<ServiceSpec>(
     {
@@ -524,13 +540,7 @@ export function managedPgSpecs(input: ManagedPgSpecInput): {
       image: input.image,
       mode: { replicated: { replicas: input.replicas } },
       labels: replicaLabels,
-      env: pgReplicaEnv({
-        password,
-        replicationUser: REPLICATION_USER,
-        replicationPassword: password,
-        primaryHost: primary,
-        primaryPort: PG_PORT,
-      }),
+      env: pgReplicaEnv({ replicationUser: REPLICATION_USER, primaryHost: primary, primaryPort: PG_PORT }),
       networks: [network],
     },
     replicaLabels,
@@ -541,15 +551,13 @@ export function managedPgSpecs(input: ManagedPgSpecInput): {
 /**
  * Provision a managed Postgres cluster on the swarm.
  *
- * Secret tradeoff: the image reads the password as env (`POSTGRES_PASSWORD`). swarmy has no
- * secret-create agent command yet, so the generated password is set as a
- * **label-free env var** on the service spec (visible via `docker service
- * inspect`, like any compose secret-in-env). Productionising this = a Docker
- * secret (`POSTGRES_PASSWORD_FILE`, which the official image honours) once a `secret.create` command exists.
+ * Credentials: the password is a Docker SECRET (`<stack>_<cluster>-pg-password__v<n>`),
+ * mounted as a file (`POSTGRES_PASSWORD_FILE`, which the official image
+ * honours) and named by the members' `swarmy.db.passwordSecret` label. No
+ * spec carries it as env — `docker service inspect` shows no password.
  */
 export async function provisionDb(ctx: OrgContext, input: ProvisionDbInput): Promise<ProvisionDbResult> {
-  const { password: _secret, ...result } = await provisionDbWithPassword(ctx, input);
-  return result;
+  return (await provisionDbCore(ctx, input)).result;
 }
 
 /**
@@ -561,6 +569,14 @@ export async function provisionDbWithPassword(
   ctx: OrgContext,
   input: ProvisionDbInput,
 ): Promise<ProvisionDbInternalResult> {
+  const { result, password } = await provisionDbCore(ctx, input);
+  return { ...result, password: password ?? (await readDbPassword(ctx, input.stack.trim(), result.cluster)) };
+}
+
+async function provisionDbCore(
+  ctx: OrgContext,
+  input: ProvisionDbInput,
+): Promise<{ result: ProvisionDbResult; password?: string }> {
   if ((input.engine ?? 'postgres') !== 'postgres') {
     throw commandRejected(`unsupported engine "${input.engine}" (only postgres for now)`);
   }
@@ -591,10 +607,13 @@ export async function provisionDbWithPassword(
     ),
   );
   const image = resolveManagedPgImage(input, existing?.image);
-  const password =
-    input.password?.trim() ||
-    (existing ? envRecord(existing)[PG_ENV.password] : '') ||
-    generatePassword();
+  // The credential: an existing cluster keeps its secret (an initialised
+  // database ignores a new POSTGRES_PASSWORD anyway); a legacy one (plain env)
+  // moves its value into a secret; a new one gets the given or a fresh password.
+  const existingSecret = existing?.labels[DB_PASSWORD_SECRET_LABEL];
+  const legacyPassword = existing && !existingSecret ? envRecord(existing)[PG_ENV.password] : undefined;
+  const password = existingSecret ? undefined : legacyPassword || input.password?.trim() || generatePassword();
+  const passwordSecret = existingSecret ?? dbSecretName(stack, cluster, 'password', 1);
 
   // ── Storage: never let a (re-)provision move a live writer onto an empty volume.
   const existingLive = existing ? liveSwarmService(ctx, existing.name) : undefined;
@@ -650,7 +669,7 @@ export async function provisionDbWithPassword(
     stack,
     cluster,
     image,
-    password,
+    passwordSecret,
     database,
     replicas,
     dataVolume,
@@ -669,6 +688,9 @@ export async function provisionDbWithPassword(
     // otherwise the service.deploy fails with "network <stack>_<cluster>-net not
     // found" (the reconcile worker also ensures it, but provision must not race
     // that first tick). Idempotent.
+    if (password !== undefined) {
+      await createDbSecret(ctx, node.id, stack, cluster, 'password', passwordSecret, password);
+    }
     await ctx.hub.dispatch(
       node.id,
       'network.ensure',
@@ -702,17 +724,20 @@ export async function provisionDbWithPassword(
   }
 
   return {
-    cluster,
-    engine: 'postgres',
-    primaryService: primary,
-    replicaService: replica,
-    network,
-    rwHost: primary,
-    roHost: replica,
-    replicas,
-    replicasDefaulted,
-    passwordEnv: PG_ENV.password,
-    password,
+    result: {
+      cluster,
+      engine: 'postgres',
+      primaryService: primary,
+      replicaService: replica,
+      network,
+      rwHost: primary,
+      roHost: replica,
+      replicas,
+      replicasDefaulted,
+      passwordEnv: PG_ENV.passwordFile,
+      passwordSecret,
+    },
+    ...(password !== undefined ? { password } : {}),
   };
 }
 
@@ -726,16 +751,289 @@ export async function revealDbPassword(
   ctx: OrgContext,
   input: { stack: string; cluster: string },
 ): Promise<{ cluster: string; password: string }> {
-  const { primary } = findCluster(ctx, input.stack, input.cluster);
-  if (!primary) throw notFound('db cluster primary', input.cluster);
-  const password = envRecord(primary)[PG_ENV.password];
-  if (!password) throw commandRejected(`cluster "${input.cluster}" reports no superuser password`);
+  let password: string;
+  try {
+    password = await readDbPassword(ctx, input.stack, input.cluster);
+  } catch (e) {
+    await writeAudit(ctx, {
+      action: 'db.password.reveal',
+      targetType: 'dbCluster',
+      targetId: `${input.stack}/${input.cluster}`,
+      metadata: { ok: false },
+    });
+    throw e;
+  }
   await writeAudit(ctx, {
     action: 'db.password.reveal',
     targetType: 'dbCluster',
     targetId: `${input.stack}/${input.cluster}`,
+    metadata: { ok: true },
   });
   return { cluster: input.cluster, password };
+}
+
+// ── Credentials: the password is a Docker secret, never spec env ─────────────
+
+const SECRET_READ_TIMEOUT_MS = 15_000;
+
+function dbSecretLabels(stack: string, cluster: string, kind: DbSecretKind, version: number): Record<string, string> {
+  return {
+    [MANAGED_LABEL]: 'true',
+    [DB_CLUSTER_LABEL]: cluster,
+    [DB_SECRET_OF_LABEL]: `${stack}/${cluster}`,
+    [DB_SECRET_KIND_LABEL]: kind,
+    'swarmy.secret.version': String(version),
+  };
+}
+
+/**
+ * Create one managed-DB secret. The value is base64 on the authenticated WS
+ * straight into the Docker API — never logged, never persisted. A secret
+ * already there under this exact version name is kept (a retried migration).
+ */
+async function createDbSecret(
+  ctx: OrgContext,
+  nodeId: string,
+  stack: string,
+  cluster: string,
+  kind: DbSecretKind,
+  name: string,
+  value: string,
+): Promise<void> {
+  const version = parseDbSecretName(name)?.version ?? 1;
+  try {
+    await ctx.hub.dispatch(
+      nodeId,
+      'secret.create',
+      { name, dataB64: Buffer.from(value, 'utf8').toString('base64'), labels: dbSecretLabels(stack, cluster, kind, version) },
+      { timeoutMs: DISPATCH_TIMEOUT_MS },
+    );
+  } catch (e) {
+    if (/already exists|conflict/i.test(e instanceof Error ? e.message : String(e))) return;
+    throw mapDispatchError(e);
+  }
+}
+
+/**
+ * Read a cluster's superuser password from Docker truth — SERVER-SIDE ONLY
+ * (reveal, backups, URL secrets, storage migration). A secret-backed cluster
+ * is read the one way Docker allows: `cat` of the mounted secret file inside
+ * a running member task (the same path `services.revealSecretVar` uses); a
+ * legacy member's plain env is read as before until it is migrated.
+ */
+export async function readDbPassword(ctx: OrgContext, stack: string, cluster: string): Promise<string> {
+  const { primary, members } = findCluster(ctx, stack, cluster);
+  if (!primary) throw notFound('db cluster primary', cluster);
+  const secret = primary.labels[DB_PASSWORD_SECRET_LABEL];
+  if (!secret) {
+    const legacy = envRecord(primary)[PG_ENV.password];
+    if (legacy) return legacy;
+    throw commandRejected(`cluster "${cluster}" declares no password secret`);
+  }
+  const path = dbPasswordPath(secret);
+  const candidates = [primary, ...members.filter((m) => m.id !== primary.id && m.labels[DB_PASSWORD_SECRET_LABEL] === secret)];
+  for (const m of candidates) {
+    const target = resolveExecTarget(ctx, m.id, { newest: true });
+    if (!target) continue;
+    const res = await ctx.hub
+      .dispatch<{ exitCode: number; output?: string }>(
+        target.nodeId,
+        'exec',
+        { target: { containerId: target.containerId }, cmd: ['cat', path], tty: false, stream: false },
+        { timeoutMs: SECRET_READ_TIMEOUT_MS },
+      )
+      .catch(() => null);
+    if (res && res.exitCode === 0 && res.output) return res.output.replace(/\r?\n$/, '');
+  }
+  throw commandRejected(`no running member of "${cluster}" to read its password from — start it first`);
+}
+
+/** Members in update order: the base primary first, then the other writers, then the rest. */
+function membersInOrder(members: InvService[], primary: InvService): InvService[] {
+  return [
+    primary,
+    ...members.filter((m) => m.id !== primary.id && m.labels[DB_ROLE_LABEL] === 'primary'),
+    ...members.filter((m) => m.id !== primary.id && m.labels[DB_ROLE_LABEL] !== 'primary'),
+  ];
+}
+
+/** Put one member onto `secret` in ONE update: label + secret file + boot layer, no plaintext env. */
+async function patchMemberCredential(ctx: OrgContext, member: InvService, secret: string): Promise<void> {
+  await patchLiveService(ctx, member, {
+    setLabels: { [DB_PASSWORD_SECRET_LABEL]: secret },
+    // Re-stamp the boot layer too: an old entrypoint only knows the plain env.
+    transform: (spec) => applyPgBoot(applyPgCredential(spec, spec.labels)),
+  });
+}
+
+/** An app wired by `db.inject` still carrying its connection URL (and so the password) as plain env. */
+function consumerNeedsMigration(app: InvService, cluster: string): boolean {
+  if (app.labels[DB_INJECT_LABEL] !== cluster) return false;
+  const envVar = app.labels[DB_INJECT_VAR_LABEL] || 'DATABASE_URL';
+  const env = envRecord(app);
+  return env[envVar] !== undefined || env[roVarName(envVar)] !== undefined;
+}
+
+/**
+ * Migrate an existing cluster off plain-env passwords (the reconcile runs
+ * this on every tick until nothing is left): create the password secret from
+ * the live env value, then put every member on it — secret file + `_FILE`
+ * env, plain env removed, boot layer re-stamped — in ONE update per member,
+ * the writer first. Apps wired by `db.inject` move their connection URL into
+ * a secret delivered as env. Idempotent; audited `db.credentials.migrate`.
+ */
+export async function migrateDbCredentials(
+  ctx: OrgContext,
+  input: { stack: string; cluster: string },
+): Promise<{ cluster: string; secret?: string; members: string[]; consumers: string[] }> {
+  const { stack, cluster } = input;
+  const { primary, members } = findCluster(ctx, stack, cluster);
+  if (!primary) return { cluster, members: [], consumers: [] };
+  // Never restart a writer whose data is not on a persistent volume: a legacy
+  // anonymous-volume primary would come back EMPTY. Migrate storage first.
+  const writerLive = liveSwarmService(ctx, primary.name);
+  if (!writerLive || dbStorageState(writerLive).state !== 'persistent') {
+    return { cluster, members: [], consumers: [] };
+  }
+  let secret = primary.labels[DB_PASSWORD_SECRET_LABEL];
+  const node = await resolveManagerNode(ctx);
+  if (!secret) {
+    const env = envRecord(primary);
+    const password = env[PG_ENV.password];
+    if (!password) return { cluster, members: [], consumers: [] };
+    const repl = env[PG_ENV.replicationPassword];
+    if (repl && repl !== password) {
+      throw commandRejected(
+        `cluster "${cluster}": the replication password differs from the superuser password — it cannot share one secret; rotate it first`,
+      );
+    }
+    secret = dbSecretName(stack, cluster, 'password', 1);
+    await createDbSecret(ctx, node.id, stack, cluster, 'password', secret, password);
+  }
+  const moved: string[] = [];
+  for (const m of membersInOrder(members, primary)) {
+    if (m.labels[DB_PASSWORD_SECRET_LABEL] === secret && !pgNeedsCredentialMigration(envRecord(m), {})) continue;
+    await patchMemberCredential(ctx, m, secret);
+    moved.push(m.name);
+  }
+  const consumers: string[] = [];
+  for (const app of liveStackServices(ctx, stack)) {
+    if (!consumerNeedsMigration(app, cluster)) continue;
+    await injectConnection(ctx, { stack, cluster, appService: app.name, envVar: app.labels[DB_INJECT_VAR_LABEL] || 'DATABASE_URL' });
+    consumers.push(app.name);
+  }
+  if (moved.length || consumers.length) {
+    await writeAudit(ctx, {
+      action: 'db.credentials.migrate',
+      targetType: 'dbCluster',
+      targetId: `${stack}/${cluster}`,
+      metadata: { secret, members: moved, consumers },
+    });
+  }
+  return { cluster, secret, members: moved, consumers };
+}
+
+const ROTATE_POLL_MS = 3_000;
+const ROTATE_WAIT_MS = 120_000;
+
+/** In-member SQL (unix socket; the official image trusts local) setting both roles from the NEW secret file. */
+export function rotateRolesScript(passwordPath: string, replicationUser: string): string {
+  return [
+    'set -e',
+    `psql -v ON_ERROR_STOP=1 -U postgres -d postgres -v u='${replicationUser.replace(/'/g, '')}' <<'SQL'`,
+    `\\set p \`cat ${passwordPath}\``,
+    "SELECT format('ALTER ROLE %I PASSWORD %L', 'postgres', :'p') \\gexec",
+    "SELECT format('ALTER ROLE %I PASSWORD %L', :'u', :'p') WHERE EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'u') \\gexec",
+    'SQL',
+  ].join('\n');
+}
+
+/**
+ * Rotate a cluster's password: mint `<family>__v<n+1>`, move each WRITER onto
+ * it (one redeploy — a brief restart) and set both roles from the new file
+ * over the local socket (the value never rides argv or env), then the
+ * standbys, then every `db.inject`ed app onto new URL secrets; the old
+ * versions are removed once nothing mounts them. Audited `db.password.rotate`.
+ */
+export async function rotateDbPassword(
+  ctx: OrgContext,
+  input: { stack: string; cluster: string },
+  timing: { pollMs?: number; waitMs?: number } = {},
+): Promise<{ cluster: string; secret: string; version: number; redeployed: string[] }> {
+  const { stack, cluster } = input;
+  await migrateDbCredentials(ctx, input);
+  const { primary, members } = findCluster(ctx, stack, cluster);
+  if (!primary) throw notFound('db cluster primary', cluster);
+  const current = primary.labels[DB_PASSWORD_SECRET_LABEL];
+  const parsed = current ? parseDbSecretName(current) : null;
+  if (!current || !parsed) throw commandRejected(`cluster "${cluster}" has no password secret to rotate`);
+  const version = parsed.version + 1;
+  const next = dbSecretName(stack, cluster, 'password', version);
+  const password = generatePassword();
+  const node = await resolveManagerNode(ctx);
+  await createDbSecret(ctx, node.id, stack, cluster, 'password', next, password);
+
+  const redeployed: string[] = [];
+  const ordered = membersInOrder(members, primary);
+  const writers = ordered.filter((m) => m.labels[DB_ROLE_LABEL] === 'primary' && pgBootRole(envRecord(m)) === 'primary');
+  const replUser = envRecord(primary)[PG_ENV.replicationUser] || REPLICATION_USER;
+  for (const w of writers) {
+    const before = resolveExecTarget(ctx, w.id, { newest: true })?.containerId;
+    await patchMemberCredential(ctx, w, next);
+    redeployed.push(w.name);
+    const deadline = Date.now() + (timing.waitMs ?? ROTATE_WAIT_MS);
+    let done = false;
+    while (!done && Date.now() < deadline) {
+      const t = resolveExecTarget(ctx, w.id, { newest: true });
+      if (t && t.containerId !== before) {
+        const res = await ctx.hub
+          .dispatch<{ exitCode: number; output?: string }>(
+            t.nodeId,
+            'exec',
+            { target: { containerId: t.containerId }, cmd: ['sh', '-c', rotateRolesScript(dbPasswordPath(next), replUser)], tty: false, stream: false },
+            { timeoutMs: SECRET_READ_TIMEOUT_MS },
+          )
+          .catch(() => null);
+        if (res && res.exitCode === 0) {
+          done = true;
+          break;
+        }
+      }
+      await new Promise((r) => setTimeout(r, timing.pollMs ?? ROTATE_POLL_MS));
+    }
+    if (!done) {
+      throw commandRejected(
+        `${w.name} is on the new password secret ${next}, but setting the role passwords did not complete — re-run the rotation once it is running`,
+      );
+    }
+  }
+  for (const m of ordered) {
+    if (writers.includes(m)) continue;
+    await patchMemberCredential(ctx, m, next);
+    redeployed.push(m.name);
+  }
+  for (const app of liveStackServices(ctx, stack)) {
+    if (app.labels[DB_INJECT_LABEL] !== cluster) continue;
+    await injectConnection(
+      ctx,
+      { stack, cluster, appService: app.name, envVar: app.labels[DB_INJECT_VAR_LABEL] || 'DATABASE_URL' },
+      { password, passwordSecret: next },
+    );
+    redeployed.push(app.name);
+  }
+  // Old versions go once nothing mounts them (Docker refuses while in use).
+  for (let v = 1; v < version; v++) {
+    for (const kind of ['password', 'url', 'ro-url'] as const) {
+      await ctx.hub.dispatch(node.id, 'secret.remove', { name: dbSecretName(stack, cluster, kind, v) }).catch(() => undefined);
+    }
+  }
+  await writeAudit(ctx, {
+    action: 'db.password.rotate',
+    targetType: 'dbCluster',
+    targetId: `${stack}/${cluster}`,
+    metadata: { secret: next, version, redeployed },
+  });
+  return { cluster, secret: next, version, redeployed };
 }
 
 /**
@@ -1175,10 +1473,19 @@ export interface InjectConnectionInput {
 export async function injectConnection(
   ctx: OrgContext,
   input: InjectConnectionInput,
+  /** Rotation: the NEW password + secret, already known (no re-read). */
+  known?: { password: string; passwordSecret: string },
 ): Promise<{ appService: string; cluster: string; envVar: string; roVar: string; rwUrl: string; roUrl: string }> {
   const envVar = (input.envVar ?? 'DATABASE_URL').trim() || 'DATABASE_URL';
   const roVar = roVarName(envVar);
 
+  if (!known) {
+    // A legacy (plain-env) cluster moves onto its password secret first.
+    const { primary } = findCluster(ctx, input.stack, input.cluster);
+    if (primary && !primary.labels[DB_PASSWORD_SECRET_LABEL]) {
+      await migrateDbCredentials(ctx, { stack: input.stack, cluster: input.cluster }).catch(() => undefined);
+    }
+  }
   const { primary, replica } = findCluster(ctx, input.stack, input.cluster);
   if (!primary) throw notFound('db cluster primary', input.cluster);
 
@@ -1188,18 +1495,34 @@ export async function injectConnection(
   if (!app) throw notFound('service', input.appService);
 
   const primaryEnv = envRecord(primary);
-  const password = primaryEnv[PG_ENV.password] ?? '';
   const database = primaryEnv[PG_ENV.database] ?? DEFAULT_DATABASE;
   const rwHost = primary.name;
   const roHost = replica?.name ?? primary.name; // fall back to primary if no replica yet
-  const rwUrl = `postgres://postgres:${password}@${rwHost}:${PG_PORT}/${database}`;
-  const roUrl = `postgres://postgres:${password}@${roHost}:${PG_PORT}/${database}`;
+  const url = (host: string, pw: string) => `postgres://postgres:${pw}@${host}:${PG_PORT}/${database}`;
   const network = clusterNetworkName(input.stack, input.cluster);
+
+  // The URLs embed the password, so they are Docker SECRETS delivered as env
+  // by the agent's secret-env shim (`secretEnv`): the spec names the secret,
+  // never the value. Versioned with the password secret, so a rotation mints
+  // new ones.
+  const passwordSecret = known?.passwordSecret ?? primary.labels[DB_PASSWORD_SECRET_LABEL];
+  const version = passwordSecret ? parseDbSecretName(passwordSecret)?.version ?? 1 : 1;
+  const rwSecret = dbSecretName(input.stack, input.cluster, 'url', version);
+  const roSecret = dbSecretName(input.stack, input.cluster, 'ro-url', version);
+  const node = await resolveManagerNode(ctx);
+  const password = known?.password ?? (await readDbPassword(ctx, input.stack, input.cluster));
+  await createDbSecret(ctx, node.id, input.stack, input.cluster, 'url', rwSecret, url(rwHost, password));
+  await createDbSecret(ctx, node.id, input.stack, input.cluster, 'ro-url', roSecret, url(roHost, password));
+  const urlFamilies = new Set([
+    dbSecretFamily(input.stack, input.cluster, 'url'),
+    dbSecretFamily(input.stack, input.cluster, 'ro-url'),
+  ]);
 
   // One-aspect patch over the FULL live spec (service.inspect): mounts,
   // command, placement, resources, … all survive the redeploy.
   await patchLiveService(ctx, app, {
-    setEnv: { [envVar]: rwUrl, [roVar]: roUrl },
+    // Any plaintext copy (a pre-secret attach) goes.
+    removeEnv: [envVar, roVar],
     addNetworks: [network],
     setLabels: {
       [MANAGED_LABEL]: 'true',
@@ -1207,8 +1530,28 @@ export async function injectConnection(
       [DB_INJECT_LABEL]: input.cluster,
       [DB_INJECT_VAR_LABEL]: envVar,
     },
+    transform: (spec) => ({
+      ...spec,
+      secrets: [
+        ...(spec.secrets ?? []).filter((r) => {
+          const fam = parseDbSecretName(r.source)?.family;
+          const t = r.target ?? r.source;
+          return !(fam && urlFamilies.has(fam)) && t !== envVar && t !== roVar;
+        }),
+        { source: rwSecret, target: envVar },
+        { source: roSecret, target: roVar },
+      ],
+      secretEnv: [...new Set([...(spec.secretEnv ?? []), envVar, roVar])].sort(),
+    }),
   });
-  return { appService: app.name, cluster: input.cluster, envVar, roVar, rwUrl, roUrl };
+  return {
+    appService: app.name,
+    cluster: input.cluster,
+    envVar,
+    roVar,
+    rwUrl: url(rwHost, '***'),
+    roUrl: url(roHost, '***'),
+  };
 }
 
 // ── Storage migration (legacy anonymous-volume clusters → named volume + pin) ──
@@ -1338,8 +1681,10 @@ export function basebackupRunOncePayload(input: {
     env: {
       SRC_HOST: input.primaryService,
       PGUSER: input.replicationUser,
-      PGPASSWORD: input.replicationPassword,
+      PGPASSFILE: PG_ONESHOT_PASSFILE_PATH,
     },
+    // The credential is a 0600 file put in before start — never container env.
+    secretFiles: [{ ...PG_ONESHOT_PASSFILE, contents: pgPassfileLine(input.replicationPassword), mode: 0o600, uid: 0, gid: 0 }],
     binds: [`${input.dataVolume}:${MANAGED_PG_ROOT}`],
     networks: [input.network],
     // root: move aside + chown to the image's postgres user after the copy.
@@ -1439,7 +1784,9 @@ export async function migrateStorage(
     );
   }
   const replUser = env[PG_ENV.replicationUser] ?? '';
-  const replPassword = env[PG_ENV.replicationPassword] ?? '';
+  // The replication role shares the cluster password (its secret, or a legacy env).
+  const replPassword =
+    env[PG_ENV.replicationPassword] || (await readDbPassword(ctx, stack, cluster).catch(() => ''));
   if (!replUser || !replPassword) {
     throw commandRejected(
       'the primary has no replication credentials (SWARMY_PG_REPLICATION_USER/_PASSWORD) to run pg_basebackup with — nothing was changed',
@@ -1474,7 +1821,7 @@ export async function migrateStorage(
     }
   }
 
-  const superPassword = env[PG_ENV.password] ?? '';
+  const superPassword = env[PG_ENV.password] || replPassword;
   const sqlOnPrimary = (nodeId: string, script: string) =>
     ctx.hub.dispatch<RunOnceResult>(
       nodeId,
@@ -1483,7 +1830,9 @@ export async function migrateStorage(
         image: live.image,
         entrypoint: ['/bin/sh', '-c'],
         cmd: [script],
-        env: { SRC_HOST: live.name, PGPASSWORD: superPassword },
+        env: { SRC_HOST: live.name, PGPASSFILE: PG_ONESHOT_PASSFILE_PATH },
+        secretFiles: [{ ...PG_ONESHOT_PASSFILE, contents: pgPassfileLine(superPassword), mode: 0o600, uid: 0, gid: 0 }],
+        user: '0:0',
         networks: [network],
         pull: false,
         timeoutMs: MIGRATE_EXEC_TIMEOUT_MS,

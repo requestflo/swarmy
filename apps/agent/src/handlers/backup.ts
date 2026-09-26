@@ -9,7 +9,7 @@
  * Wire types live in `@swarmy/core/protocol` (`backup.ts`). Results are reported
  * through the existing `commandResult` path; progress lines stream via `logChunk`.
  */
-import { MANAGED_PG_PGDATA, MANAGED_PG_ROOT } from '@swarmy/core';
+import { MANAGED_PG_PGDATA, MANAGED_PG_ROOT, PG_ONESHOT_PASSFILE, PG_ONESHOT_PASSFILE_PATH, pgPassfileLine } from '@swarmy/core';
 import type { DockerClient } from '@swarmy/core/docker';
 import type {
   BackupVolumePayload,
@@ -37,6 +37,7 @@ import {
   isPhysicalEngine,
 } from '@swarmy/core/protocol';
 import type { AgentConnection } from '../connection';
+import { putSecretFiles } from './secret-file';
 
 /** Where the volume is mounted inside the restic container. */
 const MOUNT = '/data';
@@ -115,6 +116,12 @@ export async function runSidecar(
     user?: string;
     /** Best-effort pull first (default true). False for a local image id (`sha256:…`). */
     pull?: boolean;
+    /**
+     * The DB password for libpq, written as a 0600 PGPASSFILE into the created
+     * container before it starts — never `Env` (visible in `docker inspect`).
+     * Pair with {@link pgEnv}/{@link pgConnEnv}, which point PGPASSFILE at it.
+     */
+    pgPassword?: string;
   },
   onLine?: (line: string) => void,
 ): Promise<RunOutput> {
@@ -136,6 +143,10 @@ export async function runSidecar(
   });
 
   try {
+    if (opts.pgPassword !== undefined) {
+      const owner = await sidecarOwner(docker, opts.image, opts.user);
+      await putSecretFiles(container, [{ ...PG_PASSFILE_AT, contents: pgPassfileLine(opts.pgPassword), mode: 0o600, ...owner }]);
+    }
     const stream = (await container.attach({
       stream: true,
       stdout: true,
@@ -508,10 +519,37 @@ export function parseSummary(stdout: string): ResticSummary {
 // and S3 creds only ever exist as container env, never on disk or in an image.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Env shared by every postgres-client sidecar. PGPASSWORD is the only secret. */
+/** Where a DB sidecar's libpq passfile lands (an existing dir in every image). */
+export const PG_PASSFILE_AT = PG_ONESHOT_PASSFILE;
+const PG_PASSFILE_PATH = PG_ONESHOT_PASSFILE_PATH;
+export { pgPassfileLine };
+
+/**
+ * The uid/gid the passfile must belong to: libpq only reads a 0600 passfile
+ * its own user owns. A numeric `user` override wins, else the image's
+ * numeric USER, else root.
+ */
+async function sidecarOwner(docker: DockerClient, image: string, user?: string): Promise<{ uid: number; gid: number }> {
+  const numeric = (u: string | undefined) => {
+    const m = /^(\d+)(?::(\d+))?$/.exec(u ?? '');
+    return m ? { uid: Number(m[1]), gid: Number(m[2] ?? m[1]) } : null;
+  };
+  if (user) return numeric(user) ?? { uid: 0, gid: 0 };
+  const cfgUser = await docker.docker
+    .getImage(image)
+    .inspect()
+    .then((i) => (i as { Config?: { User?: string } }).Config?.User)
+    .catch(() => undefined);
+  return numeric(cfgUser) ?? { uid: 0, gid: 0 };
+}
+
+/**
+ * Env shared by every postgres-client sidecar. The password is NOT here: it
+ * is the 0600 PGPASSFILE `runSidecar({ pgPassword })` puts into the container.
+ */
 export function pgEnv(conn: DbConnection): string[] {
   return [
-    `PGPASSWORD=${conn.password}`,
+    `PGPASSFILE=${PG_PASSFILE_PATH}`,
     `DBHOST=${conn.host}`,
     `DBPORT=${conn.port}`,
     `DBUSER=${conn.user}`,
@@ -525,14 +563,14 @@ export function pgEnv(conn: DbConnection): string[] {
  * `pg_backup_start`/`pg_backup_stop` (they do not only read PGDATA), and libpq
  * reads its target from the standard `PG*` variables. Same one-shot contract as
  * {@link pgEnv}: the password rides the authenticated WS and exists only as
- * this sidecar's container env — never a label, a file, argv or a log line.
+ * this sidecar's 0600 PGPASSFILE — never env, a label, argv or a log line.
  */
 export function pgConnEnv(conn: DbConnection): string[] {
   return [
     `PGHOST=${conn.host}`,
     `PGPORT=${conn.port}`,
     `PGUSER=${conn.user}`,
-    `PGPASSWORD=${conn.password}`,
+    `PGPASSFILE=${PG_PASSFILE_PATH}`,
     `PGDATABASE=${conn.database}`,
   ];
 }
@@ -710,6 +748,7 @@ async function backupDbLogical(
         entrypoint: ['/bin/sh', '-c'],
         args: [script],
         env: pgEnv(p.conn),
+        pgPassword: p.conn.password,
         binds: [`${scratch}:${DUMP_MOUNT}`],
         networkMode: p.network,
         // Some Postgres client images run as a non-root uid and can't write
@@ -796,6 +835,7 @@ async function backupDbPhysical(
         entrypoint: ['/bin/sh', '-c'],
         args: [WALG_BACKUP_SCRIPT],
         env: [...env, ...pgConnEnv(p.conn), `PGDATA=${layout.pgdata}`],
+        pgPassword: p.conn.password,
         binds: [`${dataVolume}:${layout.mountTarget}:ro`],
         networkMode: p.network,
       },
@@ -822,6 +862,7 @@ async function backupDbPhysical(
       entrypoint: ['/bin/sh', '-c'],
       args: [pgbackrestBackupScript(flags)],
       env: [...env, ...pgConnEnv(p.conn), `PGDATA=${layout.pgdata}`],
+      pgPassword: p.conn.password,
       binds: [`${dataVolume}:${layout.mountTarget}`],
       networkMode: p.network,
     },
@@ -979,6 +1020,7 @@ async function restoreDbLogical(
         entrypoint: ['/bin/sh', '-c'],
         args: [script],
         env: pgEnv({ ...p.conn, database: targetDb }),
+        pgPassword: p.conn.password,
         binds: [`${scratch}:${DUMP_MOUNT}:ro`],
         networkMode: p.network,
       },

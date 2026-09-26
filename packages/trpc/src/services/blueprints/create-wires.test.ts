@@ -211,3 +211,25 @@ describe('withCreateTimeWires', () => {
     expect(() => withCreateTimeWires(spec, [{ type: 'secret', service: 'db', family: 'nope', envName: 'X' }], {}, {})).toThrow(/not created/);
   });
 });
+
+describe('credentialEnvToSecrets — no credential env in any spec', () => {
+  const tokens = new Set(['__SWARMY_DB_PASSWORD__', '__SWARMY_DB_URL__']);
+  it('moves token-carrying env onto env-delivered secrets, keeps plain env', async () => {
+    const { credentialEnvToSecrets, credentialEnvFamily } = await import('./create-wires');
+    const res = credentialEnvToSecrets(
+      [{ type: 'env', service: 'app', env: { DB_PASSWORD: '__SWARMY_DB_PASSWORD__', DB_HOST: 'h', URL: 'x __SWARMY_DB_URL__' } }],
+      'n8n',
+      tokens,
+    );
+    expect(res.families).toEqual([
+      { family: 'n8n_app_DB_PASSWORD', template: '__SWARMY_DB_PASSWORD__' },
+      { family: 'n8n_app_URL', template: 'x __SWARMY_DB_URL__' },
+    ]);
+    expect(res.wires).toEqual([
+      { type: 'secret', service: 'app', family: 'n8n_app_DB_PASSWORD', envName: 'DB_PASSWORD', delivery: 'env' },
+      { type: 'secret', service: 'app', family: 'n8n_app_URL', envName: 'URL', delivery: 'env' },
+      { type: 'env', service: 'app', env: { DB_HOST: 'h' } },
+    ]);
+    expect(credentialEnvFamily('s'.repeat(60), 'svc', 'KEY').length).toBeLessThanOrEqual(56);
+  });
+});

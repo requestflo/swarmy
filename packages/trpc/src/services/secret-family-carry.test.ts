@@ -46,3 +46,23 @@ describe('carrySecretFamilies (QA-073 follow-up)', () => {
     expect(mountsSecretFamily(['plain'])).toBe(false);
   });
 });
+
+describe('carrySecretFamilies keeps managed-DB URL secrets on redeploy', () => {
+  it('an app wired by db.inject keeps its env-delivered DATABASE_URL(+RO) secrets', () => {
+    const live = {
+      name: 'shop_web',
+      image: 'web:1',
+      env: { LOG: 'debug' },
+      secrets: [
+        { source: 'shop_main-pg-url__v2', target: 'DATABASE_URL' },
+        { source: 'shop_main-pg-ro-url__v2', target: 'DATABASE_RO_URL' },
+      ],
+      secretEnv: ['DATABASE_RO_URL', 'DATABASE_URL'],
+    } as ServiceSpec;
+    expect(mountsSecretFamily(['shop_main-pg-url__v2'])).toBe(true);
+    const out = carrySecretFamilies({ name: 'shop_web', image: 'web:2', env: { LOG: 'info' } } as ServiceSpec, live);
+    expect(out.secrets).toEqual(live.secrets);
+    expect(out.secretEnv).toEqual(['DATABASE_RO_URL', 'DATABASE_URL']);
+    expect(out.env?.DATABASE_URL).toBeUndefined();
+  });
+});

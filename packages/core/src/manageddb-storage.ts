@@ -26,7 +26,14 @@
  * `manageddb-pg`) instead of rebuilding a bare spec.
  */
 import { defaultDiskMount } from './disk-inventory';
-import { MANAGED_PG_PGDATA, MANAGED_PG_ROOT, applyPgBoot, type PgBootSpecLike } from './manageddb-pg';
+import {
+  MANAGED_PG_PGDATA,
+  MANAGED_PG_ROOT,
+  applyPgBoot,
+  applyPgCredential,
+  type PgBootSpecLike,
+  type PgCredentialSpecLike,
+} from './manageddb-pg';
 
 /** Named volume this member's data root (`/var/lib/postgresql/data`) lives on. */
 export const DB_DATA_VOLUME_LABEL = 'swarmy.db.dataVolume';
@@ -133,11 +140,12 @@ export function applyDbStorage<S extends StorageSpecLike>(
  * command + PGDATA). Use this — not a bare `applyDbStorage` — for every
  * Postgres member spec, so no rebuild can drop the entrypoint.
  */
-export function applyPgMember<S extends StorageSpecLike & PgBootSpecLike>(
+export function applyPgMember<S extends StorageSpecLike & PgBootSpecLike & PgCredentialSpecLike>(
   spec: S,
   labels: Record<string, string> | undefined,
 ): S {
-  return applyPgBoot(applyDbStorage(spec, labels));
+  // Credential: the password secret file (never plaintext env) — see applyPgCredential.
+  return applyPgBoot(applyPgCredential(applyDbStorage(spec, labels), labels));
 }
 
 /** One mount as reported by the agent (service spec or container inspect). */
@@ -263,8 +271,9 @@ export const BASEBACKUP_OK_MARKER = 'SWARMY_PGDATA_OK';
  * (mounted at the data root `/var/lib/postgresql/data`) from the RUNNING
  * primary with `pg_basebackup` over the cluster overlay — the primary keeps
  * serving and is never stopped. Runs as root in the primary's OWN image (so
- * pg_basebackup matches the server major), reading `SRC_HOST` / `PGUSER` /
- * `PGPASSWORD` from container env (the replication credential never rides argv).
+ * pg_basebackup matches the server major), reading `SRC_HOST` / `PGUSER` from
+ * env and the replication credential from a 0600 `PGPASSFILE` the controller
+ * puts into the container before it starts (never env, never argv).
  *
  * - Anything already in the volume (a previous failed attempt) is moved aside
  *   to `.swarmy-premigrate-<stamp>`, never deleted.
@@ -287,7 +296,7 @@ export function storageBasebackupScript(stamp: string): string {
   const aside = `${R}/.swarmy-premigrate-${stamp}`;
   return [
     'set -eu',
-    'if [ -z "${SRC_HOST:-}" ] || [ -z "${PGUSER:-}" ] || [ -z "${PGPASSWORD:-}" ]; then echo "missing replication credentials"; exit 2; fi',
+    'if [ -z "${SRC_HOST:-}" ] || [ -z "${PGUSER:-}" ] || { [ -z "${PGPASSWORD:-}" ] && [ ! -s "${PGPASSFILE:-/nonexistent}" ]; }; then echo "missing replication credentials"; exit 2; fi',
     `if [ -n "$(ls -A ${R} 2>/dev/null)" ]; then mkdir -p ${aside}; ` +
       `for f in ${R}/* ${R}/.[!.]*; do [ -e "$f" ] || continue; case "$f" in ${R}/.swarmy-premigrate-*) continue;; esac; ` +
       `mv "$f" ${aside}/; done; fi`,

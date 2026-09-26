@@ -10,15 +10,15 @@
 import type Docker from 'dockerode';
 
 /** A one-file ustar archive (512-byte header + data, padded, two zero blocks). Pure. */
-export function singleFileTar(name: string, contents: string, mode = 0o600): Buffer {
+export function singleFileTar(name: string, contents: string, mode = 0o600, uid = 0, gid = 0): Buffer {
   const data = Buffer.from(contents, 'utf8');
   const header = Buffer.alloc(512, 0);
   const put = (s: string, off: number, len: number) => header.write(s.slice(0, len), off, len, 'ascii');
   const oct = (n: number, len: number) => n.toString(8).padStart(len - 1, '0') + '\0';
   put(name, 0, 100);
   put(oct(mode, 8), 100, 8);
-  put(oct(0, 8), 108, 8); // uid root
-  put(oct(0, 8), 116, 8); // gid root
+  put(oct(uid, 8), 108, 8); // owner (root unless the reader runs as another uid)
+  put(oct(gid, 8), 116, 8);
   put(oct(data.length, 12), 124, 12);
   put(oct(Math.floor(Date.now() / 1000), 12), 136, 12);
   header.fill(' ', 148, 156); // checksum placeholder
@@ -35,4 +35,14 @@ export function singleFileTar(name: string, contents: string, mode = 0o600): Buf
 /** Write `dir/name` (0600, root) into a created container before it starts. */
 export async function putSecretFile(container: Docker.Container, dir: string, name: string, contents: string): Promise<void> {
   await container.putArchive(singleFileTar(name, contents), { path: dir });
+}
+
+/** Put each small secret file into a created container before it starts. */
+export async function putSecretFiles(
+  container: Docker.Container,
+  files: ReadonlyArray<{ dir: string; name: string; contents: string; mode?: number; uid?: number; gid?: number }> | undefined,
+): Promise<void> {
+  for (const f of files ?? []) {
+    await container.putArchive(singleFileTar(f.name, f.contents, f.mode ?? 0o600, f.uid ?? 0, f.gid ?? 0), { path: f.dir });
+  }
 }

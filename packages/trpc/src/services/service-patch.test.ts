@@ -330,7 +330,13 @@ describe('manageddb.injectConnection keeps the app whole', () => {
     expectCarried(spec);
     expectTlsSecretKept(spec);
     expectProxyConfigKept(spec);
-    expect(spec.env?.DATABASE_URL).toBe('postgres://postgres:pw@shop_pg-primary:5432/app');
+    // The URL embeds the password, so it is a Docker secret delivered as env
+    // (secret-env shim) — the spec names the secret, never the value.
+    expect(spec.env?.DATABASE_URL).toBeUndefined();
+    expect(spec.secrets).toContainEqual({ source: 'shop_pg-pg-url__v1', target: 'DATABASE_URL' });
+    expect(spec.secrets).toContainEqual({ source: 'shop_pg-pg-ro-url__v1', target: 'DATABASE_RO_URL' });
+    expect(spec.secretEnv).toEqual(expect.arrayContaining(['DATABASE_URL', 'DATABASE_RO_URL']));
+    expect(JSON.stringify(spec)).not.toContain('postgres://postgres:pw@');
     expect(spec.env?.LOG).toBe('debug');
     expect(spec.networks).toContain('shop_pg-net');
     expect(spec.labels?.['swarmy.db.inject']).toBe('pg');

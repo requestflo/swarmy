@@ -32,6 +32,7 @@ import {
   type ResilienceProblemView,
   type ResilienceRestoreDrillInput,
   type ResilienceSeverity,
+  PG_PASSWORD_FROM_MEMBER,
 } from '@swarmy/core';
 import { decryptSecret } from '@swarmy/core/crypto';
 import { DEFAULT_RESTIC_IMAGE, type RunOnceResult } from '@swarmy/core/protocol';
@@ -839,7 +840,7 @@ export async function execInService(ctx: OrgContext, service: string, script: st
 
 /** psql one-liner against localhost inside a managed postgres member. */
 function psqlScript(sql: string): string {
-  return `PGPASSWORD="$POSTGRES_PASSWORD" psql -U postgres -h 127.0.0.1 -p 5432 -tAc "${sql}"`;
+  return `${PG_PASSWORD_FROM_MEMBER} psql -U postgres -h 127.0.0.1 -p 5432 -tAc "${sql}"`;
 }
 
 export async function waitForPostgres(ctx: OrgContext, service: string): Promise<void> {

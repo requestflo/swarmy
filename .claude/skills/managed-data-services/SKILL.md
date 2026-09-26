@@ -166,11 +166,19 @@ state belongs see `skill("docker-native-storage")`.
 
 ## Operational gotchas
 
-- The DB password is the one env exception: a managed Postgres member carries
-  `POSTGRES_PASSWORD` (+ `SWARMY_PG_REPLICATION_PASSWORD`) as env (documented
-  tradeoff; the replication password reaches libpq via a container-local 0600
-  passfile, never the data volume) while cache/search/vector keep the
-  credential in a mounted secret file only.
+- The DB password is a Docker SECRET like every other credential:
+  `<stack>_<cluster>-pg-password__v<n>` mounted at `/run/secrets/<family>`,
+  named by the members' `swarmy.db.passwordSecret` label. Specs carry only
+  `POSTGRES_PASSWORD_FILE` + `SWARMY_PG_REPLICATION_PASSWORD_FILE`; every
+  member spec goes through `applyPgMember` → `applyPgCredential` (mounts the
+  secret at the family path, strips plaintext env). Apps wired by `db.inject`
+  get `DATABASE_URL`/`_RO_URL` as `-pg-url`/`-pg-ro-url` secrets delivered by
+  the secret-env shim. The controller reads the value only via `exec cat` in a
+  running member (`readDbPassword`); backup sidecars/one-shots get a 0600
+  PGPASSFILE via `putArchive`, never env. `db.rotatePassword` mints v(n+1),
+  ALTERs the roles from the new file over the local socket, then moves
+  members + apps. The reconcile migrates legacy plain-env clusters
+  (`migrateDbCredentials`, never restarting a writer off a persistent volume).
 - The data volume mounts at `/var/lib/postgresql/data` (the image's VOLUME —
   mounting anywhere else leaves an anonymous volume on top) and PGDATA is its
   `pgdata/` subdirectory. PG18 moved the official layout, so bumping the major

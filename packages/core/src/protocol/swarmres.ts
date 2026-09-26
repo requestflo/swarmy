@@ -105,6 +105,18 @@ export type ConfigInspectPayload = z.infer<typeof ConfigInspectPayload>;
 
 // ── container.runOnce ────────────────────────────────────────────────────────
 
+/** A small file put into a one-shot container before it starts (never env, never argv). */
+export const SecretFile = z.object({
+  /** Existing directory in the image (e.g. `/tmp`). */
+  dir: z.string().regex(/^\/[A-Za-z0-9_.\/-]*$/, 'invalid dir'),
+  name: z.string().regex(/^[A-Za-z0-9_.-]+$/, 'invalid file name'),
+  contents: z.string(),
+  mode: z.number().int().min(0).max(0o777).default(0o600),
+  uid: z.number().int().min(0).default(0),
+  gid: z.number().int().min(0).default(0),
+});
+export type SecretFile = z.infer<typeof SecretFile>;
+
 export const RunOncePayload = z.object({
   ...cmd,
   image: z.string(),
@@ -139,6 +151,12 @@ export const RunOncePayload = z.object({
    * the in-swarm registry) can't be pulled and isn't on the node. Additive.
    */
   fallbackImage: z.string().optional(),
+  /**
+   * Small secret files written into the created container BEFORE it starts
+   * (`putArchive`, 0600 by default) — how a one-shot gets a credential without
+   * it riding `Env` (visible in `docker inspect`). Additive; older agents ignore it.
+   */
+  secretFiles: z.array(SecretFile).optional(),
 });
 export const RunOnceMsg = z.object({
   type: z.literal('runOnce'),

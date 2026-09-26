@@ -59,6 +59,7 @@ import {
   DB_MEMBER_LABEL,
   DB_ROLE_LABEL,
   clusterNetworkName,
+  readDbPassword,
 } from './manageddb.service';
 import { cronNext, isCronDue, parseCron, type CronSpec } from './schedule';
 import {
@@ -368,14 +369,19 @@ async function physicalNode(ctx: OrgContext, primaryLabels: Record<string, strin
   return resolveManagerNode(ctx);
 }
 
-/** Build a one-shot DB connection from a live DB-role service. */
-function connFrom(svc: InvService, database?: string): DbConnection {
+/**
+ * Build a one-shot DB connection from a live DB-role service. The password is
+ * read just-in-time from the cluster's Docker secret (`readDbPassword`), rides
+ * the authenticated WS, and becomes the sidecar's 0600 PGPASSFILE agent-side —
+ * never a container env var.
+ */
+async function connFrom(ctx: OrgContext, stack: string, cluster: string, svc: InvService, database?: string): Promise<DbConnection> {
   const env = envRecord(svc);
   return {
     host: svc.name,
     port: PG_PORT,
     user: DEFAULT_USER,
-    password: env.POSTGRES_PASSWORD ?? '',
+    password: env.POSTGRES_PASSWORD || (await readDbPassword(ctx, stack, cluster)),
     database: (database ?? env.POSTGRES_DB ?? DEFAULT_DATABASE) || DEFAULT_DATABASE,
   };
 }
@@ -439,7 +445,7 @@ export async function backupDb(ctx: OrgContext, input: BackupDbInput): Promise<D
     throw commandRejected('snapshot-from-replica needs at least one read replica');
   }
   const source = fromReplica ? replica! : primary;
-  const conn = connFrom(source, input.database);
+  const conn = await connFrom(ctx, input.stack, input.cluster, source, input.database);
   const physical = isPhysicalEngine(input.engine);
   const dataVolume = physical ? effectiveDataVolume(input.dataVolume, primary.labels) : input.dataVolume;
   if (physical && !dataVolume) {
@@ -738,7 +744,7 @@ export async function restoreDb(ctx: OrgContext, input: RestoreDbInput): Promise
   const schedule = parseScheduleLabel(source?.labels[DB_BACKUP_SCHEDULE_LABEL]);
   const target = await loadTarget(ctx, await resolveTargetId(ctx, input.targetId, schedule));
 
-  const conn = connFrom(primary, input.database);
+  const conn = await connFrom(ctx, destStack, destCluster, primary, input.database);
   const node =
     input.mode === 'pitr' ? await physicalNode(ctx, primary.labels) : await resolveManagerNode(ctx);
   try {

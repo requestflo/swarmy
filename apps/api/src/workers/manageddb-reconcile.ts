@@ -27,6 +27,9 @@ import {
   extraPrimaryDataVolumeName,
   pinnedPrimaryCounts,
   regionReplicaDataVolumeName,
+  PG_PASSWORD_FROM_MEMBER,
+  DB_PASSWORD_SECRET_LABEL,
+  pgNeedsCredentialMigration,
 } from '@swarmy/core';
 import { decryptSecret } from '@swarmy/core/crypto';
 import {
@@ -259,8 +262,17 @@ export function dcsToRemove(c: { dcs?: { name: string } }): string | null {
   return c.dcs?.name ?? null;
 }
 
+/**
+ * The cluster's password secret, carried onto every member the worker builds:
+ * `applyPgMember` turns it into the mounted secret file (no plaintext env).
+ */
+function credentialLabel(primary: SwarmServiceInfo): Record<string, string> {
+  const secret = primary.labels[DB_PASSWORD_SECRET_LABEL];
+  return secret ? { [DB_PASSWORD_SECRET_LABEL]: secret } : {};
+}
+
 /** A region-pinned streaming read replica (geo). Mirrors region-reconcile placement. */
-function regionReplicaSpec(
+export function regionReplicaSpec(
   c: Cluster,
   primary: SwarmServiceInfo,
   region: string,
@@ -271,6 +283,7 @@ function regionReplicaSpec(
   const password = env[PG_ENV.password] ?? '';
   const pin = primary.labels[DB_PIN_NODE_LABEL];
   const labels = memberLabels(c, 'replica', 'geo', {
+    ...credentialLabel(primary),
     [DB_REGION_LABEL]: region,
     [DB_REPLICAS_LABEL]: String(n),
     ...dbStorageLabels({
@@ -296,7 +309,7 @@ function regionReplicaSpec(
 }
 
 /** An additional writable primary (active-active). */
-function extraPrimarySpec(
+export function extraPrimarySpec(
   c: Cluster,
   primary: SwarmServiceInfo,
   index: number,
@@ -304,6 +317,7 @@ function extraPrimarySpec(
 ): ServiceSpec {
   const env = envRecord(primary.env ?? []);
   const labels = memberLabels(c, 'primary', 'active-active', {
+    ...credentialLabel(primary),
     [DB_MEMBER_LABEL]: String(index),
     ...dbStorageLabels({ dataVolume: extraPrimaryDataVolumeName(c.base, index), pinNode }),
   });
@@ -330,7 +344,7 @@ function extraPrimarySpec(
  * are re-derived from the storage labels (the caller only re-places when the
  * pinned node is IN the write region — a node-local volume cannot move).
  */
-function placePrimarySpec(primary: SwarmServiceInfo, region: string, net: string): ServiceSpec {
+export function placePrimarySpec(primary: SwarmServiceInfo, region: string, net: string): ServiceSpec {
   const networks = (primary.networks ?? []).map((n) => n.name).filter((n) => n.length > 0);
   const labels = { ...primary.labels, [DB_PLACED_REGION_LABEL]: region };
   return applyPgMember<ServiceSpec>({
@@ -361,6 +375,14 @@ function replicaStorageSpec(replica: SwarmServiceInfo, labels: Record<string, st
     },
     labels,
   );
+}
+
+/** PURE — does any member of the cluster still carry its password as plain env? */
+export function needsCredentialMigration(c: Pick<Cluster, 'primary' | 'replica' | 'extraPrimaries' | 'regionReplicas'>): boolean {
+  const members = [c.primary, c.replica, ...c.extraPrimaries.values(), ...c.regionReplicas.values()].filter(
+    (m): m is SwarmServiceInfo => Boolean(m),
+  );
+  return members.some((m) => pgNeedsCredentialMigration(envRecord(m.env ?? []), m.labels));
 }
 
 /** `${orgId}/${stack}/${cluster}` clusters currently warned for legacy storage
@@ -402,7 +424,7 @@ const PRIMARY_LSN_SQL = 'SELECT pg_current_wal_flush_lsn()::text';
 const IN_RECOVERY_SQL = 'SELECT pg_is_in_recovery()';
 
 function psql(sql: string): string {
-  return `PGPASSWORD="$POSTGRES_PASSWORD" psql -U postgres -d postgres -tAc "${sql}"`;
+  return `${PG_PASSWORD_FROM_MEMBER} psql -U postgres -d postgres -tAc "${sql}"`;
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -565,7 +587,7 @@ async function loadWalTarget(orgId: string, targetId: string | undefined): Promi
 }
 
 /** Primary spec with the PITR bits dropped — the data mount + pin are kept. */
-function stripPitrSpec(primary: SwarmServiceInfo, c: Cluster): ServiceSpec {
+export function stripPitrSpec(primary: SwarmServiceInfo, c: Cluster): ServiceSpec {
   const labels = { ...primary.labels };
   delete labels[DB_PITR_APPLIED_LABEL];
   const networks = (primary.networks ?? []).map((n) => n.name).filter((n) => n.length > 0);
@@ -809,7 +831,7 @@ const confirmAlerted = new Set<string>();
  * WRITER data (the demoted ex-primary) moves it aside and re-clones — see
  * @swarmy/core manageddb-pg.
  */
-function repointSpec(s: SwarmServiceInfo, promoted: string, net: string, epoch: string): ServiceSpec {
+export function repointSpec(s: SwarmServiceInfo, promoted: string, net: string, epoch: string): ServiceSpec {
   const env = envRecord(s.env ?? []);
   const networks = (s.networks ?? []).map((n) => n.name).filter((n) => n.length > 0);
   const region = s.labels[DB_REGION_LABEL];
@@ -1234,6 +1256,22 @@ async function reconcileOrg(orgId: string): Promise<void> {
     if (!primary && !c.replica && c.extraPrimaries.size === 0 && c.regionReplicas.size === 0) {
       if (c.shipper) await remove(c.shipper.name);
       continue;
+    }
+
+    // (-1) Credentials: a member still carrying its password as plain env
+    //      (pre-secret) is migrated onto the password Docker secret — secret
+    //      created from the live value, `_FILE` env, plain env removed, one
+    //      update per member. When something moved, the rest of this cluster
+    //      waits a tick (the inventory is about to change under it).
+    if (contract && needsCredentialMigration(c)) {
+      const moved = await contract.seams
+        .migrateDbCredentials(contract.ctx, { stack: c.stack, cluster: c.cluster })
+        .then((r) => r.members.length + r.consumers.length)
+        .catch((e: unknown) => {
+          console.warn(`[manageddb-reconcile] credential migration ${c.stack}/${c.cluster}: ${e instanceof Error ? e.message : String(e)}`);
+          return 0;
+        });
+      if (moved > 0) continue;
     }
 
     // (0) Storage layout — legacy detection (warn, never redeploy), adoption of

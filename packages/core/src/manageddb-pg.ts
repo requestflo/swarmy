@@ -38,10 +38,16 @@
  *       · a primary spec never removes a `standby.signal`: only the failover
  *         worker's explicit `pg_promote()` turns a standby into a writer.
  *
- * Replication credentials: the password rides container env (the managed-DB
- * env tradeoff) and reaches libpq through a passfile in the container's
- * `/var/run/postgresql` (container-local, regenerated each boot, 0600) — never
- * on the data volume, never copied by `pg_basebackup`, never in argv.
+ * Credentials: the superuser password (also the replication role's) is a
+ * Docker SECRET, `<family>__v<n>` mounted at `/run/secrets/<family>` and named
+ * by the member's `swarmy.db.passwordSecret` label. The spec carries only
+ * `POSTGRES_PASSWORD_FILE` (the official image's `file_env`) and
+ * `SWARMY_PG_REPLICATION_PASSWORD_FILE` — never a value, so `docker service
+ * inspect` shows no password. The replication password reaches libpq through
+ * a passfile in the container's `/var/run/postgresql` (container-local,
+ * regenerated each boot, 0600) — never on the data volume, never copied by
+ * `pg_basebackup`, never in argv. Legacy members (plain `POSTGRES_PASSWORD`
+ * env, pre-secret) keep booting until the reconcile migrates them.
  */
 
 /** The data volume mounts at the image's own VOLUME path (no anonymous volume). */
@@ -59,11 +65,15 @@ export const MANAGED_PG_PASSFILE = '/var/run/postgresql/swarmy.pgpass';
 /** Env contract of a managed member (official POSTGRES_* + swarmy's SWARMY_PG_*). */
 export const PG_ENV = {
   password: 'POSTGRES_PASSWORD',
+  /** The official image reads the superuser password from this file (`file_env`). */
+  passwordFile: 'POSTGRES_PASSWORD_FILE',
   database: 'POSTGRES_DB',
   pgdata: 'PGDATA',
   role: 'SWARMY_PG_ROLE',
   replicationUser: 'SWARMY_PG_REPLICATION_USER',
   replicationPassword: 'SWARMY_PG_REPLICATION_PASSWORD',
+  /** The boot layer reads the replication password from this file. */
+  replicationPasswordFile: 'SWARMY_PG_REPLICATION_PASSWORD_FILE',
   primaryHost: 'SWARMY_PG_PRIMARY_HOST',
   primaryPort: 'SWARMY_PG_PRIMARY_PORT',
   /** Failover epoch a repointed member rejoins under (see the boot script). */
@@ -71,6 +81,151 @@ export const PG_ENV = {
 } as const;
 
 export type PgBootRole = 'primary' | 'replica';
+
+// ── Credential secret (the password is a Docker secret, never spec env) ──────
+
+/** Member label naming the cluster's CURRENT password secret (`<family>__v<n>`). */
+export const DB_PASSWORD_SECRET_LABEL = 'swarmy.db.passwordSecret';
+/** Secret label: which cluster (`<stack>/<cluster>`) a managed-DB secret belongs to. */
+export const DB_SECRET_OF_LABEL = 'swarmy.db.secretOf';
+/** Secret label: what it holds — `password` | `url` | `ro-url`. */
+export const DB_SECRET_KIND_LABEL = 'swarmy.db.secretKind';
+
+const DOCKER_NAME_MAX = 64;
+const FAMILY_MAX = DOCKER_NAME_MAX - '__v'.length - 5;
+
+function shortHash(s: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, '0');
+}
+
+/** A family name `<stack>_<cluster><suffix>` that fits Docker's cap with `__v<n>`. */
+function familyName(stack: string, cluster: string, suffix: string): string {
+  const full = `${stack}_${cluster}${suffix}`;
+  if (full.length <= FAMILY_MAX) return full;
+  const room = FAMILY_MAX - suffix.length - 9;
+  return `${full.slice(0, room)}-${shortHash(full)}${suffix}`;
+}
+
+export type DbSecretKind = 'password' | 'url' | 'ro-url';
+const KIND_SUFFIX: Record<DbSecretKind, string> = {
+  password: '-pg-password',
+  url: '-pg-url',
+  'ro-url': '-pg-ro-url',
+};
+
+/** Family of one of a cluster's managed secrets (password, or an app's rw/ro URL). */
+export function dbSecretFamily(stack: string, cluster: string, kind: DbSecretKind): string {
+  return familyName(stack, cluster, KIND_SUFFIX[kind]);
+}
+
+/** Physical `<family>__v<n>` for one version. */
+export function dbSecretName(stack: string, cluster: string, kind: DbSecretKind, version: number): string {
+  return `${dbSecretFamily(stack, cluster, kind)}__v${version}`;
+}
+
+const PHYSICAL_RE = /^(.+)__v(\d+)$/;
+
+/** `<family>__v<n>` → `{ family, version }`, or null. */
+export function parseDbSecretName(name: string): { family: string; version: number } | null {
+  const m = PHYSICAL_RE.exec(name);
+  if (!m) return null;
+  const version = Number.parseInt(m[2]!, 10);
+  return Number.isSafeInteger(version) && version >= 1 ? { family: m[1]!, version } : null;
+}
+
+/** A managed-DB PASSWORD secret (any version)? */
+export function isDbPasswordSecret(name: string): boolean {
+  const p = parseDbSecretName(name);
+  return Boolean(p && p.family.endsWith(KIND_SUFFIX.password));
+}
+
+/** Where a member reads the password: `/run/secrets/<family>` (stable across rotations). */
+export function dbPasswordPath(secretName: string): string {
+  return `/run/secrets/${parseDbSecretName(secretName)?.family ?? secretName}`;
+}
+
+/**
+ * Shell expression for the superuser password inside a member container —
+ * the mounted secret file, or the legacy env for a not-yet-migrated member.
+ * For in-container `exec` scripts; the value never lands in a spec.
+ */
+export const PG_SUPERUSER_PASSWORD_SH = '${POSTGRES_PASSWORD:-$(cat "${POSTGRES_PASSWORD_FILE:-/dev/null}" 2>/dev/null)}';
+
+/** `PGPASSWORD="<the member's password>"` prefix for an in-container psql. */
+export const PG_PASSWORD_FROM_MEMBER = `PGPASSWORD="${PG_SUPERUSER_PASSWORD_SH}"`;
+
+type SecretRefLike = { source: string; target?: string; uid?: string; gid?: string; mode?: number };
+
+/** The structural subset of a member spec {@link applyPgCredential} touches. */
+export interface PgCredentialSpecLike {
+  env?: Record<string, string>;
+  labels?: Record<string, string>;
+  secrets?: SecretRefLike[];
+}
+
+/** The member's password secret: its label, else a mounted password-secret ref. */
+export function pgPasswordSecretOf(
+  spec: PgCredentialSpecLike,
+  labels?: Record<string, string>,
+): string | undefined {
+  return (
+    labels?.[DB_PASSWORD_SECRET_LABEL] ??
+    spec.labels?.[DB_PASSWORD_SECRET_LABEL] ??
+    spec.secrets?.find((r) => isDbPasswordSecret(r.source))?.source
+  );
+}
+
+/**
+ * Deliver the member's password as a SECRET FILE: mount the declared
+ * `<family>__v<n>` at `/run/secrets/<family>` (replacing any other version),
+ * point `POSTGRES_PASSWORD_FILE` + `SWARMY_PG_REPLICATION_PASSWORD_FILE` at it,
+ * and drop any plaintext `POSTGRES_PASSWORD` / `SWARMY_PG_REPLICATION_PASSWORD`.
+ * No declared secret ⇒ unchanged (a legacy member, migrated by the reconcile).
+ * Idempotent; every member spec goes through it via `applyPgMember`.
+ */
+export function applyPgCredential<S extends PgCredentialSpecLike>(
+  spec: S,
+  labels?: Record<string, string>,
+): S {
+  const secret = pgPasswordSecretOf(spec, labels);
+  if (!secret) return spec;
+  const family = parseDbSecretName(secret)?.family ?? secret;
+  const path = `/run/secrets/${family}`;
+  const env: Record<string, string> = { ...(spec.env ?? {}) };
+  delete env[PG_ENV.password];
+  delete env[PG_ENV.replicationPassword];
+  env[PG_ENV.passwordFile] = path;
+  env[PG_ENV.replicationPasswordFile] = path;
+  const secrets: SecretRefLike[] = [
+    ...(spec.secrets ?? []).filter((r) => {
+      const p = parseDbSecretName(r.source);
+      return r.source !== secret && (!p || p.family !== family) && (r.target ?? r.source) !== family;
+    }),
+    { source: secret, target: family },
+  ];
+  const out: S = { ...spec, env, secrets };
+  if (spec.labels) out.labels = { ...spec.labels, [DB_PASSWORD_SECRET_LABEL]: secret };
+  return out;
+}
+
+/** Where a one-shot's libpq passfile lands (an existing dir in every image). */
+export const PG_ONESHOT_PASSFILE = { dir: '/tmp', name: '.swarmy-pgpass' } as const;
+export const PG_ONESHOT_PASSFILE_PATH = `${PG_ONESHOT_PASSFILE.dir}/${PG_ONESHOT_PASSFILE.name}`;
+
+/** PURE: a libpq passfile line matching any host/port/db/user (`\\` and `:` escaped). */
+export function pgPassfileLine(password: string): string {
+  return `*:*:*:*:${password.replace(/\\/g, '\\\\').replace(/:/g, '\\:')}\n`;
+}
+
+/** A member still carrying its password as plain env (pre-secret) — migrate it. */
+export function pgNeedsCredentialMigration(env: Record<string, string>, labels: Record<string, string>): boolean {
+  return !labels[DB_PASSWORD_SECRET_LABEL] && Boolean(env[PG_ENV.password] || env[PG_ENV.replicationPassword]);
+}
 
 /**
  * Promote a standby in place — a superuser SQL call (PG12+), so the exec needs
@@ -81,36 +236,38 @@ export const PG_PROMOTE_SQL = 'SELECT pg_promote(true, 25)';
 
 /** Env for a WRITER member. */
 export function pgPrimaryEnv(opts: {
-  password: string;
+  /** Legacy plain-env password; omitted for a secret-backed member (see applyPgCredential). */
+  password?: string;
   database: string;
   replicationUser: string;
-  replicationPassword: string;
+  replicationPassword?: string;
 }): Record<string, string> {
   return {
     [PG_ENV.role]: 'primary',
-    [PG_ENV.password]: opts.password,
+    ...(opts.password ? { [PG_ENV.password]: opts.password } : {}),
     [PG_ENV.database]: opts.database,
     [PG_ENV.pgdata]: MANAGED_PG_PGDATA,
     [PG_ENV.replicationUser]: opts.replicationUser,
-    [PG_ENV.replicationPassword]: opts.replicationPassword,
+    ...(opts.replicationPassword ? { [PG_ENV.replicationPassword]: opts.replicationPassword } : {}),
   };
 }
 
 /** Env for a streaming STANDBY of `primaryHost`. */
 export function pgReplicaEnv(opts: {
-  password: string;
+  /** Legacy plain-env password; omitted for a secret-backed member (see applyPgCredential). */
+  password?: string;
   replicationUser: string;
-  replicationPassword: string;
+  replicationPassword?: string;
   primaryHost: string;
   primaryPort: number;
   rejoin?: string;
 }): Record<string, string> {
   return {
     [PG_ENV.role]: 'replica',
-    [PG_ENV.password]: opts.password,
+    ...(opts.password ? { [PG_ENV.password]: opts.password } : {}),
     [PG_ENV.pgdata]: MANAGED_PG_PGDATA,
     [PG_ENV.replicationUser]: opts.replicationUser,
-    [PG_ENV.replicationPassword]: opts.replicationPassword,
+    ...(opts.replicationPassword ? { [PG_ENV.replicationPassword]: opts.replicationPassword } : {}),
     [PG_ENV.primaryHost]: opts.primaryHost,
     [PG_ENV.primaryPort]: String(opts.primaryPort),
     ...(opts.rejoin ? { [PG_ENV.rejoin]: opts.rejoin } : {}),
@@ -152,13 +309,17 @@ const CONF_HELPER = [
  */
 const INIT_HOOK = [
   '# swarmy: sourced by docker-entrypoint.sh on the first boot of a fresh writer',
-  'if [ -n "${SWARMY_PG_REPLICATION_PASSWORD:-}" ]; then',
+  // The replication password: its secret file, else the legacy env.
+  'SWARMY_RPW="${SWARMY_PG_REPLICATION_PASSWORD:-}"',
+  'if [ -z "$SWARMY_RPW" ] && [ -n "${SWARMY_PG_REPLICATION_PASSWORD_FILE:-}" ]; then SWARMY_RPW="$(cat "$SWARMY_PG_REPLICATION_PASSWORD_FILE")"; fi',
+  'if [ -n "$SWARMY_RPW" ]; then',
   '  psql -v ON_ERROR_STOP=1 --username "${POSTGRES_USER:-postgres}" --dbname postgres \\',
-  '    -v u="${SWARMY_PG_REPLICATION_USER:-repl}" -v p="$SWARMY_PG_REPLICATION_PASSWORD" <<\'SQL\'',
+  '    -v u="${SWARMY_PG_REPLICATION_USER:-repl}" -v p="$SWARMY_RPW" <<\'SQL\'',
   "SELECT format('CREATE ROLE %I WITH REPLICATION LOGIN PASSWORD %L', :'u', :'p')",
   '  WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :\'u\') \\gexec',
   'SQL',
   'fi',
+  'unset SWARMY_RPW',
   '/usr/local/bin/swarmy-pg-conf "$PGDATA" writer',
 ].join('\n');
 
@@ -184,7 +345,11 @@ export function pgBootScript(): string {
     'if [ -d /wal-archive ]; then chown postgres:postgres /wal-archive; fi',
     // Replication credential → container-local passfile (libpq escaping of \ and :).
     'esc() { printf \'%s\' "$1" | sed -e \'s/\\\\/\\\\\\\\/g\' -e \'s/:/\\\\:/g\'; }',
-    `printf '*:*:*:%s:%s\\n' "$(esc "$RUSER")" "$(esc "\${SWARMY_PG_REPLICATION_PASSWORD:-}")" > ${MANAGED_PG_PASSFILE}`,
+    // The password: its mounted secret file, else the legacy env (never exported).
+    'RPW="${SWARMY_PG_REPLICATION_PASSWORD:-}"',
+    'if [ -z "$RPW" ] && [ -n "${SWARMY_PG_REPLICATION_PASSWORD_FILE:-}" ]; then RPW="$(cat "$SWARMY_PG_REPLICATION_PASSWORD_FILE")"; fi',
+    `printf '*:*:*:%s:%s\\n' "$(esc "$RUSER")" "$(esc "$RPW")" > ${MANAGED_PG_PASSFILE}`,
+    'unset RPW',
     `chown postgres:postgres ${MANAGED_PG_PASSFILE}; chmod 600 ${MANAGED_PG_PASSFILE}`,
     "cat > /usr/local/bin/swarmy-pg-conf <<'SWARMY_EOF'",
     CONF_HELPER,

@@ -92,7 +92,7 @@ export function DbDeclareClusterForm({
             </Button>
           )}
           <p className="text-muted-foreground mono-label mt-2">
-            Connected apps get it in their env. Revealing it is recorded in the audit log.
+            Kept in a Docker secret; connected apps read it from there. Revealing it is recorded in the audit log.
           </p>
         </div>
       )}

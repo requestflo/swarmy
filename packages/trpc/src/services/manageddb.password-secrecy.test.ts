@@ -41,7 +41,8 @@ describe('db.provision never returns the password', () => {
     const res = await provisionDb(ctx, { stack: 'shop', name: 'main', replicas: 0, password: SECRET, autoBackup: false });
     expect('password' in res).toBe(false);
     expect(JSON.stringify(res)).not.toContain(SECRET);
-    expect(res.passwordEnv).toBe('POSTGRES_PASSWORD');
+    expect(res.passwordEnv).toBe('POSTGRES_PASSWORD_FILE');
+    expect(res.passwordSecret).toBe('shop_main-pg-password__v1');
   });
 
   it('only the server-side variant hands the password back (blueprint tokens)', async () => {

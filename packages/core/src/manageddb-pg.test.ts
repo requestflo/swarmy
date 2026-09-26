@@ -38,7 +38,9 @@ describe('pgBootScript — the swarmy entrypoint over the official image', () =>
   it('first boot of a writer creates the replication role from env via psql variables', () => {
     expect(s).toContain('/docker-entrypoint-initdb.d/00-swarmy.sh');
     expect(s).toContain("SELECT format('CREATE ROLE %I WITH REPLICATION LOGIN PASSWORD %L', :'u', :'p')");
-    expect(s).toContain('-v p="$SWARMY_PG_REPLICATION_PASSWORD"');
+    expect(s).toContain('-v p="$SWARMY_RPW"');
+    // The replication password comes from its mounted secret file (legacy env as fallback).
+    expect(s).toContain('SWARMY_RPW="$(cat "$SWARMY_PG_REPLICATION_PASSWORD_FILE")"');
     expect(s).toContain("echo 'host replication all all scram-sha-256' >> \"$D/pg_hba.conf\"");
   });
 

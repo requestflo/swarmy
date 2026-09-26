@@ -17,6 +17,7 @@ import {
   pgBackRestRepoFlags,
   pgConnEnv,
   pgEnv,
+  pgPassfileLine,
   pgbackrestRestoreScript,
   pitrScriptEnv,
   repoBinds,
@@ -186,15 +187,18 @@ describe('Postgres restore scripts carry NO payload value (env only)', () => {
 describe('physical base-backup sidecar connection env (QA-067)', () => {
   function fakeDocker(out: string) {
     const created: Array<{ Image: string; Env: string[]; Cmd: string[] }> = [];
+    const archives: Array<{ tar: Buffer; path: string }> = [];
     const docker = {
       pullImage: async () => undefined,
       docker: {
+        getImage: () => ({ inspect: async () => ({ Config: { User: '' } }) }),
         listContainers: async () => [],
         getService: () => ({ inspect: async () => Promise.reject(new Error('not a manager')) }),
         modem: { demuxStream: (_s: unknown, o: { write(b: Buffer): void }) => o.write(Buffer.from(out)) },
         createContainer: async (opts: { Image: string; Env: string[]; Cmd: string[] }) => {
           created.push(opts);
           return {
+            putArchive: async (tar: Buffer, o: { path: string }) => void archives.push({ tar, path: o.path }),
             attach: async () => ({}),
             start: async () => undefined,
             wait: async () => ({ StatusCode: 0 }),
@@ -203,7 +207,7 @@ describe('physical base-backup sidecar connection env (QA-067)', () => {
         },
       },
     } as unknown as DockerClient;
-    return { docker, created };
+    return { docker, created, archives };
   }
   const conn = { send: () => undefined } as unknown as AgentConnection;
   const payload = (engine: 'wal-g' | 'pgbackrest'): DbBackupPayload => ({
@@ -217,18 +221,23 @@ describe('physical base-backup sidecar connection env (QA-067)', () => {
     dataVolume: 'shop_main-primary-data',
   });
 
-  it('pgConnEnv carries the libpq target + password as env', () => {
+  it('pgConnEnv carries the libpq target + a PGPASSFILE path — never the password', () => {
     expect(pgConnEnv(payload('wal-g').conn)).toEqual([
       'PGHOST=shop_main-primary',
       'PGPORT=5432',
       'PGUSER=postgres',
-      'PGPASSWORD=s3cr3t',
+      'PGPASSFILE=/tmp/.swarmy-pgpass',
       'PGDATABASE=app',
     ]);
+    expect(pgEnv(payload('wal-g').conn).join(' ')).not.toContain('s3cr3t');
   });
 
-  it('wal-g backup-push gets PGHOST/PGUSER/PGPASSWORD in its container env (never argv)', async () => {
-    const { docker, created } = fakeDocker('Wrote backup with name base_000000010000000000000003\n');
+  it('pgPassfileLine escapes libpq separators', () => {
+    expect(pgPassfileLine('a:b\\c')).toBe('*:*:*:*:a\\:b\\\\c\n');
+  });
+
+  it('wal-g backup-push gets PGHOST/PGUSER + a 0600 PGPASSFILE; the password is in no env or argv', async () => {
+    const { docker, created, archives } = fakeDocker('Wrote backup with name base_000000010000000000000003\n');
     const res = await backupDb(docker, conn, payload('wal-g'));
     expect(res.snapshotId).toBe('base_000000010000000000000003');
     expect(created).toHaveLength(1);
@@ -236,9 +245,17 @@ describe('physical base-backup sidecar connection env (QA-067)', () => {
     expect(env).toContain('PGHOST=shop_main-primary');
     expect(env).toContain('PGPORT=5432');
     expect(env).toContain('PGUSER=postgres');
-    expect(env).toContain('PGPASSWORD=s3cr3t');
+    expect(env).toContain('PGPASSFILE=/tmp/.swarmy-pgpass');
+    expect(env.join(' ')).not.toContain('s3cr3t');
     expect(env).toContain('WALG_S3_PREFIX=s3://bkt/pfx');
     expect(created[0]!.Cmd.join(' ')).not.toContain('s3cr3t');
+    // The passfile is put into the container before it starts: 0600, the password inside.
+    expect(archives).toHaveLength(1);
+    expect(archives[0]!.path).toBe('/tmp');
+    const tar = archives[0]!.tar;
+    expect(tar.subarray(0, 14).toString('ascii')).toBe('.swarmy-pgpass');
+    expect(tar.subarray(100, 107).toString('ascii')).toBe('0000600');
+    expect(tar.subarray(512, 512 + 15).toString('utf8')).toBe('*:*:*:*:s3cr3t\n');
   });
 
   it('pgbackrest backup gets the same connection env', async () => {
@@ -247,7 +264,7 @@ describe('physical base-backup sidecar connection env (QA-067)', () => {
     const env = created[0]!.Env;
     expect(env).toContain('PGHOST=shop_main-primary');
     expect(env).toContain('PGUSER=postgres');
-    expect(env).toContain('PGPASSWORD=s3cr3t');
+    expect(env.join(' ')).not.toContain('s3cr3t');
     expect(created[0]!.Cmd.join(' ')).not.toContain('s3cr3t');
   });
 });
@@ -270,10 +287,12 @@ describe('physical sidecars use the server data layout (QA-074)', () => {
 
   function fakeDocker(opts: { container?: unknown; service?: unknown } = {}) {
     const created: Array<{ Env: string[]; Cmd: string[]; HostConfig: { Binds: string[] } }> = [];
+    const archives: Array<{ tar: Buffer; path: string }> = [];
     const filters: unknown[] = [];
     const docker = {
       pullImage: async () => undefined,
       docker: {
+        getImage: () => ({ inspect: async () => ({ Config: {} }) }),
         listContainers: async (o: { filters: unknown }) => {
           filters.push(o.filters);
           return opts.container ? [{ Id: 'c-old', Created: 1 }, { Id: 'c-new', Created: 2 }] : [];
@@ -288,6 +307,7 @@ describe('physical sidecars use the server data layout (QA-074)', () => {
         createContainer: async (o: { Env: string[]; Cmd: string[]; HostConfig: { Binds: string[] } }) => {
           created.push(o);
           return {
+            putArchive: async (tar: Buffer, o: { path: string }) => void archives.push({ tar, path: o.path }),
             attach: async () => ({}),
             start: async () => undefined,
             wait: async () => ({ StatusCode: 0 }),

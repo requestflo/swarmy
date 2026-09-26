@@ -11,6 +11,7 @@ import {
   type VectorInstanceView,
   type VectorProvisionResult,
   type VectorStatsView,
+  PG_PASSWORD_FROM_MEMBER,
 } from '@swarmy/core';
 import type { AttachVectorInput, EnablePgvectorInput, ProvisionVectorInput } from '@swarmy/core';
 import type { ServiceSpec } from '@swarmy/core/protocol';
@@ -532,7 +533,7 @@ export async function enablePgvector(
   if (!target) throw commandRejected(`no running container for "${primary.name}" — is the cluster up?`);
 
   const script =
-    'PGPASSWORD="$POSTGRES_PASSWORD" psql -U postgres -d "${POSTGRES_DB:-postgres}" ' +
+    `${PG_PASSWORD_FROM_MEMBER} psql -U postgres -d "${'$'}{POSTGRES_DB:-postgres}" ` +
     '-v ON_ERROR_STOP=1 -c "CREATE EXTENSION IF NOT EXISTS vector"';
   try {
     const res = await ctx.hub.dispatch<{ exitCode: number; output?: string }>(
