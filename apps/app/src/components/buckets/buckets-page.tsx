@@ -14,10 +14,9 @@ import { KeysCard } from './keys-card';
 import { StoreDisabledCard } from './store-disabled-card';
 
 /** Data → Files & buckets: S3 buckets on your own servers — what each holds, who reaches it, how many copies. */
-export function BucketsPage(): React.JSX.Element {
+export function BucketsPage({ startCreating = false }: { startCreating?: boolean }): React.JSX.Element {
   const trpc = useTRPC();
-  const [expandedId, setExpandedId] = React.useState<string | null>(null);
-  const [createOpen, setCreateOpen] = React.useState(false);
+  const [createOpen, setCreateOpen] = React.useState(startCreating);
   const overview = useQuery({ ...trpc.buckets.overview.queryOptions(), refetchInterval: 20_000 });
   const storage = useQuery(trpc.storage.getConfig.queryOptions());
   if (overview.isPending) return <PageSkeleton variant="list" />;
@@ -67,7 +66,7 @@ export function BucketsPage(): React.JSX.Element {
               <EmptyState icon={<ArchiveIcon />} title="No buckets yet" description="Buckets hold uploads, assets and exports. Create one, then attach it to an app." />
             </div>
           ) : (
-            <BucketsTable buckets={buckets} expandedId={expandedId} onToggle={(id) => setExpandedId((c) => (c === id ? null : id))} />
+            <BucketsTable buckets={buckets} />
           )}
           {o?.endpoint ? <Tech>S3 endpoint {o.endpoint} · region {o.region}</Tech> : null}
           {ready ? <Depth at="controls"><KeysCard /></Depth> : null}

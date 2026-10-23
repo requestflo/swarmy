@@ -153,6 +153,7 @@ const routes: Array<[string, RegExp?]> = [
   ['/email'],
   ['/ai'],
   ['/data/buckets'],
+  ['/data/buckets/storefront-media', /Who can reach it/],
   ['/device'],
   ['/settings'],
   ['/settings/access'],

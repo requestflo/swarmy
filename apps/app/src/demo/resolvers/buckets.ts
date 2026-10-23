@@ -58,6 +58,8 @@ interface BucketAttachmentView {
 interface DemoBucket extends BucketSummaryView {
   grants: BucketKeyGrantView[];
   attachments: BucketAttachmentView[];
+  /** Who can reach it (`buckets.access`); INTERNAL when unset. */
+  access?: DemoAccessMode;
 }
 
 interface BucketsState {
@@ -89,7 +91,7 @@ function keySecret(): string {
 }
 
 function summary(b: DemoBucket): BucketSummaryView {
-  const { grants: _g, attachments: _a, ...rest } = b;
+  const { grants: _g, attachments: _a, access: _r, ...rest } = b;
   return { ...rest, keyCount: b.grants.length };
 }
 
@@ -302,13 +304,13 @@ export const buckets: DomainResolvers = {
 
     'buckets.access': (i, s) => {
       const { bucketId } = i as { bucketId: string };
-      const b = requireBucket(getState(s), bucketId) as ReturnType<typeof requireBucket> & { access?: string };
-      return demoAccessView(b.id, b.name, (b.access as DemoAccessMode | undefined) ?? 'INTERNAL');
+      const b = requireBucket(getState(s), bucketId);
+      return demoAccessView(b.id, b.name, b.access ?? 'INTERNAL');
     },
 
     'buckets.setAccess': (i, s) => {
       const input = i as { bucketId: string; mode: DemoAccessMode };
-      const b = requireBucket(getState(s), input.bucketId) as ReturnType<typeof requireBucket> & { access?: string };
+      const b = requireBucket(getState(s), input.bucketId);
       b.access = input.mode;
       return demoAccessView(b.id, b.name, input.mode);
     },
@@ -376,35 +378,46 @@ export const buckets: DomainResolvers = {
   },
 
   seed: (store) => {
-    // Three believable buckets: app uploads (attached to the api service),
-    // a quota'd backup sink, and a public static-site bucket — enough to light
-    // up every column, the public badge, quotas and the attach flow.
+    // Three believable buckets: storefront's media (api writes, web only
+    // reads; reachable from the private network), the backup sink swarmy's
+    // own backups write to, and a public static site — enough to light up the
+    // reach rings, quotas, read-write vs read, and the attach flow.
     const uploadsKey = 'GK31c9d4a0demo01';
     const ciKey = 'GK7f22b8e1demo02';
+    const webKey = 'GK5be07c11demo05';
+    const resticKey = 'GKe41b07d2demo04';
     const state: BucketsState = {
       endpoint: 'http://swarmy-garage:3900',
       region: 'swarmy',
       keys: [
-        { id: uploadsKey, name: 'swarmy-attach-api-app-uploads' },
+        { id: uploadsKey, name: 'swarmy-attach-api-storefront-media' },
+        { id: webKey, name: 'swarmy-attach-web-storefront-media' },
         { id: ciKey, name: 'ci-artifacts' },
         { id: 'GK0a45cc19demo03', name: 'laptop-cli' },
-        { id: 'GKe41b07d2demo04', name: 'swarmy-object-storage-restic' },
+        { id: resticKey, name: 'swarmy-object-storage-restic' },
       ],
       buckets: [
         {
           id: '2f2f9bc1a04e4d6c8b1e3f7a9d2c5e08a1b4c7d0e3f6a9b2c5d8e1f4a7b0c3d6',
-          name: 'app-uploads',
+          name: 'storefront-media',
           usageBytes: 18.4 * GB,
-          objects: 12_431,
+          objects: 212_904,
           unfinishedUploads: 2,
           website: false,
-          quotas: { maxSizeBytes: null, maxObjects: null },
-          keyCount: 1,
+          quotas: { maxSizeBytes: 50 * GB, maxObjects: null },
+          keyCount: 2,
+          access: 'MESH',
           grants: [
             {
               accessKeyId: uploadsKey,
-              name: 'swarmy-attach-api-app-uploads',
+              name: 'swarmy-attach-api-storefront-media',
               permissions: { read: true, write: true, owner: false },
+            },
+            {
+              // Attached read-write, then narrowed: web only serves images.
+              accessKeyId: webKey,
+              name: 'swarmy-attach-web-storefront-media',
+              permissions: { read: true, write: false, owner: false },
             },
           ],
           attachments: [
@@ -412,7 +425,13 @@ export const buckets: DomainResolvers = {
               service: 'api',
               stack: 'storefront',
               accessKeyId: uploadsKey,
-              secretName: 'swarmy-s3-api-app-uploads',
+              secretName: 'swarmy-s3-api-storefront-media',
+            },
+            {
+              service: 'web',
+              stack: 'storefront',
+              accessKeyId: webKey,
+              secretName: 'swarmy-s3-web-storefront-media',
             },
           ],
         },
@@ -431,6 +450,11 @@ export const buckets: DomainResolvers = {
               name: 'ci-artifacts',
               permissions: { read: true, write: true, owner: true },
             },
+            {
+              accessKeyId: resticKey,
+              name: 'swarmy-object-storage-restic',
+              permissions: { read: true, write: true, owner: false },
+            },
           ],
           attachments: [],
         },
@@ -443,6 +467,7 @@ export const buckets: DomainResolvers = {
           website: true,
           quotas: { maxSizeBytes: 5 * GB, maxObjects: 50_000 },
           keyCount: 0,
+          access: 'PUBLIC',
           grants: [],
           attachments: [],
         },

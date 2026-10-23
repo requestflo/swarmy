@@ -71,6 +71,7 @@ import { Route as AuthedServicesServiceIdTerminalRouteImport } from './routes/_a
 import { Route as AuthedNodesNodeIdTerminalRouteImport } from './routes/_authed/nodes/$nodeId_.terminal'
 import { Route as AuthedNetworkDomainsNewRouteImport } from './routes/_authed/network_.domains.new'
 import { Route as AuthedNetworkDomainsHostRouteImport } from './routes/_authed/network_.domains.$host'
+import { Route as AuthedDataBucketsNameRouteImport } from './routes/_authed/data_.buckets_.$name'
 import { Route as AuthedStacksNameReplaysIndexRouteImport } from './routes/_authed/stacks/$name.replays.index'
 import { Route as AuthedStacksNameQueuesIndexRouteImport } from './routes/_authed/stacks/$name.queues.index'
 import { Route as AuthedStacksNameErrorsIndexRouteImport } from './routes/_authed/stacks/$name.errors.index'
@@ -405,6 +406,11 @@ const AuthedNetworkDomainsHostRoute =
     path: '/network/domains/$host',
     getParentRoute: () => AuthedRoute,
   } as any)
+const AuthedDataBucketsNameRoute = AuthedDataBucketsNameRouteImport.update({
+  id: '/data_/buckets_/$name',
+  path: '/data/buckets/$name',
+  getParentRoute: () => AuthedRoute,
+} as any)
 const AuthedStacksNameReplaysIndexRoute =
   AuthedStacksNameReplaysIndexRouteImport.update({
     id: '/replays/',
@@ -516,6 +522,7 @@ export interface FileRoutesByFullPath {
   '/stacks/$name': typeof AuthedStacksNameRouteWithChildren
   '/stacks/new': typeof AuthedStacksNewRoute
   '/nodes/': typeof AuthedNodesIndexRoute
+  '/data/buckets/$name': typeof AuthedDataBucketsNameRoute
   '/network/domains/$host': typeof AuthedNetworkDomainsHostRoute
   '/network/domains/new': typeof AuthedNetworkDomainsNewRoute
   '/nodes/$nodeId/terminal': typeof AuthedNodesNodeIdTerminalRoute
@@ -589,6 +596,7 @@ export interface FileRoutesByTo {
   '/settings/platform': typeof AuthedSettingsPlatformRoute
   '/stacks/new': typeof AuthedStacksNewRoute
   '/nodes': typeof AuthedNodesIndexRoute
+  '/data/buckets/$name': typeof AuthedDataBucketsNameRoute
   '/network/domains/$host': typeof AuthedNetworkDomainsHostRoute
   '/network/domains/new': typeof AuthedNetworkDomainsNewRoute
   '/nodes/$nodeId/terminal': typeof AuthedNodesNodeIdTerminalRoute
@@ -665,6 +673,7 @@ export interface FileRoutesById {
   '/_authed/stacks/$name': typeof AuthedStacksNameRouteWithChildren
   '/_authed/stacks/new': typeof AuthedStacksNewRoute
   '/_authed/nodes/': typeof AuthedNodesIndexRoute
+  '/_authed/data_/buckets_/$name': typeof AuthedDataBucketsNameRoute
   '/_authed/network_/domains/$host': typeof AuthedNetworkDomainsHostRoute
   '/_authed/network_/domains/new': typeof AuthedNetworkDomainsNewRoute
   '/_authed/nodes/$nodeId_/terminal': typeof AuthedNodesNodeIdTerminalRoute
@@ -741,6 +750,7 @@ export interface FileRouteTypes {
     | '/stacks/$name'
     | '/stacks/new'
     | '/nodes/'
+    | '/data/buckets/$name'
     | '/network/domains/$host'
     | '/network/domains/new'
     | '/nodes/$nodeId/terminal'
@@ -814,6 +824,7 @@ export interface FileRouteTypes {
     | '/settings/platform'
     | '/stacks/new'
     | '/nodes'
+    | '/data/buckets/$name'
     | '/network/domains/$host'
     | '/network/domains/new'
     | '/nodes/$nodeId/terminal'
@@ -889,6 +900,7 @@ export interface FileRouteTypes {
     | '/_authed/stacks/$name'
     | '/_authed/stacks/new'
     | '/_authed/nodes/'
+    | '/_authed/data_/buckets_/$name'
     | '/_authed/network_/domains/$host'
     | '/_authed/network_/domains/new'
     | '/_authed/nodes/$nodeId_/terminal'
@@ -1364,6 +1376,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedNetworkDomainsHostRouteImport
       parentRoute: typeof AuthedRoute
     }
+    '/_authed/data_/buckets_/$name': {
+      id: '/_authed/data_/buckets_/$name'
+      path: '/data/buckets/$name'
+      fullPath: '/data/buckets/$name'
+      preLoaderRoute: typeof AuthedDataBucketsNameRouteImport
+      parentRoute: typeof AuthedRoute
+    }
     '/_authed/stacks/$name/replays/': {
       id: '/_authed/stacks/$name/replays/'
       path: '/replays'
@@ -1542,6 +1561,7 @@ interface AuthedRouteChildren {
   AuthedStacksNameRoute: typeof AuthedStacksNameRouteWithChildren
   AuthedStacksNewRoute: typeof AuthedStacksNewRoute
   AuthedNodesIndexRoute: typeof AuthedNodesIndexRoute
+  AuthedDataBucketsNameRoute: typeof AuthedDataBucketsNameRoute
   AuthedNetworkDomainsHostRoute: typeof AuthedNetworkDomainsHostRoute
   AuthedNetworkDomainsNewRoute: typeof AuthedNetworkDomainsNewRoute
   AuthedNodesNodeIdTerminalRoute: typeof AuthedNodesNodeIdTerminalRoute
@@ -1589,6 +1609,7 @@ const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedStacksNameRoute: AuthedStacksNameRouteWithChildren,
   AuthedStacksNewRoute: AuthedStacksNewRoute,
   AuthedNodesIndexRoute: AuthedNodesIndexRoute,
+  AuthedDataBucketsNameRoute: AuthedDataBucketsNameRoute,
   AuthedNetworkDomainsHostRoute: AuthedNetworkDomainsHostRoute,
   AuthedNetworkDomainsNewRoute: AuthedNetworkDomainsNewRoute,
   AuthedNodesNodeIdTerminalRoute: AuthedNodesNodeIdTerminalRoute,
