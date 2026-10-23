@@ -59,8 +59,6 @@ export interface DnsRecordView {
   priority: number | null;
 }
 
-export const MANUAL_RECORD_TYPES = ['MX', 'TXT', 'CNAME', 'SRV', 'CAA', 'NS', 'A', 'AAAA'] as const;
-
 export const ZONE_MODES: Array<{ id: ZoneMode; label: string }> = [
   { id: 'swarmy-ns', label: 'swarmy NS' },
   { id: 'cloudflare', label: 'Cloudflare' },

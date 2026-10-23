@@ -2,18 +2,12 @@ import * as React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button, Card, CardContent, Label, Switch, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
-import { GeoipSourcePicker, type GeoipSource } from './geoip-source-picker';
 
-interface GeoDnsConfig {
-  enabled: boolean;
-  geoipSource: GeoipSource;
-  maxmindLicenseSecretRef?: string;
-  mmdbConfigRef?: string;
-  zoneCount: number;
-}
-
-/** Master switch + geoip source + "Apply now" — the org-level controls row. */
-export function GeoDnsControlsCard({ config }: { config?: GeoDnsConfig }): React.JSX.Element {
+/**
+ * The org-level row: serve DNS at all, and "Apply now". Location data and the
+ * DB-IP attribution live in the Geo-DNS tab's Steering section.
+ */
+export function GeoDnsControlsCard({ config }: { config?: { enabled: boolean } }): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const invalidate = (): void => void qc.invalidateQueries();
@@ -33,8 +27,6 @@ export function GeoDnsControlsCard({ config }: { config?: GeoDnsConfig }): React
       onError: onErr,
     }),
   );
-
-  const source = config?.geoipSource ?? 'dbip';
 
   return (
     <Card className="calm-card">
@@ -56,12 +48,6 @@ export function GeoDnsControlsCard({ config }: { config?: GeoDnsConfig }): React
           </div>
         </div>
 
-        <GeoipSourcePicker
-          source={source}
-          maxmindLicenseSecretRef={config?.maxmindLicenseSecretRef}
-          mmdbConfigRef={config?.mmdbConfigRef}
-        />
-
         <Button
           variant="outline"
           size="sm"
@@ -72,22 +58,6 @@ export function GeoDnsControlsCard({ config }: { config?: GeoDnsConfig }): React
         >
           Apply now
         </Button>
-
-        {/* Every non-off source can serve the bundled DB-IP Country Lite floor. */}
-        {source !== 'off' ? (
-          <p className="text-muted-foreground w-full text-xs">
-            IP geolocation by{' '}
-            <a
-              href="https://db-ip.com"
-              target="_blank"
-              rel="noreferrer"
-              className="underline underline-offset-2"
-            >
-              DB-IP (db-ip.com)
-            </a>
-            , CC BY 4.0
-          </p>
-        ) : null}
       </CardContent>
     </Card>
   );

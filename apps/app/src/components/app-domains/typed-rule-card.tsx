@@ -22,9 +22,9 @@ function next(p: RouteProtection | null, id: TypedRule, v: string[]): RouteProte
 }
 
 const FIELDS: Record<TypedRule, Array<{ label: string; placeholder: string }>> = {
-  countries: [{ label: 'Turn away countries', placeholder: 'RU, KP' }, { label: 'Only allow countries', placeholder: 'empty = everyone else' }],
-  ips: [{ label: 'Turn away addresses', placeholder: '45.155.205.0/24' }, { label: 'Only allow addresses', placeholder: 'empty = everyone else' }],
-  size: [{ label: 'Largest upload', placeholder: '10MB' }],
+  countries: [{ label: 'Turn away countries', placeholder: 'e.g. RU, KP' }, { label: 'Only allow countries', placeholder: 'empty = everyone else' }],
+  ips: [{ label: 'Turn away addresses', placeholder: 'e.g. 203.0.113.0/24' }, { label: 'Only allow addresses', placeholder: 'empty = everyone else' }],
+  size: [{ label: 'Largest upload', placeholder: 'e.g. 10MB' }],
 };
 
 function techOf(p: RouteProtection | null, id: TypedRule): string {

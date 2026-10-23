@@ -2,7 +2,9 @@ import * as React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button, Input, cn, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
-import type { GeoipSource } from './geoip-source-picker';
+
+/** Where swarmy-dns gets visitor locations (`geodns.setConfig` geoipSource). */
+export type GeoipSource = 'dbip' | 'maxmind' | 'file' | 'off';
 
 /** The location sources swarmy-dns can read (`geodns.setConfig` geoipSource). */
 const PICKS: Array<{ id: GeoipSource; title: string; what: string }> = [

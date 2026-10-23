@@ -5,8 +5,7 @@ import { Depth, Section, Tech } from '@/components/calm';
 import { Segmented } from '@/components/domains/segmented';
 import { useTRPC } from '@/integrations/trpc';
 import type { DnsZoneView } from './geo-types';
-import type { GeoipSource } from './geoip-source-picker';
-import { LocationPicks, SOURCE_WORDS } from './location-picks';
+import { LocationPicks, SOURCE_WORDS, type GeoipSource } from './location-picks';
 
 /** What `geodns.updateZone` accepts: 10–120 s. These are the three worth picking. */
 const TTLS = [30, 60, 120] as const;
