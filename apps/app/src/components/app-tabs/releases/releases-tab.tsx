@@ -2,6 +2,7 @@ import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { CodeView } from '@/components/calm';
 import { findStackApp } from '@/components/gitops/gitops-types';
+import { EnvironmentLanes } from '@/components/gitops/environments/environment-lanes';
 import { StackGitAppPanel } from '@/components/gitops/stack-git-app-panel';
 import { CanaryPanel } from '@/components/releases/canary-panel';
 import { ErrorState, HeaderSkeleton } from '@/components/states';
@@ -47,6 +48,7 @@ export function ReleasesTab({ stack }: { stack: string }): React.JSX.Element {
     >
       {releases.data ? <ReleasesNext rows={rows} /> : null}
       <CanaryPanel stack={stack} />
+      <EnvironmentLanes stack={stack} />
       <StackGitAppPanel stack={stack} previews={false} />
       {releases.data ? <ReleaseHistory rows={rows} /> : <RowsSkeleton />}
     </TabBody>

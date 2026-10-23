@@ -5,13 +5,7 @@ import { Button } from '@swarmy/ui';
 import { Section, StatusWord, toneFromStatus } from '@/components/calm';
 import { useTRPC } from '@/integrations/trpc';
 import { AppEnvironmentsList } from './app-environments-list';
-import {
-  canPromote,
-  findStackApp,
-  previewDataNote,
-  previewLabel,
-  type StackAppMatch,
-} from './gitops-types';
+import { findStackApp, previewDataNote, previewLabel, type StackAppMatch } from './gitops-types';
 import { AppDeployButton } from './app-deploy-button';
 import { AppDriftBadge } from './app-drift-badge';
 import { AppKeptVolumes } from './app-kept-volumes';
@@ -19,7 +13,6 @@ import { AppNeedsYou } from './app-needs-you';
 import { AppSource } from './app-source';
 import { PlanDrawer } from './plan-drawer';
 import { envLabel, planStatus, sha7 } from './plan-status';
-import { PromoteDialog } from './promote-dialog';
 
 /** Status / sha / latest plan / label for either kind of git-owned stack. */
 function summary(m: StackAppMatch): {
@@ -66,9 +59,6 @@ export function StackGitAppPanel({ stack, previews = true }: { stack: string; pr
             branch={env?.branch ?? (match.kind === 'preview' ? match.preview.branch : undefined)}
           />
         </div>
-        {env && canPromote(env) ? (
-          <PromoteDialog repoId={app.repoId} env={env} onPlan={openPlan} />
-        ) : null}
         {env ? (
           <AppDeployButton
             repoId={app.repoId}
@@ -103,7 +93,8 @@ export function StackGitAppPanel({ stack, previews = true }: { stack: string; pr
         promotedFrom={open?.from}
         onClose={() => setOpen(null)}
       />
-      <AppEnvironmentsList app={app} stack={stack} show={previews ? 'all' : 'environments'} />
+      {/* On Releases the environments sit side by side above (EnvironmentLanes). */}
+      {previews ? <AppEnvironmentsList app={app} stack={stack} show="all" /> : null}
     </Section>
   );
 }

@@ -386,6 +386,29 @@ function driftEnvs(app: AppRow): Array<{ environment: string; stack: string; cha
   }));
 }
 
+/** service short name → image, for one stack of the demo swarm. */
+function liveImages(s: DemoStore, stack: string): Record<string, string> {
+  const id = s.stacks.find((x) => x.name === stack)?.id;
+  const out: Record<string, string> = {};
+  for (const sv of s.services) {
+    if (!id || sv.stackId !== id) continue;
+    out[sv.name.startsWith(`${stack}_`) ? sv.name.slice(stack.length + 1) : sv.name] = sv.image;
+  }
+  return out;
+}
+
+/** A promote rolls production's services onto the source's digests. */
+function promoteLive(s: DemoStore, stack: string, images: Record<string, string>): void {
+  const id = s.stacks.find((x) => x.name === stack)?.id;
+  for (const sv of s.services) {
+    const short = sv.name.startsWith(`${stack}_`) ? sv.name.slice(stack.length + 1) : sv.name;
+    if (id && sv.stackId === id && images[short]) {
+      sv.image = images[short];
+      sv.updatedAt = new Date().toISOString();
+    }
+  }
+}
+
 const newest = (rows: PlanRow[]): PlanRow[] =>
   [...rows].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
@@ -576,23 +599,32 @@ export const apps: DomainResolvers = {
       const src = latestFor(st, repoId, from);
       if (!src || !['applied', 'needs-confirmation'].includes(src.status))
         throw new Error(`${from} has nothing applied to promote yet`);
-      const services = (src.plan?.actions ?? []).filter(
-        (a) => a.kind === 'service.deploy' && a.name,
-      );
-      const images = Object.fromEntries(
-        services.map((a) => [
-          a.name as string,
-          `ghcr.io/northwind/${app.appName}-${a.name}@sha256:${hex(64)}`,
-        ]),
-      );
-      const actions: Action[] = services.map((a) => ({
-        id: `service.deploy:${a.name}`,
-        kind: 'service.deploy',
-        phase: 4,
-        gate: 'auto',
-        reason: `Roll out ${a.name} with ${from}'s image (no rebuild)`,
-        name: a.name,
-      }));
+      // The digests the source environment RUNS (the demo swarm), as the controller reads them.
+      const live = liveImages(s, src.stack);
+      const prodLive = liveImages(s, app.appName);
+      const images = Object.fromEntries(Object.entries(live).filter(([, img]) => img.includes('@sha256:')));
+      const actions: Action[] = Object.keys(images)
+        .filter((n) => prodLive[n] !== images[n])
+        .map((n) => ({
+          id: `service.deploy:${n}`,
+          kind: 'service.deploy',
+          phase: 4,
+          gate: 'auto',
+          reason: `Roll out ${n} with ${from}'s image (no rebuild)`,
+          name: n,
+        }));
+      if ((i as { dryRun?: boolean }).dryRun) {
+        return {
+          planId: null,
+          status: actions.length ? 'ready' : 'noop',
+          environment: 'production',
+          stack: app.appName,
+          plan: null,
+          images,
+          preview: { actions, counts: counts(actions), status: actions.length ? 'ready' : 'noop', markdown: '' },
+        };
+      }
+      promoteLive(s, app.appName, images);
       const next = plan({
         id: `plan-${Math.random().toString(36).slice(2, 10)}`,
         repoId,
