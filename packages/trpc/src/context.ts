@@ -16,6 +16,12 @@ export interface BaseContext {
   user: UserRow | null;
   activeOrgId: string | null;
   reqHeaders: Headers;
+  /**
+   * The outgoing response's headers (tRPC fetch adapter `resHeaders`). A
+   * server-side Better Auth call that re-issues session cookies (switching the
+   * active org) appends its Set-Cookie here. Unset outside HTTP (WS, REST, tests).
+   */
+  resHeaders?: Headers;
 }
 
 /** After `protectedProcedure` — session/user are guaranteed. */
@@ -35,10 +41,11 @@ export interface CreateContextOptions {
   db: DB;
   hub: AgentHub;
   auth: Auth;
+  resHeaders?: Headers;
 }
 
 export async function createContext(opts: CreateContextOptions): Promise<BaseContext> {
-  const { headers, db, hub, auth } = opts;
+  const { headers, db, hub, auth, resHeaders } = opts;
   const data = await auth.api.getSession({ headers });
   const session = data?.session ?? null;
   const activeOrgId =
@@ -51,6 +58,7 @@ export async function createContext(opts: CreateContextOptions): Promise<BaseCon
     user: data?.user ?? null,
     activeOrgId,
     reqHeaders: headers,
+    ...(resHeaders ? { resHeaders } : {}),
   };
 }
 

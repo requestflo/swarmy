@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { displayEmail } from '@swarmy/auth';
 import { protectedProcedure, publicProcedure, router } from '../trpc';
+import { setActiveOrg } from '../services/active-org';
 
 export interface WhoAmI {
   userId: string;
@@ -112,10 +113,9 @@ export const orgRouter = router({
         select: { id: true },
       });
       if (!membership) throw new TRPCError({ code: 'FORBIDDEN', message: 'not a member' });
-      await ctx.auth.api.setActiveOrganization({
-        headers: ctx.reqHeaders,
-        body: { organizationId: input.orgId },
-      });
+      // Forwards the refreshed session cookies, so the next request reads the
+      // new org instead of the cached session for up to cookieCache.maxAge.
+      await setActiveOrg(ctx, input.orgId);
       return { activeOrgId: input.orgId };
     }),
 });

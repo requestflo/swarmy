@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { adminProcedure, protectedProcedure, publicProcedure, router } from '../trpc';
 import { abacProcedure } from '../abac';
+import { setActiveOrg } from '../services/active-org';
 import {
   acceptInviteLink,
   createInviteLink,
@@ -40,7 +41,7 @@ export const inviteLinksRouter = router({
 
   accept: protectedProcedure.input(z.object({ token })).mutation(async ({ ctx, input }) => {
     const r = await acceptInviteLink(ctx, input.token);
-    await ctx.auth.api.setActiveOrganization({ headers: ctx.reqHeaders, body: { organizationId: r.orgId } });
+    await setActiveOrg(ctx, r.orgId);
     return r;
   }),
 });

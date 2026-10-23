@@ -5,6 +5,7 @@ import { displayEmail, invitePlaceholderEmail, isLinkInviteEmail, redeemInvitati
 import type { DB } from '@swarmy/db';
 import type { AuthedContext, OrgContext } from '../context';
 import { notFound } from '../errors';
+import { setActiveOrg } from './active-org';
 import { writeAudit } from './audit.service';
 import { sendSystemEmail } from './email/runtime';
 
@@ -305,6 +306,6 @@ export async function acceptInvitation(ctx: AuthedContext, id: string): Promise<
     if (!member) throw new TRPCError({ code: 'NOT_FOUND', message: 'This invite link has expired or was revoked.' });
     orgId = member.organizationId;
   }
-  await ctx.auth.api.setActiveOrganization({ headers: ctx.reqHeaders, body: { organizationId: orgId } });
+  await setActiveOrg(ctx, orgId);
   return { orgId };
 }

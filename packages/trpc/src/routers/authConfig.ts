@@ -5,6 +5,7 @@ import { listProviders, setProvider, signInOptions, type SignInOption } from '..
 import { acceptInvitation, invitationPreview, type InvitationPreview } from '../services/invitations.service';
 import { isInviteLinkToken, type InviteLinkState } from '@swarmy/auth';
 import { acceptInviteLink, inviteLinkPreview } from '../services/inviteLinks.service';
+import { setActiveOrg } from '../services/active-org';
 
 /** An invite link's preview: a single-use invitation, or a shareable `swi_…` link (its app + state too). */
 export type AnyInvitePreview = InvitationPreview & { stackName?: string | null; state?: InviteLinkState };
@@ -52,7 +53,7 @@ export const authConfigRouter = router({
       if (!isInviteLinkToken(input.id)) return acceptInvitation(ctx, input.id);
       // A shareable link: join (and get its app grant), then make the org active.
       const r = await acceptInviteLink(ctx, input.id);
-      await ctx.auth.api.setActiveOrganization({ headers: ctx.reqHeaders, body: { organizationId: r.orgId } });
+      await setActiveOrg(ctx, r.orgId);
       return { orgId: r.orgId };
     }),
 

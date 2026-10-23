@@ -9,7 +9,7 @@ export function handleTrpc(req: Request): Promise<Response> {
     endpoint: '/api/trpc',
     req,
     router: appRouter,
-    createContext: () =>
-      createContext({ headers: req.headers, db: prisma, hub, auth: authRegistry.getAuth() }),
+    createContext: ({ resHeaders }) =>
+      createContext({ headers: req.headers, db: prisma, hub, auth: authRegistry.getAuth(), resHeaders }),
   });
 }
