@@ -14,6 +14,7 @@ import { StudioInsights } from './studio-insights';
 import { Depth, SayHeader } from '@/components/calm';
 import { StudioSummary } from './studio-summary';
 import { StudioCode } from './studio-code';
+import { StudioTeamActivity } from './studio-team-activity';
 import { isKvEngine, type StudioScope, type StudioTab, type StudioTableView } from './studio-types';
 
 const TABS: Array<[StudioTab | 'structure', string]> = [['data', 'Data'], ['structure', 'Structure'], ['console', 'Console'], ['saved', 'Saved queries'], ['insights', 'Slow queries']];
@@ -68,6 +69,7 @@ export function StudioPage({ stack, db, onDb }: { stack: string; db?: string; on
         {current.unavailable ? <ErrorState title="The studio can’t sign in to this database." error={current.unavailable} /> : !current.running ? <ErrorState title="No running task" error={`${current.name} isn't running on any online server.`} /> : (
           <StudioTabBody tab={tab} scope={scope} table={table} schemaPending={schema.isPending} schemaError={schema.error} draft={draft} setDraft={setDraft} openInConsole={openInConsole} />
         )}
+        <StudioTeamActivity scope={scope} />
       </section>
     </div>
   );

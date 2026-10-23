@@ -1,4 +1,5 @@
 import { classifyRedis, classifySql, tokenizeRedis, type StudioTable } from '@swarmy/core/studio';
+import type { AuditEntryView } from '@swarmy/core';
 import type { DemoStore, DomainResolvers } from '../types';
 
 /**
@@ -43,16 +44,25 @@ const TARGETS = [
 const run = (base: Record<string, unknown>) => ({ columns: [], rows: [], rowCount: 0, truncated: false, notices: [], durationMs: 7, ...base });
 const history: Array<Record<string, unknown>> = [];
 
+/** Every run is a `studio.query` audit row, as on the controller — the team strip reads it back. */
+function audit(s: DemoStore, stack: string, target: string, metadata: Record<string, unknown>): void {
+  const log = s.extra.auditlog as { entries: AuditEntryView[] } | undefined;
+  if (!log) return;
+  const id = String(Math.max(0, ...log.entries.map((e) => Number(e.id))) + 1);
+  log.entries.unshift({ id, ts: new Date().toISOString(), actorType: 'user', actorId: s.user.id, actorLabel: s.user.name, action: 'studio.query', targetType: 'database', targetId: `${stack}/${target}`, metadata });
+}
+
 function execute(i: unknown, s: DemoStore): unknown {
-  const { target, statement } = i as { target: string; statement: string };
+  const { stack, target, statement, origin } = i as { stack: string; target: string; statement: string; origin?: string };
   const kv = target === 'storefront_cache';
   const classification = kv ? classifyRedis(tokenizeRedis(statement)) : classifySql(statement, 'postgres');
   if (classification.blocked) throw new Error(classification.blocked);
   history.unshift({ id: String(history.length + 1), at: new Date().toISOString(), statement, class: classification.class, status: 'ok', durationMs: 7, rows: 1, affected: null, error: null, database: kv ? null : 'storefront' });
-  void s;
-  if (classification.class !== 'read') return { ...run({ affected: 1, status: kv ? 'OK' : `${classification.kind} 1`, engine: kv ? 'valkey' : 'postgres' }), statement, classification, database: 'storefront' };
+  const write = classification.class !== 'read';
   const t = TABLES.find((x) => new RegExp(`\\b${x.name}\\b`, 'i').test(statement)) ?? TABLES[0]!;
   const rows = kv ? [['user_id', '88213'], ['cart', '19bc03']] : t.rows.slice(0, 20);
+  audit(s, stack, target, { engine: kv ? 'valkey' : 'postgres', origin: origin ?? 'console', statement, class: classification.class, kind: classification.kind, database: kv ? null : 'storefront', status: 'ok', durationMs: 7, rows: write ? 0 : rows.length, ...(write ? { affected: 1 } : {}) });
+  if (write) return { ...run({ affected: 1, status: kv ? 'OK' : `${classification.kind} 1`, engine: kv ? 'valkey' : 'postgres' }), statement, classification, database: 'storefront' };
   return { ...run({ engine: kv ? 'valkey' : 'postgres', columns: kv ? ['field', 'value'] : t.cols.map((c) => c[0]), rows, rowCount: rows.length }), statement, classification, database: kv ? null : 'storefront' };
 }
 

@@ -73,6 +73,19 @@ const SEED_EVENTS: SeedEvent[] = [
   { actor: PILOT, action: 'queues.retryFailed', targetType: 'queue', targetId: 'image-resize', metadata: { retried: 37 } },
 ];
 
+/**
+ * Studio queries on storefront's database by the rest of the team (the
+ * controller audits every run as `studio.query`), at minutes ago — plus the
+ * studio's own browse read, which the team strip leaves out.
+ */
+const pg = { engine: 'postgres', database: 'storefront', policyId: null };
+const STUDIO_SEED: Array<[number, Actor, Record<string, unknown>]> = [
+  [38, AVA, { ...pg, origin: 'saved', class: 'read', kind: 'SELECT', status: 'ok', durationMs: 38, rows: 7, statement: "SELECT date_trunc('day', created_at) AS day, sum(total) FROM orders WHERE created_at > now() - interval '7 days' GROUP BY 1 ORDER BY 1" }],
+  [41, AVA, { ...pg, origin: 'browse', class: 'read', kind: 'SELECT', status: 'ok', durationMs: 9, rows: 50, statement: 'SELECT * FROM "public"."orders" LIMIT 51' }],
+  [190, MARCO, { ...pg, origin: 'edit', class: 'write', kind: 'UPDATE', status: 'ok', durationMs: 14, rows: 0, affected: 1, statement: `UPDATE "public"."orders" SET "status" = 'refunded' WHERE "id" = 10477` }],
+  [1310, MARCO, { ...pg, origin: 'console', class: 'read', kind: 'SELECT', status: 'ok', durationMs: 112, rows: 23, statement: "SELECT id, customer, total FROM orders WHERE status = 'refunded' ORDER BY created_at DESC" }],
+];
+
 function seedEntries(): AuditEntryView[] {
   const entries: AuditEntryView[] = [];
   const now = Date.now();
@@ -93,6 +106,13 @@ function seedEntries(): AuditEntryView[] {
       metadata: ev.metadata ?? {},
     });
   }
+  for (const [ago, actor, metadata] of STUDIO_SEED) {
+    const ts = new Date(now - ago * 60_000).toISOString();
+    entries.push({ id: '', ts, ...actor, action: 'studio.query', targetType: 'database', targetId: 'storefront/db', metadata });
+  }
+  // Ids follow time, newest highest, as the controller's autoincrement does.
+  entries.sort((a, b) => Date.parse(b.ts) - Date.parse(a.ts));
+  entries.forEach((e, i) => (e.id = String(9000 + STUDIO_SEED.length - i)));
   return entries;
 }
 

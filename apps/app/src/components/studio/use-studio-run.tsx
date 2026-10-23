@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { StudioConfirmDialog } from './studio-confirm-dialog';
@@ -15,6 +15,7 @@ type Origin = 'console' | 'edit' | 'saved';
  */
 export function useStudioRun(scope: StudioScope | null, onDone?: (r: StudioRunView) => void) {
   const trpc = useTRPC();
+  const qc = useQueryClient();
   const [pending, setPending] = React.useState<{ verdict: Verdict; origin: Origin } | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const exec = useMutation(trpc.studio.execute.mutationOptions());
@@ -31,8 +32,11 @@ export function useStudioRun(scope: StudioScope | null, onDone?: (r: StudioRunVi
           onSuccess: (r) => {
             setPending(null);
             onDone?.(r);
+            // The run is now an audit row: the team activity strip shows it.
+            void qc.invalidateQueries({ queryKey: trpc.audit.list.queryKey() });
           },
           onError: (e) => {
+            void qc.invalidateQueries({ queryKey: trpc.audit.list.queryKey() });
             const info = errorInfo(e);
             if (pendingRef.current) setError(info.message);
             else toast.error(info.message);
@@ -40,7 +44,7 @@ export function useStudioRun(scope: StudioScope | null, onDone?: (r: StudioRunVi
         },
       );
     },
-    [scope, exec, onDone],
+    [scope, exec, onDone, qc, trpc],
   );
   const run = React.useCallback(
     (text: string, origin: Origin = 'console') => {
