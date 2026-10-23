@@ -52,6 +52,10 @@ async function org(): Promise<{ ctx: OrgContext; slack: string; phone: string }>
 const events = (ctx: OrgContext) =>
   t.db.alertEvent.findMany({ where: { orgId: ctx.activeOrgId }, orderBy: { firedAt: 'asc' } });
 
+/** Each resource's notify state. Events fired in the same millisecond tie on firedAt, so order isn't asserted. */
+const notifyByResource = async (ctx: OrgContext) =>
+  Object.fromEntries((await events(ctx)).map((e) => [e.resource, e.notify]));
+
 const rateFire = (resource: string, severity: 'warning' | 'critical' = 'warning') => ({
   signal: 'error-rate',
   severity,
@@ -172,7 +176,7 @@ describe('quiet hours', () => {
     await fireEvent(ctx, rateFire('service:shop_api')); // warning → held, resolves while quiet
     await fireEvent(ctx, { signal: 'service-down', severity: 'critical', resource: 'service:shop_db', message: 'down' });
     expect(sent).toEqual([PHONE]); // critical still pages
-    expect((await events(ctx)).map((e) => e.notify)).toEqual(['HELD', 'HELD', 'SENT']);
+    expect(await notifyByResource(ctx)).toEqual({ 'service:shop_web': 'HELD', 'service:shop_api': 'HELD', 'service:shop_db': 'SENT' });
     expect(await releaseHeld(ctx)).toBe(0); // still quiet
 
     await resolveEvent(ctx, 'error-rate', 'service:shop_api');
@@ -182,11 +186,7 @@ describe('quiet hours', () => {
     sent.length = 0;
     await setQuietHours(ctx, { enabled: false, start: '22:00', end: '07:00', timeZone: 'UTC', criticalPages: true });
     expect(sent).toEqual([SLACK]);
-    expect((await events(ctx)).map((e) => [e.resource, e.notify])).toEqual([
-      ['service:shop_web', 'SENT'],
-      ['service:shop_api', 'SKIPPED'],
-      ['service:shop_db', 'SENT'],
-    ]);
+    expect(await notifyByResource(ctx)).toEqual({ 'service:shop_web': 'SENT', 'service:shop_api': 'SKIPPED', 'service:shop_db': 'SENT' });
     expect(await releaseHeld(ctx)).toBe(0);
   });
 
