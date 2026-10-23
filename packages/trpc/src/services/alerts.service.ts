@@ -22,12 +22,15 @@ import type {
   UpdateChannelInput,
 } from '@swarmy/core';
 import {
+  ALERT_SIGNATURE_HEADER,
   ALERT_SIGNAL_INFO,
   ALERT_SIGNALS,
   inQuietHours,
   normalizeAlertSelector,
   parseAlertSelector,
   selectorKey,
+  renderWebhookBody,
+  testNotification,
   validateAlertSelector,
   type AlertSelector,
 } from '@swarmy/core';
@@ -80,8 +83,7 @@ export {
  */
 
 const HTTP_TIMEOUT_MS = 6_000;
-/** Signature header on generic webhook deliveries (webhooks-out scheme). */
-export const ALERT_SIGNATURE_HEADER = 'X-Swarmy-Signature';
+export { ALERT_SIGNATURE_HEADER } from '@swarmy/core';
 
 // ── Channel config codec (pure, unit-tested) ──────────────────────────────────
 
@@ -268,7 +270,7 @@ export async function deliverToChannel(
   if (push) return sendChannelRequest(push);
   if (config.kind !== 'webhook') return { ok: false, detail: `unsupported channel kind ${config.kind}` };
   // Generic webhook: the structured event + optional HMAC signature.
-  const body = JSON.stringify({ event: n });
+  const body = renderWebhookBody(n);
   try {
     const res = await fetch(config.url, {
       method: 'POST',
@@ -413,16 +415,7 @@ export async function testChannel(
     where: { id: input.id, orgId: ctx.activeOrgId },
   });
   if (!existing) throw notFound('notification channel', input.id);
-  const result = await deliverToChannel(ctx, existing as ChannelRow, {
-    kind: 'test',
-    signal: 'test',
-    severity: 'info',
-    resource: 'channel-test',
-    message: 'Test notification from swarmy.',
-    ruleName: null,
-    at: new Date().toISOString(),
-    eventId: null,
-  });
+  const result = await deliverToChannel(ctx, existing as ChannelRow, testNotification(new Date().toISOString()));
   await writeAudit(ctx, {
     action: 'alerts.testChannel',
     targetType: 'notificationChannel',
