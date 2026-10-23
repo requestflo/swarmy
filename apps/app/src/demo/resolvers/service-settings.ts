@@ -104,6 +104,7 @@ function inspectOf(store: DemoStore, sv: ServiceDetail): Record<string, unknown>
           Command: k.command,
           Args: k.args,
           Env: Object.entries(sv.env).map(([key, v]) => `${key}=${v}`),
+          Mounts: sv.volumes.map((v) => ({ Type: v.type, Source: v.source, Target: v.target, ReadOnly: v.readOnly })),
           Healthcheck: k.health
             ? { Test: k.health.test, Interval: ns(k.health.intervalSec), StartPeriod: ns(k.health.startSec), Retries: k.health.retries }
             : undefined,

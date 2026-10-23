@@ -1,6 +1,7 @@
 import type { Inventory, InvContainer, InvEdge, InvService, ServiceDetail } from '@swarmy/core';
 import { UNGROUPED } from '@swarmy/core';
 import type { DemoStore, DomainResolvers } from '../types';
+import { moveLabels } from './moves';
 
 /**
  * Demo `inventory.get` — projects the demo store's services into the same
@@ -90,9 +91,11 @@ function toInvService(sv: ServiceDetail, stackName: string | null): InvService {
 
 function buildDemoInventory(store: DemoStore): Inventory {
   const stackNameById = new Map(store.stacks.map((st) => [st.id, st.name]));
-  const services = store.services.map((sv) =>
-    toInvService(sv, sv.stackId ? (stackNameById.get(sv.stackId) ?? null) : null),
-  );
+  const services = store.services.map((sv) => {
+    const inv = toInvService(sv, sv.stackId ? (stackNameById.get(sv.stackId) ?? null) : null);
+    // A running demo move shows as the service's swarmy.move.state label, as live.
+    return { ...inv, labels: { ...inv.labels, ...moveLabels(store, sv.id) } };
+  });
 
   // Group into projects, keeping stack order; swarmy-system sorts after app
   // stacks (it's platform plumbing, not a user app) and the ungrouped catch-all
