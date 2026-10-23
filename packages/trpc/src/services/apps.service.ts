@@ -177,6 +177,35 @@ export interface AppView {
     checkedAt: string;
     environments: Array<{ environment: string; stack: string; changes: number }>;
   } | null;
+  /** The git connection the repo is read through (branch listing); null for a plain URL. */
+  connectionId?: string | null;
+  /** `previews:` as production's swarmy.yaml declares it (last applied plan); null before one. */
+  previewRules?: AppPreviewRules | null;
+}
+
+/** The preview rules a swarmy.yaml declares — read-only (edits are a commit). */
+export interface AppPreviewRules {
+  enabled: boolean;
+  /** Branch patterns that also get previews (`feature/*`); empty = pull requests only. */
+  branches: string[];
+  /** Torn down this long after the last push (0 = kept). */
+  ttlSeconds: number;
+  resources: 'isolated' | 'shared';
+  /** Previews with data: a copy of this environment's latest backup, optionally scrubbed. */
+  data?: { from: string; scrub?: string };
+}
+
+/** `previews:` off a plan's desired state — what the dashboard shows as the rules. */
+export function previewRulesOf(desired: DesiredApp | null | undefined): AppPreviewRules | null {
+  const p = desired?.previews;
+  if (!p) return null;
+  return {
+    enabled: p.enabled,
+    branches: [...p.branches],
+    ttlSeconds: p.ttlSeconds,
+    resources: p.resources,
+    ...(p.data ? { data: { from: p.data.from, ...(p.data.scrub ? { scrub: p.data.scrub } : {}) } } : {}),
+  };
 }
 
 interface PlanRow {
@@ -1271,6 +1300,8 @@ export async function confirmAppActions(
 export async function teardownAppPreview(
   ctx: OrgContext,
   input: { repoId: string; prNumber: number },
+  /** A person asked (the dashboard), not a webhook or the TTL sweep. */
+  opts: { byUser?: boolean } = {},
 ): Promise<{ stack: string | null }> {
   const row = await ctx.db.appPlan.findFirst({
     where: { repoId: input.repoId, environment: 'preview', prNumber: input.prNumber },
@@ -1300,7 +1331,7 @@ export async function teardownAppPreview(
     action: 'app.preview.teardown',
     targetType: 'gitRepo',
     targetId: input.repoId,
-    actorType: 'system',
+    actorType: opts.byUser ? 'user' : 'system',
     metadata: { stack: desired.stack, pr: input.prNumber },
   });
   return { stack: desired.stack };
@@ -1397,6 +1428,8 @@ export async function listApps(ctx: OrgContext): Promise<AppView[]> {
       enforceDrift: r.enforceDrift,
       environments: envs.filter((e) => e.environment),
       previews: await previewSummaries(ctx, r.id),
+      connectionId: r.connectionId ?? null,
+      previewRules: previewRulesOf(latestByEnv.get(PRODUCTION)?.desiredJson as unknown as DesiredApp | null),
       drift: driftCache.get(r.id) ?? null,
     });
   }

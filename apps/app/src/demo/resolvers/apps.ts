@@ -77,6 +77,16 @@ interface AppRow {
   envBranches: Record<string, string>;
   drift: Record<string, number>;
   driftCheckedAt: string;
+  /** The git connection branches are listed through. */
+  connectionId?: string;
+  /** production swarmy.yaml's `previews:` (null when no plan applied). */
+  previewRules?: {
+    enabled: boolean;
+    branches: string[];
+    ttlSeconds: number;
+    resources: 'isolated' | 'shared';
+    data?: { from: string; scrub?: string };
+  } | null;
 }
 
 interface AppsState {
@@ -184,6 +194,14 @@ function buildSeed(): AppsState {
         envBranches: { staging: 'staging' },
         drift: { production: 1 },
         driftCheckedAt: iso(6 * MIN),
+        connectionId: 'gc-github',
+        previewRules: {
+          enabled: true,
+          branches: ['feature/*'],
+          ttlSeconds: 48 * 3600,
+          resources: 'isolated',
+          data: { from: 'production', scrub: 'db/scrub.sql' },
+        },
       },
       {
         repoId: 'app-payments',
@@ -298,13 +316,13 @@ function buildSeed(): AppsState {
           actions: [
             STOREFRONT_ROLLOUT[0] as Action,
             {
-              id: 'resource.create:db',
+              id: 'resource.create:checkout',
               kind: 'resource.create',
               phase: 1,
               gate: 'auto',
               reason:
-                'create postgres "db" — a COPY of production\'s latest backup, scrubbed by db/scrub.sql; destroyed with the preview',
-              name: 'db',
+                'create postgres "checkout" — a COPY of production\'s latest backup, scrubbed by db/scrub.sql; destroyed with the preview',
+              name: 'checkout',
               resourceType: 'postgres',
             },
             STOREFRONT_ROLLOUT[1] as Action,
@@ -312,7 +330,7 @@ function buildSeed(): AppsState {
           issues: [],
           outcomes: {
             'build:web': { status: 'done' },
-            'resource.create:db': { status: 'done', message: 'restored 2.1 GB, scrub ran clean' },
+            'resource.create:checkout': { status: 'done', message: 'restored 256 MB, scrub ran clean' },
             'service.deploy:web': { status: 'done' },
           },
           error: null,
@@ -438,7 +456,10 @@ export const apps: DomainResolvers = {
           appName: a.appName,
           requireApproval: a.requireApproval,
           enforceDrift: a.enforceDrift,
-          previews: newest(st.plans.filter((p) => p.repoId === a.repoId && p.prNumber)).map(
+          connectionId: a.connectionId ?? null,
+          previewRules: a.previewRules ?? null,
+          // Torn-down previews are superseded rows, never listed (as previewSummaries).
+          previews: newest(st.plans.filter((p) => p.repoId === a.repoId && p.prNumber && p.status !== 'superseded')).map(
             (p) => ({
               ...(p.previewBranch ? { branch: p.previewBranch } : {}),
               ...(p.previewData ? { data: p.previewData } : {}),
@@ -654,3 +675,7 @@ export const apps: DomainResolvers = {
     },
   },
 };
+
+/** For the previews module (app-previews.ts): the same state and plan builder. */
+export { state as appsState, plan as demoPlan, hex as demoHex };
+export type { Action as DemoAction, AppsState as DemoAppsState };

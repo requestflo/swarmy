@@ -16,6 +16,7 @@ export type StackRoute =
   | '/stacks/$name/config/rollout'
   | '/stacks/$name/config/placement'
   | '/stacks/$name/config/jobs'
+  | '/stacks/$name/config/previews'
   | '/stacks/$name/backups'
   | '/stacks/$name/releases'
   | '/stacks/$name/source';
@@ -57,4 +58,5 @@ export const CONFIG_SUBS: StackSubTab[] = [
   { to: '/stacks/$name/config/rollout', path: 'config/rollout', label: 'Health & rollout', blurb: 'Health watch, auto put-back & canary', keywords: 'safety health gate canary strategy rolling blue green auto rollback' },
   { to: '/stacks/$name/config/placement', path: 'config/placement', label: 'Placement & volumes', blurb: 'Which servers each part may run on', keywords: 'placement constraints pinned servers regions volumes' },
   { to: '/stacks/$name/config/jobs', path: 'config/jobs', label: 'Jobs & previews', blurb: 'Scheduled jobs, webhooks & branch previews', keywords: 'cron scheduled jobs webhooks endpoints deliveries outbound previews branches pr' },
+  { to: '/stacks/$name/config/previews', path: 'config/previews', label: 'Branch previews', blurb: 'A copy of the app per branch or pull request', keywords: 'previews branch pr pull request trial deploy preview data scrub ttl teardown' },
 ];

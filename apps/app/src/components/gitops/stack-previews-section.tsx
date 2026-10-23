@@ -11,7 +11,19 @@ import type { StackAppMatch } from './gitops-types';
 export function StackPreviewsSection({ stack, match }: { stack: string; match: StackAppMatch | null }): React.JSX.Element {
   const previews = match?.app.previews ?? [];
   return (
-    <Section title="Branch previews" count={match ? previews.length : undefined} hint="a copy of the app per branch or pull request" flush>
+    <Section
+      title="Branch previews"
+      count={match ? previews.length : undefined}
+      hint="a copy of the app per branch or pull request"
+      flush
+      action={
+        match ? (
+          <Link to="/stacks/$name/config/previews" params={{ name: stack }} className="pointer-coarse:min-h-11 content-center">
+            <SectionLink>Rules, data and a new one →</SectionLink>
+          </Link>
+        ) : undefined
+      }
+    >
       {match && previews.length ? (
         <AppEnvironmentsList app={match.app} stack={stack} show="previews" />
       ) : (

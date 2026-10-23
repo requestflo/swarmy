@@ -6,9 +6,13 @@
  * destroys (`data.destroy` / `service.remove` / `stack.deploy` via
  * evaluateAccess), and audited.
  */
+import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { adminProcedure, orgProcedure, router } from '../trpc';
+import { abacProcedure, resolveStackByName, type ResolveResource } from '../abac';
 import {
+  createAppPreview,
+  teardownAppPreview,
   confirmAppActions,
   checkDriftNow,
   getPlan,
@@ -22,6 +26,24 @@ import {
 } from '../services/apps.service';
 
 const id = z.string().min(1).max(100);
+
+/**
+ * The live preview stack a `{ repoId, prNumber }` names (org-scoped plan row
+ * → the stack's live labels), so a policy on that stack applies to its
+ * teardown. Malformed input resolves to the org; an unknown preview is
+ * NOT_FOUND, never "authorize as the org".
+ */
+const resolvePreviewStack: ResolveResource = async (ctx, input) => {
+  const i = (input ?? {}) as { repoId?: unknown; prNumber?: unknown };
+  if (typeof i.repoId !== 'string' || typeof i.prNumber !== 'number') return null;
+  const row = await ctx.db.appPlan.findFirst({
+    where: { orgId: ctx.activeOrgId, repoId: i.repoId, environment: 'preview', prNumber: i.prNumber },
+    orderBy: { updatedAt: 'desc' },
+    select: { stack: true },
+  });
+  if (!row) throw new TRPCError({ code: 'NOT_FOUND', message: 'that preview is gone' });
+  return resolveStackByName(ctx, { stack: row.stack });
+};
 
 export const appsRouter = router({
   list: orgProcedure.query(({ ctx }) => listApps(ctx)),
@@ -72,6 +94,20 @@ export const appsRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => purgeAppData(ctx, input)),
+
+  /**
+   * Preview a branch (no pull request needed) — the same engine as a PR or
+   * branch preview, and the same guard as REST `POST /apps/{repoId}/previews`
+   * (any member; the plan's own gates still apply).
+   */
+  createPreview: orgProcedure
+    .input(z.object({ repoId: id, branch: z.string().min(1).max(200) }))
+    .mutation(({ ctx, input }) => createAppPreview(ctx, input)),
+
+  /** Tear a preview down now (its services and throwaway resources) — `stack.remove` on the preview stack. */
+  teardownPreview: abacProcedure('stack.remove', resolvePreviewStack)
+    .input(z.object({ repoId: id, prNumber: z.number().int().min(1) }))
+    .mutation(({ ctx, input }) => teardownAppPreview(ctx, input, { byUser: true })),
 
   /** Promote an environment's running digests (staging) to production — no rebuild, same gates. */
   promote: adminProcedure

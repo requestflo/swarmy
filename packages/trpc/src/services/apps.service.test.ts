@@ -1,6 +1,24 @@
 import { describe, expect, it } from 'bun:test';
 import { emptyLive, parseAppConfig, planApp, toDesired } from '@swarmy/app-config';
-import { authorizationFor, isAppBinding, promoteEnvironment, purgeAppData } from './apps.service';
+import { authorizationFor, isAppBinding, previewRulesOf, promoteEnvironment, purgeAppData } from './apps.service';
+
+describe('preview rules (read-only, from the last production plan)', () => {
+  it("are production swarmy.yaml's previews: block", () => {
+    const cfg = parseAppConfig(
+      'version: 1\napp: shop\nservices: { web: { image: "a:1" } }\npreviews: { enabled: true, ttl: 48h, branches: ["feature/*"], data: { from: production, scrub: db/scrub.sql } }\n',
+    ).config!;
+    expect(previewRulesOf(toDesired(cfg))).toEqual({
+      enabled: true,
+      branches: ['feature/*'],
+      ttlSeconds: 48 * 3600,
+      resources: 'isolated',
+      data: { from: 'production', scrub: 'db/scrub.sql' },
+    });
+  });
+  it('are null before any plan', () => {
+    expect(previewRulesOf(null)).toBeNull();
+  });
+});
 
 describe('confirm authorization (by what a step destroys)', () => {
   const cfg = parseAppConfig(

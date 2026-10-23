@@ -57,6 +57,7 @@ import { phoneHome } from './resolvers/phone-home';
 import { placementDemo } from './resolvers/placement-demo';
 import { jobsYesterday } from './resolvers/jobs-yesterday';
 import { appEnvironments } from './resolvers/app-environments';
+import { appPreviews } from './resolvers/app-previews';
 
 /**
  * Assembles every per-domain resolver module into flat lookup tables for the demo
@@ -123,6 +124,7 @@ const MODULES: DomainResolvers[] = [
   placementDemo,
   jobsYesterday,
   appEnvironments,
+  appPreviews,
 ];
 
 export const HANDLERS: Record<string, DemoHandler> = Object.assign(

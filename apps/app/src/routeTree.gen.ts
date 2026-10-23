@@ -85,6 +85,7 @@ import { Route as AuthedStacksNameErrorsFingerprintRouteImport } from './routes/
 import { Route as AuthedStacksNameDataClusterRouteImport } from './routes/_authed/stacks/$name.data.$cluster'
 import { Route as AuthedStacksNameConfigScalingRouteImport } from './routes/_authed/stacks/$name.config.scaling'
 import { Route as AuthedStacksNameConfigRolloutRouteImport } from './routes/_authed/stacks/$name.config.rollout'
+import { Route as AuthedStacksNameConfigPreviewsRouteImport } from './routes/_authed/stacks/$name.config.previews'
 import { Route as AuthedStacksNameConfigPlacementRouteImport } from './routes/_authed/stacks/$name.config.placement'
 import { Route as AuthedStacksNameConfigPasteRouteImport } from './routes/_authed/stacks/$name.config.paste'
 import { Route as AuthedStacksNameConfigJobsRouteImport } from './routes/_authed/stacks/$name.config.jobs'
@@ -494,6 +495,12 @@ const AuthedStacksNameConfigRolloutRoute =
     path: '/config/rollout',
     getParentRoute: () => AuthedStacksNameRoute,
   } as any)
+const AuthedStacksNameConfigPreviewsRoute =
+  AuthedStacksNameConfigPreviewsRouteImport.update({
+    id: '/config/previews',
+    path: '/config/previews',
+    getParentRoute: () => AuthedStacksNameRoute,
+  } as any)
 const AuthedStacksNameConfigPlacementRoute =
   AuthedStacksNameConfigPlacementRouteImport.update({
     id: '/config/placement',
@@ -581,6 +588,7 @@ export interface FileRoutesByFullPath {
   '/stacks/$name/config/jobs': typeof AuthedStacksNameConfigJobsRoute
   '/stacks/$name/config/paste': typeof AuthedStacksNameConfigPasteRoute
   '/stacks/$name/config/placement': typeof AuthedStacksNameConfigPlacementRoute
+  '/stacks/$name/config/previews': typeof AuthedStacksNameConfigPreviewsRoute
   '/stacks/$name/config/rollout': typeof AuthedStacksNameConfigRolloutRoute
   '/stacks/$name/config/scaling': typeof AuthedStacksNameConfigScalingRoute
   '/stacks/$name/data/$cluster': typeof AuthedStacksNameDataClusterRoute
@@ -660,6 +668,7 @@ export interface FileRoutesByTo {
   '/stacks/$name/config/jobs': typeof AuthedStacksNameConfigJobsRoute
   '/stacks/$name/config/paste': typeof AuthedStacksNameConfigPasteRoute
   '/stacks/$name/config/placement': typeof AuthedStacksNameConfigPlacementRoute
+  '/stacks/$name/config/previews': typeof AuthedStacksNameConfigPreviewsRoute
   '/stacks/$name/config/rollout': typeof AuthedStacksNameConfigRolloutRoute
   '/stacks/$name/config/scaling': typeof AuthedStacksNameConfigScalingRoute
   '/stacks/$name/data/$cluster': typeof AuthedStacksNameDataClusterRoute
@@ -742,6 +751,7 @@ export interface FileRoutesById {
   '/_authed/stacks/$name/config/jobs': typeof AuthedStacksNameConfigJobsRoute
   '/_authed/stacks/$name/config/paste': typeof AuthedStacksNameConfigPasteRoute
   '/_authed/stacks/$name/config/placement': typeof AuthedStacksNameConfigPlacementRoute
+  '/_authed/stacks/$name/config/previews': typeof AuthedStacksNameConfigPreviewsRoute
   '/_authed/stacks/$name/config/rollout': typeof AuthedStacksNameConfigRolloutRoute
   '/_authed/stacks/$name/config/scaling': typeof AuthedStacksNameConfigScalingRoute
   '/_authed/stacks/$name/data/$cluster': typeof AuthedStacksNameDataClusterRoute
@@ -824,6 +834,7 @@ export interface FileRouteTypes {
     | '/stacks/$name/config/jobs'
     | '/stacks/$name/config/paste'
     | '/stacks/$name/config/placement'
+    | '/stacks/$name/config/previews'
     | '/stacks/$name/config/rollout'
     | '/stacks/$name/config/scaling'
     | '/stacks/$name/data/$cluster'
@@ -903,6 +914,7 @@ export interface FileRouteTypes {
     | '/stacks/$name/config/jobs'
     | '/stacks/$name/config/paste'
     | '/stacks/$name/config/placement'
+    | '/stacks/$name/config/previews'
     | '/stacks/$name/config/rollout'
     | '/stacks/$name/config/scaling'
     | '/stacks/$name/data/$cluster'
@@ -984,6 +996,7 @@ export interface FileRouteTypes {
     | '/_authed/stacks/$name/config/jobs'
     | '/_authed/stacks/$name/config/paste'
     | '/_authed/stacks/$name/config/placement'
+    | '/_authed/stacks/$name/config/previews'
     | '/_authed/stacks/$name/config/rollout'
     | '/_authed/stacks/$name/config/scaling'
     | '/_authed/stacks/$name/data/$cluster'
@@ -1539,6 +1552,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedStacksNameConfigRolloutRouteImport
       parentRoute: typeof AuthedStacksNameRoute
     }
+    '/_authed/stacks/$name/config/previews': {
+      id: '/_authed/stacks/$name/config/previews'
+      path: '/config/previews'
+      fullPath: '/stacks/$name/config/previews'
+      preLoaderRoute: typeof AuthedStacksNameConfigPreviewsRouteImport
+      parentRoute: typeof AuthedStacksNameRoute
+    }
     '/_authed/stacks/$name/config/placement': {
       id: '/_authed/stacks/$name/config/placement'
       path: '/config/placement'
@@ -1579,6 +1599,7 @@ interface AuthedStacksNameRouteChildren {
   AuthedStacksNameConfigJobsRoute: typeof AuthedStacksNameConfigJobsRoute
   AuthedStacksNameConfigPasteRoute: typeof AuthedStacksNameConfigPasteRoute
   AuthedStacksNameConfigPlacementRoute: typeof AuthedStacksNameConfigPlacementRoute
+  AuthedStacksNameConfigPreviewsRoute: typeof AuthedStacksNameConfigPreviewsRoute
   AuthedStacksNameConfigRolloutRoute: typeof AuthedStacksNameConfigRolloutRoute
   AuthedStacksNameConfigScalingRoute: typeof AuthedStacksNameConfigScalingRoute
   AuthedStacksNameDataClusterRoute: typeof AuthedStacksNameDataClusterRoute
@@ -1608,6 +1629,7 @@ const AuthedStacksNameRouteChildren: AuthedStacksNameRouteChildren = {
   AuthedStacksNameConfigJobsRoute: AuthedStacksNameConfigJobsRoute,
   AuthedStacksNameConfigPasteRoute: AuthedStacksNameConfigPasteRoute,
   AuthedStacksNameConfigPlacementRoute: AuthedStacksNameConfigPlacementRoute,
+  AuthedStacksNameConfigPreviewsRoute: AuthedStacksNameConfigPreviewsRoute,
   AuthedStacksNameConfigRolloutRoute: AuthedStacksNameConfigRolloutRoute,
   AuthedStacksNameConfigScalingRoute: AuthedStacksNameConfigScalingRoute,
   AuthedStacksNameDataClusterRoute: AuthedStacksNameDataClusterRoute,

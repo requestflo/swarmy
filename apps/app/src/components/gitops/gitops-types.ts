@@ -114,6 +114,19 @@ export interface GitApp {
   previews: AppPreview[];
   /** Last drift check (cached by the worker); null = never checked. */
   drift: AppDrift | null;
+  /** The git connection branches are listed through; null for a plain URL. */
+  connectionId?: string | null;
+  /** production swarmy.yaml's `previews:` (read-only); null before a plan. */
+  previewRules?: PreviewRules | null;
+}
+
+export interface PreviewRules {
+  enabled: boolean;
+  /** Branch patterns that also get previews; empty = pull requests only. */
+  branches: string[];
+  ttlSeconds: number;
+  resources: 'isolated' | 'shared';
+  data?: { from: string; scrub?: string };
 }
 
 /** Actions still waiting for a human on this plan. */
