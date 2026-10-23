@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'bun:test';
 import { GUARDRAIL_RULE_IDS } from '@swarmy/core';
+import type { OrgContext } from '../context';
 import {
   coerceDecisionViolations,
   defaultGuardrailRules,
   encodeGuardrailRules,
   GUARDRAIL_DEFAULTS,
   parseGuardrailRules,
+  recentDecisions,
 } from './guardrails.service';
 
 describe('defaultGuardrailRules', () => {
@@ -92,5 +94,20 @@ describe('coerceDecisionViolations — audit metadata → typed violations', () 
     expect(coerceDecisionViolations({})).toEqual([]);
     expect(coerceDecisionViolations({ violations: 'nope' })).toEqual([]);
     expect(coerceDecisionViolations({ violations: [{ rule: 1 }, null, 'x'] })).toEqual([]);
+  });
+});
+
+describe('recentDecisions — the override reason rides along', () => {
+  it('shows the reason an admin gave, and nothing when none was recorded', async () => {
+    const at = new Date('2026-10-20T10:00:00Z');
+    const rows = [
+      { id: 2n, action: 'service.deploy.override', ts: at, targetId: 'web', metadata: { violations: [], reason: 'hotfix' }, actor: { name: 'Ada', email: null } },
+      { id: 1n, action: 'guardrails.deploy.blocked', ts: at, targetId: 'shop', metadata: { violations: [] }, actor: null },
+    ];
+    const ctx = { activeOrgId: 'o1', db: { auditLog: { findMany: async () => rows } } } as unknown as OrgContext;
+    const [over, blocked] = await recentDecisions(ctx, { limit: 10 });
+    expect(over).toMatchObject({ id: '2', kind: 'overridden', actor: 'Ada', stack: 'web', reason: 'hotfix' });
+    expect(blocked).toMatchObject({ id: '1', kind: 'blocked' });
+    expect(blocked && 'reason' in blocked).toBe(false);
   });
 });

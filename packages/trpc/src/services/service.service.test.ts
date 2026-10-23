@@ -143,9 +143,15 @@ describe('createService admission', () => {
     expect(member.dispatched).toHaveLength(0);
 
     const admin = fakeCtx({ safetyMode: true, role: 'admin' });
-    await createService(admin.ctx, input('nginx:latest', { override: true }));
+    // "Deploy anyway" needs a reason: a bare override is refused before the swarm.
+    await expect(createService(admin.ctx, input('nginx:latest', { override: true, overrideReason: ' ' }))).rejects.toThrow(
+      /say why/,
+    );
+    expect(admin.dispatched).toHaveLength(0);
+    await createService(admin.ctx, input('nginx:latest', { override: true, overrideReason: 'hotfix, pinned tomorrow' }));
     expect(admin.dispatched.map((d) => d.command)).toEqual(['service.deploy']);
     expect(admin.audit.map((a) => a.action)).toEqual(['service.deploy.override', 'service.deploy']);
+    expect(admin.audit[0]?.metadata).toMatchObject({ reason: 'hotfix, pinned tomorrow' });
   });
 
   it('refuses under the individually-armed block rule too (safety mode off)', async () => {

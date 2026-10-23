@@ -6,13 +6,18 @@ import { INSTANCE_OWNER_REQUIRED, isInstanceOwner } from './services/instance-ow
 
 const t = initTRPC.context<BaseContext>().create({
   transformer: superjson,
-  errorFormatter: ({ shape, error }) => ({
-    ...shape,
-    data: {
-      ...shape.data,
-      swarmyCode: (error.cause as { swarmyCode?: string } | undefined)?.swarmyCode,
-    },
-  }),
+  errorFormatter: ({ shape, error }) => {
+    const cause = error.cause as { swarmyCode?: string; violations?: unknown } | undefined;
+    return {
+      ...shape,
+      data: {
+        ...shape.data,
+        swarmyCode: cause?.swarmyCode,
+        // Admission refusals carry their violations so the UI can offer an override.
+        ...(Array.isArray(cause?.violations) ? { violations: cause.violations as unknown[] } : {}),
+      },
+    };
+  },
 });
 
 export const router = t.router;

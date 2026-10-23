@@ -26,6 +26,7 @@ export function DecisionsFeed(): React.JSX.Element {
                 <StatusWord tone={d.kind === 'blocked' ? 'bad' : 'warn'} word={d.kind === 'blocked' ? 'Stopped' : 'Overridden'} />
               </div>
               <p className="text-muted-foreground text-[13px] leading-snug">{d.violations[0]?.message ?? 'Hit a guardrail.'}</p>
+              {d.reason ? <p className="text-[13px] leading-snug">Why: {d.reason}</p> : null}
               <span className="text-muted-foreground text-xs">{relTime(d.at)}{d.actor ? ` · ${d.actor}` : ''}</span>
               <Tech>{d.violations.map((v) => `${v.rule}:${v.severity}`).join(' · ')}</Tech>
             </li>

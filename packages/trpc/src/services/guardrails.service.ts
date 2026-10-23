@@ -300,5 +300,11 @@ export async function recentDecisions(
     actor: r.actor?.name ?? r.actor?.email ?? null,
     stack: r.targetId ?? null,
     violations: coerceDecisionViolations(r.metadata),
+    ...overrideReason(r.metadata),
   }));
+}
+
+function overrideReason(metadata: unknown): { reason?: string } {
+  const reason = (metadata as { reason?: unknown } | null)?.reason;
+  return typeof reason === 'string' && reason ? { reason } : {};
 }

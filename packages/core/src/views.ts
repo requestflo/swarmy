@@ -1943,6 +1943,8 @@ export interface GuardrailDecisionView {
   actor: string | null;
   stack: string | null;
   violations: GuardrailDecisionViolation[];
+  /** The reason an admin gave for an override, when one was recorded. */
+  reason?: string;
 }
 
 // ── Audit pack (slice E5) — timeline, facets, export, retention ───────────────

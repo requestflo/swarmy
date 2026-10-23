@@ -15,7 +15,10 @@ import { writeAudit } from './audit.service';
  *                                     swarmyCode POLICY_DENIED); the guardrails
  *                                     evaluator records `guardrails.deploy.blocked`.
  *      block violation + override by a `member` → FORBIDDEN (admin/owner only).
- *      violations + permitted override → one `<kind>.override` audit row.
+ *      block override without a reason, when the caller requires one →
+ *                                     BAD_REQUEST (OVERRIDE_REASON_REQUIRED).
+ *      violations + permitted override → one `<kind>.override` audit row,
+ *                                     carrying the reason when given.
  *  - automation (workers/webhooks: autodeploy, PR previews): nobody can
  *      confirm a warn or authorise an override, so warns pass (they are still
  *      recorded by the evaluator) and any `block` refuses.
@@ -39,6 +42,10 @@ export interface EnforceAdmissionOptions {
   targetId: string;
   /** `automation` = system actor, no override possible, only `block` refuses. */
   mode?: 'interactive' | 'automation';
+  /** Why the person is overriding; recorded on the override audit row. */
+  overrideReason?: string;
+  /** Refuse a `block` override that carries no reason (the dashboard's "Deploy anyway"). */
+  requireReason?: boolean;
 }
 
 /**
@@ -81,11 +88,19 @@ export async function enforceAdmission(
       cause: { swarmyCode: 'POLICY_DENIED', violations },
     });
   }
+  const reason = opts.overrideReason?.trim() || undefined;
+  if (hasBlock && opts.requireReason && !reason) {
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: 'say why you are deploying past a blocking guardrail — the reason is audited',
+      cause: { swarmyCode: 'OVERRIDE_REASON_REQUIRED', violations },
+    });
+  }
   await writeAudit(ctx, {
     action: intent.kind === 'stack.deploy' ? 'stack.deploy.override' : 'service.deploy.override',
     targetType: opts.targetType,
     targetId: opts.targetId,
-    metadata: { violations: violations.map((v) => ({ ...v })) },
+    metadata: { violations: violations.map((v) => ({ ...v })), ...(reason ? { reason } : {}) },
   });
   return violations;
 }

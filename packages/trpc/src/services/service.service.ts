@@ -257,7 +257,7 @@ export async function createService(
       specs: [spec],
       override: input.override,
     },
-    { targetType: 'service', targetId: input.name },
+    { targetType: 'service', targetId: input.name, overrideReason: input.overrideReason, requireReason: true },
   );
 
   // The domain gate: a new host enters DNS verification BEFORE the route lands,

@@ -92,6 +92,8 @@ export const CreateServiceInput = z.object({
   ingress: ServiceIngressInput.optional(),
   /** Override admission-policy violations (audited; block-level needs admin). */
   override: z.boolean().optional(),
+  /** Why — required to override a blocking violation; recorded on the audit row. */
+  overrideReason: z.string().trim().max(500).optional(),
 });
 export type CreateServiceInput = z.infer<typeof CreateServiceInput>;
 
