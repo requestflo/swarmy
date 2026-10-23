@@ -48,11 +48,15 @@ const FAILURE: Record<string, { reason: string; stack: string }> = {
   },
 };
 
+/** Queues paused from the studio this session (BullMQ moves waiting jobs to `paused`). */
+const PAUSED = new Set<string>();
+
 function sample(q: DemoQ) {
+  const p = PAUSED.has(q.name);
   return {
     name: q.name,
-    counts: { wait: q.wait, paused: 0, active: q.active, prioritized: 0, delayed: q.delayed, completed: q.completed, failed: q.failed, waitingChildren: 0 },
-    isPaused: false,
+    counts: { wait: p ? 0 : q.wait, paused: p ? q.wait : 0, active: q.active, prioritized: 0, delayed: q.delayed, completed: q.completed, failed: q.failed, waitingChildren: 0 },
+    isPaused: p,
     jobsTotal: q.wait + q.active + q.delayed + q.completed + q.failed,
     metricsCompleted: q.completed,
     metricsFailed: q.failed,
@@ -121,16 +125,24 @@ export const queueStudio: DomainResolvers = {
       };
     },
     'queues.studioRates': (i) => {
-      const { queue = '' } = (i ?? {}) as { queue?: string };
+      // Like the controller: 60 buckets across the window, each `windowMinutes` seconds wide.
+      const { queue = '', windowMinutes = 60 } = (i ?? {}) as { queue?: string; windowMinutes?: number };
       const q = STOREFRONT_QUEUES.find((x) => x.name === queue);
-      const points = Array.from({ length: 24 }, (_, k) => ({
-        bucket: new Date(Date.now() - (23 - k) * 15 * MIN).toISOString(),
-        completed: Math.round((q?.perMin ?? 0) * 15 * (0.7 + 0.3 * Math.sin(k / 3))),
-        failed: q?.failed && k % 7 === 3 ? 3 : 0,
-        seconds: 900,
-        waiting: Math.round((q?.wait ?? 0) * (0.5 + 0.5 * Math.sin(k / 4))),
+      const bucketS = Math.max(60, windowMinutes);
+      const points = Array.from({ length: 60 }, (_, k) => ({
+        bucket: new Date(Date.now() - (59 - k) * bucketS * 1000).toISOString(),
+        completed: Math.round(((q?.perMin ?? 0) * bucketS) / 60 * (0.7 + 0.3 * Math.sin(k / 6))),
+        failed: q?.failed && k % 9 === 4 ? Math.max(1, Math.round(bucketS / 300)) : 0,
+        seconds: bucketS,
+        waiting: Math.round((q?.wait ?? 0) * (0.5 + 0.5 * Math.sin(k / 8))),
       }));
       return { status: 'ok', points };
+    },
+    'queues.studioPause': (i) => {
+      const { queue = '', paused = true } = (i ?? {}) as { queue?: string; paused?: boolean };
+      if (paused) PAUSED.add(queue);
+      else PAUSED.delete(queue);
+      return { ok: true, message: paused ? `Paused ${queue}.` : `Resumed ${queue}.` };
     },
   },
 };

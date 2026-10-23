@@ -7,6 +7,7 @@ import { useTRPC } from '@/integrations/trpc';
 import { CountUp } from '@/components/count-up';
 import { CardSkeleton, ErrorState } from '@/components/states';
 import { QueueDetail } from './queue-detail';
+import { QueueSpark } from './queue-spark';
 import { QueueStudioHeader } from './queue-studio-header';
 import type { StudioQueue, StudioRef } from './studio-types';
 
@@ -98,6 +99,7 @@ export function QueueStudio({ stack, cluster }: { stack: string; cluster: string
                         {q.rate ? ` · ${q.rate.throughput}/min` : ''}
                       </p>
                     </div>
+                    <QueueSpark studio={ref} queue={q.name} />
                     {q.isPaused ? (
                       <StatusWord tone="idle" word="Paused" />
                     ) : q.counts.failed > 0 ? (

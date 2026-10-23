@@ -4,11 +4,14 @@ import { FastForwardIcon, PauseIcon, PlayIcon, RotateCcwIcon } from 'lucide-reac
 import { Button, cn, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { JobList } from './job-list';
+import { QueueAutoscale } from './queue-autoscale';
 import { QueueCleanBar } from './queue-clean';
+import { QueuePausedNote } from './queue-paused-note';
 import { QueueRates } from './queue-rates';
+import { QueueWriteAccess } from './queue-write-access';
 import { STUDIO_STATES, stateCount, type StudioQueue, type StudioRef, type StudioState } from './studio-types';
 
-/** One queue: counts by state, actions, rates, and the job browser. */
+/** One queue: counts by state, actions, who may write, autoscale, rates, and the job browser. */
 export function QueueDetail({ studio, queue }: { studio: StudioRef; queue: StudioQueue }): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
@@ -65,7 +68,16 @@ export function QueueDetail({ studio, queue }: { studio: StudioRef; queue: Studi
         >
           <FastForwardIcon className="size-3.5" /> Promote delayed
         </Button>
+        <div className="basis-full">
+          <QueueWriteAccess />
+        </div>
       </div>
+
+      {queue.isPaused ? (
+        <QueuePausedNote name={queue.name} busy={pause.isPending} onResume={() => pause.mutate({ ...ref, paused: false })} />
+      ) : null}
+
+      <QueueAutoscale studio={studio} queue={queue.name} />
 
       <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-8">
         {STUDIO_STATES.map((s) => {

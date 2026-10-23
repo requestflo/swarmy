@@ -85,3 +85,17 @@ export function progressPct(raw: string | null | undefined): number | null {
   const n = Number(raw);
   return raw != null && Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : null;
 }
+
+/** One `studioRates` bucket, as the controller returns it. */
+export interface RatePoint {
+  bucket: string;
+  completed: number;
+  failed: number;
+  seconds: number;
+}
+
+/** Rate buckets → done/failed per minute (a bucket's own sampled seconds, not its width). */
+export function perMinute(points: readonly RatePoint[]): { t: string; throughput: number; failures: number }[] {
+  const pm = (n: number, s: number): number => (s > 0 ? Math.round((n / s) * 60 * 10) / 10 : 0);
+  return points.map((p) => ({ t: p.bucket, throughput: pm(p.completed, p.seconds), failures: pm(p.failed, p.seconds) }));
+}
