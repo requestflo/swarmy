@@ -1,6 +1,6 @@
 # swarmy — what's still open
 
-Status: **living list, pruned 2026-09-24.** Every item below was checked against
+Status: **living list, pruned 2026-10-23.** Every item below was checked against
 the code on that date. When you close one, delete its line; when you open one,
 add it here or as an `issues/` file.
 
@@ -13,8 +13,10 @@ How the docs fit together:
 - **`plans/`** — only work that is still being designed or built:
   - [`epic-platform-upgrades.md`](./epic-platform-upgrades.md) — one-button,
     health-gated upgrades of every platform component (in progress).
-  - [`redesign-dashboard-2026-09.md`](./redesign-dashboard-2026-09.md) — the
-    calm ops console redesign (P0 landing; P1–P4 to come).
+  - [`redesign-build.md`](./redesign-build.md) — the 69-board canvas built in
+    Calm Layers: what's built, what's deferred and why (the build record;
+    [`redesign-dashboard-2026-09.md`](./redesign-dashboard-2026-09.md) is the
+    original proposal it came from).
   - [`epic-git-apps.md`](./epic-git-apps.md) — git-connected apps
     (`swarmy.yaml` v1, provider auth, GitOps loop, builds).
   - [`epic-docker-native-state.md`](./epic-docker-native-state.md) — no
@@ -61,41 +63,21 @@ rule itself lives in the linked doc.
 - **`.design/` deleted** — the skills and `redesign-dashboard-2026-09.md` are
   the design authority.
 
-## Competitive gaps (from `competitive-gaps-2026-09.md`, checked 2026-09-24)
+## Competitive gaps (from `competitive-gaps-2026-09.md`, checked 2026-10-23)
 
-LB = launch-blocker. Size S/M/L.
+Every launch-blocker in the gap analysis has shipped (2026-09-24): Railpack
+zero-config builds, the GitHub App manifest flow with PR checks and comments,
+63 templates plus the Coolify importer, Discord/Telegram/ntfy/Gotify channels
+with default rules, TOTP 2FA with terminal step-up and session limits, node
+disk hygiene, MySQL/MariaDB/Mongo logical backup + restore, and bulk `.env`
+paste. So did most of the next tier: the pre-deploy `release` command, DNS-01
+wildcards via swarmy-dns, named environments, previews with data, the CLI + MCP
+server and the BuildKit registry cache. What is left (none launch-blocking):
 
-1. **Zero-config builds (Railpack)** — auto-detect, static sites, no
-   Dockerfile. Today builds are Dockerfile-only. S–M, LB.
-2. **GitHub App** manifest flow + repo picker + PR comment / commit status with
-   the preview URL + webhook watch paths; Gitea next. Today: paste webhook +
-   PAT, GitHub/GitLab only. M, LB. (`epic-git-apps.md`.)
-3. ~~Automatic HTTPS route per HTTP service~~ — shipped (84c6b93:
-   `<service>-<stack>.<edge-ip>.sslip.io` on the default Caddy edge).
-4. ~~Third-party registry credentials~~ — shipped (33e39af: per-org pull
-   credentials for GHCR, Docker Hub and other registries).
-5. **Compose template catalogue ≥ 50 at launch** (9 blueprints today vs Dokploy
-   532 / Coolify 368), CDN-indexed, plus an importer for Coolify's Apache-2.0
-   templates. M, LB at ≥ 50.
-6. **Discord / Telegram / ntfy channels** (email/Slack/Teams/webhook today) +
-   default rules: build failed, deploy rolled back, backup failed, disk, cert,
-   node offline. S, LB.
-7. **TOTP 2FA** (Better Auth `twoFactor`; passkeys only today) + enforce the
-   terminal `requireMfa` / `maxSessionMs` (see Security). S, LB.
-8. **Docker hygiene** — `image.prune` hygiene mode, json-file log-opts, a
-   journald cap, and a default disk > 85 % alert
-   (`issues/vm-disk-chronically-full.md`). S, LB.
-9. **MySQL / MariaDB / Mongo logical backup + one-click restore** (managed DB is
-   Postgres-only); a managed engine later. M; backup/restore is LB. In-place
-   restore goes on `abacProcedure('data.restore')`.
-10. **Bulk `.env` paste** (S, LB), then shared env groups + environments with
-    clone-as-staging / promote-by-digest (M–L, not LB).
-
-Just below the line: preview DB forks from the latest backup (reuses the
-restore-drill clone machinery), a developer CLI + MCP server, persistent
-BuildKit cache, pre-deploy release command, route basic-auth, DNS-01 wildcard
-via swarmy-dns, importers (Coolify drops Swarm in v5; Heroku is in sustaining
-mode).
+- **Environments**: "clone as a new environment" and shared-vs-override
+  variables in the dashboard (promote-by-digest exists). M–L.
+- **Route basic-auth** as an edge protection (not in the protection model). S.
+- **Gitea** as a git provider; a Heroku importer. M each.
 
 ## Launch verification
 
@@ -115,8 +97,6 @@ mode).
   role-gated after the destructive-action sweep (`skill("auth-abac")`).
 - SAML SSO rows are stored but skipped at build time (no SAML plugin in the
   Better Auth version in use).
-- Terminal `requireMfa` and `maxSessionMs` are stored and editable but not
-  enforced.
 - Open question: a second, agent-side factor for privileged capabilities (node
   shell, mesh, builds), so a compromised controller alone can't use them.
 - The controller receives `agentVersion`/`protocolVersions` on register but never
@@ -168,20 +148,15 @@ mode).
 ## REST API & Terraform
 
 - `Deprecation`/`Sunset` headers and `x-swarmy-deprecated` for v1 endpoints
-  (the policy is in `skill("rest-api-surface")` invariant 8); a spec-drift CI
-  gate.
+  (the policy is in `skill("rest-api-surface")` invariant 8).
 - Terraform provider: treat async (202) deploys as blocking — poll
   `/deployments/{id}` to a terminal phase and fail the apply on failure; add
   `join_token`, `ingress` and `node` resources.
-- `terraform-provider-swarmy/README.md` still says the Go SDK comes from
-  Speakeasy; it's generated by `scripts/gen-sdks.ts`.
 
 ## Dashboard
 
-(Most UI work is sequenced by `redesign-dashboard-2026-09.md`.)
+(Board-by-board status and what's deferred: `redesign-build.md`.)
 
-- `NodeDetail.swarmOrchestration` (waiting/joining/failed + reason) is exposed
-  but not rendered.
 - Switching org can show the previous org for up to 60 s (Better Auth
   `cookieCache` isn't refreshed by `switchOrg`).
 - `/services/new` has no admin override for guardrail blocks, and the REST
@@ -189,8 +164,6 @@ mode).
 
 ## CI & release
 
-- CI runs no `bun run test` job — the unit gates only protect you if you run
-  them (`skill("testing-conventions")`).
 - The Release workflow is manual until launch; restore `push: branches: [main]`
   afterwards.
 - DCO sign-off is documented in `CONTRIBUTING.md` but not enforced.

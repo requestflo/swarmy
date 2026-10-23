@@ -1,6 +1,9 @@
 # Dashboard redesign 2026-09 — a calm ops console for novices and experts
 
-Status: **proposal, awaiting owner review. No code changed.**
+Status: **approved and built** (2026-09-25, as the 69-board canvas in Calm
+Layers). This is the original proposal, kept for its rationale; the build
+record, route → board map and what's still deferred live in
+[`redesign-build.md`](./redesign-build.md).
 Supersedes the earlier command-bar/canvas redesign plan (deleted; its
 two-plane shell was already replaced by the sidenav and its per-page
 conventions are folded in here). Keeps `docs/product/product-shape.md`'s estate/stack split intact.
