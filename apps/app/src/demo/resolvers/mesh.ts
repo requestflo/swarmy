@@ -35,6 +35,8 @@ interface MeshPeerView {
   meshIp: string | null;
   status: string;
   lastSeen: string | null;
+  /** Through a relay rather than peer-to-peer; null until the agent reports. */
+  relayed: boolean | null;
 }
 
 /** The demo mesh world: org config, control plane and peers. */
@@ -154,6 +156,7 @@ export const mesh: DomainResolvers = {
         meshIp: nextMeshIp(st),
         status: 'ENROLLING',
         lastSeen: nowIso(),
+        relayed: null,
       };
       // Newest first, matching the controller's `orderBy: createdAt desc`.
       st.peers = [peer, ...st.peers];
@@ -188,10 +191,11 @@ export const mesh: DomainResolvers = {
       tokenConfigured: true,
       updatedAt: isoAgo(18 * MIN),
       peers: [
-        { id: 'peer-mgr-1', nodeId: 'n-mgr-1', meshIp: '100.92.0.11', status: 'CONNECTED', lastSeen: isoAgo(4_000) },
-        { id: 'peer-mgr-2', nodeId: 'n-mgr-2', meshIp: '100.92.0.12', status: 'CONNECTED', lastSeen: isoAgo(7_000) },
-        { id: 'peer-wkr-1', nodeId: 'n-wkr-1', meshIp: '100.92.0.21', status: 'CONNECTED', lastSeen: isoAgo(12_000) },
-        { id: 'peer-wkr-2', nodeId: 'n-wkr-2', meshIp: '100.92.0.22', status: 'ENROLLED', lastSeen: isoAgo(3 * MIN) },
+        { id: 'peer-mgr-1', nodeId: 'n-mgr-1', meshIp: '100.92.0.11', status: 'CONNECTED', lastSeen: isoAgo(4_000), relayed: false },
+        { id: 'peer-mgr-2', nodeId: 'n-mgr-2', meshIp: '100.92.0.12', status: 'CONNECTED', lastSeen: isoAgo(7_000), relayed: false },
+        // Behind a strict NAT: no hole punched, so its links ride the relay.
+        { id: 'peer-wkr-1', nodeId: 'n-wkr-1', meshIp: '100.92.0.21', status: 'CONNECTED', lastSeen: isoAgo(12_000), relayed: true },
+        { id: 'peer-wkr-2', nodeId: 'n-wkr-2', meshIp: '100.92.0.22', status: 'ENROLLED', lastSeen: isoAgo(3 * MIN), relayed: null },
       ],
     };
     store.extra.mesh = state;

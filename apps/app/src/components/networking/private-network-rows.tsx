@@ -10,21 +10,37 @@ const PEER: Record<string, { tone: Tone; word: string; say: string }> = {
   FAILED: { tone: 'bad', word: 'Offline', say: 'Could not join' },
 };
 
+/** How a connected server's links go: peer to peer, or through a relay (null = not reported yet). */
+const LINK = {
+  direct: 'Direct, peer to peer, no middleman',
+  relayed: 'Through a relay, still end-to-end encrypted',
+};
+
+/** "2 direct · 1 relayed" over the connected servers that reported it; null when none has. */
+export function linkCounts(peers: PrivateNetwork['peers']): string | null {
+  const known = peers.filter((p) => p.status === 'CONNECTED' && p.relayed !== null);
+  if (known.length === 0) return null;
+  const relayed = known.filter((p) => p.relayed).length;
+  return `${known.length - relayed} direct · ${relayed} relayed`;
+}
+
 /** Servers on the private network, one flat row each. */
 export function ServerRows({ n }: { n: PrivateNetwork }): React.JSX.Element {
   const name = (id: string): string => n.nodes.find((x) => x.id === id)?.name ?? id;
+  const links = linkCounts(n.peers);
   return (
-    <Section title="Servers" count={`${n.peers.length} of ${n.nodes.length}`} flush>
+    <Section title="Servers" count={`${n.peers.length} of ${n.nodes.length}`} hint={links ?? undefined} flush>
       <RowList label="Servers on the private network">
         {n.peers.map((p) => {
           const s = PEER[p.status] ?? { tone: 'idle' as Tone, word: 'Idle', say: p.status.toLowerCase() };
+          const link = p.status === 'CONNECTED' && p.relayed !== null ? (p.relayed ? 'relayed' : 'direct') : null;
           return (
             <CalmRow
               key={p.id}
               tone={s.tone}
               name={name(p.nodeId)}
-              say={s.say}
-              tech={`${p.meshIp ?? 'no address yet'} · ${p.status}`}
+              say={link ? LINK[link] : s.say}
+              tech={`${p.meshIp ?? 'no address yet'} · ${p.status}${link ? ` · ${link}` : ''}`}
               word={s.word}
               wordTone={s.tone === 'mesh' ? 'ok' : s.tone}
               to="/nodes/$id"
