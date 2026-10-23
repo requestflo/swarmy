@@ -27,6 +27,12 @@ export interface LiveMeshPeer {
   meshIp: string | null;
   peerId: string | null;
   lastSeen: Date | null;
+  /**
+   * Whether this node reaches any other peer through a relay instead of
+   * peer-to-peer (the agent's `meshState.relayed`; still end-to-end
+   * encrypted). Null until an agent reports it — the control plane can't say.
+   */
+  relayed: boolean | null;
   /** When this controller process first saw the peer. */
   since: Date;
 }
@@ -63,6 +69,7 @@ export class MeshPeerStore {
       meshIp: patch.meshIp !== undefined ? patch.meshIp : (prev?.meshIp ?? null),
       peerId: patch.peerId !== undefined ? patch.peerId : (prev?.peerId ?? null),
       lastSeen: patch.lastSeen !== undefined ? patch.lastSeen : (prev?.lastSeen ?? null),
+      relayed: patch.relayed !== undefined ? patch.relayed : (prev?.relayed ?? null),
       since: prev?.since ?? new Date(),
     };
     this.byNode.set(nodeId, next);
@@ -92,7 +99,7 @@ export const meshPeers = new MeshPeerStore();
 export function reconcileMeshPeer(
   orgId: string,
   nodeId: string,
-  report: MeshStateReport & { control?: MeshControlStatus },
+  report: MeshStateReport & { control?: MeshControlStatus; relayed?: boolean },
   store: MeshPeerStore = meshPeers,
 ): LiveMeshPeer | null {
   if (report.control) meshControlLive.report(orgId, nodeId, report.control);
@@ -105,6 +112,8 @@ export function reconcileMeshPeer(
     meshIp: update.meshIp ?? store.get(nodeId)?.meshIp ?? null,
     peerId: update.peerId ?? store.get(nodeId)?.peerId ?? null,
     lastSeen: update.lastSeen,
+    // Absent on old agents: keep what we knew rather than claim "direct".
+    ...(report.relayed !== undefined ? { relayed: report.relayed } : {}),
   });
 }
 

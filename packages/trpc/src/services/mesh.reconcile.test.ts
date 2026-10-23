@@ -35,4 +35,23 @@ describe('reconcileMeshPeer (live peer map, no table)', () => {
     reconcileMeshPeer('org-1', 'node-3', { driver: 'wireguard', connected: false, error: 'wg down', sampledAt: Date.now() }, store);
     expect(store.get('node-3')).toMatchObject({ status: 'FAILED', meshIp: '10.9.0.3' });
   });
+
+  test('relayed passes through from the agent and survives a control-plane refresh', () => {
+    const store = new MeshPeerStore();
+    const report = { driver: 'netbird', connected: true, meshIp: '100.64.0.7', sampledAt: Date.now() };
+    reconcileMeshPeer('org-1', 'node-4', { ...report, relayed: true }, store);
+    expect(store.get('node-4')?.relayed).toBe(true);
+    // The control plane doesn't know relay state: an upsert without it keeps the agent's.
+    store.upsert('org-1', 'node-4', { status: 'CONNECTED', lastSeen: new Date() });
+    expect(store.get('node-4')?.relayed).toBe(true);
+    reconcileMeshPeer('org-1', 'node-4', { ...report, relayed: false }, store);
+    expect(store.get('node-4')?.relayed).toBe(false);
+  });
+
+  test('relayed is unknown (null) until an agent reports it', () => {
+    const store = new MeshPeerStore();
+    store.upsert('org-1', 'node-5', { status: 'CONNECTED', meshIp: '100.64.0.8' });
+    reconcileMeshPeer('org-1', 'node-5', { driver: 'netbird', connected: true, sampledAt: Date.now() }, store);
+    expect(store.get('node-5')?.relayed).toBeNull();
+  });
 });

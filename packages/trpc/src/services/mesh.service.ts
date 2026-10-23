@@ -66,6 +66,8 @@ export interface MeshPeerView {
   meshIp: string | null;
   status: string;
   lastSeen: string | null;
+  /** Reaches some peer through a relay (still end-to-end encrypted); null = not reported yet. */
+  relayed: boolean | null;
 }
 
 /** Shape persisted in `MeshConfig.controlPlane` (Json). `serviceTokenEnc` is a vault blob. */
@@ -246,6 +248,7 @@ function toPeerView(p: LiveMeshPeer): MeshPeerView {
     meshIp: p.meshIp,
     status: p.status,
     lastSeen: p.lastSeen ? p.lastSeen.toISOString() : null,
+    relayed: p.relayed,
   };
 }
 
