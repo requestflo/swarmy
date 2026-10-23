@@ -140,6 +140,8 @@ const routes: Array<[string, RegExp?]> = [
   ['/ingress'],
   ['/networking'],
   ['/network/connections', /isolated by default/i],
+  ['/network/geo-dns', /Ask from anywhere/],
+  ['/network/geo-dns?zone=northwind.io', /Cloudflare/],
   ['/ci'],
   ['/backups'],
   ['/alerts'],

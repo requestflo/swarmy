@@ -1,3 +1,4 @@
+import { regionCoord, steer } from '@swarmy/dns/steer';
 import type { DemoStore, DomainResolvers } from '../types';
 
 /**
@@ -358,13 +359,12 @@ export const geo: DomainResolvers = {
       if (!row) {
         return { host, from: { region: b.region }, answers: [], rcode: 'NXDOMAIN', steered: false, degraded: false };
       }
-      const healthy = row.endpoints.filter((e) => e.healthy);
-      const degraded = healthy.length === 0 && row.endpoints.length > 0;
-      const pool = degraded ? row.endpoints : healthy;
-      const local = b.region && st.geoipSource !== 'off' ? pool.filter((e) => e.region === b.region) : [];
-      const steered = local.length > 0 && local.length < pool.length;
-      const answers = (steered ? local : pool).map((e) => ({ type: 'A', value: e.ip, ttl: z.ttl }));
-      return { host, from: { region: b.region }, answers, rcode: 'NOERROR', steered, degraded };
+      // The engine's own steering (closest healthy first, two answers, spill when none is healthy).
+      const client = b.region ? { coord: regionCoord(b.region), region: b.region } : {};
+      const targets = row.endpoints.map((e) => ({ target: e.ip, region: e.region, healthy: e.healthy }));
+      const r = steer({ client, targets, maxAnswers: 2 });
+      const answers = r.answers.map((e) => ({ type: 'A', value: e.target, ttl: z.ttl }));
+      return { host, from: { region: b.region }, answers, rcode: 'NOERROR', steered: !r.unlocated, degraded: r.degraded };
     },
 
     // ── manual records ──

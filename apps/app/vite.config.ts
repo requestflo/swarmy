@@ -23,6 +23,8 @@ export default defineConfig({
       { find: /^@swarmy\/auth\/client$/, replacement: pkg('auth/src/client.ts') },
       // Pure policy model (rule sentences, action catalogue, demo engine).
       { find: /^@swarmy\/abac\/model$/, replacement: pkg('abac/src/model.ts') },
+      // Pure geo steering (region coordinates, great-circle km) — the DNS engine's own math.
+      { find: /^@swarmy\/dns\/steer$/, replacement: pkg('dns/src/steer.ts') },
     ],
   },
   server: {

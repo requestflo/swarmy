@@ -72,7 +72,7 @@ function DnsModeChoice({ form, set, plan }: Props): React.JSX.Element {
       {!zone && plan ? (
         <p className="text-muted-foreground text-[12.5px]">
           swarmy doesn’t serve {apex} as a zone yet. Add it under{' '}
-          <Link to="/network" className="text-foreground underline underline-offset-2">Network → Nearest front door</Link> to use this.
+          <Link to="/network/geo-dns" className="text-foreground underline underline-offset-2">Network → Geo-DNS</Link> to use this.
         </p>
       ) : null}
     </div>

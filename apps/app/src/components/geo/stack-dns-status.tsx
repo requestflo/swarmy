@@ -26,8 +26,8 @@ export function StackDnsStatus({ stack }: { stack: string }): React.JSX.Element 
       ) : rows.length === 0 ? (
         <p className="text-muted-foreground text-sm">
           No geo-DNS zones match this stack's domains.{' '}
-          <Link to="/ingress" className="underline underline-offset-2">
-            Manage zones on Edge & ingress
+          <Link to="/network/geo-dns" className="underline underline-offset-2">
+            Manage zones on Network › Geo-DNS
           </Link>
           .
         </p>

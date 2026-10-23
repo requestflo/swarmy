@@ -50,7 +50,18 @@ function spread<T extends Pt>(pts: T[], min = 12, radius = 11): T[] {
  * operator's home city, coloured by what it answered, plus your edge servers.
  * Equirectangular over the shared Natural-Earth outlines; lazy-loaded.
  */
-export default function ResolverMap({ resolvers, edges, label }: { resolvers: ResolverView[]; edges: MapEdge[]; label: string }): React.JSX.Element {
+export default function ResolverMap({
+  resolvers = [],
+  edges,
+  label,
+  overlay,
+}: {
+  resolvers?: ResolverView[];
+  edges: MapEdge[];
+  label: string;
+  /** Extra SVG drawn over the land, under the markers (Geo-DNS's visitor → edge arc), in the 960×480 frame. */
+  overlay?: React.ReactNode;
+}): React.JSX.Element {
   const projection = React.useMemo(() => geoEquirectangular().fitSize([W, H], SPHERE), []);
   const countries = useWorldCountries(projection);
   const dots = React.useMemo(
@@ -76,6 +87,7 @@ export default function ResolverMap({ resolvers, edges, label }: { resolvers: Re
       {(countries ?? []).map((d, i) => (
         <path key={i} d={d} fill="var(--color-muted-foreground)" fillOpacity={0.16} stroke="var(--color-muted-foreground)" strokeOpacity={0.3} strokeWidth={0.6} />
       ))}
+      {overlay}
       {edgePts.map(({ e, x, y }) => (
         <g key={`edge-${e.name}`}>
           <title>{`${e.name} · your edge server`}</title>

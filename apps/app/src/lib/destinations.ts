@@ -17,6 +17,7 @@ import {
   MailIcon,
   NetworkIcon,
   PackageIcon,
+  RadarIcon,
   RadioTowerIcon,
   RocketIcon,
   ScrollTextIcon,
@@ -89,6 +90,7 @@ export const SECTIONS: Destination[] = [
   // ── Network ─────────────────────────────────────────────────────────────
   { to: '/network', label: 'Domains', icon: GlobeIcon, group: 'Network', blurb: 'Every address, which app it opens, HTTPS', keywords: 'domains hostnames dns https certificates geo', exact: true },
   { to: '/ingress', label: 'Front door', icon: NetworkIcon, group: 'Network', blurb: 'The edge servers visitors reach first', keywords: 'caddy driver tls https edge ingress tunnel cloudflare protection' },
+  { to: '/network/geo-dns', label: 'Geo-DNS', icon: RadarIcon, group: 'Network', blurb: 'swarmy as your nameserver: who gets which front door', keywords: 'geo dns nameserver zone records mx txt caa srv delegation registrar glue ttl steering nearest edge' },
   { to: '/networking', label: 'Private network', icon: ShieldIcon, group: 'Network', blurb: 'Servers and laptops on one private network', keywords: 'mesh wireguard overlay peers routes acl netbird zero trust laptop' },
   { to: '/network/connections', label: 'Connections', icon: CableIcon, group: 'Network', blurb: 'Which apps can reach each other, and the names to type', keywords: 'connect apps link isolate internal dns names endpoints service discovery database url overlay' },
   { to: '/email', label: 'Email', icon: MailIcon, group: 'Network', blurb: 'Send mail from your domains', keywords: 'email smtp mail dkim spf dmarc send bounces suppressions templates relay' },

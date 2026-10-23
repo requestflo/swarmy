@@ -48,6 +48,7 @@ import { Route as AuthedServicesServiceIdRouteImport } from './routes/_authed/se
 import { Route as AuthedObservabilityTraceIdRouteImport } from './routes/_authed/observability.$traceId'
 import { Route as AuthedNodesNewRouteImport } from './routes/_authed/nodes/new'
 import { Route as AuthedNodesNodeIdRouteImport } from './routes/_authed/nodes/$nodeId'
+import { Route as AuthedNetworkGeoDnsRouteImport } from './routes/_authed/network_.geo-dns'
 import { Route as AuthedNetworkConnectionsRouteImport } from './routes/_authed/network_.connections'
 import { Route as AuthedIncidentsIncidentIdRouteImport } from './routes/_authed/incidents_.$incidentId'
 import { Route as AuthedDeployTemplateRouteImport } from './routes/_authed/deploy_.$template'
@@ -278,6 +279,11 @@ const AuthedNodesNewRoute = AuthedNodesNewRouteImport.update({
 const AuthedNodesNodeIdRoute = AuthedNodesNodeIdRouteImport.update({
   id: '/nodes/$nodeId',
   path: '/nodes/$nodeId',
+  getParentRoute: () => AuthedRoute,
+} as any)
+const AuthedNetworkGeoDnsRoute = AuthedNetworkGeoDnsRouteImport.update({
+  id: '/network_/geo-dns',
+  path: '/network/geo-dns',
   getParentRoute: () => AuthedRoute,
 } as any)
 const AuthedNetworkConnectionsRoute =
@@ -518,6 +524,7 @@ export interface FileRoutesByFullPath {
   '/deploy/$template': typeof AuthedDeployTemplateRoute
   '/incidents/$incidentId': typeof AuthedIncidentsIncidentIdRoute
   '/network/connections': typeof AuthedNetworkConnectionsRoute
+  '/network/geo-dns': typeof AuthedNetworkGeoDnsRoute
   '/nodes/$nodeId': typeof AuthedNodesNodeIdRoute
   '/nodes/new': typeof AuthedNodesNewRoute
   '/observability/$traceId': typeof AuthedObservabilityTraceIdRoute
@@ -594,6 +601,7 @@ export interface FileRoutesByTo {
   '/deploy/$template': typeof AuthedDeployTemplateRoute
   '/incidents/$incidentId': typeof AuthedIncidentsIncidentIdRoute
   '/network/connections': typeof AuthedNetworkConnectionsRoute
+  '/network/geo-dns': typeof AuthedNetworkGeoDnsRoute
   '/nodes/$nodeId': typeof AuthedNodesNodeIdRoute
   '/nodes/new': typeof AuthedNodesNewRoute
   '/observability/$traceId': typeof AuthedObservabilityTraceIdRoute
@@ -671,6 +679,7 @@ export interface FileRoutesById {
   '/_authed/deploy_/$template': typeof AuthedDeployTemplateRoute
   '/_authed/incidents_/$incidentId': typeof AuthedIncidentsIncidentIdRoute
   '/_authed/network_/connections': typeof AuthedNetworkConnectionsRoute
+  '/_authed/network_/geo-dns': typeof AuthedNetworkGeoDnsRoute
   '/_authed/nodes/$nodeId': typeof AuthedNodesNodeIdRoute
   '/_authed/nodes/new': typeof AuthedNodesNewRoute
   '/_authed/observability/$traceId': typeof AuthedObservabilityTraceIdRoute
@@ -749,6 +758,7 @@ export interface FileRouteTypes {
     | '/deploy/$template'
     | '/incidents/$incidentId'
     | '/network/connections'
+    | '/network/geo-dns'
     | '/nodes/$nodeId'
     | '/nodes/new'
     | '/observability/$traceId'
@@ -825,6 +835,7 @@ export interface FileRouteTypes {
     | '/deploy/$template'
     | '/incidents/$incidentId'
     | '/network/connections'
+    | '/network/geo-dns'
     | '/nodes/$nodeId'
     | '/nodes/new'
     | '/observability/$traceId'
@@ -901,6 +912,7 @@ export interface FileRouteTypes {
     | '/_authed/deploy_/$template'
     | '/_authed/incidents_/$incidentId'
     | '/_authed/network_/connections'
+    | '/_authed/network_/geo-dns'
     | '/_authed/nodes/$nodeId'
     | '/_authed/nodes/new'
     | '/_authed/observability/$traceId'
@@ -1226,6 +1238,13 @@ declare module '@tanstack/react-router' {
       path: '/nodes/$nodeId'
       fullPath: '/nodes/$nodeId'
       preLoaderRoute: typeof AuthedNodesNodeIdRouteImport
+      parentRoute: typeof AuthedRoute
+    }
+    '/_authed/network_/geo-dns': {
+      id: '/_authed/network_/geo-dns'
+      path: '/network/geo-dns'
+      fullPath: '/network/geo-dns'
+      preLoaderRoute: typeof AuthedNetworkGeoDnsRouteImport
       parentRoute: typeof AuthedRoute
     }
     '/_authed/network_/connections': {
@@ -1570,6 +1589,7 @@ interface AuthedRouteChildren {
   AuthedDeployTemplateRoute: typeof AuthedDeployTemplateRoute
   AuthedIncidentsIncidentIdRoute: typeof AuthedIncidentsIncidentIdRoute
   AuthedNetworkConnectionsRoute: typeof AuthedNetworkConnectionsRoute
+  AuthedNetworkGeoDnsRoute: typeof AuthedNetworkGeoDnsRoute
   AuthedNodesNodeIdRoute: typeof AuthedNodesNodeIdRoute
   AuthedNodesNewRoute: typeof AuthedNodesNewRoute
   AuthedObservabilityTraceIdRoute: typeof AuthedObservabilityTraceIdRoute
@@ -1619,6 +1639,7 @@ const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedDeployTemplateRoute: AuthedDeployTemplateRoute,
   AuthedIncidentsIncidentIdRoute: AuthedIncidentsIncidentIdRoute,
   AuthedNetworkConnectionsRoute: AuthedNetworkConnectionsRoute,
+  AuthedNetworkGeoDnsRoute: AuthedNetworkGeoDnsRoute,
   AuthedNodesNodeIdRoute: AuthedNodesNodeIdRoute,
   AuthedNodesNewRoute: AuthedNodesNewRoute,
   AuthedObservabilityTraceIdRoute: AuthedObservabilityTraceIdRoute,
