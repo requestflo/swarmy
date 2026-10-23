@@ -198,7 +198,7 @@ because no backend provides it.
 | 9 Move | `/nodes` (drag or Move…) | disk fit (volume sizes aren't reported), Undo (the old copy stays on the source and the mover refuses a non-empty destination), ⌥-drag to add a copy |
 | 10 Time travel | `/stacks/$name/time-travel` (from Releases) | whole-app restore, rows written since, historical db size, service-graph edges |
 | 11 Servers | `/nodes` (map first, list toggle) | 24h sparklines (no stored node stats), provider, restart agent |
-| 14 Mesh (part) | `/networking` | direct vs relayed per server only; graph and joining steps in the next pass |
+| 14 Mesh | `/networking` (map) | per-link latency and bytes (relayed is per server, so every link of a relayed server draws through the relay) |
 | 15 Data | `/data` | lifecycle/CORS lines, moving a database by drag |
 | 16 Backups | `/backups` | live drill steps, server-loss drill, snapshot download, offsite mirror lag, resilience score (removed on purpose) |
 | 20 Upgrade (part) | `/settings/platform` | the "from" version of third-party images (`PlatformReleaseView` has no current tag), pause after a step |
@@ -217,6 +217,34 @@ because no backend provides it.
 | 64 Queue studio | `/stacks/$name/queues/$cluster` | depth-vs-workers history, autoscale cooldown |
 | 67 CLI & MCP | `/settings/api-keys` | the in-page "Is my repo ready?" check (runs locally only) |
 
+**Second pass (same day):**
+
+| Board | Route | Left out (no data / backend) |
+|---|---|---|
+| 7 App canvas | `/stacks/$name` | the sign chip (no per-image signing record), per-part sparklines, saved data-node positions |
+| 12 Add a server | `/nodes/new` | "direct to home-lab · 0.4 ms" (no link latency) |
+| 13 Network | `/network` | per-domain req/min until traffic is per host, p50 per edge, a per-edge rendered Caddyfile |
+| 19 Settings | `/settings` | — (the "three ways" action is stack removal: the only change curl, the CLI and Terraform all share) |
+| 26 PR plan | Releases › plan drawer (Graph) | the YAML diff tab, unchanged boxes' connector lines |
+| 30 Domain detail | `/stacks/$name/network` | issued date, "covers", blocked req/min and receipts, renewals, Renew now, CAA |
+| 31 Edge settings | `/ingress` | an issuance count (shows certificates live now), the ask-decision log, other proxy drivers (removed) |
+| 32 Geo-DNS | `/network/geo-dns` | simulate an edge down, TTL above 120 s, the "answer with everyone" off switch (the engine always spills, by rule) |
+| 33 Variables & secrets | `/stacks/$name/config` | shared-vs-override layering, the "declared in swarmy.yaml" lock, Add to swarmy.yaml |
+| 35 Health & rollout | `/stacks/$name/config/rollout` | writing the health check, Test now, the error-% trip on the safety gate |
+| 36 Placement & volumes | `/stacks/$name/config/placement` | volume sizes, mesh latency |
+| 37 Jobs & workers | `/stacks/$name/config/jobs` | worker throughput and concurrency, preview TTL editing |
+| 39 Postgres | `/stacks/$name/data/$cluster` | per-replica LSN, pg_stat_statements/postgis toggles, PgBouncer, version/maintenance, memory setter, disk, cost |
+| 41 Cache & search | `/stacks/$name/data` | eviction/persistence pickers (fixed today), hit-rate history, index list, reindex, engine switch |
+| 43 Mesh settings | `/networking/settings` | the auto-join toggle, MTU fix, access rules, bytes per peer |
+| 52 Platform | `/settings/platform` | 4 weeks of traffic (the series keeps 7 days) |
+| 57 Environments | `/stacks/$name/releases` | "Clone as new environment", per-lane domains |
+| 58 Paste .env | `/stacks/$name/config/paste` | the environment target, locked git-managed rows |
+| 59 Session replay | `/stacks/$name/replays/$id` | a request id (the data has none) |
+| 60 Replay settings | `/stacks/$name/rum-settings` | — |
+| 62 Web analytics | `/stacks/$name/analytics` | the checkout funnel, a visit-length delta |
+| 63 Database studio | `/stacks/$name/studio` | slow-query p95 and calls per 24 h, index suggestions |
+| 68 Branch previews | `/stacks/$name/config/previews` | editing preview rules, "sleeps after 2 h idle" |
+
 Backend fixes found while building them:
 
 - Sleep when idle counted only the activator, so a busy service was put back
@@ -225,6 +253,8 @@ Backend fixes found while building them:
   move vanished; they now run first (`planServiceMove`) and return the reason.
 - The MCP server gave a Deploy key (read + deploy) only read tools; each tool
   now needs what its REST route needs.
+- A platform release now carries each component's current tag, so third-party
+  images show from → to on the upgrade screen.
 
 Found, not fixed (worth deciding):
 
