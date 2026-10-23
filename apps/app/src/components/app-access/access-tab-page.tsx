@@ -5,6 +5,7 @@ import { CalmRow, Depth, NextAction, RowList, Say, SayHeader, Section } from '@/
 import { ErrorState, PageSkeleton } from '@/components/states';
 import { useTRPC } from '@/integrations/trpc';
 import { ConnectFromLaptop } from '@/components/networking/connect-from-laptop';
+import { OtherAppsSection } from '@/components/connections/other-apps-section';
 import { AccessCode } from './access-code';
 import { AppAccessSection } from './app-access-section';
 import type { AppAccessRoute, AppAccessViewData } from './types';
@@ -21,7 +22,8 @@ function whoWords(v: AppAccessViewData): string {
  * The app's Access tab (AppAccess board): who can open the app, in a
  * sentence; each address as a row ("anyone" / "signs in first"); one next
  * action when an admin-looking path is open to the world. Controls: the
- * Require login / who can enter / own users cards and laptop access.
+ * Require login / who can enter / own users cards and laptop access. Last,
+ * which other apps can reach it (→ Network › Connections).
  */
 export function AccessTabPage({ stack }: { stack: string }): React.JSX.Element {
   const trpc = useTRPC();
@@ -83,6 +85,7 @@ export function AccessTabPage({ stack }: { stack: string }): React.JSX.Element {
         <AppAccessSection stack={stack} />
         <ConnectFromLaptop stack={stack} />
       </Depth>
+      <OtherAppsSection stack={stack} />
     </div>
   );
 }
