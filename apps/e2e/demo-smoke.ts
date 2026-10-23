@@ -138,6 +138,7 @@ const routes: Array<[string, RegExp?]> = [
   ['/stacks/data/queues/main'],
   ['/ingress'],
   ['/networking'],
+  ['/network/connections', /isolated by default/i],
   ['/ci'],
   ['/backups'],
   ['/alerts'],

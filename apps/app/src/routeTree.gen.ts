@@ -48,6 +48,7 @@ import { Route as AuthedServicesServiceIdRouteImport } from './routes/_authed/se
 import { Route as AuthedObservabilityTraceIdRouteImport } from './routes/_authed/observability.$traceId'
 import { Route as AuthedNodesNewRouteImport } from './routes/_authed/nodes/new'
 import { Route as AuthedNodesNodeIdRouteImport } from './routes/_authed/nodes/$nodeId'
+import { Route as AuthedNetworkConnectionsRouteImport } from './routes/_authed/network_.connections'
 import { Route as AuthedIncidentsIncidentIdRouteImport } from './routes/_authed/incidents_.$incidentId'
 import { Route as AuthedDeployTemplateRouteImport } from './routes/_authed/deploy_.$template'
 import { Route as AuthedDataBucketsRouteImport } from './routes/_authed/data_.buckets'
@@ -277,6 +278,12 @@ const AuthedNodesNodeIdRoute = AuthedNodesNodeIdRouteImport.update({
   path: '/nodes/$nodeId',
   getParentRoute: () => AuthedRoute,
 } as any)
+const AuthedNetworkConnectionsRoute =
+  AuthedNetworkConnectionsRouteImport.update({
+    id: '/network_/connections',
+    path: '/network/connections',
+    getParentRoute: () => AuthedRoute,
+  } as any)
 const AuthedIncidentsIncidentIdRoute =
   AuthedIncidentsIncidentIdRouteImport.update({
     id: '/incidents_/$incidentId',
@@ -497,6 +504,7 @@ export interface FileRoutesByFullPath {
   '/data/buckets': typeof AuthedDataBucketsRoute
   '/deploy/$template': typeof AuthedDeployTemplateRoute
   '/incidents/$incidentId': typeof AuthedIncidentsIncidentIdRoute
+  '/network/connections': typeof AuthedNetworkConnectionsRoute
   '/nodes/$nodeId': typeof AuthedNodesNodeIdRoute
   '/nodes/new': typeof AuthedNodesNewRoute
   '/observability/$traceId': typeof AuthedObservabilityTraceIdRoute
@@ -570,6 +578,7 @@ export interface FileRoutesByTo {
   '/data/buckets': typeof AuthedDataBucketsRoute
   '/deploy/$template': typeof AuthedDeployTemplateRoute
   '/incidents/$incidentId': typeof AuthedIncidentsIncidentIdRoute
+  '/network/connections': typeof AuthedNetworkConnectionsRoute
   '/nodes/$nodeId': typeof AuthedNodesNodeIdRoute
   '/nodes/new': typeof AuthedNodesNewRoute
   '/observability/$traceId': typeof AuthedObservabilityTraceIdRoute
@@ -644,6 +653,7 @@ export interface FileRoutesById {
   '/_authed/data_/buckets': typeof AuthedDataBucketsRoute
   '/_authed/deploy_/$template': typeof AuthedDeployTemplateRoute
   '/_authed/incidents_/$incidentId': typeof AuthedIncidentsIncidentIdRoute
+  '/_authed/network_/connections': typeof AuthedNetworkConnectionsRoute
   '/_authed/nodes/$nodeId': typeof AuthedNodesNodeIdRoute
   '/_authed/nodes/new': typeof AuthedNodesNewRoute
   '/_authed/observability/$traceId': typeof AuthedObservabilityTraceIdRoute
@@ -719,6 +729,7 @@ export interface FileRouteTypes {
     | '/data/buckets'
     | '/deploy/$template'
     | '/incidents/$incidentId'
+    | '/network/connections'
     | '/nodes/$nodeId'
     | '/nodes/new'
     | '/observability/$traceId'
@@ -792,6 +803,7 @@ export interface FileRouteTypes {
     | '/data/buckets'
     | '/deploy/$template'
     | '/incidents/$incidentId'
+    | '/network/connections'
     | '/nodes/$nodeId'
     | '/nodes/new'
     | '/observability/$traceId'
@@ -865,6 +877,7 @@ export interface FileRouteTypes {
     | '/_authed/data_/buckets'
     | '/_authed/deploy_/$template'
     | '/_authed/incidents_/$incidentId'
+    | '/_authed/network_/connections'
     | '/_authed/nodes/$nodeId'
     | '/_authed/nodes/new'
     | '/_authed/observability/$traceId'
@@ -1190,6 +1203,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedNodesNodeIdRouteImport
       parentRoute: typeof AuthedRoute
     }
+    '/_authed/network_/connections': {
+      id: '/_authed/network_/connections'
+      path: '/network/connections'
+      fullPath: '/network/connections'
+      preLoaderRoute: typeof AuthedNetworkConnectionsRouteImport
+      parentRoute: typeof AuthedRoute
+    }
     '/_authed/incidents_/$incidentId': {
       id: '/_authed/incidents_/$incidentId'
       path: '/incidents/$incidentId'
@@ -1510,6 +1530,7 @@ interface AuthedRouteChildren {
   AuthedDataBucketsRoute: typeof AuthedDataBucketsRoute
   AuthedDeployTemplateRoute: typeof AuthedDeployTemplateRoute
   AuthedIncidentsIncidentIdRoute: typeof AuthedIncidentsIncidentIdRoute
+  AuthedNetworkConnectionsRoute: typeof AuthedNetworkConnectionsRoute
   AuthedNodesNodeIdRoute: typeof AuthedNodesNodeIdRoute
   AuthedNodesNewRoute: typeof AuthedNodesNewRoute
   AuthedObservabilityTraceIdRoute: typeof AuthedObservabilityTraceIdRoute
@@ -1556,6 +1577,7 @@ const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedDataBucketsRoute: AuthedDataBucketsRoute,
   AuthedDeployTemplateRoute: AuthedDeployTemplateRoute,
   AuthedIncidentsIncidentIdRoute: AuthedIncidentsIncidentIdRoute,
+  AuthedNetworkConnectionsRoute: AuthedNetworkConnectionsRoute,
   AuthedNodesNodeIdRoute: AuthedNodesNodeIdRoute,
   AuthedNodesNewRoute: AuthedNodesNewRoute,
   AuthedObservabilityTraceIdRoute: AuthedObservabilityTraceIdRoute,
