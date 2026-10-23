@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { NODE_PROFILE_VALUES } from '@swarmy/core';
+import { NODE_PROFILE_VALUES, NodeStatsHistoryInput } from '@swarmy/core';
 import { orgProcedure, adminProcedure, router } from '../trpc';
 import { abacProcedure, resolveNode } from '../abac';
 import { listRecoveryClaims, resolveRecoveryClaim } from '../services/recovery.service';
@@ -25,6 +25,7 @@ import {
 } from '../services/token.service';
 import { setNodeCost } from '../services/cost.service';
 import { listNodeHygiene, runNodeHygieneNow } from '../services/node-hygiene.service';
+import { nodeStatsHistory } from '../services/node-stats-history';
 
 export const nodesRouter = router({
   list: orgProcedure.query(({ ctx }) => listNodes(ctx)),
@@ -157,6 +158,9 @@ export const nodesRouter = router({
   revokeJoinToken: abacProcedure('token.revoke')
     .input(z.object({ id: z.string() }))
     .mutation(({ ctx, input }) => revokeJoinToken(ctx, input.id)),
+
+  /** Each server's last 24 h of CPU / memory / disk % as 5-minute peaks (telemetry.db). Read-only. */
+  statsHistory: orgProcedure.input(NodeStatsHistoryInput).query(({ ctx, input }) => nodeStatsHistory(ctx, input)),
 
   liveStatsLatest: orgProcedure
     .input(z.object({ nodeId: z.string() }))
