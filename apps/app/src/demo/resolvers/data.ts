@@ -255,6 +255,8 @@ interface DbTopoState {
   topology: 'single' | 'primary-replica' | 'failover' | 'geo' | 'active-active';
   members: DbTopoMember[];
   leader?: string;
+  /** `db.rotatePassword` bumps it (the `__v<n>` of the password secret). */
+  passwordVersion?: number;
 }
 
 interface DataState {
@@ -507,6 +509,16 @@ export const data: DomainResolvers = {
       return { cluster, topology };
     },
     'db.revealPassword': (i) => ({ cluster: (i as { cluster: string }).cluster, password: 'demo-pg-password-0123456789ab' }),
+    // A new `-pg-password__v<n>` secret; the writer, the standbys, then every wired app move onto it.
+    'db.rotatePassword': (i, s) => {
+      const { stack, cluster } = i as { stack: string; cluster: string };
+      const t = getState(s).dbTopologies.find((x) => x.stack === stack && x.cluster === cluster);
+      if (!t) throw new Error(`db cluster "${cluster}" not found`);
+      t.passwordVersion = (t.passwordVersion ?? 1) + 1;
+      const wired = ((s.extra.stackLinks as { dbAttached?: Record<string, string[]> } | undefined)?.dbAttached ?? {})[`${stack}/${cluster}`] ?? [];
+      const members = t.members.map((m) => m.service);
+      return { cluster, secret: `${stack}_${cluster}-pg-password__v${t.passwordVersion}`, version: t.passwordVersion, redeployed: [...members, ...wired] };
+    },
     'db.setReplicas': (i, s) => {
       const { stack, cluster, replicas } = i as { stack: string; cluster: string; replicas: number };
       const t = getState(s).dbTopologies.find((x) => x.stack === stack && x.cluster === cluster);

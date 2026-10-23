@@ -17,8 +17,11 @@ import type { DemoStore, DomainResolvers } from '../types';
  * mutations rewrite it so the page reflects changes after invalidation.
  */
 
+/** `cache.list` carries `swarmy.cache.purpose` (`CacheClusterPurposeView` in the service). */
+type CacheView = CacheClusterView & { purpose: 'cache' | 'queue' };
+
 interface CacheState {
-  clusters: CacheClusterView[];
+  clusters: CacheView[];
   /** `<stack>/<cluster>` → snapshots (newest first). */
   backups: Record<string, CacheBackupView[]>;
 }
@@ -106,7 +109,8 @@ function makeCluster(input: {
   topology: CacheTopology;
   memoryMb: number;
   replicas: number;
-}): CacheClusterView {
+  purpose?: 'cache' | 'queue';
+}): CacheView {
   const replicas = input.topology === 'sentinel' ? Math.max(1, input.replicas) : input.replicas;
   return {
     stack: input.stack,
@@ -127,6 +131,7 @@ function makeCluster(input: {
     members: members(input.stack, input.name, input.topology, replicas),
     stats: null,
     attachments: [],
+    purpose: input.purpose ?? 'cache',
   };
 }
 
@@ -140,6 +145,8 @@ export const cache: DomainResolvers = {
       topology: 'sentinel',
       memoryMb: 512,
       replicas: 2,
+      // BullMQ-ready (noeviction): the store the queue studio opens.
+      purpose: 'queue',
     });
     main.stats = {
       usedMemoryBytes: 214 * MB,
@@ -215,6 +222,7 @@ export const cache: DomainResolvers = {
         memoryMb?: number;
         replicas?: number;
         attachService?: string;
+        purpose?: 'cache' | 'queue';
       };
       const st = getState(s);
       const c = makeCluster({
@@ -224,6 +232,7 @@ export const cache: DomainResolvers = {
         topology: b.topology ?? 'single',
         memoryMb: b.memoryMb ?? 256,
         replicas: b.replicas ?? 0,
+        purpose: b.purpose,
       });
       if (b.attachService) c.attachments = [{ service: b.attachService, envVar: 'REDIS_URL' }];
       st.clusters = [...st.clusters, c];

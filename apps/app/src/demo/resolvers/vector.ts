@@ -68,17 +68,26 @@ export const vector: DomainResolvers = {
     store.extra.vector = {
       instances: [search],
       pgvector: [
+        // The managed Postgres clusters of the db.get story (data.ts): the
+        // data app's main has pgvector on, storefront's checkout doesn't yet.
         {
-          stack: 'storefront',
+          stack: 'data',
           cluster: 'main',
-          primaryService: 'storefront_main-primary',
+          primaryService: 'data_main-primary',
           status: 'running',
           enabled: true,
         },
         {
           stack: 'platform',
-          cluster: 'analytics',
-          primaryService: 'platform_analytics-primary',
+          cluster: 'metrics',
+          primaryService: 'platform_metrics-primary',
+          status: 'running',
+          enabled: false,
+        },
+        {
+          stack: 'storefront',
+          cluster: 'checkout',
+          primaryService: 'storefront_checkout-primary',
           status: 'running',
           enabled: false,
         },

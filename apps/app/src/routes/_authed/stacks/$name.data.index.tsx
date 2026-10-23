@@ -7,7 +7,7 @@ import { DataTabPage } from '@/components/stack-data/data-tab-page';
  * and vector store this app uses, each in a plain sentence, with the
  * "keep it safe if a server fails" choice per Postgres database.
  */
-export const Route = createFileRoute('/_authed/stacks/$name/data')({
+export const Route = createFileRoute('/_authed/stacks/$name/data/')({
   component: DataTab,
 });
 

@@ -73,9 +73,14 @@ export function PgHaSection({
       title={`The ${c.name} database`}
       hint="Postgres"
       action={
-        <Link to="/stacks/$name/studio" params={{ name: stack }} search={{ db: c.name }} className="min-h-11 content-center">
-          <SectionLink>Open studio →</SectionLink>
-        </Link>
+        <>
+          <Link to="/stacks/$name/data/$cluster" params={{ name: stack, cluster: c.name }} className="min-h-11 content-center">
+            <SectionLink>Open {c.name} →</SectionLink>
+          </Link>
+          <Link to="/stacks/$name/studio" params={{ name: stack }} search={{ db: c.name }} className="min-h-11 content-center">
+            <SectionLink>Open studio →</SectionLink>
+          </Link>
+        </>
       }
     >
       <p className="text-[14px] leading-relaxed">

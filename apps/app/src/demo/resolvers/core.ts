@@ -1,6 +1,7 @@
 import type { DeployPhase, DeployStatus, NodeSummary, ServiceSummary, UpdateServiceInput } from '@swarmy/core';
 import type { DemoStore, DomainResolvers } from '../types';
 import { applyDemoSettings } from './service-settings';
+import { managedMembersMatching } from './managed-members';
 
 /**
  * Core demo resolvers — the flagship surfaces (command bar, Applications canvas,
@@ -293,13 +294,14 @@ export const core: DomainResolvers = {
 
     'services.list': (i, s): ServiceSummary[] => {
       const f = (i as { nodeId?: string; stackId?: string; status?: string; search?: string }) ?? {};
-      return s.services.filter(
+      const managed = managedMembersMatching(s, f);
+      return (s.services as ServiceSummary[]).filter(
         (sv) =>
           (!f.nodeId || runsOn(sv, s.nodes as NodeSummary[], f.nodeId)) &&
           (!f.stackId || sv.stackId === f.stackId || s.stacks.find((st) => st.id === sv.stackId)?.name === f.stackId) &&
           (!f.status || sv.status === f.status) &&
           (!f.search || sv.name.includes(f.search) || sv.image.includes(f.search)),
-      );
+      ).concat(managed);
     },
     // Production `stackId` is the docker stack NAME (the /stacks/$name segment),
     // while the demo store keys stacks by internal id — map at the boundary so

@@ -66,7 +66,6 @@ import { Route as AuthedStacksNameReleasesRouteImport } from './routes/_authed/s
 import { Route as AuthedStacksNameObservabilityRouteImport } from './routes/_authed/stacks/$name.observability'
 import { Route as AuthedStacksNameNetworkRouteImport } from './routes/_authed/stacks/$name.network'
 import { Route as AuthedStacksNameMessagingRouteImport } from './routes/_authed/stacks/$name.messaging'
-import { Route as AuthedStacksNameDataRouteImport } from './routes/_authed/stacks/$name.data'
 import { Route as AuthedStacksNameBackupsRouteImport } from './routes/_authed/stacks/$name.backups'
 import { Route as AuthedStacksNameAnalyticsRouteImport } from './routes/_authed/stacks/$name.analytics'
 import { Route as AuthedStacksNameAccessRouteImport } from './routes/_authed/stacks/$name.access'
@@ -78,10 +77,12 @@ import { Route as AuthedDataBucketsNameRouteImport } from './routes/_authed/data
 import { Route as AuthedStacksNameReplaysIndexRouteImport } from './routes/_authed/stacks/$name.replays.index'
 import { Route as AuthedStacksNameQueuesIndexRouteImport } from './routes/_authed/stacks/$name.queues.index'
 import { Route as AuthedStacksNameErrorsIndexRouteImport } from './routes/_authed/stacks/$name.errors.index'
+import { Route as AuthedStacksNameDataIndexRouteImport } from './routes/_authed/stacks/$name.data.index'
 import { Route as AuthedStacksNameConfigIndexRouteImport } from './routes/_authed/stacks/$name.config.index'
 import { Route as AuthedStacksNameReplaysSessionIdRouteImport } from './routes/_authed/stacks/$name.replays.$sessionId'
 import { Route as AuthedStacksNameQueuesClusterRouteImport } from './routes/_authed/stacks/$name.queues.$cluster'
 import { Route as AuthedStacksNameErrorsFingerprintRouteImport } from './routes/_authed/stacks/$name.errors.$fingerprint'
+import { Route as AuthedStacksNameDataClusterRouteImport } from './routes/_authed/stacks/$name.data.$cluster'
 import { Route as AuthedStacksNameConfigScalingRouteImport } from './routes/_authed/stacks/$name.config.scaling'
 import { Route as AuthedStacksNameConfigRolloutRouteImport } from './routes/_authed/stacks/$name.config.rollout'
 import { Route as AuthedStacksNameConfigPlacementRouteImport } from './routes/_authed/stacks/$name.config.placement'
@@ -382,11 +383,6 @@ const AuthedStacksNameMessagingRoute =
     path: '/messaging',
     getParentRoute: () => AuthedStacksNameRoute,
   } as any)
-const AuthedStacksNameDataRoute = AuthedStacksNameDataRouteImport.update({
-  id: '/data',
-  path: '/data',
-  getParentRoute: () => AuthedStacksNameRoute,
-} as any)
 const AuthedStacksNameBackupsRoute = AuthedStacksNameBackupsRouteImport.update({
   id: '/backups',
   path: '/backups',
@@ -449,6 +445,12 @@ const AuthedStacksNameErrorsIndexRoute =
     path: '/errors/',
     getParentRoute: () => AuthedStacksNameRoute,
   } as any)
+const AuthedStacksNameDataIndexRoute =
+  AuthedStacksNameDataIndexRouteImport.update({
+    id: '/data/',
+    path: '/data/',
+    getParentRoute: () => AuthedStacksNameRoute,
+  } as any)
 const AuthedStacksNameConfigIndexRoute =
   AuthedStacksNameConfigIndexRouteImport.update({
     id: '/config/',
@@ -471,6 +473,12 @@ const AuthedStacksNameErrorsFingerprintRoute =
   AuthedStacksNameErrorsFingerprintRouteImport.update({
     id: '/errors/$fingerprint',
     path: '/errors/$fingerprint',
+    getParentRoute: () => AuthedStacksNameRoute,
+  } as any)
+const AuthedStacksNameDataClusterRoute =
+  AuthedStacksNameDataClusterRouteImport.update({
+    id: '/data/$cluster',
+    path: '/data/$cluster',
     getParentRoute: () => AuthedStacksNameRoute,
   } as any)
 const AuthedStacksNameConfigScalingRoute =
@@ -552,7 +560,6 @@ export interface FileRoutesByFullPath {
   '/stacks/$name/access': typeof AuthedStacksNameAccessRoute
   '/stacks/$name/analytics': typeof AuthedStacksNameAnalyticsRoute
   '/stacks/$name/backups': typeof AuthedStacksNameBackupsRoute
-  '/stacks/$name/data': typeof AuthedStacksNameDataRoute
   '/stacks/$name/messaging': typeof AuthedStacksNameMessagingRoute
   '/stacks/$name/network': typeof AuthedStacksNameNetworkRoute
   '/stacks/$name/observability': typeof AuthedStacksNameObservabilityRoute
@@ -568,10 +575,12 @@ export interface FileRoutesByFullPath {
   '/stacks/$name/config/placement': typeof AuthedStacksNameConfigPlacementRoute
   '/stacks/$name/config/rollout': typeof AuthedStacksNameConfigRolloutRoute
   '/stacks/$name/config/scaling': typeof AuthedStacksNameConfigScalingRoute
+  '/stacks/$name/data/$cluster': typeof AuthedStacksNameDataClusterRoute
   '/stacks/$name/errors/$fingerprint': typeof AuthedStacksNameErrorsFingerprintRoute
   '/stacks/$name/queues/$cluster': typeof AuthedStacksNameQueuesClusterRoute
   '/stacks/$name/replays/$sessionId': typeof AuthedStacksNameReplaysSessionIdRoute
   '/stacks/$name/config/': typeof AuthedStacksNameConfigIndexRoute
+  '/stacks/$name/data/': typeof AuthedStacksNameDataIndexRoute
   '/stacks/$name/errors/': typeof AuthedStacksNameErrorsIndexRoute
   '/stacks/$name/queues/': typeof AuthedStacksNameQueuesIndexRoute
   '/stacks/$name/replays/': typeof AuthedStacksNameReplaysIndexRoute
@@ -629,7 +638,6 @@ export interface FileRoutesByTo {
   '/stacks/$name/access': typeof AuthedStacksNameAccessRoute
   '/stacks/$name/analytics': typeof AuthedStacksNameAnalyticsRoute
   '/stacks/$name/backups': typeof AuthedStacksNameBackupsRoute
-  '/stacks/$name/data': typeof AuthedStacksNameDataRoute
   '/stacks/$name/messaging': typeof AuthedStacksNameMessagingRoute
   '/stacks/$name/network': typeof AuthedStacksNameNetworkRoute
   '/stacks/$name/observability': typeof AuthedStacksNameObservabilityRoute
@@ -645,10 +653,12 @@ export interface FileRoutesByTo {
   '/stacks/$name/config/placement': typeof AuthedStacksNameConfigPlacementRoute
   '/stacks/$name/config/rollout': typeof AuthedStacksNameConfigRolloutRoute
   '/stacks/$name/config/scaling': typeof AuthedStacksNameConfigScalingRoute
+  '/stacks/$name/data/$cluster': typeof AuthedStacksNameDataClusterRoute
   '/stacks/$name/errors/$fingerprint': typeof AuthedStacksNameErrorsFingerprintRoute
   '/stacks/$name/queues/$cluster': typeof AuthedStacksNameQueuesClusterRoute
   '/stacks/$name/replays/$sessionId': typeof AuthedStacksNameReplaysSessionIdRoute
   '/stacks/$name/config': typeof AuthedStacksNameConfigIndexRoute
+  '/stacks/$name/data': typeof AuthedStacksNameDataIndexRoute
   '/stacks/$name/errors': typeof AuthedStacksNameErrorsIndexRoute
   '/stacks/$name/queues': typeof AuthedStacksNameQueuesIndexRoute
   '/stacks/$name/replays': typeof AuthedStacksNameReplaysIndexRoute
@@ -709,7 +719,6 @@ export interface FileRoutesById {
   '/_authed/stacks/$name/access': typeof AuthedStacksNameAccessRoute
   '/_authed/stacks/$name/analytics': typeof AuthedStacksNameAnalyticsRoute
   '/_authed/stacks/$name/backups': typeof AuthedStacksNameBackupsRoute
-  '/_authed/stacks/$name/data': typeof AuthedStacksNameDataRoute
   '/_authed/stacks/$name/messaging': typeof AuthedStacksNameMessagingRoute
   '/_authed/stacks/$name/network': typeof AuthedStacksNameNetworkRoute
   '/_authed/stacks/$name/observability': typeof AuthedStacksNameObservabilityRoute
@@ -725,10 +734,12 @@ export interface FileRoutesById {
   '/_authed/stacks/$name/config/placement': typeof AuthedStacksNameConfigPlacementRoute
   '/_authed/stacks/$name/config/rollout': typeof AuthedStacksNameConfigRolloutRoute
   '/_authed/stacks/$name/config/scaling': typeof AuthedStacksNameConfigScalingRoute
+  '/_authed/stacks/$name/data/$cluster': typeof AuthedStacksNameDataClusterRoute
   '/_authed/stacks/$name/errors/$fingerprint': typeof AuthedStacksNameErrorsFingerprintRoute
   '/_authed/stacks/$name/queues/$cluster': typeof AuthedStacksNameQueuesClusterRoute
   '/_authed/stacks/$name/replays/$sessionId': typeof AuthedStacksNameReplaysSessionIdRoute
   '/_authed/stacks/$name/config/': typeof AuthedStacksNameConfigIndexRoute
+  '/_authed/stacks/$name/data/': typeof AuthedStacksNameDataIndexRoute
   '/_authed/stacks/$name/errors/': typeof AuthedStacksNameErrorsIndexRoute
   '/_authed/stacks/$name/queues/': typeof AuthedStacksNameQueuesIndexRoute
   '/_authed/stacks/$name/replays/': typeof AuthedStacksNameReplaysIndexRoute
@@ -789,7 +800,6 @@ export interface FileRouteTypes {
     | '/stacks/$name/access'
     | '/stacks/$name/analytics'
     | '/stacks/$name/backups'
-    | '/stacks/$name/data'
     | '/stacks/$name/messaging'
     | '/stacks/$name/network'
     | '/stacks/$name/observability'
@@ -805,10 +815,12 @@ export interface FileRouteTypes {
     | '/stacks/$name/config/placement'
     | '/stacks/$name/config/rollout'
     | '/stacks/$name/config/scaling'
+    | '/stacks/$name/data/$cluster'
     | '/stacks/$name/errors/$fingerprint'
     | '/stacks/$name/queues/$cluster'
     | '/stacks/$name/replays/$sessionId'
     | '/stacks/$name/config/'
+    | '/stacks/$name/data/'
     | '/stacks/$name/errors/'
     | '/stacks/$name/queues/'
     | '/stacks/$name/replays/'
@@ -866,7 +878,6 @@ export interface FileRouteTypes {
     | '/stacks/$name/access'
     | '/stacks/$name/analytics'
     | '/stacks/$name/backups'
-    | '/stacks/$name/data'
     | '/stacks/$name/messaging'
     | '/stacks/$name/network'
     | '/stacks/$name/observability'
@@ -882,10 +893,12 @@ export interface FileRouteTypes {
     | '/stacks/$name/config/placement'
     | '/stacks/$name/config/rollout'
     | '/stacks/$name/config/scaling'
+    | '/stacks/$name/data/$cluster'
     | '/stacks/$name/errors/$fingerprint'
     | '/stacks/$name/queues/$cluster'
     | '/stacks/$name/replays/$sessionId'
     | '/stacks/$name/config'
+    | '/stacks/$name/data'
     | '/stacks/$name/errors'
     | '/stacks/$name/queues'
     | '/stacks/$name/replays'
@@ -945,7 +958,6 @@ export interface FileRouteTypes {
     | '/_authed/stacks/$name/access'
     | '/_authed/stacks/$name/analytics'
     | '/_authed/stacks/$name/backups'
-    | '/_authed/stacks/$name/data'
     | '/_authed/stacks/$name/messaging'
     | '/_authed/stacks/$name/network'
     | '/_authed/stacks/$name/observability'
@@ -961,10 +973,12 @@ export interface FileRouteTypes {
     | '/_authed/stacks/$name/config/placement'
     | '/_authed/stacks/$name/config/rollout'
     | '/_authed/stacks/$name/config/scaling'
+    | '/_authed/stacks/$name/data/$cluster'
     | '/_authed/stacks/$name/errors/$fingerprint'
     | '/_authed/stacks/$name/queues/$cluster'
     | '/_authed/stacks/$name/replays/$sessionId'
     | '/_authed/stacks/$name/config/'
+    | '/_authed/stacks/$name/data/'
     | '/_authed/stacks/$name/errors/'
     | '/_authed/stacks/$name/queues/'
     | '/_authed/stacks/$name/replays/'
@@ -1379,13 +1393,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedStacksNameMessagingRouteImport
       parentRoute: typeof AuthedStacksNameRoute
     }
-    '/_authed/stacks/$name/data': {
-      id: '/_authed/stacks/$name/data'
-      path: '/data'
-      fullPath: '/stacks/$name/data'
-      preLoaderRoute: typeof AuthedStacksNameDataRouteImport
-      parentRoute: typeof AuthedStacksNameRoute
-    }
     '/_authed/stacks/$name/backups': {
       id: '/_authed/stacks/$name/backups'
       path: '/backups'
@@ -1463,6 +1470,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedStacksNameErrorsIndexRouteImport
       parentRoute: typeof AuthedStacksNameRoute
     }
+    '/_authed/stacks/$name/data/': {
+      id: '/_authed/stacks/$name/data/'
+      path: '/data'
+      fullPath: '/stacks/$name/data/'
+      preLoaderRoute: typeof AuthedStacksNameDataIndexRouteImport
+      parentRoute: typeof AuthedStacksNameRoute
+    }
     '/_authed/stacks/$name/config/': {
       id: '/_authed/stacks/$name/config/'
       path: '/config'
@@ -1489,6 +1503,13 @@ declare module '@tanstack/react-router' {
       path: '/errors/$fingerprint'
       fullPath: '/stacks/$name/errors/$fingerprint'
       preLoaderRoute: typeof AuthedStacksNameErrorsFingerprintRouteImport
+      parentRoute: typeof AuthedStacksNameRoute
+    }
+    '/_authed/stacks/$name/data/$cluster': {
+      id: '/_authed/stacks/$name/data/$cluster'
+      path: '/data/$cluster'
+      fullPath: '/stacks/$name/data/$cluster'
+      preLoaderRoute: typeof AuthedStacksNameDataClusterRouteImport
       parentRoute: typeof AuthedStacksNameRoute
     }
     '/_authed/stacks/$name/config/scaling': {
@@ -1526,7 +1547,6 @@ interface AuthedStacksNameRouteChildren {
   AuthedStacksNameAccessRoute: typeof AuthedStacksNameAccessRoute
   AuthedStacksNameAnalyticsRoute: typeof AuthedStacksNameAnalyticsRoute
   AuthedStacksNameBackupsRoute: typeof AuthedStacksNameBackupsRoute
-  AuthedStacksNameDataRoute: typeof AuthedStacksNameDataRoute
   AuthedStacksNameMessagingRoute: typeof AuthedStacksNameMessagingRoute
   AuthedStacksNameNetworkRoute: typeof AuthedStacksNameNetworkRoute
   AuthedStacksNameObservabilityRoute: typeof AuthedStacksNameObservabilityRoute
@@ -1540,10 +1560,12 @@ interface AuthedStacksNameRouteChildren {
   AuthedStacksNameConfigPlacementRoute: typeof AuthedStacksNameConfigPlacementRoute
   AuthedStacksNameConfigRolloutRoute: typeof AuthedStacksNameConfigRolloutRoute
   AuthedStacksNameConfigScalingRoute: typeof AuthedStacksNameConfigScalingRoute
+  AuthedStacksNameDataClusterRoute: typeof AuthedStacksNameDataClusterRoute
   AuthedStacksNameErrorsFingerprintRoute: typeof AuthedStacksNameErrorsFingerprintRoute
   AuthedStacksNameQueuesClusterRoute: typeof AuthedStacksNameQueuesClusterRoute
   AuthedStacksNameReplaysSessionIdRoute: typeof AuthedStacksNameReplaysSessionIdRoute
   AuthedStacksNameConfigIndexRoute: typeof AuthedStacksNameConfigIndexRoute
+  AuthedStacksNameDataIndexRoute: typeof AuthedStacksNameDataIndexRoute
   AuthedStacksNameErrorsIndexRoute: typeof AuthedStacksNameErrorsIndexRoute
   AuthedStacksNameQueuesIndexRoute: typeof AuthedStacksNameQueuesIndexRoute
   AuthedStacksNameReplaysIndexRoute: typeof AuthedStacksNameReplaysIndexRoute
@@ -1553,7 +1575,6 @@ const AuthedStacksNameRouteChildren: AuthedStacksNameRouteChildren = {
   AuthedStacksNameAccessRoute: AuthedStacksNameAccessRoute,
   AuthedStacksNameAnalyticsRoute: AuthedStacksNameAnalyticsRoute,
   AuthedStacksNameBackupsRoute: AuthedStacksNameBackupsRoute,
-  AuthedStacksNameDataRoute: AuthedStacksNameDataRoute,
   AuthedStacksNameMessagingRoute: AuthedStacksNameMessagingRoute,
   AuthedStacksNameNetworkRoute: AuthedStacksNameNetworkRoute,
   AuthedStacksNameObservabilityRoute: AuthedStacksNameObservabilityRoute,
@@ -1567,11 +1588,13 @@ const AuthedStacksNameRouteChildren: AuthedStacksNameRouteChildren = {
   AuthedStacksNameConfigPlacementRoute: AuthedStacksNameConfigPlacementRoute,
   AuthedStacksNameConfigRolloutRoute: AuthedStacksNameConfigRolloutRoute,
   AuthedStacksNameConfigScalingRoute: AuthedStacksNameConfigScalingRoute,
+  AuthedStacksNameDataClusterRoute: AuthedStacksNameDataClusterRoute,
   AuthedStacksNameErrorsFingerprintRoute:
     AuthedStacksNameErrorsFingerprintRoute,
   AuthedStacksNameQueuesClusterRoute: AuthedStacksNameQueuesClusterRoute,
   AuthedStacksNameReplaysSessionIdRoute: AuthedStacksNameReplaysSessionIdRoute,
   AuthedStacksNameConfigIndexRoute: AuthedStacksNameConfigIndexRoute,
+  AuthedStacksNameDataIndexRoute: AuthedStacksNameDataIndexRoute,
   AuthedStacksNameErrorsIndexRoute: AuthedStacksNameErrorsIndexRoute,
   AuthedStacksNameQueuesIndexRoute: AuthedStacksNameQueuesIndexRoute,
   AuthedStacksNameReplaysIndexRoute: AuthedStacksNameReplaysIndexRoute,

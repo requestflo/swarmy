@@ -1,5 +1,6 @@
 import type { ServiceDetail, ServiceUsageView, UpdateServiceInput } from '@swarmy/core';
 import type { DemoStore, DomainResolvers } from '../types';
+import { managedMemberUsage } from './managed-members';
 
 /**
  * The service settings panel's demo world: each service's spec knobs the
@@ -171,6 +172,8 @@ export const serviceSettings: DomainResolvers = {
     },
     'services.usage': (i, store) => {
       const sv = store.services.find((s) => s.id === (i as { id: string }).id);
+      const member = sv ? undefined : managedMemberUsage(store, (i as { id: string }).id);
+      if (member !== undefined) return member;
       if (!sv) throw new Error(`service "${(i as { id: string }).id}" not found`);
       return usageOf(store, sv);
     },
