@@ -4,17 +4,23 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { SectionHeader } from '@/components/section-header';
-import { AlreadyOn, Depth, NextAction, Say } from '@/components/calm';
+import { AlreadyOn, Depth, NextAction } from '@/components/calm';
 import { PageError, PageSkeleton } from '@/components/states';
 import { ControllerSection } from '@/components/controllerbackup/controller-section';
 import { relativeTime } from './backup-format';
 import { failureWords, volumeWords } from './backup-words';
 import { BackupsCode } from './backups-code';
+import { backupsTitle } from './backups-say';
+import { BackupsTopLinks } from './backups-top-links';
+import { ControllerLine } from './controller-line';
 import { DestinationRows } from './destination-rows';
 import { DestinationsCard } from './destinations-card';
+import { DrDrillCard } from './dr-drill-card';
 import { EstateSnapshotsCard } from './estate-snapshots-card';
 import { NativeTargetHero } from './native-target-hero';
 import { ReplicatedStorePanel } from './replicated-store-panel';
+import { RestoreGridCard } from './restore-grid-card';
+import { useRestoreGrid } from './use-restore-grid';
 
 /**
  * /backups — one page of Sections: where backups go, the restore points
@@ -27,6 +33,7 @@ export function BackupsPage(): React.JSX.Element {
   const targets = useQuery({ ...trpc.backups.listTargets.queryOptions(), refetchInterval: 5_000 });
   const snaps = useQuery({ ...trpc.backups.listSnapshots.queryOptions({}), refetchInterval: 5_000 });
   const storage = useQuery(trpc.storage.getConfig.queryOptions());
+  const grid = useRestoreGrid();
   const ensure = useMutation(
     trpc.backups.ensureNativeTarget.mutationOptions({
       onSuccess: () => void qc.invalidateQueries(),
@@ -39,23 +46,18 @@ export function BackupsPage(): React.JSX.Element {
   const t = targets.data;
   const rows = snaps.data;
   const day = rows.filter((s) => Date.now() - new Date(s.startedAt).getTime() < 26 * 3_600_000);
-  const failed = day.filter((s) => s.status === 'FAILED').length;
   const last = rows.find((s) => s.status === 'SUCCEEDED');
   const broken = day.find((s) => s.status === 'FAILED');
-  const title =
-    t.length === 0 ? (
-      <>Backups have nowhere to go yet. <Say tone="warn">Give them a home.</Say></>
-    ) : failed ? (
-      <>{day.length - failed} of {day.length} saves worked in the last day. <Say tone="bad">{failed} failed.</Say></>
-    ) : (
-      <>Every volume is saved nightly. <em>{rows.length} restore points{last ? `, the last ${relativeTime(last.startedAt)}` : ''}.</em></>
-    );
+  const next = t.length === 0 || !!broken;
+  const points = grid.lanes.reduce((n, l) => n + l.cells.filter(Boolean).length, 0);
+  const title = backupsTitle(t.length > 0, grid, last?.startedAt ?? null, points);
 
   return (
     <Pad>
       <SectionHeader
         title={title}
-        description="Saves are encrypted and deduplicated. Each app chooses what it saves on its Backups tab; this page is where they go, how to get them back, and swarmy's own backup."
+        description={`Saves are encrypted and deduplicated. Each app chooses what it saves on its Backups tab; this page is where they go, how to get them back, and swarmy's own backup.`}
+        actions={<BackupsTopLinks />}
       />
       <div className="grid grid-cols-[minmax(0,1fr)] gap-5 xl:grid-cols-[minmax(0,1fr)_400px]">
         <div className="flex min-w-0 flex-col gap-5">
@@ -88,9 +90,10 @@ export function BackupsPage(): React.JSX.Element {
               {failureWords(broken.error)} The saves before it are still there; run it again now from its app’s Backups tab.
             </NextAction>
           ) : null}
-          <EstateSnapshotsCard />
+          <RestoreGridCard grid={grid} />
           <DestinationRows targets={t} />
           <Depth at="controls">
+            <EstateSnapshotsCard />
             <NativeTargetHero targets={t} />
             <div className="grid grid-cols-[minmax(0,1fr)] gap-5 lg:grid-cols-2">
               <DestinationsCard targets={t} />
@@ -101,6 +104,8 @@ export function BackupsPage(): React.JSX.Element {
         </div>
         <aside className="flex min-w-0 flex-col gap-4">
           <BackupsCode targets={t} />
+          <DrDrillCard primary={!next} />
+          <ControllerLine />
           <AlreadyOn
             items={[
               { what: 'Nightly', detail: 'every app volume and database, with nothing to set up' },
