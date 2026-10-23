@@ -17,6 +17,14 @@ export interface PlanActionView {
   host?: string;
   path?: string;
   peer?: string;
+  /** service.deploy: a new service or a rollout of an existing one. */
+  op?: 'create' | 'update';
+  /** build: the services this image is for. */
+  services?: string[];
+  /** resource.create / resource.update: the desired resource (its type). */
+  resource?: { type?: string };
+  /** service.deploy: the image it rolls out (or the build it comes from). */
+  image?: { image?: string; fromBuild?: string };
 }
 
 export interface PlanView {
