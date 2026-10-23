@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import type { ContainerInfo, SwarmServiceInfo } from '@swarmy/core/protocol';
-import { moveServiceData, serveSpec, switchoverDb, type MoverDeps, type SwitchoverDeps } from './volumeMove.service';
+import { moveServiceData, planServiceMove, serveSpec, switchoverDb, type MoverDeps, type SwitchoverDeps } from './volumeMove.service';
 
 /**
  * A tiny fake swarm: two servers, one service with a volume. Dispatches are
@@ -165,6 +165,26 @@ describe('moveServiceData', () => {
     const c = fakeSwarm();
     c.svc.desiredReplicas = 3;
     await expect(moveServiceData(c.ctx, { service: 'blog_ghost', toNodeId: 'n2' }, () => {}, deps)).rejects.toThrow('3 copies');
+  });
+});
+
+describe('planServiceMove', () => {
+  it('throws the refusal before anything is sent, so the router can return it to the caller', async () => {
+    const a = fakeSwarm();
+    a.svc.desiredReplicas = 3;
+    await expect(planServiceMove(a.ctx, { service: 'blog_ghost', toNodeId: 'n2' })).rejects.toThrow('3 copies');
+    expect(a.calls).toEqual([]);
+  });
+
+  it('returns the plan for a move swarmy will make', async () => {
+    const { ctx } = fakeSwarm();
+    const plan = await planServiceMove(ctx, { service: 'blog_ghost', toNodeId: 'n2' });
+    expect({ from: plan.fromNodeId, to: plan.toNodeId, src: plan.srcSwarm, dest: plan.destSwarm }).toEqual({
+      from: 'n1',
+      to: 'n2',
+      src: 'sw1',
+      dest: 'sw2',
+    });
   });
 });
 

@@ -218,12 +218,24 @@ export function serveSpec(moveId: string, volumes: readonly string[], sourceSwar
  * Two-pass copy of a service's volumes to `toNodeId`, then start it there.
  * Resolves when the service runs on the destination; throws after rolling back.
  */
-export async function moveServiceData(
-  ctx: Ctx,
-  input: { service: string; toNodeId: string; checksum?: boolean; bwlimitKbps?: number },
-  progress: ProgressFn = () => {},
-  deps: MoverDeps = realDeps,
-): Promise<MoveResult> {
+/** What a move will do, once every refusal has been checked. */
+export interface MovePlan {
+  svc: SwarmServiceInfo;
+  replicas: number;
+  fromNodeId: string;
+  toNodeId: string;
+  srcSwarm: string;
+  destSwarm: string;
+  volumes: string[];
+  manager: Awaited<ReturnType<typeof resolveManagerNode>>;
+}
+
+/**
+ * Every reason swarmy refuses a move, checked up front and thrown as a
+ * plain-words error. The router awaits this before it starts the move in the
+ * background, so a refusal reaches the person who asked instead of vanishing.
+ */
+export async function planServiceMove(ctx: Ctx, input: { service: string; toNodeId: string }): Promise<MovePlan> {
   const svc = liveService(ctx, input.service);
   if (!svc) throw notFound('service', input.service);
   if (svc.mode === 'global') throw commandRejected(`${svc.name} runs on every server; there is nothing to move.`);
@@ -256,6 +268,16 @@ export async function moveServiceData(
   if (volumes.length === 0) throw commandRejected(`${svc.name} has no named volumes to move.`);
 
   const manager = await resolveManagerNode(ctx);
+  return { svc, replicas, fromNodeId, toNodeId, srcSwarm, destSwarm, volumes, manager };
+}
+
+export async function moveServiceData(
+  ctx: Ctx,
+  input: { service: string; toNodeId: string; checksum?: boolean; bwlimitKbps?: number },
+  progress: ProgressFn = () => {},
+  deps: MoverDeps = realDeps,
+): Promise<MoveResult> {
+  const { svc, replicas, fromNodeId, toNodeId, srcSwarm, destSwarm, volumes, manager } = await planServiceMove(ctx, input);
   const moveId = newMoveId(deps.now());
   const secret = deps.secret();
   const state: MoveState = {

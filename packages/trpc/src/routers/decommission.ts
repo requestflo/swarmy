@@ -9,7 +9,7 @@ import {
   startDecommission,
   stopDecommission,
 } from '../services/decommission.service';
-import { deleteOldCopy, moveServiceData } from '../services/volumeMove.service';
+import { deleteOldCopy, moveServiceData, planServiceMove } from '../services/volumeMove.service';
 
 /**
  * Volume mobility (plans/epic-volume-mobility.md): retire a server, move one
@@ -50,14 +50,15 @@ export const decommissionRouter = router({
 
   /**
    * Move one service's data to another server (two-pass copy, short pause).
-   * Starts in the background; progress is the service's `swarmy.move.state`
-   * label in the live inventory, the outcome an audit row.
+   * Refusals (multi-copy, managed primary, offline destination…) are checked
+   * first and returned as errors; the move itself then runs in the background.
+   * Progress is the service's `swarmy.move.state` label in the live inventory,
+   * the outcome an audit row.
    */
   moveService: adminProcedure
     .input(z.object({ service: z.string(), toNodeId: z.string() }))
-    .mutation(({ ctx, input }) => {
-      const svc = ctx.hub.liveInventory(ctx.activeOrgId).services.find((s) => s.name === input.service);
-      if (!svc) throw commandRejected(`no service named ${input.service}`);
+    .mutation(async ({ ctx, input }) => {
+      await planServiceMove(ctx, input);
       void moveServiceData(ctx, input).catch(() => undefined); // failures roll back + audit inside
       return { started: true, service: input.service };
     }),
