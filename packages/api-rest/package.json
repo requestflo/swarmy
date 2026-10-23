@@ -10,6 +10,7 @@
   "scripts": {
     "build": "echo '@swarmy/api-rest resolves to src'",
     "openapi:dump": "bun run src/bin/dump-openapi.ts",
+    "test": "bun test",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist .turbo",
     "test": "bun test"
