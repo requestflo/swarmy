@@ -1,4 +1,5 @@
 import { API_BASE, curl, type CodeTab } from '@/components/calm';
+import { mcpConfig } from './cli-mcp';
 
 /**
  * Code depth: use a key (curl, Terraform), mint one over REST, the CLI and
@@ -20,13 +21,7 @@ export function apiCode(app = 'storefront'): CodeTab[] {
       label: 'CLI',
       code: `curl -fsSL ${origin}/install/cli.sh | sh\nswarmy login --controller ${origin}\nswarmy whoami\nswarmy deploy\nswarmy logs web -f`,
     },
-    {
-      label: 'Claude Code',
-      code: `# local, with the CLI's login\nclaude mcp add swarmy -- swarmy mcp --read-only\n\n# remote, with an API key\nclaude mcp add --transport http swarmy ${origin}/mcp \\\n  --header "Authorization: Bearer swk_…"`,
-    },
-    {
-      label: 'Cursor',
-      code: JSON.stringify({ mcpServers: { swarmy: { command: 'swarmy', args: ['mcp'] } } }, null, 2),
-    },
+    { label: 'Claude Code', code: mcpConfig('claude', origin) },
+    { label: 'Cursor', code: mcpConfig('cursor', origin) },
   ];
 }

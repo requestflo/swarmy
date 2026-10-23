@@ -6,6 +6,8 @@ import { RowPage, plural } from '@/components/rowpage/row-page';
 import { apiCode } from './api-code';
 import { ApiKeysTab } from './api-keys-tab';
 import { CliSection } from './cli-section';
+import { McpSection } from './mcp-section';
+import { RepoCheckSection } from './repo-check-section';
 import { soonestExpiry } from './key-words';
 import { NewKeyPanel } from './new-key-panel';
 import { OauthClientsTab } from './oauth-clients-tab';
@@ -19,6 +21,7 @@ export function ApiKeysPage(): React.JSX.Element {
   const active = (keys.data ?? []).filter((k) => k.status === 'active');
   const soon = keys.data ? soonestExpiry(keys.data) : null;
   const scoped = active.filter((k) => k.stackNames).length;
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const title = !keys.data ? (
     'API, CLI and MCP.'
   ) : (
@@ -39,7 +42,11 @@ export function ApiKeysPage(): React.JSX.Element {
       }
     >
       <ApiKeysTab />
-      <CliSection />
+      <div className="grid gap-5 2xl:grid-cols-2">
+        <CliSection origin={origin} />
+        <McpSection origin={origin} />
+      </div>
+      <RepoCheckSection />
       <Depth at="controls">
         <Section title="OAuth clients" hint="rotating tokens for machines, instead of a static key">
           <OauthClientsTab />
