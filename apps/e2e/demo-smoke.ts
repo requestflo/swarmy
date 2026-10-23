@@ -110,6 +110,8 @@ const routes: Array<[string, RegExp?]> = [
   ['/activity'],
   ['/nodes'],
   ['/nodes/new'],
+  // Placement & volumes' "Move…" opens the move picker for that service.
+  ['/nodes?move=svc-postgres', /Move postgres to/],
   ['/nodes/n-mgr-1', /mgr-1/],
   ['/nodes/n-wkr-1/terminal'],
   ['/services/svc-api'],
@@ -136,6 +138,7 @@ const routes: Array<[string, RegExp?]> = [
   ['/stacks/storefront/rum-settings'],
   ['/stacks/storefront/backups'],
   ['/stacks/storefront/time-travel', /right now/],
+  ['/stacks/data/config/placement', /stays on wkr-1 with its data/],
   ['/stacks/data/data'],
   ['/stacks/storefront/data', /cache/i],
   ['/stacks/storefront/data/checkout', /Switch-over/],

@@ -365,6 +365,7 @@ export const core: DomainResolvers = {
       if (b.env) sv.env = Object.fromEntries(b.env.map((e) => [e.key, e.value]));
       if (b.image) sv.image = b.image;
       if (b.replicas !== undefined) sv.replicas = { ...sv.replicas, desired: b.replicas };
+      if (b.volumes) sv.volumes = b.volumes.map((v) => ({ type: v.type, ...(v.source ? { source: v.source } : {}), target: v.target, readOnly: v.readOnly }));
       sv.updatedAt = new Date().toISOString();
       return { id: b.id, deploymentId: `dep-${Math.random().toString(36).slice(2, 8)}` };
     },

@@ -13,6 +13,7 @@ import { FleetSection } from './fleet/fleet-section';
 import { useFleetMap } from './fleet/use-fleet-map';
 import { MoveProvider, useMove } from './move/move-context';
 import { MovePanel } from './move/move-panel';
+import { useMoveFromSearch } from './move/use-move-from-search';
 import { useFleet } from './use-fleet';
 import { useServersView } from './use-servers-view';
 import { ServersList } from './servers-list';
@@ -52,6 +53,7 @@ function ServersScreen(): React.JSX.Element {
       requestAnimationFrame(() => document.getElementById('server-inspector')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
     }
   }, []);
+  useMoveFromSearch(map.groups, pick);
 
   if (estate.status === 'pending') return <PageSkeleton variant="kpis" />;
   if (estate.status === 'error') {
