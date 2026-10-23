@@ -8,6 +8,7 @@ import {
   type TrafficSeriesView,
 } from '@swarmy/core';
 import type { DemoStore, DomainResolvers } from '../types';
+import { APPS, demoHosts } from './traffic-apps';
 
 /**
  * Per-edge request counting demo (router `traffic`, Q4). Shapes mirror
@@ -15,32 +16,14 @@ import type { DemoStore, DomainResolvers } from '../types';
  * `swarmy.node.ingress` (read live from the store, so geodns.setNodeRegion
  * moves them): eu-west ≈ 434/min and us-east ≈ 178/min right now (the estate
  * map board), ap-south a trickle, and the draining us-west edge reports
- * nothing yet. Apps: storefront carries most of it, platform
- * (metrics.northwind.dev) a little, and scanner noise lands in "other".
- * Sparklines are a daily curve plus deterministic per-app noise.
+ * nothing yet. Who the visits are for (per app and per address) lives in
+ * traffic-apps.ts. Sparklines are a daily curve plus deterministic per-app
+ * noise.
  */
 
 /** Requests/min right now per region (the whole region, split over its edges). */
 const REGION_RATE: Record<string, number> = { 'eu-west': 434, 'us-east': 178, 'ap-south': 61 };
 const DEFAULT_REGION_RATE = 40;
-
-interface DemoApp {
-  app: string | null;
-  share: number;
-  errorShare: number;
-  hosts: string[];
-}
-
-const APPS: DemoApp[] = [
-  {
-    app: 'storefront',
-    share: 0.87,
-    errorShare: 0.004,
-    hosts: ['api.northwind.dev', 'cdn.northwind.dev', 'northwind.shop', 'shop.northwind.dev'],
-  },
-  { app: 'platform', share: 0.08, errorShare: 0, hosts: ['metrics.northwind.dev'] },
-  { app: null, share: 0.05, errorShare: 0.02, hosts: ['203.0.113.10', 'scanner.invalid'] },
-];
 
 interface DemoEdgeNode {
   id: string;
@@ -123,7 +106,7 @@ function trafficNow(s: DemoStore): TrafficNowView {
           requestsPerMin: req,
           errors5xxPerMin: round1(req * a.errorShare),
           errorShare: a.errorShare,
-          hosts: a.hosts,
+          hosts: a.hosts.map(([h]) => h).sort(),
         };
       })
     : [];
@@ -140,6 +123,7 @@ function trafficNow(s: DemoStore): TrafficNowView {
     },
     regions,
     apps,
+    hosts: total ? demoHosts(regions.flatMap((r) => r.edges)) : [],
   };
 }
 

@@ -33,6 +33,7 @@ export * from './cost-budget';
 export * from './doh-resolvers';
 export * from './prometheus-text';
 export * from './edge-traffic';
+export * from './edge-traffic-hosts';
 export * from './node-stats-history';
 export * from './image-ref';
 // NOTE: './crypto' (node:crypto credential vault) is server-only and is NOT

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { PromSample } from './prometheus-text';
 import type { EdgeTrafficSample } from './protocol/stats';
+import { aggregateTrafficHosts, type TrafficHostView } from './edge-traffic-hosts';
 
 /**
  * Per-edge request counting (Q4) — the pure half.
@@ -456,6 +457,8 @@ export interface TrafficNowView {
   };
   regions: TrafficRegionView[];
   apps: TrafficAppView[];
+  /** Per address (host → req/min and 5xx), busiest first; an app's hosts add up to its rate. */
+  hosts: TrafficHostView[];
 }
 
 export interface TrafficSeriesPoint {
@@ -511,9 +514,10 @@ export function makeHostAppResolver(routes: ReadonlyArray<{ host: string; app: s
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
 /**
- * "Right now": per region and per app over the last `windowMinutes` COMPLETE
- * minutes. Each edge's rate divides by the minutes it actually reported in
- * that window, so an edge that came up two minutes ago is not diluted.
+ * "Right now": per region, per app and per host over the last `windowMinutes`
+ * COMPLETE minutes. Each edge's rate divides by the minutes it actually
+ * reported in that window, so an edge that came up two minutes ago is not
+ * diluted.
  */
 export function aggregateTrafficNow(args: {
   cells: readonly TrafficCell[];
@@ -624,6 +628,7 @@ export function aggregateTrafficNow(args: {
     },
     regions: regionList,
     apps,
+    hosts: aggregateTrafficHosts({ cells: args.cells, covered, appOf: args.appOf, start, end }),
   };
 }
 

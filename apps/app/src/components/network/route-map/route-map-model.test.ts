@@ -31,6 +31,7 @@ const TRAFFIC: TrafficNowView = {
     { region: 'us-west', requestsPerMin: null, errors5xxPerMin: null, state: 'no-data', edges: [{ nodeId: 'c', name: 'c', region: 'us-west', state: 'no-data', requestsPerMin: null, lastReportAt: null }] },
   ],
   apps: [],
+  hosts: [],
 };
 
 const NODES = [node('a', 'online', '198.51.100.10'), node('b', 'online', '203.0.113.10'), node('c', 'draining', null)];

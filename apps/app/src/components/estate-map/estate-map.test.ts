@@ -98,7 +98,7 @@ describe('layoutMap', () => {
 
 describe('flows', () => {
   const now = (regions: TrafficNowView['regions']): TrafficNowView =>
-    ({ sampledAt: 1, windowMinutes: 5, unit: 'requests/min', totals: { requestsPerMin: 1, errors5xxPerMin: 0, errorShare: 0, state: 'reporting' }, regions, apps: [] }) as TrafficNowView;
+    ({ sampledAt: 1, windowMinutes: 5, unit: 'requests/min', totals: { requestsPerMin: 1, errors5xxPerMin: 0, errorShare: 0, state: 'reporting' }, regions, apps: [], hosts: [] }) as TrafficNowView;
   const blob = (region: string | null, x: number): PlacedBlob => ({ region, x, y: 120, w: 280, h: 200, cards: [] });
 
   test('plain words from the region label', () => {
