@@ -19,6 +19,7 @@ export function AccessCode({ view }: { view: AppAccessViewData }): React.JSX.Ele
     '',
     `# who can enter: ${who}`,
     `# the app receives: ${IDENTITY_HEADERS.join(', ')}`,
+    '# verify X-Swarmy-Jwt with JWKS: GET /.well-known/swarmy-jwks.json (controller)',
   ].join('\n');
   const tabs = [{ label: 'routes', code: edge }];
   const a = view.endUserAuth;

@@ -6,6 +6,7 @@ import { CardSkeleton, EmptyState, ErrorState } from '@/components/states';
 import { RequireLoginCard } from './require-login-card';
 import { WhoCanEnterCard } from './who-can-enter-card';
 import { EndUsersCard } from './end-users-card';
+import { SignInPreview } from './sign-in-preview';
 import type { AppAccessViewData } from './types';
 
 /** The app Access tab: Require login, who can enter, and (with `auth:`) the app's own users. */
@@ -41,7 +42,12 @@ export function AppAccessSection({ stack }: { stack: string }): React.JSX.Elemen
           <WhoCanEnterCard stack={stack} view={view} />
         </>
       )}
-      {view.endUserAuth ? <EndUsersCard stack={stack} auth={view.endUserAuth} /> : null}
+      {view.endUserAuth ? (
+        <>
+          <EndUsersCard stack={stack} auth={view.endUserAuth} />
+          <SignInPreview stack={stack} auth={view.endUserAuth} />
+        </>
+      ) : null}
     </div>
   );
 }

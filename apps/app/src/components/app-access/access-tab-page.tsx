@@ -8,6 +8,7 @@ import { ConnectFromLaptop } from '@/components/networking/connect-from-laptop';
 import { OtherAppsSection } from '@/components/connections/other-apps-section';
 import { AccessCode } from './access-code';
 import { AppAccessSection } from './app-access-section';
+import { SimulateRequest } from './simulate-request';
 import type { AppAccessRoute, AppAccessViewData } from './types';
 
 const PRIVATE_PATH = /^\/(admin|internal|staff|ops|dashboard)\b/i;
@@ -15,13 +16,14 @@ const PRIVATE_PATH = /^\/(admin|internal|staff|ops|dashboard)\b/i;
 function whoWords(v: AppAccessViewData): string {
   if (v.rules.everyone) return 'everyone in your organisation';
   const parts = [...v.rules.groups.map((g) => `group ${g}`), ...v.rules.people.map((p) => v.people.find((x) => x.memberId === p)?.name ?? p)];
-  return parts.length ? parts.join(', ') : 'nobody yet';
+  return parts.length ? parts.join(', ') : 'owners and admins';
 }
 
 /**
  * The app's Access tab (AppAccess board): who can open the app, in a
  * sentence; each address as a row ("anyone" / "signs in first"); one next
- * action when an admin-looking path is open to the world. Controls: the
+ * action when an admin-looking path is open to the world; a simulated request
+ * (member or stranger) walked through the edge. Controls: the
  * Require login / who can enter / own users cards and laptop access. Last,
  * which other apps can reach it (→ Network › Connections).
  */
@@ -81,6 +83,7 @@ export function AccessTabPage({ stack }: { stack: string }): React.JSX.Element {
           </Section>
         ) : null}
       </Depth>
+      {routes.length > 0 ? <SimulateRequest stack={stack} view={v} /> : null}
       <Depth at="controls">
         <AppAccessSection stack={stack} />
         <ConnectFromLaptop stack={stack} />
