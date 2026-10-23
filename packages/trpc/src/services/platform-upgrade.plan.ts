@@ -20,6 +20,10 @@
  *    {@link retryRun} re-arms the failed step (its `data` is kept, so work it
  *    already did is not redone).
  *
+ * "Pause after this step": `driveRun`'s `pauseRequested` is asked after every
+ * finished step; a yes halts the run `paused` on the NEXT step (nothing else
+ * changes). Resume / Abandon live in `platform-upgrade.pause.ts`.
+ *
  * The IO lives in `platform-upgrade.service.ts`; everything here is unit-tested
  * with fake handlers in `platform-upgrade.test.ts`.
  */
@@ -37,7 +41,11 @@ export const STEP_LABEL: Record<StepKey, string> = {
 };
 
 export type StepStatus = 'pending' | 'running' | 'waiting' | 'done' | 'skipped' | 'failed' | 'rolled-back';
-export type RunStatus = 'running' | 'done' | 'failed' | 'cancelled';
+/**
+ * `paused` waits for a person (Resume / Abandon); `abandoning` is putting back
+ * what the run changed and is re-driven by the tick like `running`.
+ */
+export type RunStatus = 'running' | 'paused' | 'abandoning' | 'done' | 'failed' | 'cancelled' | 'abandoned';
 
 export interface StepState {
   key: StepKey;
@@ -74,6 +82,12 @@ export interface StepHandler {
   run: (c: StepContext) => Promise<StepOutcome>;
   /** Undo this step's own effects after it failed. Returns a plain-words result. */
   rollback?: (c: StepContext, error: string) => Promise<string | void>;
+  /**
+   * Undo this FINISHED step when a person abandons a paused run (falls back to
+   * `rollback`). Must be idempotent: a controller restart re-enters it. Throw
+   * when something could not be put back — the run goes back to `paused`.
+   */
+  abandon?: (c: StepContext) => Promise<string | void>;
 }
 
 export type StepHandlers = Record<StepKey, StepHandler>;
@@ -101,7 +115,12 @@ function stepOf(run: RunState, key: StepKey): StepState {
   return s;
 }
 
-export type DriveResult = 'done' | 'failed' | 'waiting' | 'idle';
+export type DriveResult = 'done' | 'failed' | 'waiting' | 'paused' | 'idle';
+
+export interface DriveOptions {
+  /** Asked after each finished step (not the last): has someone asked to pause? Read fresh — it survives restarts. */
+  pauseRequested?: () => boolean | Promise<boolean>;
+}
 
 /**
  * Drive a run from its current step. Idempotent across restarts: finished
@@ -112,6 +131,7 @@ export async function driveRun(
   handlers: StepHandlers,
   persist: (run: RunState) => Promise<void>,
   now: () => Date = () => new Date(),
+  opts: DriveOptions = {},
 ): Promise<DriveResult> {
   if (run.status !== 'running') return 'idle';
   const note = (msg: string) => noteOn(run, msg, now);
@@ -161,6 +181,14 @@ export async function driveRun(
     step.finishedAt = now().toISOString();
     note(`${STEP_LABEL[key]}: ${outcome.status}${outcome.detail ? ` — ${outcome.detail}` : ''}`);
     await checkpoint();
+    const next = STEP_ORDER[i + 1];
+    if (next && opts.pauseRequested && (await opts.pauseRequested())) {
+      run.status = 'paused';
+      run.step = next;
+      note(`paused after ${STEP_LABEL[key]}, as asked — ${STEP_LABEL[next]} is next; nothing else changes until someone resumes or abandons`);
+      await checkpoint();
+      return 'paused';
+    }
   }
   run.status = 'done';
   run.error = null;

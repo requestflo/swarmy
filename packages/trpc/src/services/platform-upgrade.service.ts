@@ -28,7 +28,9 @@
  *              becomes the cluster's current manifest; audited.
  *
  * Resumable: the run row carries per-step `data`; `resumePlatformUpgrades`
- * (the worker tick) re-drives any `running` run this process isn't driving.
+ * (the worker tick) re-drives any `running` / `abandoning` run this process
+ * isn't driving. "Pause after this step" + Resume / Abandon: the pure half is
+ * `platform-upgrade.pause.ts`, the API `platform-upgrade-control.service.ts`.
  */
 import { registryConfigs } from './apps.repo';
 import type { RunOnceResult } from '@swarmy/core/protocol';
@@ -75,6 +77,18 @@ import {
   type StepHandlers,
   type StepState,
 } from './platform-upgrade.plan';
+import { systemAbandon } from './platform-upgrade.abandon';
+import {
+  ACTIVE_RUN_STATUSES,
+  DRIVEN_RUN_STATUSES,
+  FINISHED_RUN_STATUSES,
+  abandonPreview,
+  abandonRun,
+  pauseRequested,
+  withPauseRequest,
+  type AbandonPreview,
+  type PauseRequest,
+} from './platform-upgrade.pause';
 import { decodeRegistryCreds } from './registry-auth';
 import { canonicalRegistryHost } from './registryPolicy.service';
 import { mirrorStateFrom, mirrorSystemImagesForOrg } from './system-images.service';
@@ -127,13 +141,13 @@ export const defaultDeps: PlatformUpgradeDeps = {
 
 // ── run row ↔ state ──────────────────────────────────────────────────────────
 
-type RunRow = NonNullable<Awaited<ReturnType<OrgContext['db']['platformUpgradeRun']['findFirst']>>>;
+export type RunRow = NonNullable<Awaited<ReturnType<OrgContext['db']['platformUpgradeRun']['findFirst']>>>;
 
-interface RunOptions {
+export interface RunOptions extends PauseRequest {
   skipBackup?: boolean;
 }
 
-function stateOf(row: RunRow): RunState {
+export function stateOf(row: RunRow): RunState {
   return {
     status: row.status as RunState['status'],
     step: row.step as RunState['step'],
@@ -143,8 +157,8 @@ function stateOf(row: RunRow): RunState {
   };
 }
 
-async function persist(ctx: OrgContext, id: string, run: RunState): Promise<void> {
-  const finished = run.status !== 'running';
+export async function persist(ctx: OrgContext, id: string, run: RunState): Promise<void> {
+  const finished = FINISHED_RUN_STATUSES.includes(run.status);
   await ctx.db.platformUpgradeRun.update({
     where: { id },
     data: {
@@ -167,7 +181,7 @@ function manager(ctx: OrgContext): string {
   return m;
 }
 
-async function registryLogin(ctx: OrgContext): Promise<{ host?: string; env: Record<string, string> }> {
+export async function registryLogin(ctx: OrgContext): Promise<{ host?: string; env: Record<string, string> }> {
   const reg = await registryConfigs(ctx, ctx.activeOrgId).findFirst().catch(() => null);
   if (!reg?.enabled) return { env: {} };
   const creds = decodeRegistryCreds(reg.credentialsEnc);
@@ -190,7 +204,7 @@ export function dockerCliPayload(script: string, env: Record<string, string>, ti
   };
 }
 
-async function dockerCli(ctx: OrgContext, script: string, env: Record<string, string>, timeoutMs: number) {
+export async function dockerCli(ctx: OrgContext, script: string, env: Record<string, string>, timeoutMs: number) {
   const res = await ctx.hub.dispatch<RunOnceResult>(manager(ctx), 'container.runOnce', dockerCliPayload(script, env, timeoutMs), {
     timeoutMs: timeoutMs + 30_000,
   });
@@ -409,12 +423,15 @@ export function buildHandlers(ctx: OrgContext, row: RunRow, deps: PlatformUpgrad
         .then(() => back.push(id))
         .catch(() => undefined);
     }
+    // Sent back = not upgraded any more: a retry / Resume re-checks them by their live build.
+    for (const id of back) delete d.nodes![id];
     return `${back.length} container agent(s) sent back to ${from.version}; host-binary agents keep the new (backward-compatible) build`;
   };
 
   const system = async (c: StepContext) => {
-    const d = dataOf<{ updated?: string[]; pending?: Array<{ service: string; key: string; from: string; to: string }> }>(c.step);
+    const d = dataOf<{ updated?: string[]; from?: Record<string, string>; pending?: Array<{ service: string; key: string; from: string; to: string }> }>(c.step);
     d.updated ??= [];
+    d.from ??= {};
     const resolve = await refResolver(ctx, target);
     const live = ctx.hub.liveInventory(ctx.activeOrgId).services;
     d.pending = planSystemUpdates(live, target.components, resolve).filter((u) => !d.updated!.includes(u.service));
@@ -422,6 +439,8 @@ export function buildHandlers(ctx: OrgContext, row: RunRow, deps: PlatformUpgrad
     const reg = await registryLogin(ctx);
     for (const u of d.pending) {
       c.step.detail = `${u.service}: rolling to ${u.to.split('@')[0]}`;
+      // The exact image to go back to if a person abandons the run later (first sighting wins).
+      d.from[u.service] ??= u.from;
       await c.checkpoint();
       const r = await dockerCli(ctx, serviceUpdateScript(u.service, u.to, { login: reg.host }), reg.env, 15 * 60_000);
       if (!updateLanded(r)) {
@@ -443,6 +462,8 @@ export function buildHandlers(ctx: OrgContext, row: RunRow, deps: PlatformUpgrad
       const r = await dockerCli(ctx, serviceRollbackScript(svc), {}, 15 * 60_000).catch(() => ({ rc: -1, state: 'error', output: '' }));
       if (r.rc === 0) done.push(svc);
     }
+    // Restored = not upgraded any more: a retry re-rolls them.
+    d.updated = (d.updated ?? []).filter((s) => !done.includes(s));
     return done.length ? `restored the previous image on ${done.join(', ')}` : 'nothing else to restore';
   };
 
@@ -500,7 +521,18 @@ export function buildHandlers(ctx: OrgContext, row: RunRow, deps: PlatformUpgrad
     preflight: { run: preflight },
     controller: { run: controller },
     agents: { run: agents, rollback: agentsRollback },
-    system: { run: system, rollback: systemRollback },
+    system: {
+      run: system,
+      rollback: systemRollback,
+      abandon: (c) =>
+        systemAbandon(c, {
+          live: () => ctx.hub.liveInventory(ctx.activeOrgId).services,
+          update: async (svc, image) => {
+            const reg = await registryLogin(ctx);
+            return dockerCli(ctx, serviceUpdateScript(svc, image, { login: reg.host }), reg.env, 15 * 60_000);
+          },
+        }),
+    },
     engines: { run: engines },
     verify: { run: verify },
   };
@@ -515,10 +547,16 @@ export async function drivePlatformUpgrade(ctx: OrgContext, runId: string, deps:
   driving.add(ctx.activeOrgId);
   try {
     const row = await ctx.db.platformUpgradeRun.findFirst({ where: { id: runId, orgId: ctx.activeOrgId } });
-    if (!row || row.status !== 'running') return;
+    if (!row || !DRIVEN_RUN_STATUSES.includes(row.status as RunState['status'])) return;
     const run = stateOf(row);
-    const result = await driveRun(run, buildHandlers(ctx, row, deps), (r) => persist(ctx, row.id, r), deps.now);
-    if (result === 'done' || result === 'failed') {
+    const handlers = buildHandlers(ctx, row, deps);
+    const save = (r: RunState) => persist(ctx, row.id, r);
+    // The pause request is read FRESH after each step: it may have been asked while this process waited.
+    const asked = async () =>
+      pauseRequested((await ctx.db.platformUpgradeRun.findFirst({ where: { id: row.id }, select: { options: true } }))?.options);
+    const result =
+      row.status === 'abandoning' ? await abandonRun(run, handlers, save, deps.now) : await driveRun(run, handlers, save, deps.now, { pauseRequested: asked });
+    if (result !== 'waiting' && result !== 'idle') {
       await deps
         .audit(ctx, {
           action: `platform.upgrade.${result}`,
@@ -543,7 +581,7 @@ export async function resumePlatformUpgrades(
   db: OrgContext['db'],
   deps: PlatformUpgradeDeps = defaultDeps,
 ): Promise<number> {
-  const rows = await db.platformUpgradeRun.findMany({ where: { status: 'running' }, select: { id: true, orgId: true } });
+  const rows = await db.platformUpgradeRun.findMany({ where: { status: { in: DRIVEN_RUN_STATUSES } }, select: { id: true, orgId: true } });
   let n = 0;
   for (const r of rows) {
     if (driving.has(r.orgId)) continue;
@@ -570,10 +608,15 @@ export interface PlatformRunView {
   steps: Array<{ key: string; status: string; detail: string | null; error: string | null; startedAt: string | null; finishedAt: string | null }>;
   log: Array<{ at: string; msg: string }>;
   options: RunOptions;
+  /** A pause asked for while running (it lands after the current step). */
+  pause: { requestedAt: string; by: string | null } | null;
+  /** While paused: what Abandon would put back and what stays. */
+  abandon: AbandonPreview | null;
 }
 
-function runView(row: RunRow): PlatformRunView {
+export function runView(row: RunRow): PlatformRunView {
   const s = stateOf(row);
+  const options = (row.options as RunOptions | null) ?? {};
   return {
     id: row.id,
     status: s.status,
@@ -598,14 +641,16 @@ function runView(row: RunRow): PlatformRunView {
       };
     }),
     log: s.log.slice(-60),
-    options: (row.options as RunOptions | null) ?? {},
+    options,
+    pause: pauseRequested(options) ? { requestedAt: options.pauseRequestedAt!, by: options.pauseRequestedBy ?? null } : null,
+    abandon: s.status === 'paused' ? abandonPreview(s) : null,
   };
 }
 
 export interface PlatformStatusView {
   release: PlatformReleaseView;
   run: PlatformRunView | null;
-  history: Array<Omit<PlatformRunView, 'log' | 'steps'>>;
+  history: Array<Omit<PlatformRunView, 'log' | 'steps' | 'abandon'>>;
 }
 
 export async function getPlatformStatus(ctx: OrgContext): Promise<PlatformStatusView> {
@@ -618,7 +663,7 @@ export async function getPlatformStatus(ctx: OrgContext): Promise<PlatformStatus
     release,
     run: latest,
     history: rows.map((r) => {
-      const { log: _log, steps: _steps, ...rest } = runView(r);
+      const { log: _log, steps: _steps, abandon: _abandon, ...rest } = runView(r);
       return rest;
     }),
   };
@@ -650,8 +695,11 @@ export async function startPlatformUpgrade(
   const current = currentManifestOf(cfg);
   const block = upgradeBlockReason(current.version, target);
   if (block) throw commandRejected(block);
-  const active = await ctx.db.platformUpgradeRun.findFirst({ where: { orgId: ctx.activeOrgId, status: 'running' }, select: { id: true } });
-  if (active) throw commandRejected('a platform upgrade is already running');
+  const active = await ctx.db.platformUpgradeRun.findFirst({
+    where: { orgId: ctx.activeOrgId, status: { in: ACTIVE_RUN_STATUSES } },
+    select: { status: true },
+  });
+  if (active) throw commandRejected(active.status === 'paused' ? 'a platform upgrade is paused — resume or abandon it first' : 'a platform upgrade is already running');
 
   const state = newRunState();
   const row = await ctx.db.platformUpgradeRun.create({
@@ -688,14 +736,19 @@ export async function startPlatformUpgrade(
 export async function retryPlatformUpgrade(ctx: OrgContext, id: string, deps: PlatformUpgradeDeps = defaultDeps): Promise<PlatformRunView> {
   const row = await ctx.db.platformUpgradeRun.findFirst({ where: { id, orgId: ctx.activeOrgId } });
   if (!row) throw notFound('platform upgrade run', id);
-  const active = await ctx.db.platformUpgradeRun.findFirst({ where: { orgId: ctx.activeOrgId, status: 'running', NOT: { id } }, select: { id: true } });
-  if (active) throw commandRejected('another platform upgrade is running');
+  const active = await ctx.db.platformUpgradeRun.findFirst({
+    where: { orgId: ctx.activeOrgId, status: { in: ACTIVE_RUN_STATUSES }, NOT: { id } },
+    select: { id: true },
+  });
+  if (active) throw commandRejected('another platform upgrade is running or paused');
   let run: RunState;
   try {
     run = retryRun(stateOf(row), deps.now);
   } catch (e) {
     throw commandRejected(e instanceof Error ? e.message : String(e));
   }
+  // A pause asked before the failure doesn't carry over into the retry.
+  if (pauseRequested(row.options)) await ctx.db.platformUpgradeRun.update({ where: { id }, data: { options: withPauseRequest(row.options as RunOptions, null) as object } });
   await persist(ctx, id, run);
   await deps.audit(ctx, { action: 'platform.upgrade.retry', targetType: 'platformUpgradeRun', targetId: id, metadata: { step: run.step } });
   void drivePlatformUpgrade(ctx, id, deps);

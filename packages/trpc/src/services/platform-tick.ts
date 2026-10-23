@@ -20,6 +20,7 @@ import {
   type AvailableRelease,
   type FetchText,
 } from './platform-release.service';
+import { ACTIVE_RUN_STATUSES } from './platform-upgrade.pause';
 import { defaultDeps, resumePlatformUpgrades, startPlatformUpgrade, type PlatformUpgradeDeps } from './platform-upgrade.service';
 
 export interface PlatformTickResult {
@@ -58,7 +59,8 @@ export async function platformTick(
       const row = await db.platformConfig.findUnique({ where: { orgId } });
       if (!row?.autoApplyPatches) continue;
       const [running, lastAuto] = await Promise.all([
-        db.platformUpgradeRun.findFirst({ where: { orgId, status: 'running' }, select: { id: true } }),
+        // A paused run counts: half an upgrade waits for a person, never for the window.
+        db.platformUpgradeRun.findFirst({ where: { orgId, status: { in: ACTIVE_RUN_STATUSES } }, select: { id: true } }),
         db.platformUpgradeRun.findFirst({
           where: { orgId, trigger: 'auto' },
           orderBy: { startedAt: 'desc' },
@@ -70,7 +72,7 @@ export async function platformTick(
         current: currentManifestOf(row).version,
         available: (row.available as AvailableRelease | null) ?? null,
         running: Boolean(running),
-        lastFailedTarget: lastAuto && lastAuto.status !== 'done' && lastAuto.status !== 'running' ? lastAuto.toVersion : null,
+        lastFailedTarget: lastAuto && lastAuto.status !== 'done' && !ACTIVE_RUN_STATUSES.includes(lastAuto.status as never) ? lastAuto.toVersion : null,
         now: opts.now ?? new Date(),
       });
       if (!decision.go) continue;

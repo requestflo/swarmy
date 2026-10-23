@@ -117,6 +117,8 @@ const GATES: Array<[string, unknown, string]> = [
   ['sso.delete', { id: 'sso1' }, 'authconfig.write'],
   ['cicd.removeRepo', { id: 'r1' }, 'cicd.remove'],
   ['security.policy.set', { require2fa: 'admins' }, 'authconfig.write'],
+  // Abandon puts a paused platform upgrade's agents + system services back.
+  ['platform.abandon', { id: 'r1' }, 'authconfig.write'],
   ['security.resetMember', { memberId: 'm' }, 'member.write'],
   ['gitConnections.remove', { id: 'g1' }, 'cicd.remove'],
   ['registryCredentials.remove', { id: 'rc1' }, 'secret.delete'],

@@ -1,11 +1,12 @@
 /**
  * Platform upgrades worker (plans/epic-platform-upgrades.md).
  *
- *  - every 30 s: resume any `running` PlatformUpgradeRun this process isn't
- *    driving. This is how a run survives the controller replacing ITSELF: the
- *    new controller boots, this tick finds the run on its controller step and
- *    carries on (first tick after a short warm-up so agents have reconnected
- *    and the hub has live inventory);
+ *  - every 30 s: resume any `running` (or `abandoning`) PlatformUpgradeRun
+ *    this process isn't driving. This is how a run survives the controller
+ *    replacing ITSELF: the new controller boots, this tick finds the run on
+ *    its controller step and carries on (first tick after a short warm-up so
+ *    agents have reconnected and the hub has live inventory). A `paused` run
+ *    ("Pause after this step") waits for a person's Resume / Abandon;
  *  - every 5 min: auto-apply a verified PATCH release inside the org's
  *    maintenance window (opt-in);
  *  - at boot + every 6 h: check each org's channel feed and verify it offline

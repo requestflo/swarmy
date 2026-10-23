@@ -19,8 +19,8 @@ export function invalidateEffectiveImages(orgId?: string): void {
 
 /**
  * The BOM with the digests of the release this cluster should run: a running
- * upgrade's target once its controller step is done (the new controller's
- * services converge to it), else the current release. Never throws: any
+ * (or paused) upgrade's target once its controller step is done (the new
+ * controller's services converge to it), else the current release. Never throws: any
  * failure is the compiled BOM.
  */
 export async function effectiveImagesFor(db: DB, orgId: string): Promise<readonly SystemImage[]> {
@@ -29,7 +29,9 @@ export async function effectiveImagesFor(db: DB, orgId: string): Promise<readonl
   let images: readonly SystemImage[] = SYSTEM_IMAGES;
   try {
     const run = await db.platformUpgradeRun.findFirst({
-      where: { orgId, status: 'running' },
+      // A paused run keeps what it already moved. An abandoning one — or one
+      // paused again because Abandon stopped half-way — goes back to the current release.
+      where: { orgId, OR: [{ status: 'running' }, { status: 'paused', error: null }] },
       orderBy: { startedAt: 'desc' },
       select: { manifest: true, steps: true },
     });

@@ -18,6 +18,7 @@ import {
   retryPlatformUpgrade,
   startPlatformUpgrade,
 } from '../services/platform-upgrade.service';
+import { abandonPlatformUpgrade, requestPlatformPause, resumePlatformUpgrade } from '../services/platform-upgrade-control.service';
 import { writeAudit } from '../services/audit.service';
 
 const PLATFORM_ACTION = 'authconfig.write' as const;
@@ -71,4 +72,19 @@ export const platformRouter = router({
   cancel: abacProcedure(PLATFORM_ACTION)
     .input(z.object({ id: z.string().min(1) }))
     .mutation(({ ctx, input }) => cancelPlatformUpgrade(ctx, input.id)),
+
+  /** "Pause after this step" on a running run (`pause: false` takes it back). Survives the controller restarting. */
+  pause: abacProcedure(PLATFORM_ACTION)
+    .input(z.object({ id: z.string().min(1), pause: z.boolean().default(true) }))
+    .mutation(({ ctx, input }) => requestPlatformPause(ctx, input)),
+
+  /** Carry a paused run on from the step it stopped before. */
+  resume: abacProcedure(PLATFORM_ACTION)
+    .input(z.object({ id: z.string().min(1) }))
+    .mutation(({ ctx, input }) => resumePlatformUpgrade(ctx, input.id)),
+
+  /** Give up on a paused run: agents + system services go back (health-checked); the controller and a Garage major stay. */
+  abandon: abacProcedure(PLATFORM_ACTION)
+    .input(z.object({ id: z.string().min(1) }))
+    .mutation(({ ctx, input }) => abandonPlatformUpgrade(ctx, input.id)),
 });

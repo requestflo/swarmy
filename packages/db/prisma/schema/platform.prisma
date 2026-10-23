@@ -46,7 +46,7 @@ model PlatformConfig {
 model PlatformUpgradeRun {
   id           String    @id @default(cuid())
   orgId        String
-  /// "running" | "done" | "failed" | "cancelled"
+  /// "running" | "paused" (waits for Resume / Abandon) | "abandoning" | "done" | "failed" | "cancelled" | "abandoned"
   status       String    @default("running")
   /// Key of the step the run is on (or stopped at).
   step         String    @default("preflight")
@@ -62,7 +62,8 @@ model PlatformUpgradeRun {
   fromManifest Json
   /// Per-step state: [{ key, status, detail?, startedAt?, finishedAt?, data? }].
   steps        Json
-  /// Run options (e.g. { skipBackup: true } when the admin accepted no fresh controller backup).
+  /// Run options (e.g. { skipBackup: true } when the admin accepted no fresh controller backup;
+  /// { pauseRequestedAt, pauseRequestedBy } while someone asked it to pause after the current step).
   options      Json?
   error        String?
   /// Tail of plain-words progress lines: [{ at, msg }].
