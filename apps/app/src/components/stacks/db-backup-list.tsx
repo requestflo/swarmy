@@ -3,7 +3,7 @@ import { DatabaseBackupIcon } from 'lucide-react';
 import { EmptyState } from '@swarmy/ui';
 import type { DbBackupSnapshotView } from '@swarmy/core';
 import { DbRestoreDialog } from './db-restore-dialog';
-import { engineLabel, fmtBytes, relativeTime } from './db-backup-format';
+import { SAFETY_COPY_WORDS, engineLabel, fmtBytes, isSafetyCopy, relativeTime } from './db-backup-format';
 
 /** Flat backup rows for a cluster, each with a restore affordance. */
 export function DbBackupList({
@@ -40,6 +40,7 @@ export function DbBackupList({
               <span className="font-medium">{engineLabel(b.engine)}</span>
               <span className="mono-label text-muted-foreground">{fmtBytes(b.sizeBytes)}</span>
               <span className="mono-label text-muted-foreground">{b.id.slice(0, 8)}</span>
+              {isSafetyCopy(b) ? <span className="text-muted-foreground text-[12.5px]">{SAFETY_COPY_WORDS}</span> : null}
             </div>
             <p className="text-muted-foreground mono-label truncate">
               {relativeTime(b.time)} · {new Date(b.time).toLocaleString()}

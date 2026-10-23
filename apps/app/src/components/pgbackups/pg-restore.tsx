@@ -110,11 +110,12 @@ export function PgRestore({ stack, cluster, b, selected, primary }: PgRestorePro
       {restore.isPending ? (
         <p role="status" className="text-muted-foreground flex items-center gap-2 text-[13px]">
           <LoaderCircleIcon aria-hidden className="size-3.5 animate-spin motion-reduce:animate-none" />
-          Restoring {dest} to {when}… {target === 'in' ? `${cluster} is being replaced.` : `${cluster} keeps serving. Nothing changes until you swap.`}
+          Restoring {dest} to {when}… {target === 'in' ? `Backing up ${cluster} first, then replacing it.` : `${cluster} keeps serving. Nothing changes until you swap.`}
         </p>
       ) : done ? (
         <p role="status" className="text-tone-ok text-[13px]">
           Restored {fmtBytes(done.bytesRestored)} into {dest}{done.recoveredTo ? `, up to ${done.recoveredTo}` : ''}.
+          {done.safetySnapshotId ? ` What was there before is backed up as ${done.safetySnapshotId.slice(0, 8)}: restore that to put it back.` : ''}
         </p>
       ) : null}
     </Section>

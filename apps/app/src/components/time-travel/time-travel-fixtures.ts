@@ -33,6 +33,7 @@ export const save = (id: string, msAgo: number, engine: DbBackupSnapshotView['en
   engine,
   sizeBytes: '268435456',
   tags: ['db:storefront/checkout'],
+  reason: null,
 });
 export const SAVES = [save('s33', 33 * H), save('s57', 57 * H), save('s81', 81 * H)];
 

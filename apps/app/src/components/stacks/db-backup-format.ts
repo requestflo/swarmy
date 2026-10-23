@@ -43,10 +43,21 @@ export const DB_BACKUP_ENGINES: EngineMeta[] = [
 /** Restore modes shown by the restore confirm (db-restore-dialog). */
 export const DB_RESTORE_MODES: { value: DbRestoreMode; label: string; blurb: string }[] = [
   { value: 'clone-to-new-cluster', label: 'Clone to new cluster', blurb: 'Restore into a fresh cluster — safest, nothing live is touched.' },
-  { value: 'single-database', label: 'Single database', blurb: 'Restore just one database from the backup.' },
-  { value: 'pitr', label: 'Point-in-time', blurb: 'Replay WAL up to a timestamp (wal-g / pgBackRest backups).' },
-  { value: 'in-place', label: 'In place', blurb: 'Overwrite the live primary — destructive.' },
+  { value: 'single-database', label: 'Single database', blurb: 'Restore just one database from the backup. Its current data is backed up first.' },
+  { value: 'pitr', label: 'Point-in-time', blurb: 'Replay WAL up to a timestamp (wal-g / pgBackRest backups). The current data is backed up first.' },
+  { value: 'in-place', label: 'In place', blurb: 'Overwrite the live primary. Its current data is backed up first.' },
 ];
+
+/** The `reason` of the safety copy a restore over live data saves first (`dbBackups.restore`). */
+export const PRE_RESTORE_REASON = 'pre-restore';
+
+/** A restore point that is that safety copy: restoring it undoes the restore. */
+export function isSafetyCopy(b: { reason?: string | null }): boolean {
+  return b.reason === PRE_RESTORE_REASON;
+}
+
+/** How a safety copy is named wherever restore points are listed. */
+export const SAFETY_COPY_WORDS = 'saved just before a restore';
 
 export function engineLabel(engine: DbBackupEngine | null): string {
   if (!engine) return 'unknown engine';

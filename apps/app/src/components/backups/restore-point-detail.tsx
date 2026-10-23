@@ -3,6 +3,7 @@ import { HistoryIcon } from 'lucide-react';
 import { Button } from '@swarmy/ui';
 import { Tech } from '@/components/calm';
 import { DbRestoreDialog } from '@/components/stacks/db-restore-dialog';
+import { SAFETY_COPY_WORDS, isSafetyCopy } from '@/components/stacks/db-backup-format';
 import { fmtBytes } from './backup-format';
 import { failureWords } from './backup-words';
 import { RestoreSnapshotConfirm } from './restore-snapshot-confirm';
@@ -28,7 +29,8 @@ function metaLine(cell: GridCell): string {
         : cell.state === 'running'
           ? 'saving now'
           : 'saved';
-  return [s.sizeBytes ? fmtBytes(s.sizeBytes) : null, how, s.where ? `in ${s.where}` : null].filter(Boolean).join(' · ');
+  const why = isSafetyCopy(s) ? SAFETY_COPY_WORDS : null;
+  return [why, s.sizeBytes ? fmtBytes(s.sizeBytes) : null, how, s.where ? `in ${s.where}` : null].filter(Boolean).join(' · ');
 }
 
 /** The picked restore point: what it is, and the ways to put it back. */
@@ -57,7 +59,7 @@ export function RestorePointDetail({ lane, cell }: { lane: GridLane; cell: GridC
           stack={stack}
           cluster={cluster}
           targetId={s.whereId}
-          backup={{ id: s.id, time: new Date(s.atMs).toISOString(), engine: s.engine ?? null, sizeBytes: s.sizeBytes, tags: [`db:${lane.ref}`] }}
+          backup={{ id: s.id, time: new Date(s.atMs).toISOString(), engine: s.engine ?? null, sizeBytes: s.sizeBytes, tags: [`db:${lane.ref}`], reason: s.reason ?? null }}
         />
       ) : null}
       {usable && lane.kind === 'controller' ? (

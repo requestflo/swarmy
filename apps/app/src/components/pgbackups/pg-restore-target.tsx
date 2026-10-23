@@ -36,7 +36,7 @@ function Pick({ on, onClick, title, sub }: { on: boolean; onClick: () => void; t
   );
 }
 
-/** Where the restore lands: another database in this app (compare first), or this one (later writes are lost). */
+/** Where the restore lands: another database in this app (compare first), or this one (its current data is backed up first). */
 export function PgRestoreTarget(p: PgRestoreTargetProps): React.JSX.Element {
   const ref = `${p.stack}/${p.cluster}`;
   return (
@@ -48,7 +48,7 @@ export function PgRestoreTarget(p: PgRestoreTargetProps): React.JSX.Element {
           title="Into a new cluster"
           sub={p.into ? <><span className="font-mono">{p.into}</span> · compare, then swap. {p.cluster} keeps serving.</> : 'Needs a second database in this app to restore into.'}
         />
-        <Pick on={p.target === 'in'} onClick={() => p.onTarget('in')} title="In place" sub={`replaces ${p.cluster} · writes after this are lost`} />
+        <Pick on={p.target === 'in'} onClick={() => p.onTarget('in')} title="In place" sub={`replaces ${p.cluster} · its current data is backed up first`} />
       </div>
       {p.target === 'new' && !p.into ? (
         <p className="text-muted-foreground text-[13px]">
@@ -84,7 +84,7 @@ export function PgRestoreTarget(p: PgRestoreTargetProps): React.JSX.Element {
         />
       ) : null}
       <Tech>
-        dbBackups.restore · {p.target === 'in' ? `into ${ref} itself` : `into ${p.stack}/${p.into ?? '…'} (must already be running)`}
+        dbBackups.restore · {p.target === 'in' ? `into ${ref} itself, after a reason:pre-restore backup (refused if it fails)` : `into ${p.stack}/${p.into ?? '…'} (must already be running)`}
       </Tech>
     </div>
   );

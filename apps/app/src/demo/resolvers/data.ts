@@ -166,6 +166,8 @@ interface DbBackupSnapshotView {
   engine: DbBackupEngine | null;
   sizeBytes: string | null;
   tags: string[];
+  /** `pre-restore` for the safety copy a restore over live data saved first. */
+  reason?: string | null;
 }
 
 interface DbBackupOverviewRow {
@@ -424,6 +426,7 @@ function recordDbBackup(
   stack: string,
   cluster: string,
   engine: DbBackupEngine,
+  reason?: 'pre-restore',
 ): { engine: DbBackupEngine; snapshotId: string; sizeBytes: string; databases: string[] } {
   const snapshotId = resticId();
   const sizeBytes = String(Math.floor(140_000_000 + Math.random() * 1_800_000_000));
@@ -433,14 +436,16 @@ function recordDbBackup(
       time: nowIso(),
       engine,
       sizeBytes,
-      tags: ['org:org-demo', `db:${stack}/${cluster}`, `engine:${engine}`],
+      tags: ['org:org-demo', `db:${stack}/${cluster}`, `engine:${engine}`, ...(reason ? [`reason:${reason}`] : [])],
+      reason: reason ?? null,
       stack,
       cluster,
     },
     ...st.dbSnapshots,
   ];
   const c = findDbCluster(st, stack, cluster);
-  if (c) {
+  // Like the API: a pre-restore safety copy is not the schedule's last run.
+  if (c && !reason) {
     c.lastRunAt = nowIso();
     c.lastStatus = 'succeeded';
     c.lastSizeBytes = sizeBytes;
@@ -958,28 +963,42 @@ export const data: DomainResolvers = {
         .dbSnapshots.filter(
           (snap) => (!f.stack || snap.stack === f.stack) && (!f.cluster || snap.cluster === f.cluster),
         )
-        .map(({ stack: _st, cluster: _cl, ...view }) => view)
+        .map(({ stack: _st, cluster: _cl, ...view }) => ({ ...view, reason: view.reason ?? null }))
         .sort((a, b) => b.time.localeCompare(a.time));
     },
 
     'dbBackups.restore': (
       i,
       s,
-    ): { mode: string; engine: DbBackupEngine; database?: string; bytesRestored: string; recoveredTo?: string } => {
+    ): { mode: string; engine: DbBackupEngine; database?: string; bytesRestored: string; recoveredTo?: string; safetySnapshotId: string | null } => {
       const b = i as {
+        stack: string;
+        cluster: string;
         mode: string;
         engine: DbBackupEngine;
         snapshotId?: string;
         targetTime?: string;
         database?: string;
+        targetStack?: string;
+        targetCluster?: string;
+        skipSafetyBackup?: boolean;
       };
-      const snap = getState(s).dbSnapshots.find((x) => x.id === b.snapshotId);
+      const st = getState(s);
+      const snap = st.dbSnapshots.find((x) => x.id === b.snapshotId);
+      // Like the API: writing over the source saves its current data first
+      // (pg_dumpall for a PITR / pg_dumpall load, else pg_dump), as a restore point.
+      const overSource = (b.targetStack ?? b.stack) === b.stack && (b.targetCluster ?? b.cluster) === b.cluster;
+      const safety =
+        overSource && !b.skipSafetyBackup
+          ? recordDbBackup(st, b.stack, b.cluster, b.mode === 'pitr' || (b.engine === 'pg_dumpall' && b.mode !== 'single-database') ? 'pg_dumpall' : 'pg_dump', 'pre-restore')
+          : null;
       return {
         mode: b.mode,
         engine: b.engine,
         database: b.database,
         bytesRestored: snap?.sizeBytes ?? String(Math.floor(200_000_000 + Math.random() * 900_000_000)),
         ...(b.mode === 'pitr' ? { recoveredTo: b.targetTime ?? nowIso() } : {}),
+        safetySnapshotId: safety?.snapshotId ?? null,
       };
     },
   },

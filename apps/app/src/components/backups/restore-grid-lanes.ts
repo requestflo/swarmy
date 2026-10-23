@@ -64,7 +64,7 @@ export function dbLanes(catalogs: { where: string; whereId?: string; snaps: DbBa
       // A snapshot id is one save in one repository; never draw it twice.
       if (!ref || seen.has(s.id)) continue;
       seen.add(s.id);
-      by.set(ref, [...(by.get(ref) ?? []), { id: s.id, atMs: Date.parse(s.time), status: 'ok', sizeBytes: s.sizeBytes, where, whereId, engine: s.engine }]);
+      by.set(ref, [...(by.get(ref) ?? []), { id: s.id, atMs: Date.parse(s.time), status: 'ok', sizeBytes: s.sizeBytes, where, whereId, engine: s.engine, reason: s.reason }]);
     }
   }
   return [...by].flatMap(([ref, saves]) => {

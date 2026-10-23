@@ -41,8 +41,8 @@ interface RestoreOptionsProps {
 /**
  * Restore as a copy (safe) or replace in place, then the existing
  * `DbRestoreDialog` opens on that mode. Replacing needs the app's name typed
- * back. A managed database is not saved before an in-place restore
- * (dbBackup.service), so the page says so rather than promise it.
+ * back. Replacing backs up the current data first and is refused if that
+ * fails (dbRestoreSafety.service), so the page can promise it.
  */
 export function RestoreOptions({ stack, cluster, targetId, backup, savedAt, at }: RestoreOptionsProps): React.JSX.Element {
   const modes = restoreModes(backup.engine);
@@ -66,11 +66,13 @@ export function RestoreOptions({ stack, cluster, targetId, backup, savedAt, at }
         <Option on={choice === 'replace'} onPick={() => setChoice('replace')} title={pitr ? `Replace ${cluster} as it was at ${momentLabel(at)}` : `Replace ${cluster} in place`}>
           <span className="text-muted-foreground text-[12.5px] leading-snug">
             {pitr
-              ? `Everything written to ${cluster} after ${momentLabel(at)} is gone.`
-              : `Everything written to ${cluster} since ${clockLabel(savedAt)} is gone.`}{' '}
-            The current data isn&rsquo;t saved first.
+              ? `Everything written to ${cluster} after ${momentLabel(at)} leaves the live database.`
+              : `Everything written to ${cluster} since ${clockLabel(savedAt)} leaves the live database.`}{' '}
+            The current data is backed up first, so you can put it back.
           </span>
-          <Tech>{pitr ? `pitr · recover to ${new Date(at).toISOString()}` : 'in-place · overwrites the live primary from the dump'}</Tech>
+          <Tech>
+            {pitr ? `pitr · recover to ${new Date(at).toISOString()}` : 'in-place · overwrites the live primary from the dump'} · a reason:pre-restore backup is taken first; if it fails, nothing is restored
+          </Tech>
         </Option>
       </div>
       {choice === 'replace' ? (

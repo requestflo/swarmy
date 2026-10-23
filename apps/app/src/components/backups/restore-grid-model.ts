@@ -25,6 +25,8 @@ export interface GridSave {
   whereId?: string;
   /** Database saves: the engine a restore must use. */
   engine?: DbBackupEngine | null;
+  /** Database saves: `pre-restore` for the safety copy a restore took first. */
+  reason?: string | null;
   error?: string | null;
 }
 

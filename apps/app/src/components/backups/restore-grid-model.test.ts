@@ -75,11 +75,15 @@ describe('lanes from the API', () => {
     expect(lanes[0]!.cells.filter(Boolean)).toHaveLength(1);
   });
   test('database dumps group by their db: tag across destinations', () => {
-    const snap = (id: string, d: number) => ({ id, time: new Date(at(d)).toISOString(), engine: 'pg_dump' as const, sizeBytes: '2048', tags: ['org:o', 'db:shop/main', 'engine:pg_dump'] });
+    const snap = (id: string, d: number) => ({ id, time: new Date(at(d)).toISOString(), engine: 'pg_dump' as const, sizeBytes: '2048', tags: ['org:o', 'db:shop/main', 'engine:pg_dump'], reason: null });
     const lanes = dbLanes([{ where: 'B2', snaps: [snap('x', 0)] }, { where: 'NVMe', snaps: [snap('y', 1)] }], starts);
     expect(lanes).toHaveLength(1);
     expect(lanes[0]).toMatchObject({ kind: 'db', ref: 'shop/main', name: 'shop’s main database' });
     expect(lanes[0]!.cells[12]?.save.where).toBe('NVMe');
+  });
+  test('a database save keeps its reason, so the safety copy taken before a restore reads as one', () => {
+    const safety = { id: 's', time: new Date(at(0)).toISOString(), engine: 'pg_dump' as const, sizeBytes: '1', tags: ['db:shop/main', 'reason:pre-restore'], reason: 'pre-restore' };
+    expect(dbLanes([{ where: 'B2', snaps: [safety] }], starts)[0]!.cells[13]?.save.reason).toBe('pre-restore');
   });
   test('swarmy itself, and the lane order', () => {
     const ctl = controllerLane(
@@ -89,7 +93,7 @@ describe('lanes from the API', () => {
     );
     expect(ctl?.cells[13]?.save.where).toBe('B2');
     const vol = volumeLanes([{ id: 'v', volume: 'shop_media', status: 'SUCCEEDED', targetName: 'B2', sizeBytes: '1', startedAt: new Date(at(0)).toISOString() }], starts);
-    const db = dbLanes([{ where: 'B2', snaps: [{ id: 'd', time: new Date(at(0)).toISOString(), engine: 'pg_dump', sizeBytes: '1', tags: ['db:shop/main'] }] }], starts);
+    const db = dbLanes([{ where: 'B2', snaps: [{ id: 'd', time: new Date(at(0)).toISOString(), engine: 'pg_dump', sizeBytes: '1', tags: ['db:shop/main'], reason: null }] }], starts);
     expect(orderLanes([ctl!, ...vol, ...db]).map((l) => l.kind)).toEqual(['db', 'volume', 'controller']);
   });
   test('swarmy itself with no saves in the window is left out', () => {

@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button, toast } from '@swarmy/ui';
 import { Section, TONE_TEXT, Tech } from '@/components/calm';
 import { useTRPC } from '@/integrations/trpc';
-import { isPhysical } from '@/components/stacks/db-backup-format';
+import { SAFETY_COPY_WORDS, isPhysical, isSafetyCopy } from '@/components/stacks/db-backup-format';
 import { retentionChoices, retentionPreview } from './retention-preview';
 import { RetentionNotch, RetentionStrip, pointTime } from './retention-strip';
 import type { PgBackupsData } from './use-pg-backups';
@@ -83,7 +83,7 @@ export function PgRetention({ stack, cluster, b, selected, onSelect }: PgRetenti
       )}
       {sel ? (
         <span className="text-muted-foreground font-mono text-[11.5px]">
-          Saved {pointTime(sel.timeMs)} UTC · {sel.keep ? 'kept' : 'would go'}
+          Saved {pointTime(sel.timeMs)} UTC{isSafetyCopy(sel) ? ` · ${SAFETY_COPY_WORDS}` : ''} · {sel.keep ? 'kept' : 'would go'}
         </span>
       ) : null}
       <p className="text-muted-foreground text-[13px] leading-relaxed">{say}</p>

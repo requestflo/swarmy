@@ -3,7 +3,7 @@ import { Link } from '@tanstack/react-router';
 import { DatabaseIcon } from 'lucide-react';
 import { cn } from '@swarmy/ui';
 import { Section, SectionLink, Tech } from '@/components/calm';
-import { engineLabel, fmtBytes } from '@/components/stacks/db-backup-format';
+import { SAFETY_COPY_WORDS, engineLabel, fmtBytes, isSafetyCopy } from '@/components/stacks/db-backup-format';
 import { CardSkeleton } from '@/components/states';
 import { agoLabel, clockLabel, momentLabel } from './time-travel-model';
 import { nearestRestorePoint, pitrTarget, restoreModes } from './time-travel-replay';
@@ -89,7 +89,7 @@ export function RestorePointCard({ stack, databases, at, now }: RestorePointCard
         <>
           <span className="flex items-center gap-2 text-[13px]">
             <DatabaseIcon aria-hidden className="text-tone-ok size-4 shrink-0" />
-            {pitr ? `Recovered from the save of ${momentLabel(point.at)}` : `A full copy of ${cluster}`}
+            {pitr ? `Recovered from the save of ${momentLabel(point.at)}` : isSafetyCopy(point.backup) ? `A full copy of ${cluster}, ${SAFETY_COPY_WORDS}` : `A full copy of ${cluster}`}
             {point.backup.sizeBytes ? ` · ${fmtBytes(point.backup.sizeBytes)}` : ''}
             {point.before ? '' : ' · the oldest save, after this moment'}
           </span>

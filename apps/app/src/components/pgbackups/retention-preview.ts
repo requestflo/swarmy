@@ -23,6 +23,8 @@ export interface CatalogPoint {
   time: string;
   engine: DbBackupEngine | null;
   sizeBytes: string | null;
+  /** `pre-restore`: the safety copy a restore took first (it prunes like any save of its engine). */
+  reason?: string | null;
 }
 
 export interface PreviewPoint extends CatalogPoint {
