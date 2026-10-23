@@ -11,6 +11,7 @@ import { BreakdownList } from './breakdown-list';
 import { compact, countryName, pct } from './rum-shared';
 import { RumStateNotice } from './rum-state-notice';
 import { SignedInVisitors } from './signed-in-visitors';
+import { useAnalyticsDelta } from './use-analytics-delta';
 import { useRumSettings } from './use-rum';
 import { VisitorsChart } from './visitors-chart';
 
@@ -28,6 +29,7 @@ export function AnalyticsPage({ stack }: { stack: string }): React.JSX.Element {
   const s = settings.data?.settings;
   const identified = s?.mode === 'identified';
   const host = settings.data?.routes[0]?.host;
+  const delta = useAnalyticsDelta(stack, days, s?.retentionDays, q.data);
 
   if (q.isPending || settings.isPending) {
     return (
@@ -69,7 +71,7 @@ export function AnalyticsPage({ stack }: { stack: string }): React.JSX.Element {
       <SayHeader size="md" title={title} lede={lede} />
       {s ? <RumCode stack={stack} settings={s} routes={settings.data?.routes ?? []} /> : null}
       <Depth at="controls">
-        <AnalyticsModeBar identified={identified} days={days} onDays={setDays} />
+        <AnalyticsModeBar stack={stack} settings={s} days={days} onDays={setDays} />
       </Depth>
       {identified && s?.consent === 'none' ? <AnalyticsConsentWarning stack={stack} /> : null}
       {notice ? (
@@ -77,7 +79,7 @@ export function AnalyticsPage({ stack }: { stack: string }): React.JSX.Element {
       ) : (
         <>
           <div className={wide ? 'grid gap-3 xl:grid-cols-[3fr_2fr]' : 'grid gap-3'}>
-            <AnalyticsKpis data={d} identified={identified} />
+            <AnalyticsKpis data={d} identified={identified} delta={delta} />
             <Depth at="controls">
               <VisitorsChart series={d.series} />
             </Depth>

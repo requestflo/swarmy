@@ -107,12 +107,29 @@ const at = (daysAgo: number): string => new Date(Date.now() - daysAgo * 86_400_0
 const bd = (rows: Array<[string, number]>, ratio = 3.9) =>
   rows.map(([key, v]) => ({ key, visitors: v, pageviews: Math.round(v * ratio) }));
 
+// This week 28,750 visits (3.9 pages each, 38% bounce); every earlier week ran
+// at last week's pace — 27,120 visits, 3.85 pages, 40% bounce — so the page
+// reads "+6% vs last week" and "−2 pts" off a second, 14-day read.
+const WEEK = { visits: 28_750, views: 3.9, bounce: 0.38 };
+const EARLIER = { visits: 27_120, views: 3.85, bounce: 0.4 };
+
+function windowKpis(days: number) {
+  const v0 = (WEEK.visits * Math.min(days, 7)) / 7;
+  const v1 = (EARLIER.visits * Math.max(0, days - 7)) / 7;
+  return {
+    visits: Math.round(v0 + v1),
+    pageviews: Math.round(v0 * WEEK.views + v1 * EARLIER.views),
+    bounceRate: Math.round(((v0 * WEEK.bounce + v1 * EARLIER.bounce) / (v0 + v1)) * 10_000) / 10_000,
+  };
+}
+
 function analytics(s: DemoStore, stack: string, days: number) {
   const on = settingsFor(s, stack).enabled;
   const k = on ? Math.max(1, days / 7) : 0;
   const base = [3920, 4110, 3870, 4240, 4460, 4020, 4130];
   const series = Array.from({ length: days }, (_, i) => {
-    const v = on ? base[i % 7]! + Math.round(Math.sin(i * 1.7) * 180) : 0;
+    const pace = days - 1 - i >= 7 ? EARLIER.visits / WEEK.visits : 1;
+    const v = on ? Math.round((base[i % 7]! + Math.sin(i * 1.7) * 180) * pace) : 0;
     return { day: at(days - 1 - i), visitors: v, pageviews: Math.round(v * 3.9) };
   });
   const scale = (rows: Array<[string, number]>) => rows.map(([key, v]) => [key, Math.round(v * k)] as [string, number]);
@@ -121,7 +138,7 @@ function analytics(s: DemoStore, stack: string, days: number) {
     status: 'ok' as const,
     days,
     kpis: on
-      ? { visits: Math.round(28_750 * k), pageviews: Math.round(112_100 * k), bounceRate: 0.38, medianVisitSeconds: 161, signedIn: identified ? Math.round(60 * k) : 0 }
+      ? { ...windowKpis(days), medianVisitSeconds: 161, signedIn: identified ? Math.round(60 * k) : 0 }
       : { visits: 0, pageviews: 0, bounceRate: 0, medianVisitSeconds: 0, signedIn: 0 },
     live: on ? { visitors: 37 + (Math.floor(Date.now() / 15_000) % 9), pageviews: 142 } : { visitors: 0, pageviews: 0 },
     series,
