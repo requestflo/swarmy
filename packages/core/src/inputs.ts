@@ -756,6 +756,10 @@ export type AlertEventsInput = z.infer<typeof AlertEventsInput>;
 export const AckAlertEventInput = z.object({ id: z.string().min(1) });
 export type AckAlertEventInput = z.infer<typeof AckAlertEventInput>;
 
+/** The last 7 days of disk use for one server (by name), or every server. */
+export const AlertDiskHistoryInput = z.object({ server: ALERT_TARGET_NAME.optional() });
+export type AlertDiskHistoryInput = z.infer<typeof AlertDiskHistoryInput>;
+
 // ── Incidents (slice C4) — list/detail, notes, resolve/reopen ─────────────────
 import { INCIDENT_STATUSES } from './views';
 

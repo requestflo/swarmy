@@ -1,5 +1,6 @@
 import {
   AckAlertEventInput,
+  AlertDiskHistoryInput,
   AlertEventsInput,
   AlertRuleRefInput,
   ChannelRefInput,
@@ -29,6 +30,7 @@ import {
   updateChannel,
   updateRule,
 } from '../services/alerts.service';
+import { diskHistory } from '../services/alerts-disk-history';
 
 /**
  * Alerting (slice C3) — notification channels, alert rules and the
@@ -83,6 +85,10 @@ export const alertsRouter = router({
   unmuteRule: orgProcedure
     .input(AlertRuleRefInput)
     .mutation(({ ctx, input }) => unmuteRule(ctx, input)),
+  /** Each server's disk use over the last 7 days (5-minute peaks) — the disk rule backtest. */
+  diskHistory: orgProcedure
+    .input(AlertDiskHistoryInput)
+    .query(({ ctx, input }) => diskHistory(ctx, input)),
 
   // ── Quiet hours ─────────────────────────────────────────────────────────────
   /** The workspace quiet hours (defaults when never set: off, 22:00–07:00 UTC). */

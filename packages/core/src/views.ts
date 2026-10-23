@@ -1318,6 +1318,19 @@ export interface AlertQuietHoursView {
   activeNow: boolean;
 }
 
+/**
+ * Each server's disk use over the last 7 days on one fixed grid
+ * (`alerts.diskHistory`, from telemetry.db's per-minute samples): `peaks[i]`
+ * is the fullest reading (% used) in the slot starting at
+ * `from + i * stepSeconds`, null where no sample was kept — never a zero.
+ * The rule editor replays a disk rule's threshold and duration over it.
+ */
+export interface AlertDiskHistoryView {
+  from: string;
+  stepSeconds: number;
+  servers: Array<{ name: string; peaks: Array<number | null> }>;
+}
+
 /** Aggregates for the Alerts page hero + the shell bell badge. */
 export interface AlertsOverview {
   firing: number;
