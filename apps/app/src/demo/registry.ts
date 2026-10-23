@@ -21,6 +21,7 @@ import { jobs } from './resolvers/jobs';
 import { webhookgw } from './resolvers/webhookgw';
 import { alerts } from './resolvers/alerts';
 import { alertsDisk } from './resolvers/alerts-disk';
+import { nodeStatsHistory } from './resolvers/node-stats-history';
 import { incidents } from './resolvers/incidents';
 import { statuspages } from './resolvers/statuspages';
 import { releases } from './resolvers/releases';
@@ -87,6 +88,7 @@ const MODULES: DomainResolvers[] = [
   webhookgw,
   alerts,
   alertsDisk,
+  nodeStatsHistory,
   incidents,
   statuspages,
   releases,

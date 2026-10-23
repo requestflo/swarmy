@@ -9,6 +9,7 @@ import { yours, type FleetView } from './fleet/fleet-model';
 import { serverStory } from './fleet/server-story';
 import { DISK_HOT_PCT, type FleetServer } from './use-fleet';
 import { RunningHere } from './running-here';
+import { ServerHistory } from './server-history';
 import { ServerMeters } from './server-meters';
 import { gb, plainRoles, serverTone, techRoles } from './server-words';
 
@@ -24,10 +25,11 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
 }
 
 /**
- * The selected server: its story, how full it is, what runs there (each
- * with a status dot, movable by admins), and quiet actions. `view` is the
- * map's model of it (story, private network, services); without it (the
- * server's own page) the short role sentence stands in.
+ * The selected server: its story, how full it is now and over the last
+ * 24 hours, what runs there (each with a status dot, movable by admins),
+ * and quiet actions. `view` is the map's model of it (story, private
+ * network, services); without it (the server's own page) the short role
+ * sentence stands in.
  */
 export function ServerInspector({
   server,
@@ -85,6 +87,7 @@ export function ServerInspector({
         <h3 className="calm-eyebrow">Now</h3>
         <ServerMeters live={live} />
       </div>
+      <ServerHistory nodeId={n.id} />
       {detail ? null : (
         <>
           <div className="flex flex-col gap-2">
