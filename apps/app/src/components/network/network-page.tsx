@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Link } from '@tanstack/react-router';
-import { Button, cn } from '@swarmy/ui';
+import { Button } from '@swarmy/ui';
 import { SectionHeader } from '@/components/section-header';
 import { NextAction, Say, Section, SectionLink } from '@/components/calm';
 import { PageSkeleton, PageError } from '@/components/states';
@@ -8,13 +8,16 @@ import { GeoDnsSection } from '@/components/geo/geodns-section';
 import { DRIVER_LABELS, type IngressDriverId } from '@/components/ingress/driver-config';
 import { useNetwork } from './use-network';
 import { DomainList } from './domain-list';
-import { VisitorFlow } from './visitor-flow';
 import { NetworkCode } from './network-code';
+import { AddDomainInline } from './add-domain-inline';
+import { NetworkCaddyCode } from './network-caddy-code';
+import { RouteMapSection } from './route-map/route-map-section';
 
 /** Network hub — its tab is "Domains": every address, where it goes, and whether HTTPS is on. */
 export function NetworkPage(): React.JSX.Element {
   const n = useNetwork();
-  const [view, setView] = React.useState<'list' | 'picture'>('list');
+  // The address whose path is lit (board 13); it also picks the Caddyfile block at Code.
+  const [selected, setSelected] = React.useState<string | null>(null);
 
   if (n.error && !n.ready) return <Shell><PageError error={n.error} retry={n.retry} /></Shell>;
   if (!n.ready) return <PageSkeleton variant="list" />;
@@ -46,42 +49,34 @@ export function NetworkPage(): React.JSX.Element {
             ? 'Point a domain at an app. swarmy gets its HTTPS certificate and renews it.'
             : `${total} address${total === 1 ? '' : 'es'} across ${new Set(n.domains.map((d) => d.stack)).size} apps. Certificates renew themselves.`
         }
-        actions={
-          <Button asChild variant={first ? 'outline' : 'default'}>
-            <Link to="/network/domains/new">Add a domain</Link>
-          </Button>
-        }
       />
+      <div className="mb-5 flex flex-col gap-5">
+        {first ? (
+          <NextAction
+            title={`${first.host} is waiting for its address record`}
+            tech={first.status?.reason}
+            actions={
+              <Button asChild>
+                <Link to="/network/domains/$host" params={{ host: first.host }}>Show what DNS sees</Link>
+              </Button>
+            }
+          >
+            Add the records at your registrar. swarmy keeps checking, then gets HTTPS by itself.
+          </NextAction>
+        ) : null}
+        {/* Board 13's picture runs the full width, as on the board. */}
+        <RouteMapSection domains={n.domains} selected={selected} onSelect={setSelected} geo={n.geoServing} dnsServers={n.dnsServers} />
+      </div>
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_400px]">
         <div className="flex min-w-0 flex-col gap-5">
-          {first ? (
-            <NextAction
-              title={`${first.host} is waiting for its address record`}
-              tech={first.status?.reason}
-              actions={
-                <Button asChild>
-                  <Link to="/network/domains/$host" params={{ host: first.host }}>Show what DNS sees</Link>
-                </Button>
-              }
-            >
-              Add the records at your registrar. swarmy keeps checking, then gets HTTPS by itself.
-            </NextAction>
-          ) : null}
-          <Section
-            title="Domains"
-            count={total}
-            flush={view === 'list'}
-            action={<ViewToggle view={view} onChange={setView} />}
-          >
-            {view === 'list' ? (
-              <DomainList domains={n.domains} />
-            ) : (
-              <VisitorFlow domains={n.domains} frontDoors={n.frontDoors} driverLabel={driver} geoOn={n.geoOn} />
-            )}
+          <Section title="Domains" count={total} flush>
+            <AddDomainInline primary={!first} />
+            <DomainList domains={n.domains} />
           </Section>
           <GeoDnsSection />
         </div>
         <aside className="flex min-w-0 flex-col gap-4">
+          <NetworkCaddyCode selected={selected} caddy={n.config?.driver === 'caddy'} />
           <NetworkCode domains={n.domains} zones={n.zones} />
           <Section title="Front door" action={<Link to="/ingress"><SectionLink>Settings →</SectionLink></Link>}>
             <p className="text-muted-foreground text-[13.5px]">
@@ -96,25 +91,4 @@ export function NetworkPage(): React.JSX.Element {
 
 function Shell({ children }: { children: React.ReactNode }): React.JSX.Element {
   return <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 pb-24 lg:pb-20 xl:px-10">{children}</div>;
-}
-
-function ViewToggle({ view, onChange }: { view: 'list' | 'picture'; onChange: (v: 'list' | 'picture') => void }): React.JSX.Element {
-  return (
-    <div role="group" aria-label="View" className="border-border inline-flex rounded-[10px] border p-0.5">
-      {(['list', 'picture'] as const).map((v) => (
-        <button
-          key={v}
-          type="button"
-          aria-pressed={view === v}
-          onClick={() => onChange(v)}
-          className={cn(
-            'h-7 rounded-[8px] px-2.5 text-xs font-semibold capitalize pointer-coarse:min-h-11',
-            view === v ? 'bg-surface-2 text-foreground dark:bg-accent' : 'text-muted-foreground hover:text-foreground',
-          )}
-        >
-          {v}
-        </button>
-      ))}
-    </div>
-  );
 }

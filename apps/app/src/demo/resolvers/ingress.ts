@@ -3,7 +3,7 @@ import type { RenderedConfig } from '@swarmy/core/protocol';
 import type { DemoStore, DomainResolvers } from '../types';
 import type { EdgeState } from '@/components/ingress/edge-runtime';
 import { advance, checkStatus, demoDns, demoEdges, registrarGuidance, type DemoCheck, type DemoEdge } from './ingress-domains';
-import { demoCaddyfile, type DemoCaddyRoute } from './ingress-caddy';
+import { demoCaddyfile, type DemoCaddyRoute } from './ingress-caddyfile';
 
 /**
  * Ingress demo resolvers — the Networking surface (driver chooser + rendered-config
@@ -219,7 +219,9 @@ function stackName(store: DemoStore, stackId: string | null): string {
 }
 
 /** Build the summary view the Networking page header + badges read. */
-function toConfigView(st: IngressState): IngressConfigView {
+function toConfigView(st: IngressState, s: DemoStore): IngressConfigView {
+  // Edge-per-node: one Caddy on every online server marked as an edge (the real count of running edge tasks).
+  const perNode = (s.nodes as unknown as Array<{ ingress?: boolean; status: string }>).filter((n) => n.ingress && n.status === 'online').length;
   return {
     driver: st.driver,
     enabled: st.enabled,
@@ -227,7 +229,7 @@ function toConfigView(st: IngressState): IngressConfigView {
     domainCount: st.domains.length,
     certStorage:
       st.topology === 'edge-per-node'
-        ? { mode: 'shared', edges: 3, objectStorageEnabled: true, bucket: 'swarmy-edge-certs' }
+        ? { mode: 'shared', edges: perNode, objectStorageEnabled: true, bucket: 'swarmy-edge-certs' }
         : { mode: 'local', edges: 1, objectStorageEnabled: true, bucket: null },
     tunnelConfigured: Boolean(st.tunnel?.tunnelId),
     controllerImage: st.controllerImage,
@@ -243,7 +245,7 @@ function toConfigView(st: IngressState): IngressConfigView {
  * reads `summary` and `files[].path/contents`, but we fill the full protocol shape
  * so the value matches what `previewConfig` actually returns.
  */
-function renderPreview(st: IngressState, driver: IngressDriverId): RenderedConfig {
+function renderPreview(st: IngressState, driver: IngressDriverId, edges: DemoEdge[]): RenderedConfig {
   const routes = st.domains.map((d) => ({ host: d.host, service: d.serviceName, port: d.targetPort, tls: d.tls }));
   const base: RenderedConfig = {
     driver,
@@ -253,7 +255,23 @@ function renderPreview(st: IngressState, driver: IngressDriverId): RenderedConfi
   };
 
   if (driver === 'caddy') {
-    const body = demoCaddyfile(st.domains.map((d) => ({ host: d.host, service: d.serviceName, port: d.targetPort, tls: d.tls, path: d.pathPrefix, protection: d.protection as DemoCaddyRoute['protection'] })));
+    const body = demoCaddyfile({
+      routes: st.domains.map((d) => ({
+        host: d.host,
+        stack: d.stack,
+        service: d.serviceName,
+        port: d.targetPort,
+        tls: d.tls,
+        pathPrefix: d.pathPrefix,
+        canaryPct: d.canaryPct,
+        www: d.www ?? null,
+        gated: !!statusOf(d, d.host, edges).gated,
+        protection: d.protection as DemoCaddyRoute['protection'],
+      })),
+      onDemand: st.onDemandTls,
+      askUrl: st.onDemandAskUrl,
+      sharedCerts: st.topology === 'edge-per-node',
+    });
     return {
       ...base,
       files: [{ path: '/etc/caddy/Caddyfile', mode: 0o644, contents: body }],
@@ -381,7 +399,7 @@ export function seedDemoRoute(
 
 export const ingress: DomainResolvers = {
   handlers: {
-    'ingress.getConfig': (_i, s): IngressConfigView => toConfigView(getState(s)),
+    'ingress.getConfig': (_i, s): IngressConfigView => toConfigView(getState(s), s),
 
     'ingress.listDomains': (i, s): Array<DomainView & { serving: boolean; edgeState: EdgeState }> => {
       const stack = (i as { stack?: string } | undefined)?.stack;
@@ -543,7 +561,7 @@ export const ingress: DomainResolvers = {
       const st = getState(s);
       if (VALID_DRIVERS.has(driver)) st.driver = driver;
       st.updatedAt = nowIso();
-      return toConfigView(st);
+      return toConfigView(st, s);
     },
 
     'ingress.setEnabled': (i, s): IngressConfigView => {
@@ -551,7 +569,7 @@ export const ingress: DomainResolvers = {
       const st = getState(s);
       st.enabled = enabled;
       st.updatedAt = nowIso();
-      return toConfigView(st);
+      return toConfigView(st, s);
     },
 
     'ingress.setControllerImage': (i, s): IngressConfigView => {
@@ -559,15 +577,19 @@ export const ingress: DomainResolvers = {
       const st = getState(s);
       st.controllerImage = image;
       st.updatedAt = nowIso();
-      return toConfigView(st);
+      return toConfigView(st, s);
     },
 
     'ingress.setTopology': (i, s): IngressConfigView => {
       const { topology } = i as { topology: 'controller' | 'edge-per-node' };
       const st = getState(s);
+      // Mirrors setTopology's preflight: edge-per-node needs a server marked as an edge to land on.
+      if (topology === 'edge-per-node' && !(s.nodes as unknown as Array<{ ingress?: boolean }>).some((n) => n.ingress)) {
+        throw new Error('No node is marked as an ingress node — edge-per-node runs one Caddy per ingress node, so it would schedule nowhere. Mark at least one node as ingress first.');
+      }
       st.topology = topology;
       st.updatedAt = nowIso();
-      return toConfigView(st);
+      return toConfigView(st, s);
     },
 
     'ingress.setTargetNodes': (i, s): IngressConfigView => {
@@ -575,7 +597,7 @@ export const ingress: DomainResolvers = {
       const st = getState(s);
       st.targetNodes = nodeIds;
       st.updatedAt = nowIso();
-      return toConfigView(st);
+      return toConfigView(st, s);
     },
 
     /** Idempotent "deploy/converge" — demo mode just bumps updatedAt. */
@@ -588,7 +610,7 @@ export const ingress: DomainResolvers = {
       const st = getState(s);
       const requested = (i as { driver?: IngressDriverId } | undefined)?.driver;
       const driver = requested && VALID_DRIVERS.has(requested) ? requested : st.driver;
-      return renderPreview(st, driver);
+      return renderPreview(st, driver, edgesOf(s));
     },
 
     'ingress.setOnDemandTls': (i, s): IngressConfigView => {
@@ -597,7 +619,7 @@ export const ingress: DomainResolvers = {
       st.onDemandTls = b.enabled;
       st.onDemandAskUrl = b.enabled ? b.askUrl ?? st.onDemandAskUrl : null;
       st.updatedAt = nowIso();
-      return toConfigView(st);
+      return toConfigView(st, s);
     },
 
     'ingress.setTunnel': (i, s): IngressConfigView => {
@@ -617,18 +639,20 @@ export const ingress: DomainResolvers = {
         };
       }
       st.updatedAt = nowIso();
-      return toConfigView(st);
+      return toConfigView(st, s);
     },
   },
 
   seed: (store) => {
     // A coherent slice of the demo cluster: Caddy live, three public hostnames
     // pointed at the ingress-enabled services (web/api/cdn/grafana from data.ts),
-    // on-demand TLS off, no tunnel yet.
+    // on-demand TLS off, no tunnel yet. An edge on every edge server (the geo
+    // seed marks four; swarmy-dns sends each visitor to the nearest one).
     const state: IngressState = {
       driver: 'caddy',
       enabled: true,
       targetNodes: ['n-mgr-1', 'n-mgr-2'],
+      topology: 'edge-per-node',
       onDemandTls: false,
       onDemandAskUrl: null,
       controllerImage: null,

@@ -6,6 +6,7 @@ import type { Tone } from '@/components/calm';
 export interface HubDomain {
   id: string;
   host: string;
+  serviceId: string;
   stack: string;
   serviceName: string;
   targetPort: number;
@@ -13,7 +14,13 @@ export interface HubDomain {
   pathPrefix: string | null;
   serving: boolean;
   auto?: boolean;
-  status?: { state: string; reason: string; certificate: { expiresAt: string | null } | null } | null;
+  status?: {
+    state: string;
+    reason: string;
+    /** Withheld from the edge until its DNS verifies. */
+    gated?: boolean;
+    certificate: { expiresAt: string | null; error?: string | null } | null;
+  } | null;
 }
 
 const DAY = 86_400_000;
@@ -58,6 +65,9 @@ export function useNetwork() {
     needs,
     frontDoors,
     geoOn: !!geo.data?.enabled,
+    /** swarmy-dns is actually answering (runtime truth, not the setting), and on how many servers. */
+    geoServing: !!geo.data?.runtime?.serving,
+    dnsServers: geo.data?.runtime?.runningTasks ?? 0,
     zones: zones.data ?? [],
   };
 }
