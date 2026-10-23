@@ -1,6 +1,7 @@
 import * as React from 'react';
+import { Link } from '@tanstack/react-router';
 import type { ReleaseView } from '@swarmy/core';
-import { CalmRow, Section } from '@/components/calm';
+import { CalmRow, Section, SectionLink } from '@/components/calm';
 import { ReleaseDetailCard } from '@/components/releases/release-detail-card';
 import { relativeTime } from '@/components/releases/release-status';
 import { RELEASE_TONE, RELEASE_WORD, actorName, releaseLabel } from './release-label';
@@ -11,7 +12,19 @@ export function ReleaseHistory({ rows }: { rows: ReleaseView[] }): React.JSX.Ele
   const pick = rows.find((r) => r.id === selected);
   return (
     <>
-      <Section title="History" count={rows.length} hint="newest first" flush>
+      <Section
+        title="History"
+        count={rows.length}
+        hint="newest first"
+        flush
+        action={
+          rows[0] ? (
+            <Link to="/stacks/$name/time-travel" params={{ name: rows[0].stackName }} className="inline-flex items-center pointer-coarse:min-h-11">
+              <SectionLink>Time travel →</SectionLink>
+            </Link>
+          ) : undefined
+        }
+      >
         <div className="flex flex-col">
           {rows.map((r) => (
             <CalmRow

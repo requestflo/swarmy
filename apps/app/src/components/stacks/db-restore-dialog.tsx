@@ -35,19 +35,28 @@ export function DbRestoreDialog({
   cluster,
   targetId,
   backup,
+  initialMode,
+  initialTargetTime,
+  trigger,
 }: {
   stack: string;
   cluster: string;
   /** Destination the backup was listed from; defaults server-side when omitted. */
   targetId?: string;
   backup: DbBackupSnapshotView;
+  /** The mode it opens on (Time travel's copy / replace choice); defaults to a clone. */
+  initialMode?: DbRestoreMode;
+  /** Point-in-time: the moment to recover to (ISO), prefilled. */
+  initialTargetTime?: string;
+  /** Custom trigger; defaults to the quiet "Restore" button. */
+  trigger?: React.ReactElement;
 }): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const [open, setOpen] = React.useState(false);
-  const [mode, setMode] = React.useState<DbRestoreMode>('clone-to-new-cluster');
+  const [mode, setMode] = React.useState<DbRestoreMode>(initialMode ?? 'clone-to-new-cluster');
   const [targetCluster, setTargetCluster] = React.useState(`${cluster}-restore`);
-  const [pitrTarget, setPitrTarget] = React.useState('');
+  const [pitrTarget, setPitrTarget] = React.useState(initialTargetTime ?? '');
   const [database, setDatabase] = React.useState('app');
   const [dataVolume, setDataVolume] = React.useState('');
 
@@ -83,9 +92,11 @@ export function DbRestoreDialog({
   return (
     <AlertDialog open={open} onOpenChange={setOpen}>
       <AlertDialogTrigger asChild>
-        <Button variant="outline" size="sm" className="rounded-full">
-          <RotateCcwIcon className="size-4" /> Restore
-        </Button>
+        {trigger ?? (
+          <Button variant="outline" size="sm" className="rounded-full">
+            <RotateCcwIcon className="size-4" /> Restore
+          </Button>
+        )}
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>

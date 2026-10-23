@@ -55,6 +55,7 @@ import { Route as AuthedDataBucketsRouteImport } from './routes/_authed/data_.bu
 import { Route as AuthedCiBuildIdRouteImport } from './routes/_authed/ci_.$buildId'
 import { Route as AuthedStacksNameIndexRouteImport } from './routes/_authed/stacks/$name.index'
 import { Route as AuthedTerminalSessionsIdRouteImport } from './routes/_authed/terminal.sessions.$id'
+import { Route as AuthedStacksNameTimeTravelRouteImport } from './routes/_authed/stacks/$name_.time-travel'
 import { Route as AuthedStacksNameStudioRouteImport } from './routes/_authed/stacks/$name.studio'
 import { Route as AuthedStacksNameSourceRouteImport } from './routes/_authed/stacks/$name.source'
 import { Route as AuthedStacksNameSettingsRouteImport } from './routes/_authed/stacks/$name.settings'
@@ -317,6 +318,12 @@ const AuthedTerminalSessionsIdRoute =
     path: '/terminal/sessions/$id',
     getParentRoute: () => AuthedRoute,
   } as any)
+const AuthedStacksNameTimeTravelRoute =
+  AuthedStacksNameTimeTravelRouteImport.update({
+    id: '/stacks/$name_/time-travel',
+    path: '/stacks/$name/time-travel',
+    getParentRoute: () => AuthedRoute,
+  } as any)
 const AuthedStacksNameStudioRoute = AuthedStacksNameStudioRouteImport.update({
   id: '/studio',
   path: '/studio',
@@ -539,6 +546,7 @@ export interface FileRoutesByFullPath {
   '/stacks/$name/settings': typeof AuthedStacksNameSettingsRoute
   '/stacks/$name/source': typeof AuthedStacksNameSourceRoute
   '/stacks/$name/studio': typeof AuthedStacksNameStudioRoute
+  '/stacks/$name/time-travel': typeof AuthedStacksNameTimeTravelRoute
   '/terminal/sessions/$id': typeof AuthedTerminalSessionsIdRoute
   '/stacks/$name/': typeof AuthedStacksNameIndexRoute
   '/stacks/$name/config/jobs': typeof AuthedStacksNameConfigJobsRoute
@@ -613,6 +621,7 @@ export interface FileRoutesByTo {
   '/stacks/$name/settings': typeof AuthedStacksNameSettingsRoute
   '/stacks/$name/source': typeof AuthedStacksNameSourceRoute
   '/stacks/$name/studio': typeof AuthedStacksNameStudioRoute
+  '/stacks/$name/time-travel': typeof AuthedStacksNameTimeTravelRoute
   '/terminal/sessions/$id': typeof AuthedTerminalSessionsIdRoute
   '/stacks/$name': typeof AuthedStacksNameIndexRoute
   '/stacks/$name/config/jobs': typeof AuthedStacksNameConfigJobsRoute
@@ -690,6 +699,7 @@ export interface FileRoutesById {
   '/_authed/stacks/$name/settings': typeof AuthedStacksNameSettingsRoute
   '/_authed/stacks/$name/source': typeof AuthedStacksNameSourceRoute
   '/_authed/stacks/$name/studio': typeof AuthedStacksNameStudioRoute
+  '/_authed/stacks/$name_/time-travel': typeof AuthedStacksNameTimeTravelRoute
   '/_authed/terminal/sessions/$id': typeof AuthedTerminalSessionsIdRoute
   '/_authed/stacks/$name/': typeof AuthedStacksNameIndexRoute
   '/_authed/stacks/$name/config/jobs': typeof AuthedStacksNameConfigJobsRoute
@@ -767,6 +777,7 @@ export interface FileRouteTypes {
     | '/stacks/$name/settings'
     | '/stacks/$name/source'
     | '/stacks/$name/studio'
+    | '/stacks/$name/time-travel'
     | '/terminal/sessions/$id'
     | '/stacks/$name/'
     | '/stacks/$name/config/jobs'
@@ -841,6 +852,7 @@ export interface FileRouteTypes {
     | '/stacks/$name/settings'
     | '/stacks/$name/source'
     | '/stacks/$name/studio'
+    | '/stacks/$name/time-travel'
     | '/terminal/sessions/$id'
     | '/stacks/$name'
     | '/stacks/$name/config/jobs'
@@ -917,6 +929,7 @@ export interface FileRouteTypes {
     | '/_authed/stacks/$name/settings'
     | '/_authed/stacks/$name/source'
     | '/_authed/stacks/$name/studio'
+    | '/_authed/stacks/$name_/time-travel'
     | '/_authed/terminal/sessions/$id'
     | '/_authed/stacks/$name/'
     | '/_authed/stacks/$name/config/jobs'
@@ -1264,6 +1277,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedTerminalSessionsIdRouteImport
       parentRoute: typeof AuthedRoute
     }
+    '/_authed/stacks/$name_/time-travel': {
+      id: '/_authed/stacks/$name_/time-travel'
+      path: '/stacks/$name/time-travel'
+      fullPath: '/stacks/$name/time-travel'
+      preLoaderRoute: typeof AuthedStacksNameTimeTravelRouteImport
+      parentRoute: typeof AuthedRoute
+    }
     '/_authed/stacks/$name/studio': {
       id: '/_authed/stacks/$name/studio'
       path: '/studio'
@@ -1566,6 +1586,7 @@ interface AuthedRouteChildren {
   AuthedNetworkDomainsNewRoute: typeof AuthedNetworkDomainsNewRoute
   AuthedNodesNodeIdTerminalRoute: typeof AuthedNodesNodeIdTerminalRoute
   AuthedServicesServiceIdTerminalRoute: typeof AuthedServicesServiceIdTerminalRoute
+  AuthedStacksNameTimeTravelRoute: typeof AuthedStacksNameTimeTravelRoute
   AuthedTerminalSessionsIdRoute: typeof AuthedTerminalSessionsIdRoute
 }
 
@@ -1614,6 +1635,7 @@ const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedNetworkDomainsNewRoute: AuthedNetworkDomainsNewRoute,
   AuthedNodesNodeIdTerminalRoute: AuthedNodesNodeIdTerminalRoute,
   AuthedServicesServiceIdTerminalRoute: AuthedServicesServiceIdTerminalRoute,
+  AuthedStacksNameTimeTravelRoute: AuthedStacksNameTimeTravelRoute,
   AuthedTerminalSessionsIdRoute: AuthedTerminalSessionsIdRoute,
 }
 
