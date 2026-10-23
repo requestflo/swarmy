@@ -24,10 +24,13 @@ interface Seed {
   lastRelease: string;
   regressedH: number | null;
   trend: number[];
+  /** The demo release (releases resolver) whose deploy introduced it, and when that was. */
+  release?: { id: string; deployedH: number };
 }
 
 const SEEDS: Seed[] = [
-  { fingerprint: 'f3a91c07e2b4', title: 'TypeError: applePaySession is undefined', culprit: 'checkout/src/pay.ts in startApplePay', type: 'TypeError', level: 'error', count: 318, users: 211, firstSeenH: 2, lastSeenH: 0.1, firstRelease: 'v119', lastRelease: 'v119', regressedH: null, trend: trend(9, 21) },
+  // Came in with the storefront canary now rolling out (releases: rel-store-6, 20 min ago), so its page offers "Put back".
+  { fingerprint: 'f3a91c07e2b4', title: 'TypeError: applePaySession is undefined', culprit: 'checkout/src/pay.ts in startApplePay', type: 'TypeError', level: 'error', count: 96, users: 71, firstSeenH: 0.3, lastSeenH: 0.02, firstRelease: 'v1.9.0', lastRelease: 'v1.9.0', regressedH: null, trend: [...new Array<number>(23).fill(0), 96], release: { id: 'rel-store-6', deployedH: 20 / 60 } },
   { fingerprint: '0b77d2e41a90', title: 'PrismaClientKnownRequestError P2002: unique constraint failed', culprit: 'api/src/orders.ts in createOrder', type: 'PrismaClientKnownRequestError', level: 'error', count: 42, users: 30, firstSeenH: 190, lastSeenH: 2, firstRelease: 'v112', lastRelease: 'v119', regressedH: 2, trend: trend(3, 22) },
   { fingerprint: '5c1e8a3f60d2', title: 'TimeoutError: stripe.paymentIntents.create timed out', culprit: 'checkout/src/stripe.ts in charge', type: 'TimeoutError', level: 'error', count: 19, users: 17, firstSeenH: 30, lastSeenH: 0.7, firstRelease: 'v118', lastRelease: 'v118', regressedH: null, trend: trend(1, 0) },
   { fingerprint: '9d04b6c2f18e', title: 'ChunkLoadError: Loading chunk 812 failed', culprit: 'web/src/router.tsx in lazy', type: 'ChunkLoadError', level: 'warning', count: 64, users: 58, firstSeenH: 20, lastSeenH: 1, firstRelease: 'v118', lastRelease: 'v118', regressedH: null, trend: trend(2, 18) },
@@ -80,6 +83,6 @@ export function demoIssue(input: { stack: string; fingerprint: string }): Record
     status: 'ok', issue: issueView(s), event,
     events: [{ eventId: event.eventId, timestamp: event.timestamp, release: s.lastRelease, environment: 'production', serverName: event.serverName, user: 'u_88213', traceId: event.traceId, spanId: event.spanId, replayId: null }],
     tags: [{ key: 'browser', values: [{ value: 'Safari 18', count: s.count }] }, { key: 'release', values: [{ value: s.lastRelease, count: s.count }] }],
-    introducedIn: { version: s.firstRelease, commitSha: '4e1c09a2b7d1', environment: 'production', source: 'deploy', swarmyReleaseId: null, firstSeen: ago(s.firstSeenH * H), deployedAt: ago(s.firstSeenH * H + 600_000), newIssues: 1, events: s.count },
+    introducedIn: { version: s.firstRelease, commitSha: '4e1c09a2b7d1', environment: 'production', source: 'deploy', swarmyReleaseId: s.release?.id ?? null, firstSeen: ago(s.firstSeenH * H), deployedAt: ago(s.release ? s.release.deployedH * H : s.firstSeenH * H + 600_000), newIssues: 1, events: s.count },
   };
 }

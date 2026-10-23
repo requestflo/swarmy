@@ -1,8 +1,9 @@
 import * as React from 'react';
 import { Link } from '@tanstack/react-router';
-import { FilmIcon, GitCommitIcon, ListTreeIcon, RocketIcon } from 'lucide-react';
+import { BellIcon, FilmIcon, GitCommitIcon, ListTreeIcon, RocketIcon } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@swarmy/ui';
 import { shortRelease, timeAgo } from './errors-shared';
+import { IssueAlertsLine } from './issue-alerts-line';
 import type { IssueData, IssueEvent } from './issue-types';
 
 /** The aside of an issue: what it links to, its tags, and the picked event's details. */
@@ -50,6 +51,9 @@ export function IssueAside({ stack, d, ev }: { stack: string; d: IssueData; ev: 
           ) : (
             <span className="text-muted-foreground text-xs">no release (set SENTRY_RELEASE)</span>
           )}
+        </LinkedRow>
+        <LinkedRow icon={<BellIcon className="size-4" />} label="Alerts">
+          <IssueAlertsLine stack={stack} />
         </LinkedRow>
         {issue.resolvedInRelease ? (
           <LinkedRow icon={<RocketIcon className="size-4" />} label="Fix expected after">

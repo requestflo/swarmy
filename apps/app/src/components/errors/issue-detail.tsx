@@ -7,7 +7,10 @@ import { useTRPC } from '@/integrations/trpc';
 import type { IssueStatus } from './errors-shared';
 import { IssueAside } from './issue-aside';
 import { IssueEventCards } from './issue-event-cards';
+import { IssueEventsChart } from './issue-events-chart';
 import { IssueHeader } from './issue-header';
+import { IssueRollback } from './issue-rollback';
+import { useIssueTrend } from './use-issue-trend';
 
 interface IssueDetailProps {
   stack: string;
@@ -27,6 +30,7 @@ export function IssueDetail({ stack, fingerprint }: IssueDetailProps): React.JSX
   const [eventId, setEventId] = React.useState<string | undefined>(undefined);
   const detail = useQuery(trpc.errors.issue.queryOptions({ stack, fingerprint, eventId }));
   const d = detail.data;
+  const trend = useIssueTrend(stack, fingerprint, d?.issue?.trend ?? [], d?.issue?.lastSeen ?? null);
   const setStatus = useMutation(
     trpc.errors.setIssueStatus.mutationOptions({
       onSuccess: (_r, v) => {
@@ -79,6 +83,7 @@ export function IssueDetail({ stack, fingerprint }: IssueDetailProps): React.JSX
     <div className="flex flex-col gap-5 pb-8">
       {back}
       <IssueHeader stack={stack} issue={issue} busy={setStatus.isPending} act={act} />
+      <IssueEventsChart trend={trend} introduced={d.introducedIn} footer={<IssueRollback stack={stack} introduced={d.introducedIn} />} />
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="min-w-0 space-y-4">

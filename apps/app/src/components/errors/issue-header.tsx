@@ -3,7 +3,6 @@ import { CheckIcon, EyeOffIcon, RocketIcon, RotateCcwIcon } from 'lucide-react';
 import { Button } from '@swarmy/ui';
 import { CodeView, Say, SayHeader, Tech } from '@/components/calm';
 import { compact, shortRelease, statusLabel, timeAgo, type IssueStatus } from './errors-shared';
-import { TrendBars } from './trend-bars';
 
 interface IssueHead {
   fingerprint: string;
@@ -18,13 +17,13 @@ interface IssueHead {
   firstRelease: string | null;
   lastRelease: string | null;
   regressedAt: string | null;
-  trend: number[];
 }
 
 /**
  * One issue's sentence header: what broke, how often, for how many people,
- * and the one action (Resolve). The counts and 24 h bars are the Controls
- * line; the Code depth shows the fingerprint and the source-map upload.
+ * and the one action (Resolve). The counts are the Controls line (the 24 h
+ * chart sits below the header); the Code depth shows the fingerprint and the
+ * source-map upload.
  */
 export function IssueHeader({
   stack,
@@ -78,10 +77,7 @@ export function IssueHeader({
         }
       />
       <Tech>
-        <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-1">
-          level {issue.level} · {issue.count} events · {issue.users} users · last release {shortRelease(issue.lastRelease)} · 24 h
-          <TrendBars data={issue.trend.length ? issue.trend : new Array(24).fill(0)} className="h-4 w-24" />
-        </span>
+        level {issue.level} · {issue.count} events · {issue.users} users · last release {shortRelease(issue.lastRelease)}
       </Tech>
       <CodeView
         title="This issue as code"
