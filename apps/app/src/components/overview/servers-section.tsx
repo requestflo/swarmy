@@ -4,9 +4,8 @@ import { ServerIcon } from 'lucide-react';
 import { cn } from '@swarmy/ui';
 import { Depth, SectionLink, TONE_DOT } from '@/components/calm';
 import { numberWord } from '@/components/apps/app-words';
+import { HOT_DISK_PCT } from './glance-words';
 import type { ServerGlance } from './use-servers-glance';
-
-const HOT = 80;
 
 function Bar({ label, value }: { label: string; value: number | null }): React.JSX.Element {
   const v = value ?? 0;
@@ -15,7 +14,7 @@ function Bar({ label, value }: { label: string; value: number | null }): React.J
       <span className="text-muted-foreground w-8 shrink-0 font-mono text-[10.5px]">{label}</span>
       <span aria-hidden className="bg-foreground/10 h-1.5 min-w-6 flex-1 overflow-hidden rounded-full">
         <span
-          className={cn('block h-full rounded-full', v >= HOT ? 'bg-status-warning' : 'bg-status-online')}
+          className={cn('block h-full rounded-full', v >= HOT_DISK_PCT ? 'bg-status-warning' : 'bg-status-online')}
           style={{ width: `${v}%` }}
         />
       </span>
@@ -31,7 +30,7 @@ export function ServersSection({ servers }: { servers: ServerGlance[] }): React.
   const online = servers.filter((s) => s.node.status === 'online').length;
   const places = new Set(servers.map((s) => s.node.region).filter(Boolean)).size;
   const off = servers.find((s) => s.node.status === 'offline') ?? servers.find((s) => s.node.status !== 'online');
-  const hot = [...servers].filter((s) => (s.disk ?? 0) >= HOT).sort((a, b) => (b.disk ?? 0) - (a.disk ?? 0))[0];
+  const hot = [...servers].filter((s) => (s.disk ?? 0) >= HOT_DISK_PCT).sort((a, b) => (b.disk ?? 0) - (a.disk ?? 0))[0];
   const n = servers.length;
   const lead =
     online === n
