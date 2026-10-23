@@ -2,6 +2,7 @@ import * as React from 'react';
 import { CodeView } from '@/components/calm';
 import { installOneLiner } from './install-command-panel';
 import type { NodeRoleChoice } from './node-role-picker';
+import { cloudConfig, platformOf, type PlatformId } from './platforms';
 import type { JoinLink } from './use-join-link';
 
 /** Code depth for Add a server: the install line spelled out, and the raw join token. */
@@ -9,10 +10,12 @@ export function AddServerCode({
   link,
   role,
   labels,
+  platform,
 }: {
   link: JoinLink | null;
   role: NodeRoleChoice;
   labels: string;
+  platform: PlatformId;
 }): React.JSX.Element | null {
   if (!link) return null;
   const line = installOneLiner(link.token, labels, role, link.mesh, link.target);
@@ -37,6 +40,7 @@ export function AddServerCode({
     <CodeView
       tabs={[
         { label: 'install', code: install },
+        ...(platformOf(platform).cloudConfig ? [{ label: 'cloud-config', code: cloudConfig(line) }] : []),
         { label: 'join token', code: token },
       ]}
       source="readonly"

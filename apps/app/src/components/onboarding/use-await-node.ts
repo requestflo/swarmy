@@ -1,21 +1,26 @@
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
+import type { NodeSummary } from '@swarmy/core';
 import { useTRPC } from '@/integrations/trpc';
 
 export interface AwaitedNode {
-  id: string;
-  name: string;
+  node: NodeSummary;
+  /** When the dashboard first saw it online (polled every 3 s). */
+  at: Date;
 }
 
 /**
  * Polls `nodes.list` and resolves the first node that appears (or comes online)
- * after this hook mounts. Snapshots the node ids present at mount so we only
- * react to genuinely new arrivals — the "watch it connect" moment.
+ * after the watch arms. Snapshots the node ids online at arming so only a
+ * genuinely new arrival counts — the "watch it phone home" moment.
  *
- * `armed` gates polling so we only watch once the user has a token to paste.
+ * `armKey` is the join link's id: null watches nothing, and a new link (Add
+ * another) starts a fresh watch. Also returns the servers already there, for
+ * the radar's blips.
  */
-export function useAwaitNode(armed: boolean): AwaitedNode | null {
+export function useAwaitNode(armKey: string | null): { arrived: AwaitedNode | null; nodes: NodeSummary[] | undefined } {
   const trpc = useTRPC();
+  const armed = armKey !== null;
   const nodes = useQuery({
     ...trpc.nodes.list.queryOptions(),
     refetchInterval: armed ? 3_000 : false,
@@ -24,13 +29,11 @@ export function useAwaitNode(armed: boolean): AwaitedNode | null {
   const baseline = React.useRef<Set<string> | null>(null);
   const [arrived, setArrived] = React.useState<AwaitedNode | null>(null);
 
-  // Reset the baseline whenever we (re)arm so a fresh paste watches anew.
+  // Every new link (or none) watches anew.
   React.useEffect(() => {
-    if (!armed) {
-      baseline.current = null;
-      setArrived(null);
-    }
-  }, [armed]);
+    baseline.current = null;
+    setArrived(null);
+  }, [armKey]);
 
   React.useEffect(() => {
     if (!armed || !nodes.data) return;
@@ -42,8 +45,10 @@ export function useAwaitNode(armed: boolean): AwaitedNode | null {
     }
     if (arrived) return;
     const fresh = online.find((n) => !baseline.current?.has(n.id));
-    if (fresh) setArrived({ id: fresh.id, name: fresh.name });
+    if (fresh) setArrived({ node: fresh, at: new Date() });
   }, [armed, nodes.data, arrived]);
 
-  return arrived;
+  // Keep the arrival's facts current (role and size settle after it registers).
+  const node = arrived ? (nodes.data?.find((n) => n.id === arrived.node.id) ?? arrived.node) : null;
+  return { arrived: arrived && node ? { node, at: arrived.at } : null, nodes: nodes.data };
 }

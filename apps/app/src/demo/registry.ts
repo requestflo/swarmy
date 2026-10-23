@@ -53,6 +53,7 @@ import { stackLinks } from './resolvers/stack-links';
 import { scaling } from './resolvers/scaling';
 import { movesDemo } from './resolvers/moves';
 import { meshGrants } from './resolvers/mesh-grants';
+import { phoneHome } from './resolvers/phone-home';
 
 /**
  * Assembles every per-domain resolver module into flat lookup tables for the demo
@@ -114,6 +115,8 @@ const MODULES: DomainResolvers[] = [
   scaling,
   movesDemo,
   meshGrants,
+  // Wraps core's nodes.list and infraextra's generateJoinToken, so it comes after both.
+  phoneHome,
 ];
 
 export const HANDLERS: Record<string, DemoHandler> = Object.assign(

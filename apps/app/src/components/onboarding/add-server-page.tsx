@@ -7,32 +7,42 @@ import { useJoinLink } from './use-join-link';
 import { needsHttps } from './install-command-panel';
 import { InstallLine } from './install-line';
 import { JoinOptions } from './join-options';
-import { AwaitServerCard } from './await-server-card';
 import { AddServerCode } from './add-server-code';
+import { ArrivalReceipt } from './arrival-receipt';
+import { PhoneHomeRadar, PhoneHomeWaiting } from './phone-home-radar';
+import { PlatformTabs } from './platform-tabs';
+import type { PlatformId } from './platforms';
 import type { NodeRoleChoice } from './node-role-picker';
 
 /**
- * Add a server (canvas "AddServer"): one line front and centre, what's
- * already handled, and the waiting pulse. Nothing is minted until the person
- * clicks "Create join link" (an unexpired link from this tab is reused). Role, labels and a named link live
- * at Controls (Automatic by default); the raw token at Code. With no HTTPS
- * address the line would be refused, so the page asks for a domain instead.
+ * Add a server (board 12): where it is (platform tabs: the same line, or
+ * cloud-config for a cloud), one line front and centre, what's already
+ * handled, and the radar — your servers as blips — until it phones home and
+ * the receipt lands. Nothing is minted until "Create join link" (an unexpired
+ * link from this tab is reused). Role, labels and a named link at Controls;
+ * the raw token at Code. With no HTTPS address the page asks for a domain.
  */
 export function AddServerPage(): React.JSX.Element {
   const { link, pending, failed, mint } = useJoinLink();
   const [role, setRole] = React.useState<NodeRoleChoice>('auto');
   const [labels, setLabels] = React.useState('');
-  const arrived = useAwaitNode(link !== null);
+  const [platform, setPlatform] = React.useState<PlatformId>('linux');
+  const { arrived, nodes } = useAwaitNode(link?.id ?? null);
   const blocked = needsHttps(link?.target);
 
   return (
     <CalmPage
       crumbs={[{ label: 'Servers', to: '/nodes' }, { label: 'Add a server' }]}
       aside={
-        <>
-          {blocked ? null : <AddServerCode link={link} role={role} labels={labels} />}
-          {blocked ? null : <AwaitServerCard armed={link !== null} arrived={arrived} />}
-        </>
+        blocked ? null : (
+          <>
+            <AddServerCode link={link} role={role} labels={labels} platform={platform} />
+            <section aria-live="polite" aria-label="New server" className="calm-card flex flex-col items-center gap-5 px-5 py-6">
+              <PhoneHomeRadar nodes={nodes} sweeping={link !== null && !arrived} arrivedId={arrived?.node.id ?? null} />
+              {arrived ? <ArrivalReceipt arrived={arrived} role={role} onAnother={() => mint()} /> : <PhoneHomeWaiting armed={link !== null} />}
+            </section>
+          </>
+        )
       }
     >
       <SayHeader
@@ -52,6 +62,7 @@ export function AddServerPage(): React.JSX.Element {
             : 'It installs what it needs, dials home over HTTPS and joins your servers. Nothing to open on your firewall.'
         }
       />
+      {blocked ? null : <PlatformTabs value={platform} onChange={setPlatform} />}
       {blocked ? (
         <NextAction
           title="Set a dashboard domain"
@@ -76,7 +87,7 @@ export function AddServerPage(): React.JSX.Element {
           }
         />
       ) : link ? (
-        <InstallLine link={link} role={role} labels={labels} done={arrived !== null} />
+        <InstallLine link={link} role={role} labels={labels} platform={platform} done={arrived !== null} />
       ) : (
         <NextAction
           tone="info"
