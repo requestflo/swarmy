@@ -48,6 +48,11 @@ export const dbBackupRouter = router({
     )
     .query(({ ctx, input }) => listDbBackups(ctx, input)),
 
+  /**
+   * Restore. Writing over the source cluster saves its current data first
+   * (a `reason:pre-restore` restore point) and is refused if that fails,
+   * unless `skipSafetyBackup: true` (audited `db.restore.safety.skip`).
+   */
   restore: abacProcedure('data.restore')
     .input(
       z.object({
@@ -62,6 +67,7 @@ export const dbBackupRouter = router({
         targetStack: z.string().optional(),
         targetCluster: z.string().optional(),
         dataVolume: z.string().optional(),
+        skipSafetyBackup: z.boolean().optional(),
       }),
     )
     .mutation(({ ctx, input }) => restoreDb(ctx, input)),

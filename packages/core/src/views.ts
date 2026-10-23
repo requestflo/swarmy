@@ -341,6 +341,12 @@ export interface DbBackupSnapshotView {
   /** Stringified bytes (BigInt-safe), or null when restic did not report a size. */
   sizeBytes: string | null;
   tags: string[];
+  /**
+   * Why it was taken, from its `reason:` tag. `pre-restore` is the safety copy
+   * an in-place restore saved first (restore it to undo that restore); null
+   * for a scheduled or manual save.
+   */
+  reason: string | null;
 }
 
 /** One row of the org-wide database-backup coverage table (Backups page). */

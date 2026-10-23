@@ -57,6 +57,8 @@ export interface PitrRestorePlan {
   resticNetwork?: string;
   /** Destination id (audit). */
   targetId: string;
+  /** The pre-restore safety copy taken before this ran (audit). */
+  safety?: { safetySnapshotId: string | null; safetySkipped: boolean };
 }
 
 export interface PitrRestoreTiming {
@@ -206,7 +208,7 @@ export async function runPitrRestore(ctx: OrgContext, plan: PitrRestorePlan, tim
       actorType: ctx.user ? 'user' : 'system',
       targetType: 'dbCluster',
       targetId: plan.targetRef,
-      metadata: { mode: 'pitr', engine: plan.engine, targetId: plan.targetId, targetTime: plan.targetTime ?? null, stamp, status, ...extra },
+      metadata: { mode: 'pitr', engine: plan.engine, targetId: plan.targetId, targetTime: plan.targetTime ?? null, stamp, status, ...plan.safety, ...extra },
     });
   const fail = async (message: string, extra: Record<string, unknown> = {}): Promise<never> => {
     await audit('failed', { error: message, ...extra });

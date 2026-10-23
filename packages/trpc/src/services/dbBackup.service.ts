@@ -54,6 +54,7 @@ import type { AgentHub } from '../hub/types';
 import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { writeAudit } from './audit.service';
 import { runPitrRestore } from './dbPitrRestore.service';
+import { PRE_RESTORE_REASON, ensureSafetyCopy, latestRestorable, overwritesSource } from './dbRestoreSafety.service';
 import { auditRetentionOutcome, resticNetworkFor } from './backups.service';
 import { systemContext } from './cicd.service';
 import { resolveManagerNode } from './dispatch.service';
@@ -198,6 +199,7 @@ export function snapshotView(snap: ResticSnapshotInfo): DbBackupSnapshotView {
     engine: engine.success ? engine.data : null,
     sizeBytes: snap.sizeBytes != null ? String(snap.sizeBytes) : null,
     tags: snap.tags,
+    reason: snap.tags.find((t) => t.startsWith('reason:'))?.slice('reason:'.length) || null,
   };
 }
 
@@ -389,8 +391,8 @@ async function connFrom(ctx: OrgContext, stack: string, cluster: string, svc: In
   };
 }
 
-function dbTags(orgId: string, stack: string, cluster: string, engine: DbBackupEngine): string[] {
-  return [`org:${orgId}`, `db:${stack}/${cluster}`, `engine:${engine}`];
+function dbTags(orgId: string, stack: string, cluster: string, engine: DbBackupEngine, reason?: string): string[] {
+  return [`org:${orgId}`, `db:${stack}/${cluster}`, `engine:${engine}`, ...(reason ? [`reason:${reason}`] : [])];
 }
 
 /** Best-effort stamp of the run outcome onto the primary (overview truth). */
@@ -428,6 +430,12 @@ export interface BackupDbInput {
    * schedule label's `retentionDays` here; absent = keep forever.
    */
   retentionDays?: number;
+  /**
+   * `pre-restore`: the safety copy a restore takes first. Tagged
+   * `reason:pre-restore` so it reads as such in the catalog, and it does not
+   * stamp `swarmy.db.backup.lastRun` (that label is the schedule's outcome).
+   */
+  reason?: typeof PRE_RESTORE_REASON;
 }
 
 export interface DbBackupRunView {
@@ -456,13 +464,14 @@ export async function backupDb(ctx: OrgContext, input: BackupDbInput): Promise<D
   }
 
   const node = physical ? await physicalNode(ctx, primary.labels) : await resolveManagerNode(ctx);
+  const stamp = (run: DbBackupLastRun) => (input.reason ? Promise.resolve() : stampLastRun(ctx, primary.name, run));
   try {
     const result = await ctx.hub.dispatch<DbBackupResult>(node.id, 'db.backup', {
       jobId: randomToken('dbk'),
       engine: input.engine,
       conn,
       repo: toResticRepo(target),
-      tags: dbTags(ctx.activeOrgId, input.stack, input.cluster, input.engine),
+      tags: dbTags(ctx.activeOrgId, input.stack, input.cluster, input.engine, input.reason),
       retentionDays: input.retentionDays,
       network: clusterNetworkName(input.stack, input.cluster),
       resticNetwork: resticNetworkFor(target.endpoint),
@@ -478,6 +487,7 @@ export async function backupDb(ctx: OrgContext, input: BackupDbInput): Promise<D
         targetId: target.id,
         snapshotId: result.snapshotId,
         fromReplica,
+        ...(input.reason ? { reason: input.reason } : {}),
       },
     });
     await auditRetentionOutcome(
@@ -485,7 +495,7 @@ export async function backupDb(ctx: OrgContext, input: BackupDbInput): Promise<D
       { targetType: 'dbCluster', targetId: `${input.stack}/${input.cluster}` },
       result.retention,
     );
-    await stampLastRun(ctx, primary.name, {
+    await stamp({
       at: new Date().toISOString(),
       status: 'succeeded',
       engine: input.engine,
@@ -499,7 +509,7 @@ export async function backupDb(ctx: OrgContext, input: BackupDbInput): Promise<D
       databases: result.databases,
     };
   } catch (e) {
-    await stampLastRun(ctx, primary.name, {
+    await stamp({
       at: new Date().toISOString(),
       status: 'failed',
       engine: input.engine,
@@ -723,6 +733,11 @@ export interface RestoreDbInput {
   targetCluster?: string;
   /** pitr: the target PGDATA volume to recover into. */
   dataVolume?: string;
+  /**
+   * Restore over the source WITHOUT saving its current data first. Only for
+   * when the safety copy can't be taken (e.g. the server is down); audited.
+   */
+  skipSafetyBackup?: boolean;
 }
 
 export interface DbRestoreRunView {
@@ -731,6 +746,8 @@ export interface DbRestoreRunView {
   database?: string;
   bytesRestored: string;
   recoveredTo?: string;
+  /** The pre-restore safety copy (a restore point; restore it to undo), or null for a copy / a skip. */
+  safetySnapshotId: string | null;
 }
 
 export async function restoreDb(ctx: OrgContext, input: RestoreDbInput): Promise<DbRestoreRunView> {
@@ -743,16 +760,45 @@ export async function restoreDb(ctx: OrgContext, input: RestoreDbInput): Promise
   if (input.mode === 'pitr' && !dataVolume) {
     throw commandRejected('pitr restore requires the target PGDATA volume (dataVolume)');
   }
+  // Engine ↔ mode, checked here too (the agent keeps its own guards) so a
+  // mismatch is refused before the safety copy is taken.
+  if (input.mode === 'pitr' && !isPhysicalEngine(input.engine)) {
+    throw commandRejected(`pitr restore requires a physical engine (wal-g/pgbackrest), got "${input.engine}"`);
+  }
+  if (input.mode !== 'pitr' && isPhysicalEngine(input.engine)) {
+    throw commandRejected(`a ${input.engine} backup restores only to a point in time (pitr), not "${input.mode}"`);
+  }
   const source = findCluster(ctx, input.stack, input.cluster).primary;
   const schedule = parseScheduleLabel(source?.labels[DB_BACKUP_SCHEDULE_LABEL]);
   const target = await loadTarget(ctx, await resolveTargetId(ctx, input.targetId, schedule));
+  // A logical "latest" is pinned to a real save now, before the safety copy
+  // becomes the newest one (PITR's "latest" is a wal-g base backup instead).
+  let snapshotId = input.snapshotId ?? 'latest';
+  if (input.mode !== 'pitr' && snapshotId.toLowerCase() === 'latest') {
+    const saves = await listDbBackups(ctx, { targetId: target.id, stack: input.stack, cluster: input.cluster });
+    const latest = latestRestorable(saves, input.engine);
+    if (!latest) throw commandRejected(`there is no ${input.engine} backup of ${input.stack}/${input.cluster} to restore yet`);
+    snapshotId = latest;
+  }
+
+  // Writing over the source? Save its current data first, or refuse.
+  const safety = await ensureSafetyCopy(ctx, input, (plan) =>
+    backupDb(ctx, {
+      stack: destStack,
+      cluster: destCluster,
+      engine: plan.engine,
+      database: plan.database,
+      targetId: target.id,
+      retentionDays: schedule?.retentionDays,
+      reason: PRE_RESTORE_REASON,
+    }),
+  );
+  const safetySnapshotId = safety?.snapshotId ?? null;
+  const safetyAudit = { safetySnapshotId, safetySkipped: input.skipSafetyBackup === true && overwritesSource(input) };
 
   // PITR owns the whole stop → aside + fetch → start → promote sequence and
   // needs no DB password up front (QA-087).
   if (input.mode === 'pitr') {
-    if (!isPhysicalEngine(input.engine)) {
-      throw commandRejected(`pitr restore requires a physical engine (wal-g/pgbackrest), got "${input.engine}"`);
-    }
     const node = await physicalNode(ctx, primary.labels);
     const view = await runPitrRestore(ctx, {
       targetRef: `${destStack}/${destCluster}`,
@@ -763,15 +809,16 @@ export async function restoreDb(ctx: OrgContext, input: RestoreDbInput): Promise
       nodeId: node.id,
       dataVolume: dataVolume!,
       engine: input.engine,
-      snapshotId: input.snapshotId ?? 'latest',
+      snapshotId,
       targetTime: input.targetTime,
       repo: toResticRepo(target),
       tags: dbTags(ctx.activeOrgId, destStack, destCluster, input.engine),
       network: clusterNetworkName(destStack, destCluster),
       resticNetwork: resticNetworkFor(target.endpoint),
       targetId: target.id,
+      safety: safetyAudit,
     });
-    return { mode: view.mode, engine: view.engine, bytesRestored: view.bytesRestored, recoveredTo: view.recoveredTo };
+    return { mode: view.mode, engine: view.engine, bytesRestored: view.bytesRestored, recoveredTo: view.recoveredTo, safetySnapshotId };
   }
 
   const conn = await connFrom(ctx, destStack, destCluster, primary, input.database);
@@ -782,7 +829,7 @@ export async function restoreDb(ctx: OrgContext, input: RestoreDbInput): Promise
       mode: input.mode,
       conn,
       repo: toResticRepo(target),
-      snapshotId: input.snapshotId ?? 'latest',
+      snapshotId,
       targetTime: input.targetTime,
       database: input.database,
       tags: dbTags(ctx.activeOrgId, destStack, destCluster, input.engine),
@@ -800,6 +847,7 @@ export async function restoreDb(ctx: OrgContext, input: RestoreDbInput): Promise
         mode: input.mode,
         targetId: target.id,
         recoveredTo: result.recoveredTo ?? null,
+        ...safetyAudit,
       },
     });
     return {
@@ -808,6 +856,7 @@ export async function restoreDb(ctx: OrgContext, input: RestoreDbInput): Promise
       database: result.database,
       bytesRestored: String(result.bytesRestored),
       recoveredTo: result.recoveredTo,
+      safetySnapshotId,
     };
   } catch (e) {
     throw mapDispatchError(e);
