@@ -1,4 +1,5 @@
 import type { DemoStore, DomainResolvers } from '../types';
+import { DEMO_SCANNED_DIGESTS, makeBuildLog } from './cicd-build-log';
 
 /**
  * Demo resolvers for the CI/CD + registry surfaces (router `cicd`) and the Docker
@@ -139,41 +140,6 @@ function state(store: DemoStore): CicdState {
   return fresh;
 }
 
-/** A short, realistic Docker-style build log keyed to an image ref. */
-function makeBuildLog(image: string, ok: boolean): BuildLog {
-  const stdout: string[] = [
-    'Cloning repository…',
-    'Resolving deltas: 100% (842/842), done.',
-    'Step 1/9 : FROM node:20-alpine',
-    'Step 2/9 : WORKDIR /app',
-    'Step 3/9 : COPY package.json bun.lockb ./',
-    'Step 4/9 : RUN bun install --frozen-lockfile',
-    ' ---> Installed 318 packages in 4.21s',
-    'Step 5/9 : COPY . .',
-    'Step 6/9 : RUN bun run build',
-    ' ---> Compiled successfully in 11.8s',
-    'Step 7/9 : EXPOSE 3000',
-    'Step 8/9 : CMD ["bun", "start"]',
-    'Step 9/9 : LABEL org.swarmy.build=true',
-  ];
-  const tail = ok
-    ? [
-        `Successfully built ${image.split('@')[1]?.slice(0, 19) ?? 'sha256:8f3c1a'}`,
-        `Pushing to ${REGISTRY_HOST}…`,
-        'latest: digest: sha256:8f3c1a92… size: 4096',
-        'Build succeeded.',
-      ]
-    : [];
-  const lines: BuildLogLine[] = [];
-  let seq = 0;
-  for (const m of [...stdout, ...tail]) lines.push({ seq: seq++, stream: 'stdout', message: m });
-  if (!ok) {
-    lines.push({ seq: 0, stream: 'stderr', message: 'error: command "bun run build" exited with code 1' });
-    lines.push({ seq: 1, stream: 'stderr', message: 'src/index.ts(42,7): TS2345: Type mismatch.' });
-  }
-  return { lines };
-}
-
 /** The seed CI/CD world — repos linked to the demo cluster's services, recent builds. */
 function buildSeed(): CicdState {
   const repos: GitRepoView[] = [
@@ -230,7 +196,7 @@ function buildSeed(): CicdState {
 
   const logs: Record<string, BuildLog> = {};
   for (const b of builds) {
-    if (b.logsRef) logs[b.logsRef] = makeBuildLog(b.image ?? '', b.status !== 'failed');
+    if (b.logsRef) logs[b.logsRef] = makeBuildLog(b.image ?? '', b.status !== 'failed', b.builder === 'railpack' ? 'railpack' : 'dockerfile');
   }
 
   return {
@@ -262,7 +228,7 @@ function build(
 ): BuildView {
   const repo = repos.find((r) => r.id === repoId);
   const key = `${repoId}/${imageName}/${ref}/${status}/${startedMsAgo}`;
-  const sha = `sha256:${stableHash(key, 14, 16)}`;
+  const sha = DEMO_SCANNED_DIGESTS[`${imageName}:${ref}`] ?? `sha256:${stableHash(key, 14, 16)}`;
   const image =
     status === 'failed' ? `${REGISTRY_HOST}/${imageName}:${ref}` : `${REGISTRY_HOST}/${imageName}@${sha}`;
   const logsRef = stableId('log', key);
@@ -409,7 +375,7 @@ export const cicd: DomainResolvers = {
         detected: null,
         cachedSteps: null,
       };
-      st.logs[logsRef] = makeBuildLog(view.image ?? '', true);
+      st.logs[logsRef] = makeBuildLog(view.image ?? '', true, 'dockerfile');
       st.builds.unshift(view);
       return view;
     },

@@ -4,9 +4,13 @@ import { useTRPC } from '@/integrations/trpc';
 import { CalmPage, CodeView, Say, SayHeader, Section, StatusWord, Tech } from '@/components/calm';
 import { SkeletonBody } from '@/components/states';
 import { relTime } from '@/lib/format';
+import { BuildImageCard } from './build-image-card';
+import { BuildLayers } from './build-layers';
+import { parseBuildLayers, toLogLines } from './build-log-parse';
 import { BuildLogViewer } from './build-log-viewer';
 import { BUILD_TONE, BUILD_WORD, repoName } from './builds-list';
 import { buildStrategyLabel } from './build-strategy';
+import { useBuildLog } from './use-build-log';
 
 const RUNNING = new Set(['queued', 'building', 'pushing']);
 
@@ -20,11 +24,22 @@ export function BuildDetailPage({ buildId }: { buildId: string }): React.JSX.Ele
   const live = RUNNING.has(status);
   const repo = build ? repoName(build.repoUrl) : buildId;
   const tone = BUILD_TONE[status] ?? 'idle';
+  const { chunks } = useBuildLog(buildId, live);
+  const lines = React.useMemo(() => toLogLines(chunks), [chunks]);
+  const layers = React.useMemo(() => parseBuildLayers(lines.map((l) => l.text).join('\n')), [lines]);
 
   return (
     <CalmPage
       crumbs={[{ label: 'Settings', to: '/settings' }, { label: 'CI & registry', to: '/ci' }, { label: build?.commit?.slice(0, 7) ?? 'Build' }]}
-      aside={build ? <CodeView title="This build as data" tabs={[{ label: 'JSON', code: JSON.stringify(build, null, 2) }]} source="readonly" /> : undefined}
+      aside={
+        build ? (
+          <>
+            <CodeView title="This build as data" tabs={[{ label: 'JSON', code: JSON.stringify(build, null, 2) }]} source="readonly" />
+            {build.image ? <BuildImageCard image={build.image} /> : null}
+            <BuildLayers layers={layers} live={live} />
+          </>
+        ) : undefined
+      }
     >
       {builds.isLoading ? (
         <SkeletonBody variant="list" />
@@ -42,7 +57,7 @@ export function BuildDetailPage({ buildId }: { buildId: string }): React.JSX.Ele
           />
           {build ? <Tech>{`${build.image ?? '—'} · ${repo}${buildStrategyLabel(build) ? ` · ${buildStrategyLabel(build)}` : ''}`}</Tech> : null}
           <Section title="Log" hint={live ? 'streaming live' : undefined} action={<StatusWord tone={tone} word={BUILD_WORD[status] ?? status} pulse={live} />}>
-            <BuildLogViewer buildId={buildId} live={live} />
+            <BuildLogViewer lines={lines} live={live} />
           </Section>
         </>
       )}

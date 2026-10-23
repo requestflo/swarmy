@@ -1,4 +1,5 @@
 import type { DemoStore, DomainResolvers } from '../types';
+import { DEMO_SCANNED_DIGESTS } from './cicd-build-log';
 
 /**
  * Registry-policy demo resolvers (slice D3) — image CVE scans, cosign signing
@@ -155,7 +156,7 @@ export const registrypolicy: DomainResolvers = {
       {
         id: 'scan-api-240',
         imageRef: `${REGISTRY_HOST}/northwind-api:2.4.0`,
-        digest: 'sha256:8f3c1a9be2d4706c5a1e0d9f4b83a52e91c7d64f0ab35e8c2917d40b6a5e21c3',
+        digest: DEMO_SCANNED_DIGESTS['northwind-api:2.4.0'] ?? null,
         scanner: 'trivy',
         criticalCount: 0,
         highCount: 0,
@@ -195,7 +196,7 @@ export const registrypolicy: DomainResolvers = {
       {
         id: 'scan-web-182',
         imageRef: `${REGISTRY_HOST}/northwind-web:1.8.2`,
-        digest: 'sha256:4b1d22e7a90cf34d8a6f5b02c7e19d3a85f60c41d92b7ae35c08e619f7d43b88',
+        digest: DEMO_SCANNED_DIGESTS['northwind-web:1.8.2'] ?? null,
         scanner: 'trivy',
         criticalCount: 2,
         highCount: 4,
