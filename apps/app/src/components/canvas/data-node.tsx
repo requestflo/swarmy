@@ -45,10 +45,10 @@ export function DataNode({ data, selected }: NodeProps<DataFlowNode>): React.JSX
         </Depth>
       </p>
       <p className="mt-1.5 flex items-center justify-between gap-2 text-[11.5px]">
-        <span className="text-muted-foreground">
+        <span className="text-muted-foreground min-w-0 truncate">
           {spec.attached.length ? `${spec.attached.length} ${spec.attached.length === 1 ? 'part uses' : 'parts use'} it` : `no part uses this ${KIND_WORD[spec.kind]}`}
         </span>
-        {spec.metric ? <span className="font-mono text-[11px]">{spec.metric}</span> : null}
+        {spec.metric ? <span className="shrink-0 font-mono text-[11px] whitespace-nowrap">{spec.metric}</span> : null}
       </p>
     </div>
   );
