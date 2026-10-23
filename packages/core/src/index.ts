@@ -31,6 +31,7 @@ export * from './cost-budget';
 export * from './doh-resolvers';
 export * from './prometheus-text';
 export * from './edge-traffic';
+export * from './image-ref';
 // NOTE: './crypto' (node:crypto credential vault) is server-only and is NOT
 // re-exported here — import it via '@swarmy/core/crypto' so it never reaches the
 // browser bundle.

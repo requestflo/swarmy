@@ -1,7 +1,8 @@
 import * as React from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { Button, Input, StatusBadge, toast } from '@swarmy/ui';
+import { Button, Input, StatusBadge, cn, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
+import { relTime } from '@/lib/format';
 import { PROVIDER_PRESETS, type RegistryProvider } from './registry-providers';
 
 /** Mirror of `RegistryCredentialView` — no secret field exists on it. */
@@ -11,19 +12,22 @@ export interface RegistryCredential {
   provider: RegistryProvider;
   label: string | null;
   username: string;
+  lastTestedAt: string | null;
   lastTestOk: boolean | null;
   lastTestMessage: string | null;
 }
 
 interface RegistryCredentialRowProps {
   cred: RegistryCredential;
+  /** The image being checked resolves to this login (highlights the row). */
+  hit?: boolean;
   onChanged: () => void;
 }
 
 type Mode = 'idle' | 'test' | 'rotate' | 'delete';
 
 /** One stored login: status, test (optional image), rotate token, delete (confirmed). */
-export function RegistryCredentialRow({ cred, onChanged }: RegistryCredentialRowProps): React.JSX.Element {
+export function RegistryCredentialRow({ cred, hit, onChanged }: RegistryCredentialRowProps): React.JSX.Element {
   const trpc = useTRPC();
   const [mode, setMode] = React.useState<Mode>('idle');
   const [value, setValue] = React.useState('');
@@ -50,7 +54,7 @@ export function RegistryCredentialRow({ cred, onChanged }: RegistryCredentialRow
 
   const tested = cred.lastTestOk === null ? null : cred.lastTestOk;
   return (
-    <div className="bg-accent/40 grid gap-2 rounded-xl px-4 py-3">
+    <div className={cn('bg-accent/40 grid gap-2 rounded-xl px-4 py-3 transition-colors', hit && 'bg-primary/10 shadow-[inset_3px_0_0_var(--primary)]')}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
           <p className="mono-data truncate text-sm">{cred.prefix}</p>
@@ -64,6 +68,9 @@ export function RegistryCredentialRow({ cred, onChanged }: RegistryCredentialRow
             tone={tested === null ? 'neutral' : tested ? 'online' : 'offline'}
             label={tested === null ? 'Untested' : tested ? 'Works' : 'Failing'}
           />
+          {cred.lastTestedAt ? (
+            <span className="text-muted-foreground mono-data text-xs">tested {relTime(cred.lastTestedAt)}</span>
+          ) : null}
           <Button variant="ghost" size="sm" onClick={() => setMode(mode === 'test' ? 'idle' : 'test')}>Test</Button>
           <Button variant="ghost" size="sm" onClick={() => setMode(mode === 'rotate' ? 'idle' : 'rotate')}>Rotate</Button>
           <Button variant="ghost" size="sm" onClick={() => setMode(mode === 'delete' ? 'idle' : 'delete')}>Delete</Button>

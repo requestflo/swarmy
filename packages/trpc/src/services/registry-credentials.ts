@@ -12,14 +12,23 @@
  * handshake (Bearer token dance or Basic) and, when an image is given, a
  * manifest HEAD — with an injected `fetch` so it is unit-testable.
  */
+import {
+  DOCKER_HUB,
+  DOCKER_HUB_ALIASES as HUB_ALIASES,
+  isRegistryHostSegment as isHostSegment,
+  matchCredential,
+  splitImageRef as parseImageRef,
+} from '@swarmy/core';
 import type { RegistryAuth } from '@swarmy/core/protocol';
 
-export const DOCKER_HUB = 'docker.io';
+// The parser + longest-prefix matcher live in `@swarmy/core` so the dashboard
+// resolves "which login will this image use?" with the same code.
+export { DOCKER_HUB, matchCredential, parseImageRef };
+
 /** The server address Docker's own config/X-Registry-Auth uses for Hub. */
 export const DOCKER_HUB_SERVER = 'https://index.docker.io/v1/';
 /** Hub's registry API lives on a different host than its image names. */
 export const DOCKER_HUB_API = 'registry-1.docker.io';
-const HUB_ALIASES = new Set([DOCKER_HUB, 'index.docker.io', 'registry-1.docker.io', 'registry.hub.docker.com', 'hub.docker.com']);
 
 export const REGISTRY_PROVIDERS = ['ghcr', 'dockerhub', 'gitlab', 'ecr', 'gcr', 'acr', 'generic'] as const;
 export type RegistryProvider = (typeof REGISTRY_PROVIDERS)[number];
@@ -29,11 +38,6 @@ export interface ResolvedCredential {
   prefix: string;
   username: string;
   secret: string;
-}
-
-/** Does this first path segment name a registry host (vs a Hub namespace)? */
-function isHostSegment(seg: string): boolean {
-  return seg.includes('.') || seg.includes(':') || seg === 'localhost';
 }
 
 /**
@@ -52,47 +56,6 @@ export function normalizeRegistryPrefix(input: string): string | null {
   if (HUB_ALIASES.has(host)) host = DOCKER_HUB;
   if (rest.some((p) => !p || !/^[a-z0-9._-]+$/.test(p))) return null;
   return [host, ...rest].join('/');
-}
-
-/**
- * Split an image ref into its registry host + repository path, tag/digest
- * dropped. Docker Hub shorthands resolve like `docker pull` does:
- * `nginx` → `docker.io/library/nginx`, `me/app:1` → `docker.io/me/app`.
- */
-export function parseImageRef(image: string): { host: string; repo: string; reference: string } {
-  let ref = image.trim();
-  let reference = 'latest';
-  const at = ref.indexOf('@');
-  if (at >= 0) {
-    reference = ref.slice(at + 1);
-    ref = ref.slice(0, at);
-  }
-  const parts = ref.split('/');
-  let host = DOCKER_HUB;
-  if (parts.length > 1 && isHostSegment(parts[0] ?? '')) host = (parts.shift() ?? '').toLowerCase();
-  if (HUB_ALIASES.has(host)) host = DOCKER_HUB;
-  let last = parts.pop() ?? '';
-  const colon = last.lastIndexOf(':');
-  if (colon > 0) {
-    if (at < 0) reference = last.slice(colon + 1);
-    last = last.slice(0, colon);
-  }
-  parts.push(last);
-  if (host === DOCKER_HUB && parts.length === 1) parts.unshift('library');
-  return { host, repo: parts.join('/'), reference };
-}
-
-/** Longest stored prefix covering the image, or null. Exact path-segment match only. */
-export function matchCredential<C extends { prefix: string }>(image: string, creds: readonly C[]): C | null {
-  const { host, repo } = parseImageRef(image);
-  const full = `${host}/${repo}`;
-  let best: C | null = null;
-  for (const c of creds) {
-    if (full === c.prefix || full.startsWith(`${c.prefix}/`)) {
-      if (!best || c.prefix.length > best.prefix.length) best = c;
-    }
-  }
-  return best;
 }
 
 /** The `serveraddress` Docker expects for a registry host. */

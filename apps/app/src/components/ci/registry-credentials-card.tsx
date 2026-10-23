@@ -6,6 +6,9 @@ import { useTRPC } from '@/integrations/trpc';
 import { CardSkeleton, ErrorState } from '@/components/states';
 import { RegistryCredentialForm } from './registry-credential-form';
 import { RegistryCredentialRow } from './registry-credential-row';
+import { RegistryCredentialsBuiltin } from './registry-credentials-builtin';
+import { RegistryCredentialsMatcher } from './registry-credentials-matcher';
+import { resolveImageLogin } from './registry-credentials-resolve';
 
 /**
  * Private registry logins (GHCR, Docker Hub, GitLab, ECR/GCR/ACR, any host).
@@ -16,7 +19,12 @@ export function RegistryCredentialsCard(): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const list = useQuery(trpc.registryCredentials.list.queryOptions());
+  const registry = useQuery(trpc.cicd.getRegistryConfig.queryOptions());
   const [adding, setAdding] = React.useState(false);
+  const [image, setImage] = React.useState('');
+  const builtinHost = registry.data?.enabled ? registry.data.host : null;
+  const resolution = list.data ? resolveImageLogin(image, list.data, builtinHost) : null;
+  const hitId = resolution?.kind === 'login' ? resolution.cred.id : null;
   const refresh = (): void => void qc.invalidateQueries({ queryKey: trpc.registryCredentials.list.queryKey() });
 
   return (
@@ -46,6 +54,7 @@ export function RegistryCredentialsCard(): React.JSX.Element {
             }}
           />
         )}
+        <RegistryCredentialsBuiltin config={registry.data} hit={resolution?.kind === 'builtin'} />
         {list.isPending ? (
           <CardSkeleton />
         ) : list.isError ? (
@@ -59,8 +68,9 @@ export function RegistryCredentialsCard(): React.JSX.Element {
             />
           )
         ) : (
-          list.data.map((c) => <RegistryCredentialRow key={c.id} cred={c} onChanged={refresh} />)
+          list.data.map((c) => <RegistryCredentialRow key={c.id} cred={c} hit={c.id === hitId} onChanged={refresh} />)
         )}
+        {list.data ? <RegistryCredentialsMatcher value={image} onChange={setImage} resolution={resolution} /> : null}
       </CardContent>
     </Card>
   );
