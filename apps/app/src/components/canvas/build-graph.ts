@@ -6,6 +6,8 @@ export interface ServiceNodeData extends Record<string, unknown> {
   service: InvService;
   /** Status token name (online | warning | progress | offline | idle). */
   tone: string;
+  /** Live traffic from its own spans, when telemetry is on (canvas-extras). */
+  metric?: { rate: string; tech: string };
 }
 /** One per-region summary chip on a logical-app frame (e.g. `eu × 5`). */
 export interface RegionBadge {
