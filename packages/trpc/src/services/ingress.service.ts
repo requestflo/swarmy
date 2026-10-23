@@ -576,7 +576,7 @@ async function loadOrgConfig(
   const liveServices = ctx.hub.liveInventory(ctx.activeOrgId).services;
   // Web analytics / session replay: per-app `swarmy.rum` settings + the route's own toggle.
   const rumFor = rumRouteResolver(ctx, activatorUpstream());
-  const allDomains = serviceRoutes.map(({ serviceName, stack, route }) => ({
+  const allDomains = serviceRoutes.map(({ serviceName, stack, route, expose }) => ({
       domain: route.host,
       pathPrefix: route.path ?? '/',
       service: serviceName,
@@ -595,6 +595,9 @@ async function loadOrgConfig(
       ...(route.access?.login
         ? { auth: { upstream: activatorUpstream(), verifyPath: appAuthVerifyPath(ctx.activeOrgId) } }
         : {}),
+      // Declared exposure (swarmy.expose): the renderers withhold private/mesh
+      // routes and keep tunnel-only ones off the public edge.
+      ...(expose ? { expose } : {}),
     }));
   // Apex ↔ www toggles expand into plain routes + redirect sites, then the DNS
   // gate withholds every host whose DNS has not yet verifiably pointed at us —

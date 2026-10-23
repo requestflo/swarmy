@@ -13,6 +13,7 @@ import {
 } from '../render/cloudflared';
 import { buildConnectorServiceSpec, CLOUDFLARED_SECRET_NAME } from '../render/connector';
 import { IngressApplyError } from '../errors';
+import { channelWarnings, scopeToDriver, withWarnings } from '../route-channel';
 
 /**
  * Cloudflare Tunnel driver. Unlike Caddy/Traefik it does not need a public
@@ -28,6 +29,10 @@ export class CloudflaredDriver implements IngressDriver {
   readonly name = 'cloudflared';
 
   validate(config: IngressConfig): IngressValidationResult {
+    return withWarnings(this.validateTunnel(config), channelWarnings(config, this.name));
+  }
+
+  private validateTunnel(config: IngressConfig): IngressValidationResult {
     const errors: { path: string; message: string }[] = [];
     const tunnel = config.globalOptions.tunnel;
     if (!tunnel) {
@@ -52,7 +57,9 @@ export class CloudflaredDriver implements IngressDriver {
     return errors.length ? { ok: false, errors } : { ok: true };
   }
 
-  render(config: IngressConfig): RenderedConfig {
+  render(full: IngressConfig): RenderedConfig {
+    // Only the routes the tunnel serves (private/mesh-declared ones never).
+    const config = scopeToDriver(full, this.name);
     const tunnel = config.globalOptions.tunnel;
     const tunnelId = tunnel?.tunnelId ?? '';
     const tunnelName = tunnel?.tunnelName ?? 'swarmy';
@@ -119,8 +126,9 @@ export class CloudflaredDriver implements IngressDriver {
   async apply(
     rendered: RenderedConfig,
     dispatch: DriverDispatch,
-    config: IngressConfig,
+    full: IngressConfig,
   ): Promise<IngressStatus> {
+    const config = scopeToDriver(full, this.name);
     const nodes = await dispatch.resolveTargetNodes(config.orgId, config.targetNodes);
     if (!nodes.length) {
       throw new IngressApplyError('(none)', 'no online nodes to run the cloudflared connector');
@@ -155,6 +163,6 @@ export class CloudflaredDriver implements IngressDriver {
 
   /** Expose the CF ingress-rule JSON for previews / the controller's API push. */
   ingressRules(config: IngressConfig) {
-    return buildCloudflaredIngressRules(config);
+    return buildCloudflaredIngressRules(scopeToDriver(config, this.name));
   }
 }

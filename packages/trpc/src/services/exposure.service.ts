@@ -15,6 +15,7 @@ import {
   type ManagedDataKind,
   type SetExposureRulesInput,
 } from '@swarmy/core';
+import { routeChannel } from '@swarmy/ingress';
 import type { OrgContext } from '../context';
 import { mapDispatchError, notFound } from '../errors';
 import { writeAudit } from './audit.service';
@@ -137,6 +138,12 @@ export interface ExposureDriftInput {
 const portList = (ports: ExposedPortView[]): string =>
   ports.map((p) => `:${p.published}/${p.protocol}`).join(', ');
 
+/** A private/mesh service that still carries routes: the edge withholds them. */
+const withheldRoutes = (mode: string, domains: string[]): ExposureDriftView => ({
+  level: 'warning',
+  message: `declared ${mode}, so the edge withholds its route${domains.length === 1 ? '' : 's'} ${domains.join(', ')}`,
+});
+
 /**
  * Declared (`swarmy.expose`) vs observed (classifier verdict). Undeclared → no
  * drift; `violation` = the intent is contradicted by a live public surface;
@@ -152,12 +159,9 @@ export function computeExposureDrift(i: ExposureDriftInput): ExposureDriftView |
           message: `declared private but publishes ${portList(i.publishedPorts)} to the world`,
         };
       }
-      if (i.observed === 'public-domain') {
-        return {
-          level: 'violation',
-          message: `declared private but routed publicly via ${i.domains.join(', ')}`,
-        };
-      }
+      // The edge consults the declared mode (`routeChannel`) and serves no
+      // public route for it — a leftover route is drift, not exposure.
+      if (i.observed === 'public-domain') return withheldRoutes('private', i.domains);
       return null;
     }
     case 'mesh': {
@@ -167,12 +171,7 @@ export function computeExposureDrift(i: ExposureDriftInput): ExposureDriftView |
           message: `declared mesh-only but publishes ${portList(i.publishedPorts)} to the world`,
         };
       }
-      if (i.domains.length > 0) {
-        return {
-          level: 'violation',
-          message: `declared mesh-only but routed publicly via ${i.domains.join(', ')}`,
-        };
-      }
+      if (i.domains.length > 0) return withheldRoutes('mesh-only', i.domains);
       return null;
     }
     case 'tunnel': {
@@ -210,7 +209,12 @@ export function classifyServiceWithIntent(
 ): ExposureIntentRowView {
   const row = classifyService(svc);
   const declared = parseExposeMode(svc.labels[EXPOSE_LABEL]);
-  const routeDrivers = readRoutes(svc.labels).map((r) => r.driver ?? defaultDriver ?? 'none');
+  // The driver that really serves each route — the same channel the renderers
+  // use, so a declared-tunnel route counts as the tunnel's, never the edge's.
+  const routeDrivers = readRoutes(svc.labels).flatMap((r) => {
+    const ch = routeChannel({ ...(declared ? { expose: declared } : {}) }, r.driver ?? defaultDriver ?? 'none');
+    return 'driver' in ch ? [ch.driver] : [];
+  });
   const drift = computeExposureDrift({
     declared,
     observed: row.exposure,
@@ -236,7 +240,9 @@ export function driftViolations(rows: ExposureIntentRowView[]): ExposureViolatio
       fixHint:
         r.drift.level === 'violation'
           ? `Remove the public surface from ${r.serviceName}, or change its declared mode from "${r.declared}" if the exposure is intended.`
-          : `Add an ingress route (or published port) to ${r.serviceName}, or change its declared mode from "${r.declared}".`,
+          : r.declared === 'private' || r.declared === 'mesh'
+            ? `Remove the leftover route from ${r.serviceName} (the edge already withholds it), or change its declared mode from "${r.declared}" if it should be public.`
+            : `Add an ingress route (or published port) to ${r.serviceName}, or change its declared mode from "${r.declared}".`,
     });
   }
   return out;
@@ -358,10 +364,12 @@ export function auditExposure(
     .sort((a, b) => `${a.stack}/${a.serviceName}`.localeCompare(`${b.stack}/${b.serviceName}`));
 }
 
-/** The org's ingress driver id (lowercased), for the tunnel drift check. */
-async function orgIngressDriver(ctx: OrgContext): Promise<string | null> {
+/** The org's ingress driver id (`caddy` | `cloudflared` | `none`), for the tunnel drift check. */
+export async function orgIngressDriver(ctx: OrgContext): Promise<string | null> {
   const row = await ingressConfigRepo.get(ctx, ctx.activeOrgId).catch(() => null);
-  return row ? String(row.driver).toLowerCase() : null;
+  if (!row) return null;
+  const d = String(row.driver).toUpperCase();
+  return d === 'CLOUDFLARE_TUNNEL' ? 'cloudflared' : d.toLowerCase();
 }
 
 /** The audit table + counts — the Exposure page's main query. */

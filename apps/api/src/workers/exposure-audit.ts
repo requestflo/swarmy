@@ -1,6 +1,14 @@
 import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
-import { fireEvent, managedKindOf, parseExposureRules, readRoutes, systemContext } from '@swarmy/trpc';
+import {
+  exposureIntentRows,
+  fireEvent,
+  managedKindOf,
+  parseExposureRules,
+  planDriftAlerts,
+  readRoutes,
+  systemContext,
+} from '@swarmy/trpc';
 import { buildInventory } from '@swarmy/core';
 import { hub, store } from '../gateway';
 
@@ -15,6 +23,11 @@ import { hub, store } from '../gateway';
  *   2. Block-rule violations on EXISTING services (public ports on managed
  *      data, public UDP) → `exposure-violation` critical alert events; cleared
  *      violations are resolved.
+ *   3. Declared-vs-observed drift (`swarmy.expose`) → `exposure-drift` events,
+ *      critical for a contradicted intent, warning for "declared public but
+ *      unreachable" / a route the edge withholds. The verdicts come from the
+ *      Exposure page's own classifier (`exposureIntentRows` +
+ *      `planDriftAlerts`), so the alert and the page never disagree.
  *
  * v1 never auto-remediates — swarmy raises the alarm, a human removes the port
  * (the Exposure page says so). The first tick per org is a silent baseline so a
@@ -32,6 +45,8 @@ const TICK_MS = 5 * 60_000;
 const prevSurfaces = new Map<string, Map<string, Set<string>>>();
 /** orgId → alert resources (`<signal-scoped>`) that were firing last tick. */
 const prevViolations = new Map<string, Set<string>>();
+/** orgId → resources with an open `exposure-drift` event after last tick. */
+const prevDrift = new Map<string, Set<string>>();
 
 interface AuditedService {
   name: string;
@@ -138,6 +153,13 @@ async function tickOrg(orgId: string): Promise<void> {
     }).catch(() => undefined);
   }
   prevViolations.set(orgId, firing);
+
+  // (3) Declared-vs-observed drift — the same verdicts the Exposure page shows.
+  const drift = planDriftAlerts(await exposureIntentRows(ctx), prevDrift.get(orgId) ?? new Set());
+  for (const event of [...drift.fire, ...drift.resolve]) {
+    await fireEvent(ctx, event).catch(() => undefined);
+  }
+  prevDrift.set(orgId, drift.firing);
 }
 
 export function startExposureAudit(): () => void {

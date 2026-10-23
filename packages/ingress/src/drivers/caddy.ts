@@ -8,6 +8,7 @@ import type {
 } from '../types';
 import { buildCaddyfile } from '../render/caddyfile';
 import { IngressApplyError } from '../errors';
+import { channelWarnings, scopeToDriver, withWarnings } from '../route-channel';
 
 /** Swarm service name of the native Caddy ingress controller (deployed by
  *  `ensureCaddyController`). Routes pushed via the admin API target this name on
@@ -59,7 +60,13 @@ export function caddyAdminLoadUrl(extra: Record<string, unknown>): string {
 export class CaddyDriver implements IngressDriver {
   readonly name = 'caddy';
 
-  validate(config: IngressConfig): IngressValidationResult {
+  validate(full: IngressConfig): IngressValidationResult {
+    // Only the routes this edge serves (swarmy.expose / per-route channel).
+    const config = scopeToDriver(full, this.name);
+    return withWarnings(this.validateScoped(config), channelWarnings(full, this.name));
+  }
+
+  private validateScoped(config: IngressConfig): IngressValidationResult {
     const errors: { path: string; message: string }[] = [];
     const extra = config.globalOptions.extraConfig as Record<string, unknown>;
     config.domains.forEach((r, i) => {
@@ -229,7 +236,8 @@ export class CaddyDriver implements IngressDriver {
     return warnings.length ? { ok: true, warnings } : { ok: true };
   }
 
-  render(config: IngressConfig): RenderedConfig {
+  render(full: IngressConfig): RenderedConfig {
+    const config = scopeToDriver(full, this.name);
     const contents = buildCaddyfile(config);
     const extra = config.globalOptions.extraConfig as Record<string, unknown>;
     const applyVia = typeof extra.applyVia === 'string' ? extra.applyVia : 'file';
@@ -306,8 +314,9 @@ export class CaddyDriver implements IngressDriver {
   async apply(
     rendered: RenderedConfig,
     dispatch: DriverDispatch,
-    config: IngressConfig,
+    full: IngressConfig,
   ): Promise<IngressStatus> {
+    const config = scopeToDriver(full, this.name);
     // Geo-edge: when the dispatch exposes region-aware targets AND any route
     // carries region upstreams, render PER NODE so each Caddy prefers its own
     // region. Otherwise the pre-rendered config fans out unchanged (legacy

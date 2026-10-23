@@ -307,6 +307,7 @@ export { sampleQueueClusters, type SampledCluster } from './services/queue-studi
 export { runDueDbBackups } from './services/dbBackup.service';
 export { runDueScheduledJobs } from './services/jobs.service';
 export { managedKindOf, parseExposureRules } from './services/exposure.service';
+export { EXPOSURE_DRIFT_SIGNAL, exposureIntentRows, planDriftAlerts } from './services/exposure-drift-alerts';
 export { readRoutes } from './services/ingress-routes';
 export { selectRestoreTarget, type ReconcileNode } from './services/reconcile-target';
 export { pruneAuditLogs } from './services/auditLog.service';

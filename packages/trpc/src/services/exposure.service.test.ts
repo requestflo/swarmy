@@ -203,7 +203,7 @@ describe('computeExposureDrift — declared vs observed, all 4 modes', () => {
     expect(drift({ declared: 'private', observed: 'internal-managed' })).toBeNull();
   });
 
-  it('private: observed public-port / public-domain → violation', () => {
+  it('private: a published port → violation; a leftover route → warning (the edge withholds it)', () => {
     const byPort = drift({
       declared: 'private',
       observed: 'public-port',
@@ -218,8 +218,8 @@ describe('computeExposureDrift — declared vs observed, all 4 modes', () => {
       domains: ['app.example.com'],
       routeDrivers: ['caddy'],
     });
-    expect(byDomain?.level).toBe('violation');
-    expect(byDomain?.message).toContain('app.example.com');
+    expect(byDomain?.level).toBe('warning');
+    expect(byDomain?.message).toBe('declared private, so the edge withholds its route app.example.com');
   });
 
   it('public: conforming with a port or a domain', () => {
@@ -281,7 +281,7 @@ describe('computeExposureDrift — declared vs observed, all 4 modes', () => {
     expect(drift({ declared: 'mesh', observed: 'internal-managed' })).toBeNull();
   });
 
-  it('mesh: any public port or route → violation', () => {
+  it('mesh: a public port → violation; a route → warning (withheld from the edge)', () => {
     expect(
       drift({ declared: 'mesh', observed: 'public-port', publishedPorts: [tcp(9000)] })?.level,
     ).toBe('violation');
@@ -292,12 +292,12 @@ describe('computeExposureDrift — declared vs observed, all 4 modes', () => {
         domains: ['a.io'],
         routeDrivers: ['caddy'],
       })?.level,
-    ).toBe('violation');
+    ).toBe('warning');
   });
 });
 
 describe('classifyServiceWithIntent — label → declared + drift on the row', () => {
-  it('reads swarmy.expose and applies the org default driver to routes', () => {
+  it('reads swarmy.expose; a tunnel-declared route rides the tunnel, never the org edge', () => {
     const declaredTunnel = classifyServiceWithIntent(
       svc({
         labels: {
@@ -308,7 +308,17 @@ describe('classifyServiceWithIntent — label → declared + drift on the row', 
       'caddy',
     );
     expect(declaredTunnel.declared).toBe('tunnel');
-    expect(declaredTunnel.drift?.level).toBe('violation');
+    // The renderer keeps it off the public Caddy edge (routeChannel), so no drift.
+    expect(declaredTunnel.drift).toBeNull();
+
+    const bypass = classifyServiceWithIntent(
+      svc({
+        labels: { 'swarmy.expose': 'tunnel' },
+        ports: [{ target: 80, published: 8080, protocol: 'tcp' }],
+      }),
+      'caddy',
+    );
+    expect(bypass.drift?.level).toBe('violation');
 
     const served = classifyServiceWithIntent(
       svc({

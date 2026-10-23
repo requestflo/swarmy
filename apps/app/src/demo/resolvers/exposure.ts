@@ -31,41 +31,34 @@ function getState(store: DemoStore): ExposureState {
   return store.extra.exposure as ExposureState;
 }
 
-/** Mirror of `computeExposureDrift` (demo ingress driver is caddy, so any
- *  route under a `tunnel` declaration drifts). */
+/** Mirror of `computeExposureDrift`. The edge consults the declared mode, so a
+ *  private/mesh route is withheld (warning) and a tunnel route rides the tunnel. */
+function withheld(mode: string, domains: string[]): ExposureDriftView {
+  return { level: 'warning', message: `declared ${mode}, so the edge withholds its route${domains.length === 1 ? '' : 's'} ${domains.join(', ')}` };
+}
+
 function computeDrift(row: ExposureIntentRowView): ExposureDriftView | null {
   const d = row.declared;
   if (!d) return null;
   const ports = row.publishedPorts.map((p) => `:${p.published}/${p.protocol}`).join(', ');
-  const domains = row.domains.join(', ');
   switch (d) {
     case 'private':
       if (row.exposure === 'public-port') {
         return { level: 'violation', message: `declared private but publishes ${ports} to the world` };
       }
-      if (row.exposure === 'public-domain') {
-        return { level: 'violation', message: `declared private but routed publicly via ${domains}` };
-      }
+      if (row.exposure === 'public-domain') return withheld('private', row.domains);
       return null;
     case 'mesh':
       if (row.publishedPorts.length > 0) {
         return { level: 'violation', message: `declared mesh-only but publishes ${ports} to the world` };
       }
-      if (row.domains.length > 0) {
-        return { level: 'violation', message: `declared mesh-only but routed publicly via ${domains}` };
-      }
+      if (row.domains.length > 0) return withheld('mesh-only', row.domains);
       return null;
     case 'tunnel':
       if (row.publishedPorts.length > 0) {
         return {
           level: 'violation',
           message: `declared tunnel but publishes ${ports} directly — traffic bypasses the tunnel`,
-        };
-      }
-      if (row.domains.length > 0) {
-        return {
-          level: 'violation',
-          message: `declared tunnel but ${domains} is served by caddy, not cloudflared`,
         };
       }
       return null;
@@ -141,7 +134,9 @@ function computeViolations(state: ExposureState): ExposureViolationView[] {
         fixHint:
           r.drift.level === 'violation'
             ? `Remove the public surface from ${r.serviceName}, or change its declared mode from "${r.declared}" if the exposure is intended.`
-            : `Add an ingress route (or published port) to ${r.serviceName}, or change its declared mode from "${r.declared}".`,
+            : r.declared === 'private' || r.declared === 'mesh'
+              ? `Remove the leftover route from ${r.serviceName} (the edge already withholds it), or change its declared mode from "${r.declared}" if it should be public.`
+              : `Add an ingress route (or published port) to ${r.serviceName}, or change its declared mode from "${r.declared}".`,
       });
     }
   }

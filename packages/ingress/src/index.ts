@@ -9,6 +9,7 @@ export * from './auto-address';
 export * from './dns-challenge';
 export * from './app-auth';
 export * from './rum';
+export * from './route-channel';
 export {
   CaddyDriver,
   caddyAdminLoadUrl,

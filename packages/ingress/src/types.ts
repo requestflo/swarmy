@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { EXPOSE_MODES } from '@swarmy/core';
 import { HostRedirectSchema } from './www';
 import { DnsChallengeSchema } from './dns-challenge';
 import { RouteAuthSchema } from './app-auth';
@@ -241,6 +242,14 @@ export const DomainRouteSchema = z.object({
    * Absent ⇒ byte-identical legacy output.
    */
   rum: RouteRumSchema.optional(),
+  /**
+   * The owning service's declared exposure (`swarmy.expose`), copied onto each
+   * of its routes by the controller. Renderers consult it through
+   * `routeChannel` (route-channel.ts): `private`/`mesh` ⇒ no public route at
+   * all, `tunnel` ⇒ only the Cloudflare Tunnel serves it. Absent ⇒ undeclared
+   * (the org's driver serves it, byte-identical legacy output).
+   */
+  expose: z.enum(EXPOSE_MODES).optional(),
 });
 export type DomainRoute = z.infer<typeof DomainRouteSchema>;
 
