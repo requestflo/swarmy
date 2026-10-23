@@ -181,6 +181,20 @@ describe('pickBaseBackup', () => {
     expect(() => pickBaseBackup(list, 'latest', '2026-09-26T07:00:00Z')).toThrow(/no base backup finished before/);
     expect(() => pickBaseBackup('not json', 'latest', '2026-09-26T07:00:00Z')).toThrow(/backup list/);
   });
+  it('a target before every base backup names the recoverable window (it starts when the oldest finished)', () => {
+    const unordered = JSON.stringify([
+      { backup_name: 'base_000000010000000000000009', finish_time: '2026-09-26T12:00:00Z' },
+      { backup_name: 'base_000000010000000000000002', finish_time: '2026-09-26T08:00:00Z' },
+      { backup_name: 'base_broken' },
+    ]);
+    expect(() => pickBaseBackup(unordered, 'latest', '2026-09-26T07:00:00Z')).toThrow(
+      'The recoverable window starts at 2026-09-26T08:00:00.000Z (when the oldest base backup, base_000000010000000000000002, finished)',
+    );
+    expect(() => pickBaseBackup('[]', 'latest', '2026-09-26T07:00:00Z')).toThrow(/no base backups yet, so there is no recoverable window/);
+  });
+  it('a backup that finished exactly at the target counts (at or before)', () => {
+    expect(pickBaseBackup(list, 'latest', '2026-09-26T12:00:00Z')).toBe('base_000000010000000000000009');
+  });
 });
 
 // ── orchestration against a fake Docker ──────────────────────────────────────

@@ -157,12 +157,18 @@ export function pickBaseBackup(listJson: string, snapshotId: string | undefined,
     throw new Error('could not read the wal-g backup list');
   }
   const target = Date.parse(targetTime);
-  const eligible = rows
+  const finished = rows
     .map((r) => ({ name: r.backup_name, end: Date.parse(r.finish_time ?? r.time ?? '') }))
-    .filter((r): r is { name: string; end: number } => Boolean(r.name) && Number.isFinite(r.end) && r.end <= target)
+    .filter((r): r is { name: string; end: number } => Boolean(r.name) && Number.isFinite(r.end))
     .sort((a, b) => b.end - a.end);
+  const eligible = finished.filter((r) => r.end <= target);
   if (eligible.length === 0) {
-    throw new Error(`no base backup finished before ${targetTime} - pick a later time, or take a base backup first`);
+    const oldest = finished[finished.length - 1];
+    throw new Error(
+      oldest
+        ? `no base backup finished before ${targetTime}. The recoverable window starts at ${new Date(oldest.end).toISOString()} (when the oldest base backup, ${oldest.name}, finished) and runs to the newest archived change - pick a time in it`
+        : `no base backup finished before ${targetTime}: there are no base backups yet, so there is no recoverable window - take a base backup first`,
+    );
   }
   return assertSnapshotRef(eligible[0]!.name);
 }
