@@ -11,7 +11,7 @@ import type { DemoStore, DomainResolvers } from '../types';
  */
 
 /** Services we present as scale-to-zero; cloudflared is shown asleep to demo idle. */
-const SCALE_TO_ZERO = new Set(['cloudflared', 'cdn-edge']);
+export const SCALE_TO_ZERO = new Set(['cloudflared', 'cdn-edge']);
 
 /**
  * swarmy's own platform plumbing lives in one managed, non-deletable stack
@@ -60,7 +60,8 @@ function makeContainers(sv: ServiceDetail): InvContainer[] {
 }
 
 function toInvService(sv: ServiceDetail, stackName: string | null): InvService {
-  const scaleToZero = SCALE_TO_ZERO.has(sv.name);
+  // `services.setScaleToZero` (demo/resolvers/scaling.ts) keeps it on the service.
+  const scaleToZero = sv.scaleToZero?.enabled ?? SCALE_TO_ZERO.has(sv.name);
   const idle = sv.name === 'cloudflared'; // shown asleep so the idle affordance is visible
   const replicas = idle ? { desired: 0, running: 0 } : { ...sv.replicas };
   const role = SYSTEM_SERVICE_ROLES[sv.name];

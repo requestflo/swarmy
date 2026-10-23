@@ -1,4 +1,5 @@
 import type { DemoHandler, DemoStore } from '../types';
+import { serviceRequestSeries } from './observability-requests-service';
 
 /**
  * `observability.requestSeries` demo: calls, errors and p95 per bucket for a
@@ -36,9 +37,10 @@ function newestRelease(s: DemoStore, stack: string): number | null {
 const stamp = (t: number): string => new Date(t).toISOString().replace('T', ' ').slice(0, 19);
 
 const requestSeries: DemoHandler = (i, s) => {
-  const q = (i as { stack?: string; windowMinutes?: number; bucketSeconds?: number } | undefined) ?? {};
+  const q = (i as { stack?: string; service?: string; windowMinutes?: number; bucketSeconds?: number } | undefined) ?? {};
   const enabled = (s.extra.observability as { config?: { enabled?: boolean } } | undefined)?.config?.enabled ?? true;
   if (!enabled) return { status: 'disabled', points: [] };
+  if (q.service) return { status: 'ok', points: serviceRequestSeries({ ...q, service: q.service }) };
   const stack = q.stack ?? 'storefront';
   const perMin = CALLS_PER_MIN[stack];
   if (!perMin) return { status: 'ok', points: [] };

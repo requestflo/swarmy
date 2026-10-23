@@ -48,6 +48,7 @@ import { firstLook } from './resolvers/first-look';
 import { inviteLinks } from './resolvers/invite-links';
 import { traffic } from './resolvers/traffic';
 import { stackLinks } from './resolvers/stack-links';
+import { scaling } from './resolvers/scaling';
 
 /**
  * Assembles every per-domain resolver module into flat lookup tables for the demo
@@ -104,6 +105,7 @@ const MODULES: DomainResolvers[] = [
   inviteLinks,
   traffic,
   stackLinks,
+  scaling,
 ];
 
 export const HANDLERS: Record<string, DemoHandler> = Object.assign(
