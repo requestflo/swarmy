@@ -1,14 +1,6 @@
 import * as React from 'react';
-import {
-  Button,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  Input,
-  Label,
-} from '@swarmy/ui';
+import { Button, Input, Label } from '@swarmy/ui';
+import { Section } from '@/components/calm';
 
 interface CloudflareTunnelCardProps {
   configured: boolean;
@@ -32,16 +24,13 @@ export function CloudflareTunnelCard({
   const [tunnelName, setTunnelName] = React.useState('swarmy');
 
   return (
-    <Card className="calm-card">
-      <CardHeader>
-        <CardTitle className="text-base">Cloudflare Tunnel</CardTitle>
-        <CardDescription>
+    <Section title="Cloudflare Tunnel">
+        <p className="text-muted-foreground text-[13px] leading-relaxed">
           Expose services with no public IP and no open ports. In Cloudflare Zero Trust → Networks →
           Tunnels, create a tunnel and copy its token; swarmy runs the connector for you. Add each
           public hostname to the tunnel in Cloudflare, pointing at the service shown in the preview.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="grid gap-3">
+        </p>
+      <div className="grid gap-3">
         {configured ? (
           <div className="bg-accent/40 flex items-center justify-between rounded-xl px-4 py-3">
             <div>
@@ -75,7 +64,7 @@ export function CloudflareTunnelCard({
             </Button>
           </>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </Section>
   );
 }

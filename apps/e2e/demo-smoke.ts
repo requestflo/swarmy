@@ -105,7 +105,7 @@ const routes: Array<[string, RegExp?]> = [
   ['/overview'],
   // The Calm Layers shell's top-level destinations.
   ['/deploy'],
-  ['/network'],
+  ['/network', /How a visit reaches your apps/],
   ['/data'],
   ['/activity'],
   ['/nodes'],
@@ -140,7 +140,7 @@ const routes: Array<[string, RegExp?]> = [
   ['/stacks/data/studio'],
   ['/stacks/data/queues'],
   ['/stacks/data/queues/main'],
-  ['/ingress'],
+  ['/ingress', /Which servers are edges/],
   ['/networking'],
   ['/network/connections', /isolated by default/i],
   ['/network/geo-dns', /Ask from anywhere/],

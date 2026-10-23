@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Input, Label, toast } from '@swarmy/ui';
+import { Badge, Button, Input, Label, toast } from '@swarmy/ui';
+import { Section } from '@/components/calm';
 import { useTRPC } from '@/integrations/trpc';
 
 /** Fallback label while the config query loads. */
@@ -55,15 +56,12 @@ export function ControllerImageCard({ image, defaultImage }: ControllerImageCard
   const isStock = isStockCaddy(effective);
 
   return (
-    <Card className="calm-card">
-      <CardHeader>
-        <CardTitle className="text-base">Controller image</CardTitle>
-        <CardDescription>
+    <Section title="Controller image">
+        <p className="text-muted-foreground text-[13px] leading-relaxed">
           swarmy's own Caddy build is used by default. Set a custom image only if you build your own
           from <code className="mono-data">docker/caddy-swarmy</code>.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="grid gap-4">
+        </p>
+      <div className="grid gap-4">
         <div className="flex items-center gap-2">
           <Badge variant={isStock ? 'muted' : 'outline'} className="mono-data">
             {effective}
@@ -98,7 +96,7 @@ export function ControllerImageCard({ image, defaultImage }: ControllerImageCard
         <Button variant="outline" onClick={() => deploy.mutate()} disabled={deploy.isPending} className="justify-self-start">
           {deploy.isPending ? 'Deploying…' : 'Deploy / converge controller'}
         </Button>
-      </CardContent>
-    </Card>
+      </div>
+    </Section>
   );
 }

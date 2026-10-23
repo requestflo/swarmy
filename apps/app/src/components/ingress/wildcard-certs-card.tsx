@@ -2,16 +2,12 @@ import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Button,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
   Input,
   Label,
   StatusBadge,
   toast,
 } from '@swarmy/ui';
+import { Section } from '@/components/calm';
 import { useTRPC } from '@/integrations/trpc';
 import { CardSkeleton } from '@/components/states';
 
@@ -41,10 +37,8 @@ export function WildcardCertsCard(): React.JSX.Element {
   const v = view.data;
 
   return (
-    <Card className="calm-card">
-      <CardHeader>
-        <CardTitle className="text-base">Wildcard certificates</CardTitle>
-        <CardDescription>
+    <Section title="Wildcard certificates">
+        <p className="text-muted-foreground text-[13px] leading-relaxed">
           <span className="mono-data">*.example.com</span> needs ACME DNS-01. When the zone&rsquo;s NS records point at
           swarmy, swarmy&rsquo;s own nameservers answer the challenge — no DNS provider, no API token.
           {v && v.swarmyZones.length > 0 ? (
@@ -54,9 +48,8 @@ export function WildcardCertsCard(): React.JSX.Element {
           ) : (
             <> Add a zone under Geo-DNS below to get started.</>
           )}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="grid gap-4">
+        </p>
+      <div className="grid gap-4">
         {v && v.wildcards.length > 0 ? (
           <div className="border-border divide-border divide-y rounded-xl border">
             {v.wildcards.map((w) => (
@@ -104,7 +97,7 @@ export function WildcardCertsCard(): React.JSX.Element {
             swarmy-served zone never use it.
           </p>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </Section>
   );
 }

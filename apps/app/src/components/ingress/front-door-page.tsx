@@ -1,26 +1,42 @@
 import * as React from 'react';
-import { Button } from '@swarmy/ui';
+import { useQuery } from '@tanstack/react-query';
 import { SectionHeader } from '@/components/section-header';
-import { AlreadyOn, CodeView, Depth, NextAction, Say } from '@/components/calm';
+import { AlreadyOn, Depth, Say } from '@/components/calm';
 import { PageError, PageSkeleton } from '@/components/states';
+import { useTRPC } from '@/integrations/trpc';
+import { caddyfileOf, onDemandOf } from './caddyfile-text';
+import { CloudflareTunnelCard } from './cloudflare-tunnel-card';
 import { DRIVER_LABELS } from './driver-config';
-import { DriverPanel, previewFiles } from './driver-panel';
+import { DriverPanel } from './driver-panel';
+import { EdgeServersSection } from './edge/edge-servers-section';
+import { HttpsSection } from './edge/https-section';
+import { TopologySection } from './edge/topology-section';
+import { FrontDoorCode } from './front-door-code';
 import { FrontDoorControls } from './front-door-controls';
+import { FrontDoorNext } from './front-door-next';
 import { useFrontDoor } from './use-front-door';
+import { useIsAdmin } from './use-is-admin';
 
-/** /ingress — "Front door": is HTTPS on, what serves it, on how many servers. Knobs at Controls, the Caddyfile at Code. */
+/** /ingress — board 31: the edge topology that morphs, which servers are edges, HTTPS. Knobs at Controls, the Caddyfile at Code. */
 export function FrontDoorPage(): React.JSX.Element {
   const f = useFrontDoor();
+  const trpc = useTRPC();
+  const geo = useQuery(trpc.geodns.getConfig.queryOptions());
+  const nodes = useQuery({ ...trpc.nodes.list.queryOptions(), refetchInterval: 15_000 });
+  const admin = useIsAdmin();
+  const [tunnel, setTunnel] = React.useState(false);
+  const tunnelRef = React.useRef<HTMLDivElement>(null);
   const c = f.config.data;
   if (f.config.error && !c) return <Pad><PageError error={f.config.error} retry={() => void f.config.refetch()} /></Pad>;
   if (!c || !f.domains.isSuccess) return <PageSkeleton variant="form" />;
 
   const label = DRIVER_LABELS[f.driver];
-  const serving = c.runtime.serving;
+  const caddy = f.driver === 'caddy';
+  const perNode = c.topology === 'edge-per-node';
   const n = f.domains.data.length;
-  const servers = c.topology === 'edge-per-node' ? c.certStorage.edges : Math.max(1, c.runtime.runningTasks);
+  const servers = perNode ? c.certStorage.edges : Math.max(1, c.runtime.runningTasks);
   const where = `${n} domain${n === 1 ? '' : 's'} on ${servers} server${servers === 1 ? '' : 's'}`;
-  const title = serving ? (
+  const title = c.runtime.serving ? (
     <>HTTPS on. <em>{label} serving {where}.</em></>
   ) : f.driver === 'none' ? (
     <>swarmy tracks {n} domain{n === 1 ? '' : 's'}. <em>Your own proxy serves them.</em></>
@@ -29,7 +45,12 @@ export function FrontDoorPage(): React.JSX.Element {
       <Say tone={c.runtime.state === 'paused' ? 'idle' : 'warn'}>The front door isn&apos;t serving.</Say> <em>{c.runtime.message}</em>
     </>
   );
-  const problem = !serving && f.driver !== 'none';
+  const onDemand = caddy && f.preview.data ? onDemandOf(caddyfileOf(f.preview.data)) : null;
+  const geoOn = !!geo.data?.runtime?.serving;
+  const openTunnel = (): void => {
+    setTunnel(true);
+    requestAnimationFrame(() => tunnelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  };
 
   return (
     <Pad>
@@ -37,51 +58,55 @@ export function FrontDoorPage(): React.JSX.Element {
         title={title}
         description="Every visitor comes in here first. It checks HTTPS, then hands the visit to the right app. Each app's addresses live on its Domains tab."
       />
+      <div className="mb-5 flex flex-col gap-5">
+        <FrontDoorNext f={f} />
+        {caddy ? (
+          <TopologySection
+            current={c.topology}
+            nodes={nodes.data}
+            targetNodes={c.targetNodes}
+            geo={geoOn}
+            apps={[...new Set(f.domains.data.map((d) => d.stack))]}
+            bucket={c.certStorage.bucket}
+            objectStorage={c.certStorage.objectStorageEnabled}
+            sharedCertsPending={c.certStorage.mode !== 'shared'}
+            admin={admin}
+          />
+        ) : null}
+      </div>
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_400px]">
         <div className="flex min-w-0 flex-col gap-5">
-          {problem ? (
-            <NextAction
-              title={c.runtime.state === 'paused' ? 'The front door is paused' : 'The front door is not up yet'}
-              tech={`runtime: ${c.runtime.state} · ${c.runtime.runningTasks}/${c.runtime.desiredTasks ?? '–'} tasks`}
-              actions={
-                c.runtime.state === 'paused' ? (
-                  <Button onClick={() => f.setEnabled.mutate({ enabled: true })} disabled={f.setEnabled.isPending}>
-                    Turn it on
-                  </Button>
-                ) : undefined
-              }
-            >
-              {c.runtime.message}
-            </NextAction>
+          {caddy ? (
+            <>
+              <EdgeServersSection perNode={perNode} geo={geoOn} targetNodes={c.targetNodes} admin={admin} onTunnel={openTunnel} />
+              <HttpsSection
+                serving={c.runtime.serving}
+                shared={c.certStorage.mode === 'shared'}
+                bucket={c.certStorage.bucket}
+                domains={f.domains.data}
+                onDemand={onDemand}
+                admin={admin}
+                pending={f.setOnDemandTls.isPending}
+                onSetOnDemand={(v) => f.setOnDemandTls.mutate(v)}
+              />
+            </>
           ) : null}
-          {c.dashboardWarning ? (
-            <NextAction tone="bad" title="The dashboard's https address isn't served">{c.dashboardWarning}</NextAction>
+          {f.driver === 'cloudflared' || tunnel || c.tunnelConfigured ? (
+            <div ref={tunnelRef} className="scroll-mt-6">
+              <CloudflareTunnelCard configured={!!c.tunnelConfigured} onSave={(v) => f.setTunnel.mutate(v)} onClear={() => f.setTunnel.mutate(null)} pending={f.setTunnel.isPending} />
+            </div>
           ) : null}
           <Depth at="controls">
-            <DriverPanel
-              driver={f.driver}
-              enabled={c.enabled}
-              onDriverChange={(d) => f.setDriver.mutate({ driver: d })}
-              onEnabledChange={(v) => f.setEnabled.mutate({ enabled: v })}
-            />
+            <DriverPanel driver={f.driver} enabled={c.enabled} onDriverChange={(d) => f.setDriver.mutate({ driver: d })} onEnabledChange={(v) => f.setEnabled.mutate({ enabled: v })} />
             <FrontDoorControls f={f} />
           </Depth>
         </div>
         <aside className="flex min-w-0 flex-col gap-4">
-          <CodeView
-            tabs={[
-              {
-                label: f.driver === 'cloudflared' ? 'config.yml' : 'Caddyfile',
-                code: f.preview.data ? `# ${f.preview.data.summary}\n${previewFiles(f.preview.data)}` : '# swarmy writes no routing config (None)',
-              },
-            ]}
-            source="readonly"
-            note="Read-only: the config swarmy renders for the front door right now. Change it with the settings on this page or each app's domains."
-          />
+          <FrontDoorCode driver={f.driver} preview={f.preview.data} topology={c.topology} edgeId={nodes.data?.find((x) => x.ingress)?.id ?? null} ask={onDemand?.ask ?? null} />
           <AlreadyOn
             items={[
-              { what: 'HTTPS', detail: f.driver === 'caddy' ? 'certificates issue and renew themselves' : 'handled by your proxy' },
-              { what: 'Front door', detail: c.topology === 'edge-per-node' ? 'one on every ingress server' : 'one, shared by every app' },
+              { what: 'HTTPS', detail: caddy ? 'certificates issue and renew themselves' : 'handled by your proxy' },
+              { what: 'Front door', detail: perNode ? 'one on every edge server' : 'one, shared by every app' },
               ...(c.tunnelConfigured ? [{ what: 'Tunnel', detail: 'visitors arrive through Cloudflare' }] : []),
               { what: 'Addresses', detail: `${n} across your apps`, to: '/network' },
             ]}
