@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { CalmRow, RowList, Section, Tech, type Tone } from '@/components/calm';
+import { linkSplit } from './mesh-facts';
 import type { PrivateNetwork } from './use-private-network';
 
 const PEER: Record<string, { tone: Tone; word: string; say: string }> = {
@@ -18,10 +19,8 @@ const LINK = {
 
 /** "2 direct · 1 relayed" over the connected servers that reported it; null when none has. */
 export function linkCounts(peers: PrivateNetwork['peers']): string | null {
-  const known = peers.filter((p) => p.status === 'CONNECTED' && p.relayed !== null);
-  if (known.length === 0) return null;
-  const relayed = known.filter((p) => p.relayed).length;
-  return `${known.length - relayed} direct · ${relayed} relayed`;
+  const split = linkSplit(peers);
+  return split ? `${split.direct} direct · ${split.relayed} relayed` : null;
 }
 
 /** Servers on the private network, one flat row each. */
@@ -43,13 +42,13 @@ export function ServerRows({ n }: { n: PrivateNetwork }): React.JSX.Element {
               tech={`${p.meshIp ?? 'no address yet'} · ${p.status}${link ? ` · ${link}` : ''}`}
               word={s.word}
               wordTone={s.tone === 'mesh' ? 'ok' : s.tone}
-              to="/nodes/$id"
-              params={{ id: p.nodeId }}
+              to="/nodes/$nodeId"
+              params={{ nodeId: p.nodeId }}
             />
           );
         })}
         {n.missing.map((m) => (
-          <CalmRow key={m.id} tone="idle" name={m.name} say="Not on the private network" word="Idle" to="/nodes/$id" params={{ id: m.id }} />
+          <CalmRow key={m.id} tone="idle" name={m.name} say="Not on the private network" word="Idle" to="/nodes/$nodeId" params={{ nodeId: m.id }} />
         ))}
       </RowList>
     </Section>
