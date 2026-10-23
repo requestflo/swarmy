@@ -1,0 +1,57 @@
+swarmy
+Copyright 2026 swarmy
+
+swarmy is licensed under the Functional Source License, Version 1.1, ALv2
+Future License (FSL-1.1-ALv2); see LICENSE.md. The ee/ directory, and any
+other path marked as enterprise (for example apps/api/src/license.ts), is
+licensed under the swarmy Enterprise License; see ee/LICENSE. The SDK packages
+packages/app-auth and sdks/typescript are Apache-2.0, as their package.json
+files state.
+
+This product includes or is derived from the third-party works listed below.
+Each keeps its own licence. Dependencies installed by the package managers
+(npm, Go modules) are not listed here; their licences ship with them.
+
+-------------------------------------------------------------------------------
+DB-IP "IP to Country Lite" database
+-------------------------------------------------------------------------------
+IP Geolocation by DB-IP (https://db-ip.com)
+
+The swarmy-dns image (apps/dns/Dockerfile) and the controller image
+(apps/api/Dockerfile) download and bundle the DB-IP "IP to Country Lite"
+database, unmodified, licensed under the Creative Commons Attribution 4.0
+International License (CC BY 4.0,
+https://creativecommons.org/licenses/by/4.0/). Each image also writes this
+attribution, with the bundled edition, to a NOTICE file next to the database.
+The dashboard's Geo-DNS steering section shows the attribution too.
+MaxMind GeoLite2 is never bundled; operators supply their own licence key.
+
+-------------------------------------------------------------------------------
+Coolify service templates
+-------------------------------------------------------------------------------
+Some templates in packages/templates are adapted from the Coolify service
+templates (https://github.com/coollabsio/coolify, templates/compose).
+Copyright (c) Coolify contributors. Licensed under the Apache License,
+Version 2.0 (http://www.apache.org/licenses/LICENSE-2.0).
+They were modified for swarmy; see packages/templates/NOTICE.
+
+-------------------------------------------------------------------------------
+BullMQ
+-------------------------------------------------------------------------------
+packages/core/src/bullmq/vendored.generated.ts vendors BullMQ's Lua mutation
+scripts (https://github.com/taskforcesh/bullmq).
+Copyright (c) 2018 BullForce Labs AB and contributors. MIT License.
+
+-------------------------------------------------------------------------------
+rrweb
+-------------------------------------------------------------------------------
+The session-replay script built from packages/rum (replay.js) bundles the
+rrweb recorder, @rrweb/record (https://github.com/rrweb-io/rrweb).
+Copyright (c) rrweb contributors. MIT License.
+
+-------------------------------------------------------------------------------
+QR Code generator library (qrcodegen)
+-------------------------------------------------------------------------------
+apps/app/src/components/security/qr.ts follows the structure of Project
+Nayuki's QR Code generator library (https://www.nayuki.io/page/qr-code-generator-library).
+Copyright (c) Project Nayuki. MIT License.

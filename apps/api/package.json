@@ -2,6 +2,7 @@
   "name": "@swarmy/api",
   "version": "0.0.0",
   "private": true,
+  "license": "FSL-1.1-ALv2 AND LicenseRef-swarmy-Enterprise",
   "type": "module",
   "scripts": {
     "dev": "bun --env-file=../../.env run --watch src/index.ts",
