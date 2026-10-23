@@ -19,8 +19,12 @@ function protect(d: StackDomain): Record<string, Yaml> | undefined {
   return Object.keys(out).length ? out : undefined;
 }
 
-/** Code depth of Domains: each service's `domains:` in swarmy.yaml, and the same routes over REST. */
-export function DomainsCode({ stack, rows }: { stack: string; rows: StackDomain[] }): React.JSX.Element {
+/**
+ * Code depth of Domains: each service's `domains:` in swarmy.yaml, the same
+ * routes over REST, and the picked address as the front door renders it
+ * (`ingress.previewConfig`, read-only).
+ */
+export function DomainsCode({ stack, rows, caddy }: { stack: string; rows: StackDomain[]; caddy?: { host: string; block: string } | null }): React.JSX.Element {
   const services: Record<string, { domains: Yaml[] }> = {};
   for (const d of rows.filter((r) => !r.auto)) {
     const svc = d.serviceName.startsWith(`${stack}_`) ? d.serviceName.slice(stack.length + 1) : d.serviceName;
@@ -41,6 +45,7 @@ export function DomainsCode({ stack, rows }: { stack: string; rows: StackDomain[
       tabs={[
         { label: 'swarmy.yaml', code: withHeader(`swarmy.yaml · ${stack}'s addresses`, Object.keys(services).length ? toYaml({ services }) : '# no domains yet') },
         { label: 'REST', code: rest },
+        ...(caddy ? [{ label: 'Caddy', code: withHeader(`${caddy.host} as the front door runs it · read-only, rendered from the route and its protections`, caddy.block) }] : []),
       ]}
     />
   );

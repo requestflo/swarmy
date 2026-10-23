@@ -161,7 +161,7 @@ export function StackDomainRow({ domain }: { domain: StackDomain }): React.JSX.E
 }
 
 /** Destructive confirm — the one sanctioned modal. */
-function RemoveDomainConfirm({ host, pending, onConfirm }: { host: string; pending: boolean; onConfirm: () => void }): React.JSX.Element {
+export function RemoveDomainConfirm({ host, pending, onConfirm }: { host: string; pending: boolean; onConfirm: () => void }): React.JSX.Element {
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>

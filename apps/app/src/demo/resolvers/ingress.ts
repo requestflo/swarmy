@@ -3,6 +3,7 @@ import type { RenderedConfig } from '@swarmy/core/protocol';
 import type { DemoStore, DomainResolvers } from '../types';
 import type { EdgeState } from '@/components/ingress/edge-runtime';
 import { advance, checkStatus, demoDns, demoEdges, registrarGuidance, type DemoCheck, type DemoEdge } from './ingress-domains';
+import { demoCaddyfile, type DemoCaddyRoute } from './ingress-caddy';
 
 /**
  * Ingress demo resolvers — the Networking surface (driver chooser + rendered-config
@@ -252,15 +253,7 @@ function renderPreview(st: IngressState, driver: IngressDriverId): RenderedConfi
   };
 
   if (driver === 'caddy') {
-    const body =
-      routes
-        .map(
-          (r) =>
-            `${r.host} {\n\treverse_proxy ${r.service}:${r.port}\n${
-              r.tls === 'off' ? '\ttls off\n' : r.tls === 'auto' ? '\ttls internal off\n' : ''
-            }}`,
-        )
-        .join('\n\n') || '# no domains routed yet';
+    const body = demoCaddyfile(st.domains.map((d) => ({ host: d.host, service: d.serviceName, port: d.targetPort, tls: d.tls, path: d.pathPrefix, protection: d.protection as DemoCaddyRoute['protection'] })));
     return {
       ...base,
       files: [{ path: '/etc/caddy/Caddyfile', mode: 0o644, contents: body }],

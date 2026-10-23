@@ -3,21 +3,24 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { PlusIcon } from 'lucide-react';
 import { Button } from '@swarmy/ui';
-import { CalmRow, Depth, RowList, Say, SayHeader, Section, Tech } from '@/components/calm';
+import { Depth, Say, SayHeader } from '@/components/calm';
 import { PageSkeleton } from '@/components/states';
 import { useTRPC } from '@/integrations/trpc';
-import { StackDomainRow, type StackDomain } from '@/components/ingress/stack-domain-row';
+import type { StackDomain } from '@/components/ingress/stack-domain-row';
 import { StackDnsStatus } from '@/components/geo/stack-dns-status';
 import { DomainsCode } from './domains-code';
-import { domainWords, domainsHeadline } from './domain-words';
+import { domainsHeadline } from './domain-words';
+import { DomainsWorkspace } from './domains-workspace';
 
 /**
- * The app's Domains tab (DomainProtect board): every address → service with
- * its HTTPS state and protections in one sentence each, and "Add a domain" as
- * the one action. Controls opens each row's protection editor (the ingress
- * components) and the geo-DNS status; Code is swarmy.yaml `domains:` + REST.
+ * The app's Domains tab (DomainProtect, board 30): every address → service
+ * in one sentence each, and the picked address in full — its certificate,
+ * how visits reach the service, and its protections as switches. "Add a
+ * domain" is the one action. Controls adds the full rule form, removing an
+ * address and the geo-DNS status; Code is swarmy.yaml, REST and the Caddy
+ * site block.
  */
-export function DomainsTabPage({ stack, add }: { stack: string; add?: string }): React.JSX.Element {
+export function DomainsTabPage({ stack, add, domain }: { stack: string; add?: string; domain?: string }): React.JSX.Element {
   const trpc = useTRPC();
   const navigate = useNavigate();
   // Old links (`?add=`) land on the Add a domain page, with the host prefilled.
@@ -47,32 +50,8 @@ export function DomainsTabPage({ stack, add }: { stack: string; add?: string }):
           </Button>
         }
       />
-      <DomainsCode stack={stack} rows={rows} />
-      <Depth only="summary">
-        {rows.length > 0 ? (
-          <Section title="Addresses" count={rows.length} flush>
-            <RowList label="Addresses">
-              {rows.map((d) => {
-                const w = domainWords(d);
-                return (
-                  <CalmRow key={d.id} tone={w.tone} name={`${d.host}${d.pathPrefix && d.pathPrefix !== '/' ? d.pathPrefix : ''}`} sub={`→ ${d.serviceName.replace(`${stack}_`, '')}:${d.targetPort}`} say={w.say} word={w.word} wordTone={w.tone} to="/network/domains/$host" params={{ host: d.host }} />
-                );
-              })}
-            </RowList>
-          </Section>
-        ) : null}
-      </Depth>
+      {rows.length > 0 ? <DomainsWorkspace stack={stack} rows={rows} selected={domain} /> : <DomainsCode stack={stack} rows={rows} />}
       <Depth at="controls">
-        {rows.length > 0 ? (
-          <Section title="Addresses and protections" count={rows.length} hint="open a row to change its protections" flush>
-            <div className="divide-border -mx-5 divide-y">
-              {rows.map((d) => (
-                <StackDomainRow key={d.id} domain={d} />
-              ))}
-            </div>
-            <Tech>each route lives in the swarmy.ingress.routes label; Caddy on the edge servers renders it</Tech>
-          </Section>
-        ) : null}
         <StackDnsStatus stack={stack} />
       </Depth>
     </div>
