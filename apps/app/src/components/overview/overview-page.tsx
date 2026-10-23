@@ -6,11 +6,13 @@ import { AppRows } from '@/components/apps/app-rows';
 import { estateSay } from '@/components/apps/estate-say';
 import { useApps } from '@/components/apps/use-apps';
 import { useEstateSummary } from '@/lib/use-estate-summary';
+import { useMinWidth } from '@/lib/use-min-width';
 import { DepthWelcomeCard } from './depth-welcome-card';
 import { EstateAlreadyOn, estateAlreadyOn } from './estate-already-on';
 import { OverviewCode } from './overview-code';
 import { OverviewHeader, overviewLede } from './overview-header';
 import { OverviewNext, pickNext } from './overview-next';
+import { PhoneGlance } from './phone-glance';
 import { ServersSection } from './servers-section';
 import { TodayFeed } from './today-feed';
 import { todayItems } from './today-items';
@@ -24,7 +26,8 @@ import { WorthDoingNext, setupSteps } from './worth-doing-next';
  * Overview (RHome): the estate as a sentence, the one thing that needs you,
  * your apps as calm rows, the servers in a line, and today's changes. The
  * aside holds what's already on and what's worth doing next; Code adds the
- * CLI/REST view on top of it. Nothing paints until the numbers settle.
+ * CLI/REST view on top of it. Below lg it is the phone glance (board 21).
+ * Nothing paints until the numbers settle.
  */
 export function OverviewPage(): React.JSX.Element {
   const estate = useEstateSummary();
@@ -32,6 +35,7 @@ export function OverviewPage(): React.JSX.Element {
   const sig = useOverviewSignals();
   const fleet = useServersGlance();
   const setup = useSetupFacts();
+  const lg = useMinWidth(1024);
 
   if (estate.status === 'error' || a.error) {
     return <PageError title="Couldn’t reach your estate." error={estate.error ?? a.error} retry={estate.refetch} retrying={estate.isFetching} />;
@@ -48,6 +52,7 @@ export function OverviewPage(): React.JSX.Element {
     nodesOnline: e.nodes.online,
     nodesTotal: e.nodes.total,
   });
+  if (!lg) return <PhoneGlance say={say} apps={a.apps} sig={sig} servers={fleet.servers} nodes={fleet.nodes} />;
   const feed = todayItems(sig.releases, sig.audit);
   const lastBackup = feed.items.find((i) => i.id.startsWith('audit-'))?.at ?? null;
   const next = pickNext(sig.openIncidents, sig.firing, a.apps, fleet.nodes);

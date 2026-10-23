@@ -25,10 +25,22 @@ export function overviewLede(e: EstateSummary, lastChangeAt: string | null, last
   return `${parts}${where}${change}${backup}`;
 }
 
-export function OverviewHeader({ say, lede }: { say: SayParts; lede: string }): React.JSX.Element {
+export function OverviewHeader({
+  say,
+  lede,
+  eyebrow,
+  size,
+}: {
+  say: SayParts;
+  lede?: string;
+  /** Defaults to today's date and time (the phone glance passes workspace · date). */
+  eyebrow?: string;
+  size?: 'lg' | 'md';
+}): React.JSX.Element {
   return (
     <SayHeader
-      eyebrow={today()}
+      size={size}
+      eyebrow={eyebrow ?? today()}
       title={
         <>
           {say.lead}
