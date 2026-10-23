@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { RefreshCwIcon, TriangleAlertIcon } from 'lucide-react';
+import { RefreshCwIcon } from 'lucide-react';
 import type { SecretFamilyView } from '@swarmy/core';
 import {
   AlertDialog,
@@ -15,18 +15,27 @@ import {
   Button,
   toast,
 } from '@swarmy/ui';
+import { RestartPlanList } from '@/components/app-tabs/variables/restart-plan';
+import { useRestartPlan } from '@/components/app-tabs/variables/use-restart-plan';
+import { shortName } from '@/components/app-tabs/use-stack-services';
 import { useTRPC } from '@/integrations/trpc';
 import { SecretValueField } from './secret-value-field';
 
 /**
  * Rotate confirm (AlertDialog — it restarts every consumer): new write-only
- * value + an explicit list of exactly which services redeploy.
+ * value + the restart plan, read from each consumer's live spec: copies and
+ * how they roll ("2 copies · one at a time", "starts new before stopping old").
  */
 export function RotateSecretAlert({ family }: { family: SecretFamilyView }): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const [open, setOpen] = React.useState(false);
   const [value, setValue] = React.useState('');
+  const consumers = React.useMemo(
+    () => family.consumers.map((c) => ({ id: c.serviceId, name: shortName(c.stack, c.serviceName) })),
+    [family.consumers],
+  );
+  const plan = useRestartPlan(consumers, open);
 
   const rotate = useMutation(
     trpc.secrets.rotate.mutationOptions({
@@ -52,7 +61,7 @@ export function RotateSecretAlert({ family }: { family: SecretFamilyView }): Rea
   return (
     <AlertDialog open={open} onOpenChange={close}>
       <AlertDialogTrigger asChild>
-        <Button size="sm" variant="outline">
+        <Button size="sm" variant="outline" className="pointer-coarse:min-h-11">
           <RefreshCwIcon className="size-3.5" /> Rotate
         </Button>
       </AlertDialogTrigger>
@@ -60,29 +69,13 @@ export function RotateSecretAlert({ family }: { family: SecretFamilyView }): Rea
         <AlertDialogHeader>
           <AlertDialogTitle>Rotate {family.family}?</AlertDialogTitle>
           <AlertDialogDescription>
-            Creates <span className="mono-data">v{family.currentVersion + 1}</span> and moves every
-            consumer onto it. The old version is kept until you prune it.
+            Paste the new value. swarmy writes it as{' '}
+            <span className="mono-data">v{family.currentVersion + 1}</span> of the Docker secret and restarts the
+            services that read it.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <SecretValueField value={value} onChange={setValue} label="New value" />
-        {family.consumers.length > 0 ? (
-          <div className="bg-status-warning/10 text-tone-warn flex gap-2.5 rounded-xl p-3 text-xs">
-            <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" />
-            <div>
-              <p className="font-semibold">
-                {family.consumers.length} service{family.consumers.length === 1 ? '' : 's'} will
-                restart to pick up the new value:
-              </p>
-              <p className="mono-data mt-1 break-words">
-                {family.consumers.map((c) => c.serviceName).join(', ')}
-              </p>
-            </div>
-          </div>
-        ) : (
-          <p className="text-muted-foreground text-xs">
-            No services use this secret yet — nothing will restart.
-          </p>
-        )}
+        <RestartPlanList plan={plan} note="the old version stays until you prune it" />
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction

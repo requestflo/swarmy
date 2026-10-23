@@ -56,6 +56,7 @@ import { meshGrants } from './resolvers/mesh-grants';
 import { phoneHome } from './resolvers/phone-home';
 import { placementDemo } from './resolvers/placement-demo';
 import { jobsYesterday } from './resolvers/jobs-yesterday';
+import { appEnvironments } from './resolvers/app-environments';
 
 /**
  * Assembles every per-domain resolver module into flat lookup tables for the demo
@@ -121,6 +122,7 @@ const MODULES: DomainResolvers[] = [
   phoneHome,
   placementDemo,
   jobsYesterday,
+  appEnvironments,
 ];
 
 export const HANDLERS: Record<string, DemoHandler> = Object.assign(

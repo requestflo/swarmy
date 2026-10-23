@@ -11,6 +11,7 @@ import type {
   ServiceSecretVarView,
 } from '@swarmy/core';
 import type { DemoStore, DomainResolvers } from '../types';
+import { pushDemoAudit } from './auditlog';
 
 /**
  * Secrets-manager demo resolvers — the Secrets surface (`/secrets`): families,
@@ -122,6 +123,8 @@ export const secretsmgr: DomainResolvers = {
         versions: [{ version: 1, createdAt: new Date().toISOString() }],
         consumers: [],
       });
+      const { stack } = i as { stack?: string };
+      pushDemoAudit(s, { action: 'secrets.create', targetType: 'secretFamily', targetId: family, metadata: { version: 1, ...(stack ? { stack } : {}) } });
       return { family, version: 1, name: physical(family, 1) };
     },
 
@@ -135,6 +138,7 @@ export const secretsmgr: DomainResolvers = {
         .map((c) => s.services.find((svc) => svc.id === c.serviceId)?.name ?? c.serviceId)
         .sort();
       for (const c of f.consumers) c.version = version;
+      pushDemoAudit(s, { action: 'secrets.rotate', targetType: 'secretFamily', targetId: family, metadata: { version, redeployed } });
       return { family, version, name: physical(family, version), redeployed };
     },
 
@@ -148,6 +152,7 @@ export const secretsmgr: DomainResolvers = {
       const existing = f.consumers.find((c) => c.serviceId === svc.id);
       if (existing) existing.version = version;
       else f.consumers.push({ serviceId: svc.id, version });
+      pushDemoAudit(s, { action: 'secrets.attach', targetType: 'secretFamily', targetId: b.family, metadata: { service: svc.name, version } });
       return {
         family: b.family,
         service: svc.name,
@@ -233,6 +238,13 @@ export const secretsmgr: DomainResolvers = {
     'services.revealSecretVar': (i, s) => {
       const b = i as { id: string; key: string };
       const v = appVars(s, b.id).find((x) => x.key === b.key);
+      const svc = s.services.find((x) => x.id === b.id);
+      pushDemoAudit(s, {
+        action: 'secrets.reveal',
+        targetType: 'service',
+        targetId: b.id,
+        metadata: { service: svc?.name ?? b.id, key: b.key, version: v?.version ?? 1, ok: true },
+      });
       return { key: b.key, version: v?.version ?? 1, value: 'demo-not-a-real-secret' };
     },
   },

@@ -43,19 +43,21 @@ function VersionsList({ family }: { family: SecretFamilyView }): React.JSX.Eleme
 interface SecretRowExpandProps {
   family: SecretFamilyView;
   stack: string;
+  /** The row already carries Rotate (the Variables & secrets table). */
+  hideRotate?: boolean;
 }
 
 /**
  * The row-expand (replaces the old drawer): rotate + inline attach, live
  * consumers with detach, version history and housekeeping — no overlays.
  */
-export function SecretRowExpand({ family, stack }: SecretRowExpandProps): React.JSX.Element {
+export function SecretRowExpand({ family, stack, hideRotate }: SecretRowExpandProps): React.JSX.Element {
   const [attaching, setAttaching] = React.useState(false);
 
   return (
     <div className="border-border space-y-5 border-t px-1 pt-3 pb-4">
       <div className="flex flex-wrap items-center gap-2">
-        <RotateSecretAlert family={family} />
+        {hideRotate ? null : <RotateSecretAlert family={family} />}
         <Button size="sm" variant="outline" onClick={() => setAttaching((a) => !a)}>
           <LinkIcon className="size-3.5" /> {attaching ? 'Close attach' : 'Attach to service'}
         </Button>

@@ -24,7 +24,7 @@ const getState = (store: DemoStore): AuditState => store.extra.auditlog as Audit
 
 const DEFAULT_RETENTION_DAYS = 365;
 
-interface Actor {
+export interface Actor {
   actorType: AuditActorKind;
   actorId: string | null;
   actorLabel: string;
@@ -172,6 +172,40 @@ function toCsv(entries: AuditEntryView[]): string {
       .join(','),
   );
   return `${[header, ...lines].join('\r\n')}\r\n`;
+}
+
+/**
+ * Record one demo mutation on the timeline, as the controller's writeAudit
+ * would (newest id, now, the demo user unless another actor is given).
+ */
+export function pushDemoAudit(
+  store: DemoStore,
+  e: { action: string; targetType?: string; targetId?: string; metadata?: Record<string, unknown>; actor?: Actor; ts?: string },
+): void {
+  const st = store.extra.auditlog as AuditState | undefined;
+  if (!st) return;
+  const actor = e.actor ?? { actorType: 'user', actorId: store.user.id, actorLabel: store.user.name };
+  const id = String(Math.max(0, ...st.entries.map((x) => Number(x.id))) + 1);
+  st.entries.unshift({
+    id,
+    ts: e.ts ?? new Date().toISOString(),
+    ...actor,
+    action: e.action,
+    targetType: e.targetType ?? null,
+    targetId: e.targetId ?? null,
+    metadata: e.metadata ?? {},
+  });
+}
+
+/** Re-number the timeline newest-first after back-dated seed rows land, so ids follow time. */
+export function renumberDemoAudit(store: DemoStore): void {
+  const st = store.extra.auditlog as AuditState | undefined;
+  if (!st) return;
+  st.entries.sort((a, b) => b.ts.localeCompare(a.ts));
+  const top = 9000 + st.entries.length;
+  st.entries.forEach((x, i) => {
+    x.id = String(top - i);
+  });
 }
 
 export const auditlog: DomainResolvers = {

@@ -18,7 +18,7 @@ export function VariablesNext({
 }: {
   families: SecretFamilyView[];
   rows: VarRow[];
-  onAddSecret: () => void;
+  onAddSecret: (key: string) => void;
 }): React.JSX.Element | null {
   const trpc = useTRPC();
   const qc = useQueryClient();
@@ -60,7 +60,7 @@ export function VariablesNext({
       <NextAction
         title={`${loose.key} looks like a password, but it's a plain variable`}
         tech={`visible in the service spec of ${loose.services.join(', ')}`}
-        actions={<Button onClick={onAddSecret}>Keep it as a secret</Button>}
+        actions={<Button onClick={() => onAddSecret(loose.key)}>Keep it as a secret</Button>}
       >
         Anyone who can read the app's settings can see it. As a secret it becomes a file only your service can read.
       </NextAction>
