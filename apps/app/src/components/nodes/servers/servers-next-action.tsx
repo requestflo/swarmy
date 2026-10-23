@@ -13,7 +13,7 @@ import { gb } from './server-words';
  * one-off containers; never an image a running service or the previous
  * release uses).
  */
-export function TidyUpNext({ server, here }: { server: FleetServer; here?: boolean }): React.JSX.Element {
+export function TidyUpNext({ server, here, quiet }: { server: FleetServer; here?: boolean; quiet?: boolean }): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const run = useMutation(
@@ -33,7 +33,12 @@ export function TidyUpNext({ server, here }: { server: FleetServer; here?: boole
       tech={`nodes.runHygiene · prunes stopped containers, unused images, build cache · ${gb(live?.fsUsedBytes)} of ${gb(live?.fsTotalBytes)} used`}
       actions={
         <>
-          <Button disabled={run.isPending} onClick={() => run.mutate({ nodeId: node.id })} className="pointer-coarse:min-h-11">
+          <Button
+            variant={quiet ? 'outline' : 'default'}
+            disabled={run.isPending}
+            onClick={() => run.mutate({ nodeId: node.id })}
+            className="pointer-coarse:min-h-11"
+          >
             {run.isPending ? 'Tidying up…' : `Tidy up ${node.name}`}
           </Button>
           {here ? null : (
@@ -53,14 +58,14 @@ export function TidyUpNext({ server, here }: { server: FleetServer; here?: boole
 }
 
 /** A server that dropped off: the one thing worth looking at. */
-export function OfflineNext({ server }: { server: FleetServer }): React.JSX.Element {
+export function OfflineNext({ server, quiet }: { server: FleetServer; quiet?: boolean }): React.JSX.Element {
   return (
     <NextAction
       tone="bad"
       title={`${server.node.name} stopped answering.`}
       tech={`status=${server.node.status} · last seen ${server.node.lastSeenAt ?? 'never'}`}
       actions={
-        <Button asChild className="pointer-coarse:min-h-11">
+        <Button asChild variant={quiet ? 'outline' : 'default'} className="pointer-coarse:min-h-11">
           <Link to="/nodes/$nodeId" params={{ nodeId: server.node.id }}>
             Look at {server.node.name}
           </Link>

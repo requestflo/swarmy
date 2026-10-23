@@ -1,34 +1,18 @@
 import * as React from 'react';
 import { Link } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
 import { ArrowRightIcon, TerminalIcon } from 'lucide-react';
 import { Button } from '@swarmy/ui';
 import { Depth, StatusWord, Tech } from '@/components/calm';
-import { useTRPC } from '@/integrations/trpc';
 import { NodeDangerControls } from '../node-danger-controls';
 import { AgentVersionCell } from '../node-details-panel';
+import { yours, type FleetView } from './fleet/fleet-model';
+import { serverStory } from './fleet/server-story';
 import { DISK_HOT_PCT, type FleetServer } from './use-fleet';
+import { RunningHere } from './running-here';
 import { ServerMeters } from './server-meters';
 import { gb, plainRoles, serverTone, techRoles } from './server-words';
 
-/** What runs on a server, as short names ("storefront_web.1.x" → "storefront_web"). */
-function RunningHere({ nodeId }: { nodeId: string }): React.JSX.Element {
-  const trpc = useTRPC();
-  const q = useQuery({ ...trpc.nodes.containers.queryOptions({ nodeId }), refetchInterval: 10_000 });
-  const names = [...new Set((q.data ?? []).map((c: { name: string }) => c.name.replace(/^\//, '').split('.')[0]!))];
-  if (q.isPending) return <span className="shimmer-line block h-6 w-2/3 rounded-md" />;
-  if (names.length === 0) return <p className="text-muted-foreground text-[13px]">Nothing runs here right now.</p>;
-  return (
-    <ul className="flex flex-wrap gap-1.5">
-      {names.slice(0, 10).map((n) => (
-        <li key={n} className="bg-foreground/[0.05] rounded-md px-2 py-1 font-mono text-[11.5px]">
-          {n}
-        </li>
-      ))}
-      {names.length > 10 ? <li className="text-muted-foreground px-1 py-1 text-xs">+{names.length - 10} more</li> : null}
-    </ul>
-  );
-}
+const MESH_WORD = { connected: 'On', joining: 'Joining', off: 'Not on it' } as const;
 
 function Fact({ label, children }: { label: string; children: React.ReactNode }): React.JSX.Element {
   return (
@@ -39,12 +23,19 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
   );
 }
 
-/** The selected server: what it does, how full it is, what runs there, and quiet actions. */
+/**
+ * The selected server: its story, how full it is, what runs there (each
+ * with a status dot, movable by admins), and quiet actions. `view` is the
+ * map's model of it (story, private network, services); without it (the
+ * server's own page) the short role sentence stands in.
+ */
 export function ServerInspector({
   server,
+  view,
   detail,
 }: {
   server: FleetServer;
+  view?: FleetView;
   /** On the server's own page: no "Open" link; its controls live in the main column. */
   detail?: boolean;
 }): React.JSX.Element {
@@ -61,9 +52,15 @@ export function ServerInspector({
           <StatusWord tone={hot ? 'warn' : tone} word={hot ? `Disk ${diskPct}%` : word} />
         </div>
         <p className="text-muted-foreground text-[13.5px] leading-relaxed">
-          {roles.join(', ')}.
-          {server.containers !== null ? ` ${server.containers} thing${server.containers === 1 ? '' : 's'} running here.` : ''}
-          {hot ? ` Disk is ${diskPct}% full; tidying up frees the old images and leftovers.` : ''}
+          {view ? (
+            serverStory({ node: n, rings: view.rings, nat: view.nat, mesh: view.mesh.state, yours: yours(view)?.length, diskHotPct: DISK_HOT_PCT })
+          ) : (
+            <>
+              {roles.join(', ')}.
+              {server.containers !== null ? ` ${server.containers} thing${server.containers === 1 ? '' : 's'} running here.` : ''}
+              {hot ? ` Disk is ${diskPct}% full; tidying up frees the old images and leftovers.` : ''}
+            </>
+          )}
         </p>
       </div>
       <div className="flex flex-col">
@@ -72,8 +69,10 @@ export function ServerInspector({
           {live?.fsTotalBytes ? ` · ${gb(live.fsTotalBytes)} disk` : ''}
         </Fact>
         {server.monthlyUsd != null ? <Fact label="Costs">${server.monthlyUsd.toFixed(0)}/mo</Fact> : null}
+        {view ? <Fact label="Private network">{MESH_WORD[view.mesh.state]}</Fact> : null}
         <Depth at="controls">
-          <Fact label="Public IP">{n.publicIp ?? 'none set'}</Fact>
+          <Fact label="Public IP">{n.publicIp ?? (view?.nat ? 'none (behind NAT)' : 'none set')}</Fact>
+          {view ? <Fact label="Mesh IP">{view.mesh.ip ?? '—'}</Fact> : null}
           <Fact label="Host">{n.hostname}</Fact>
           <Fact label="System">{[n.os, n.arch, n.engineVersion && `docker ${n.engineVersion}`].filter(Boolean).join(' · ') || '—'}</Fact>
           <Fact label="Agent">
@@ -90,7 +89,7 @@ export function ServerInspector({
         <>
           <div className="flex flex-col gap-2">
             <h3 className="calm-eyebrow">Running here</h3>
-            <RunningHere nodeId={n.id} />
+            <RunningHere view={view} />
           </div>
           <div className="flex flex-wrap gap-2 pt-1">
             <Button asChild variant="outline" size="sm" className="pointer-coarse:min-h-11">
