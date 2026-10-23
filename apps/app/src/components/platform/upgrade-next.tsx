@@ -9,6 +9,8 @@ import { UpgradeDialog } from './upgrade-dialog';
 import { upgradePrereq } from './platform-words';
 import type { PlatformStatus } from './use-platform';
 
+const DAY_MS = 24 * 3600_000;
+
 /**
  * The page's one next action: a live or failed run; else, when a version is
  * ready, whatever has to happen first (a backup passphrase — preflight backs
@@ -22,6 +24,10 @@ export function UpgradeNext({ v, admin }: { v: PlatformStatus; admin: boolean })
   const [setting, setSetting] = React.useState(false);
 
   if (run && (run.status === 'running' || run.status === 'failed')) return <RunStatus run={run} admin={admin} />;
+  // Up to date after a run in the last day: say how it went.
+  if (!av && run?.status === 'done' && run.finishedAt && Date.now() - Date.parse(run.finishedAt) < DAY_MS) {
+    return <RunStatus run={run} admin={admin} />;
+  }
   if (!av || !admin) return null;
 
   if (upgradePrereq(backup.data) === 'passphrase') {

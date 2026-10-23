@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { Section } from '@/components/calm';
+import { UpgradeComponents } from './upgrade-components';
 import { UpgradeTimeline } from './upgrade-timeline';
 import { STEP_TEXT, when, type PlatformStatus } from './use-platform';
 
@@ -22,16 +23,7 @@ export function ReleaseSteps({ v }: { v: PlatformStatus }): React.JSX.Element {
           ))}
         </ol>
       ) : null}
-      {av?.components.some((c) => c.changed) ? (
-        <ul className="grid gap-1 font-mono text-[11.5px]">
-          {av.components.filter((c) => c.changed).map((c) => (
-            <li key={c.key} className="flex flex-wrap gap-2">
-              <span className="w-28 shrink-0 font-semibold">{c.key}</span>
-              <span className="text-muted-foreground break-all">{c.image}{c.tag ? `:${c.tag}` : ''} {c.digest ? `@${c.digest.slice(7, 19)}` : '(unresolved)'}</span>
-            </li>
-          ))}
-        </ul>
-      ) : null}
+      {av ? <UpgradeComponents av={av} fromVersion={release.current.version} /> : null}
     </Section>
   );
 }

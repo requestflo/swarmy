@@ -2,6 +2,7 @@ import * as React from 'react';
 import { CheckIcon, Loader2Icon, PauseIcon, XIcon } from 'lucide-react';
 import { cn } from '@swarmy/ui';
 import { StatusWord } from '@/components/calm';
+import { stepTimeWords } from './upgrade-durations';
 import { STEP_TEXT } from './use-platform';
 
 interface StepView {
@@ -9,11 +10,14 @@ interface StepView {
   status: string;
   detail: string | null;
   error: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
 }
 
 /**
  * The live step timeline — one lane per step, in order, each with what it
- * does and what happens if it fails (design board: Upgrade.html).
+ * does, how long it took (or has taken so far) and what happens if it fails
+ * (design board: Upgrade.html).
  */
 export function UpgradeTimeline({
   steps,
@@ -30,6 +34,7 @@ export function UpgradeTimeline({
         const done = s.status === 'done' || s.status === 'skipped';
         const live = s.status === 'running' || s.status === 'waiting';
         const bad = s.status === 'failed' || s.status === 'rolled-back';
+        const took = stepTimeWords({ startedAt: s.startedAt ?? null, finishedAt: s.finishedAt ?? null });
         return (
           <li
             key={s.key}
@@ -71,6 +76,7 @@ export function UpgradeTimeline({
             </span>
             <span className="grid shrink-0 justify-items-end gap-0.5">
               <StatusWord tone={done ? 'ok' : live ? 'info' : bad ? 'bad' : 'idle'} word={s.status === 'waiting' ? 'waiting' : s.status} />
+              {took && s.status !== 'skipped' ? <span className="mono-data text-[11px]">{took}</span> : null}
               <span className="text-muted-foreground mono-data hidden text-[10.5px] sm:block">
                 {done ? '' : `if it fails: ${t.ifFails}`}
               </span>

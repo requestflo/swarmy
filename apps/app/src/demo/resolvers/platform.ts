@@ -6,6 +6,7 @@ import type { DemoStore, DomainResolvers } from '../types';
  * steps on each poll. Mirrors PlatformStatusView (platform-upgrade.service.ts).
  */
 const KEYS = ['preflight', 'controller', 'agents', 'system', 'engines', 'verify'] as const;
+const STEP_MS = 6_000;
 const DETAIL: Record<string, string> = {
   preflight: '4 server(s) online, quorum ok, backup taken',
   controller: 'the new controller is up and resumed the run',
@@ -41,11 +42,13 @@ const winText = (w: DemoPlatform['policy']['window']) =>
 
 function runView(p: DemoPlatform) {
   const r = p.run!;
-  r.ticks++;
-  const at = Math.min(KEYS.length, Math.floor(r.ticks / 2));
+  // The replay is on the clock: each step takes STEP_MS, so its timestamps (and durations) are real.
+  const t0 = Date.parse(r.startedAt);
+  const stamp = (i: number): string => new Date(t0 + i * STEP_MS).toISOString();
+  const at = Math.min(KEYS.length, Math.floor((Date.now() - t0) / STEP_MS));
   const done = at >= KEYS.length;
   if (done && !r.finishedAt) {
-    r.finishedAt = new Date().toISOString();
+    r.finishedAt = stamp(KEYS.length);
     p.current = '1.3.0';
     p.history.unshift({ id: r.id, fromVersion: '1.2.4', toVersion: '1.3.0', status: 'done', trigger: 'manual', startedAt: r.startedAt, finishedAt: r.finishedAt, error: null, step: 'verify' });
   }
@@ -66,18 +69,19 @@ function runView(p: DemoPlatform) {
       status: i < at ? 'done' : i === at ? (key === 'controller' ? 'waiting' : 'running') : 'pending',
       detail: i < at ? DETAIL[key] : i === at && key === 'engines' ? 'object storage: stop — paused ~84 s' : null,
       error: null,
-      startedAt: null,
-      finishedAt: null,
+      startedAt: i <= at ? stamp(i) : null,
+      finishedAt: i < at ? stamp(i + 1) : null,
     })),
-    log: KEYS.slice(0, at).map((k, i) => ({ at: new Date(Date.parse(r.startedAt) + i * 50_000).toISOString(), msg: `${k}: done — ${DETAIL[k]}` })),
+    log: KEYS.slice(0, at).map((k, i) => ({ at: stamp(i + 1), msg: `${k}: done — ${DETAIL[k]}` })),
     options: {},
   };
 }
 
 function status(s: DemoStore) {
   const p = state(s);
-  const upToDate = p.current === '1.3.0';
+  // The run first: finishing it moves `current`, so the same poll already reads up to date.
   const run = p.run ? runView(p) : null;
+  const upToDate = p.current === '1.3.0';
   return {
     release: {
       controller: { version: p.current, commit: 'b01d53f' },
