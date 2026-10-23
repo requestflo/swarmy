@@ -116,7 +116,7 @@ function runDemoDrill(st: ResilienceState, kind: DrillKind, target: string | nul
           { name: 'Verify SELECT 1', status: 'passed', detail: null, durationMs: 900 },
           { name: 'Destroy the clone', status: 'passed', detail: null, durationMs: 3_400 },
         ]
-      : [{ name: 'restic check on "hetzner-s3"', status: 'passed', detail: 'exit 0', durationMs: 39_000 }];
+      : [{ name: `restic check on "${target}"`, status: 'passed', detail: 'exit 0', durationMs: 39_000 }];
   const durationMs = steps.reduce((sum, s) => sum + (s.durationMs ?? 0), 0);
   const result: DrillResultView = {
     kind,
@@ -127,7 +127,7 @@ function runDemoDrill(st: ResilienceState, kind: DrillKind, target: string | nul
     summary:
       kind === 'restore'
         ? `Restored a1b2c3d4 into drill-${Date.now().toString(36)}, verified SELECT 1, destroyed the clone.`
-        : 'restic check on "hetzner-s3" passed — no errors were found.',
+        : `restic check on "${target}" passed — no errors were found.`,
     steps,
     error: null,
   };
@@ -179,7 +179,13 @@ export const resilience: DomainResolvers = {
       return runDemoDrill(getState(s), 'restore', `${b.stack}/${b.cluster}`);
     },
 
-    'resilience.runBackupVerify': (_i, s) => runDemoDrill(getState(s), 'backup-verify', 'hetzner-s3'),
+    // Verify names the destination it checked (the first one when no id is given), like the service.
+    'resilience.runBackupVerify': (i, s) => {
+      const targets = (s.extra.data as { targets?: { id: string; name: string }[] } | undefined)?.targets ?? [];
+      const id = (i as { targetId?: string } | undefined)?.targetId;
+      const t = targets.find((x) => x.id === id) ?? targets[0];
+      return runDemoDrill(getState(s), 'backup-verify', t?.name ?? 'Backblaze B2 (primary)');
+    },
   },
 
   seed: (store) => {
@@ -238,10 +244,10 @@ export const resilience: DomainResolvers = {
         status: 'passed',
         at: iso(6 * HOUR),
         durationMs: 41_000,
-        target: 'hetzner-s3',
-        summary: 'restic check on "hetzner-s3" passed — no errors were found.',
+        target: 'Backblaze B2 (primary)',
+        summary: 'restic check on "Backblaze B2 (primary)" passed — no errors were found.',
         steps: [
-          { name: 'restic check on "hetzner-s3"', status: 'passed', detail: 'exit 0', durationMs: 41_000 },
+          { name: 'restic check on "Backblaze B2 (primary)"', status: 'passed', detail: 'exit 0', durationMs: 41_000 },
         ],
         error: null,
       },
@@ -281,7 +287,7 @@ export const resilience: DomainResolvers = {
       history,
       lastBackupAt: iso(5 * MIN), // RPO 5m
       targets: [
-        { stack: 'storefront', cluster: 'main', topology: 'primary-replica', healthy: true, replicasRunning: 2 },
+        { stack: 'storefront', cluster: 'checkout', topology: 'primary-replica', healthy: true, replicasRunning: 1 },
         { stack: 'data', cluster: 'main', topology: 'single', healthy: true, replicasRunning: 0 },
       ],
     };

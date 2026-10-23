@@ -10,6 +10,7 @@ import { observability } from './resolvers/observability';
 import { errors } from './resolvers/errors';
 import { geo } from './resolvers/geo';
 import { data } from './resolvers/data';
+import { backupHistory } from './resolvers/backup-history';
 import { access } from './resolvers/access';
 import { infraextra } from './resolvers/infraextra';
 import { cache } from './resolvers/cache';
@@ -68,6 +69,7 @@ const MODULES: DomainResolvers[] = [
   errors,
   geo,
   data,
+  backupHistory,
   access,
   infraextra,
   cache,
