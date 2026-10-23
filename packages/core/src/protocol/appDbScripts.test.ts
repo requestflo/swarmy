@@ -411,6 +411,8 @@ describe('hostile database names (scripts executed under /bin/sh with stub tools
     const { dir, run } = sandbox({
       psql: 'printf "ARGS=%s STDIN=%s\\n" "$*" "$(cat)" >> "$LOG_DIR/psql.log"',
       pg_restore: 'printf "ARGS=%s\\n" "$*" >> "$LOG_DIR/pg_restore.log"',
+      // The script checks the image has the postgres client tools; don't rely on the host's.
+      pg_dump: 'exit 0',
     });
     writeFileSync(join(dir, 'databases.txt'), ['app', ...EVIL].join('\n') + '\n');
     const r = run(loadScript('postgres'), { SWARMY_MODE: 'copy', SWARMY_SUFFIX: 'copy1' });

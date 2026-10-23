@@ -88,9 +88,10 @@ is defined below. To run the app under test locally, see `skill("run-local")`.
   `typecheck` + `build`; `images-dryrun` builds both Dockerfiles without pushing;
   `commitlint` lints PR commits; `pr-title.yml` lints the PR title; `e2e.yml`
   runs the headline self-host e2e (below); `release.yml` runs semantic-release on
-  `main`. **CI still runs no `bun run test` job** — the unit gates above only
-  protect you if you run them. No database service is needed for it: DB-touching
-  tests use `createTestDb()`.
+  `main`. The `test` job runs `bun run test` (every workspace's unit gates) on
+  every push and PR. No database service is needed for it: DB-touching tests use
+  `createTestDb()`. Tests that need a Docker daemon (e.g. the agent's real-Valkey
+  queue test) skip when there is none, so a laptop without Docker stays green.
 - **Test → source purity**: a test importing from `@swarmy/core`,
   `@swarmy/ingress`, `@swarmy/dns`, `@swarmy/abac`, `@swarmy/mesh` gets pure
   functions; a test in `packages/trpc/src/services` mocks `OrgContext`/the hub.
