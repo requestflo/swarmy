@@ -6,12 +6,12 @@ type Component = PlatformAvailable['components'][number];
 /**
  * A component's version change. swarmy's own images ship with the platform
  * (untagged, or tagged with the release version), so theirs moves with it:
- * `1.2.4 → 1.3.0`. A third-party image's new tag is in the release; its
- * current tag is not in the release view, so only the target shows.
+ * `1.2.4 → 1.3.0`. A third-party image goes from the tag the current manifest
+ * has (`fromTag`) to the release's; a component new in this release has none.
  */
 export function componentVersion(c: Component, fromVersion: string, toVersion: string): { from: string | null; to: string } {
   if (!c.tag || c.tag === toVersion) return { from: fromVersion, to: toVersion };
-  return { from: null, to: c.tag };
+  return { from: c.fromTag ?? null, to: c.tag };
 }
 
 /** The images the release changes, each with its version going from → to and the digest it lands on. */

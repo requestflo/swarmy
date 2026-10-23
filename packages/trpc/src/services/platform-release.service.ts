@@ -346,7 +346,16 @@ export interface PlatformReleaseView {
     /** Why Upgrade is disabled (null = it can start). */
     blocked: string | null;
     patch: boolean;
-    components: Array<{ key: string; image: string; tag: string | null; digest: string | null; changed: boolean }>;
+    /** `fromTag` / `fromDigest`: what the cluster runs now, from the current manifest (null = not in it). */
+    components: Array<{
+      key: string;
+      image: string;
+      tag: string | null;
+      digest: string | null;
+      fromTag: string | null;
+      fromDigest: string | null;
+      changed: boolean;
+    }>;
   } | null;
   policy: PlatformPolicy & { windowText: string; feed: string };
   lastCheckAt: string | null;
@@ -392,6 +401,8 @@ export async function getReleaseView(ctx: Pick<OrgContext, 'db' | 'activeOrgId'>
                 image: c.image,
                 tag: c.tag ?? null,
                 digest: c.digest ?? null,
+                fromTag: cur.components[key]?.tag ?? null,
+                fromDigest: cur.components[key]?.digest ?? null,
                 changed: (cur.components[key]?.digest ?? null) !== (c.digest ?? null),
               }))
               .sort((a, b) => a.key.localeCompare(b.key)),
