@@ -4,6 +4,7 @@ import { useTRPC } from '@/integrations/trpc';
 import { CardSkeleton, ErrorState } from '@/components/states';
 import { buildTimeline, lastAt } from './replay-timeline';
 import { ReplayControls } from './replay-controls';
+import { ReplayErrorCard } from './replay-error-card';
 import { ReplayHeader } from './replay-header';
 import { ReplayScrubber } from './replay-scrubber';
 import { ReplaySidePanel } from './replay-side-panel';
@@ -55,6 +56,7 @@ function Player({ stack, detail }: { stack: string; detail: ReplayDetail }): Rea
           onToggle={p.toggle}
           onSpeed={p.setSpeed}
         />
+        <ReplayErrorCard stack={stack} detail={detail} start={timeline.start} onSeek={p.seek} />
       </section>
       <ReplaySidePanel stack={stack} timeline={timeline} time={p.time} onSeek={p.seek} />
     </div>

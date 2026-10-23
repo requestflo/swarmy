@@ -238,17 +238,18 @@ export function buildRecording(startMs: number, seed: number, full: boolean): De
       { parentId: 900, nextId: null, node: { type: 3, textContent: 'Something went wrong. Please try again.', id: 901 } },
     ],
   });
+  // The Errors tab's top issue (errors-issues.ts), raised inside the failed checkout's trace.
   errors.push({
     event_id: hex(seed + 5, 32),
-    fingerprint: hex(seed + 7, 32),
-    ts_ms: at(70.2),
+    fingerprint: 'f3a91c07e2b4',
+    ts_ms: at(71.02),
     level: 'error',
-    exc_type: 'MerchantValidationError',
-    exc_value: 'certificate expired',
-    title: 'MerchantValidationError: certificate expired',
-    culprit: 'validateMerchant(src/pay/apple.ts)',
+    exc_type: 'TypeError',
+    exc_value: 'applePaySession is undefined',
+    title: 'TypeError: applePaySession is undefined',
+    culprit: 'checkout/src/pay.ts in startApplePay',
     trace_id: payTrace,
-    release: 'v119',
+    release: 'v1.9.0',
   });
   errorCount++;
   click(74, 'pay', 244, 332);
