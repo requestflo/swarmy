@@ -38,6 +38,8 @@ export function useEstateData() {
     worst: worst && worst.risk >= 50 ? worst : undefined,
     pgRows: pg.data ?? [],
     bucketStore: buckets.data,
+    /** Each bucket's detail (attachments, grants), index-aligned with `bucketStore.buckets`; undefined until loaded. */
+    bucketDetails: details.map((q) => q.data),
     copies,
   };
 }

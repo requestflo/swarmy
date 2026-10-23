@@ -1,90 +1,59 @@
 import * as React from 'react';
-import { Link } from '@tanstack/react-router';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Button, toast } from '@swarmy/ui';
-import { useTRPC } from '@/integrations/trpc';
 import { SectionHeader } from '@/components/section-header';
-import { AlreadyOn, NextAction, Say } from '@/components/calm';
+import { AlreadyOn, Say } from '@/components/calm';
 import { PageError, PageSkeleton } from '@/components/states';
-import { useEstateData } from './use-estate-data';
-import { DataGroups } from './data-groups';
+import type { AttachTarget } from '@/components/buckets/attach-preview';
+import { AddDataMenu } from './add-data-menu';
+import { BucketReachPanel } from './bucket-reach-panel';
+import { SHARED } from './data-board-model';
+import { DataClusters } from './data-clusters';
 import { EstateDataCode } from './data-code';
+import { DataNextAction } from './data-next-action';
 import { storeCount } from './estate-data';
+import { useDataBoard } from './use-data-board';
 
-/** Data hub — its tab is "All data": everything the apps keep, and whether each is safe. */
+/**
+ * Data hub (board 15): everything the apps keep, by app, with who can reach
+ * each bucket. Drop a bucket on an app to attach it.
+ */
 export function DataPage(): React.JSX.Element {
-  const d = useEstateData();
-  const trpc = useTRPC();
-  const qc = useQueryClient();
-  const run = useMutation(
-    trpc.dbBackups.run.mutationOptions({
-      onSuccess: () => {
-        toast.success('Saved');
-        void qc.invalidateQueries();
-      },
-      onError: (e) => toast.error(e.message),
-    }),
-  );
+  const d = useDataBoard();
+  const [target, setTarget] = React.useState<AttachTarget | null>(null);
   if (d.error && !d.ready) return <Pad><PageError error={d.error} retry={d.retry} /></Pad>;
   if (!d.ready) return <PageSkeleton variant="list" />;
 
-  const total = d.items.length;
+  const managed = d.items.filter((i) => i.kind !== 'Compose');
   const needs = d.items.filter((i) => i.tone === 'warn' || i.tone === 'bad').length;
   const dbs = d.pgRows.length;
   const scheduled = d.pgRows.filter((r) => r.scheduled).length;
   const failing = d.pgRows.filter((r) => r.scheduled && r.lastStatus === 'failed').length;
   const allSaved = dbs > 0 && scheduled === dbs && failing === 0;
-  const counted = storeCount(d.items);
-  const appCount = d.apps.filter((a) => a !== 'Shared').length;
+  const appCount = new Set(managed.map((i) => i.app).filter((a) => a !== SHARED)).size;
+  const across = `${storeCount(managed)} across ${appCount} app${appCount === 1 ? '' : 's'}.`;
   const title =
-    total === 0 ? (
+    managed.length === 0 ? (
       <>No data yet. <em>Your apps keep nothing so far.</em></>
     ) : needs === 0 ? (
-      <>{counted} across {appCount} app{appCount === 1 ? '' : 's'}. <em>Every one is safe.</em></>
+      <>{across} <em>Every one is safe.</em></>
     ) : (
-      <>{counted} across {appCount} app{appCount === 1 ? '' : 's'}. <Say tone="warn">{needs} need{needs === 1 ? 's' : ''} a look.</Say></>
+      <>{across} <Say tone="warn">{needs} need{needs === 1 ? 's' : ''} a look.</Say></>
     );
-  const w = d.worst;
 
   return (
     <Pad>
       <SectionHeader
         title={title}
         description={dbs ? `${scheduled} of ${dbs} database${dbs === 1 ? '' : 's'} saved on a schedule${failing ? `, and ${failing === 1 ? 'one' : failing} of those failed its last save` : ''}. Buckets are kept on ${d.copies} server${d.copies === 1 ? '' : 's'}.` : 'Databases, caches and buckets from every app, with how each is kept safe.'}
+        actions={<AddDataMenu apps={d.apps} primary={!d.worst} />}
       />
       <div className="grid grid-cols-[minmax(0,1fr)] gap-5 xl:grid-cols-[minmax(0,1fr)_400px]">
         <div className="flex min-w-0 flex-col gap-5">
-          {w ? (
-            <NextAction
-              tone={w.tone}
-              title={`${w.app} / ${w.name}: ${w.say.replace(/\.$/, '')}`}
-              tech={w.tech}
-              actions={
-                w.kind === 'Postgres' && w.cluster ? (
-                  <>
-                    <Button disabled={run.isPending} onClick={() => run.mutate({ stack: w.app, cluster: w.cluster! })}>
-                      {run.isPending ? 'Saving…' : 'Save it now'}
-                    </Button>
-                    <Button variant="outline" asChild>
-                      <Link to="/stacks/$name/data" params={{ name: w.app }}>Set up nightly saves</Link>
-                    </Button>
-                  </>
-                ) : (
-                  <Button asChild>
-                    <Link to={w.kind === 'Bucket' ? '/data/buckets' : '/stacks/$name/data'} params={w.kind === 'Bucket' ? undefined : ({ name: w.app } as never)}>
-                      Open it
-                    </Link>
-                  </Button>
-                )
-              }
-            >
-              This is the least-protected thing you keep. A save now takes a minute and doesn’t stop the app.
-            </NextAction>
-          ) : null}
-          <DataGroups d={d} />
+          {d.worst ? <DataNextAction worst={d.worst} /> : null}
+          <DataClusters d={d} target={target} onTarget={setTarget} />
         </div>
         <aside className="flex min-w-0 flex-col gap-4">
           <EstateDataCode d={d} />
+          <BucketReachPanel d={d} onAttach={setTarget} />
           <AlreadyOn
             items={[
               // A partial state isn't "already on": until every database saves cleanly it's in the headline and NextAction instead.

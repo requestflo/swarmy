@@ -5,16 +5,25 @@ import { fmtBytes, relativeTime } from '@/components/backups/backup-format';
 export interface DataItem {
   key: string;
   app: string;
-  kind: 'Postgres' | 'Cache' | 'Search' | 'Vectors' | 'Bucket';
+  kind: 'Postgres' | 'Cache' | 'Search' | 'Vectors' | 'Bucket' | 'Compose';
   name: string;
   say: string;
+  /** The short line under a data node ("saved 3 h ago · 1.7 GB"). */
+  meta: string;
+  /** The node's type badge: PG · KV · IX · VEC · S3 · MY · CH … */
+  badge: string;
   tech: string;
   tone: Tone;
   word: string;
   risk: number;
   /** For Postgres: can "save it now". */
   cluster?: string;
+  /** For buckets: the Garage id (attach, reach) and the bytes it holds. */
+  bucketId?: string;
+  bytes?: number;
 }
+
+const KIND_BADGE: Record<Exclude<DataItem['kind'], 'Compose'>, string> = { Postgres: 'PG', Cache: 'KV', Search: 'IX', Vectors: 'VEC', Bucket: 'S3' };
 
 /**
  * "4 stores and 1 bucket". Buckets are counted apart so an app's group here
@@ -23,10 +32,13 @@ export interface DataItem {
  */
 export function storeCount(items: DataItem[]): string {
   const b = items.filter((i) => i.kind === 'Bucket').length;
-  const n = items.length - b;
+  const c = items.filter((i) => i.kind === 'Compose').length;
+  const n = items.length - b - c;
   const stores = n ? `${n} store${n === 1 ? '' : 's'}` : '';
   const buckets = b ? `${b} bucket${b === 1 ? '' : 's'}` : '';
-  return [stores, buckets].filter(Boolean).join(' and ');
+  const counted = [stores, buckets].filter(Boolean).join(' and ');
+  // Compose databases aren't on the app's Data tab count, so they're said apart.
+  return c ? [counted, `${c} from compose`].filter(Boolean).join(' · ') : counted;
 }
 
 /** "0 3 * * *" → "nightly at 03:00"; anything else stays as the cron. */
@@ -55,16 +67,17 @@ interface PgRow {
 const DAY = 86_400_000;
 
 export function pgItem(r: PgRow): DataItem {
-  const base = { key: `pg:${r.stack}/${r.cluster}`, app: r.stack, kind: 'Postgres' as const, name: r.cluster, cluster: r.cluster };
+  const base = { key: `pg:${r.stack}/${r.cluster}`, app: r.stack, kind: 'Postgres' as const, name: r.cluster, cluster: r.cluster, badge: KIND_BADGE.Postgres };
   const tech = `${r.engine ?? 'no engine'} · ${r.cron ?? 'no schedule'} · keep ${r.retentionDays ?? '–'}d · ${r.targetName ?? 'no target'}${r.pitr ? ' · pitr' : ''}`;
-  if (!r.scheduled) return { ...base, tech, say: 'Not backed up. If its server is lost, so is the data.', tone: 'warn', word: 'Needs you', risk: 90 };
-  if (r.lastStatus === 'failed') return { ...base, tech, say: `The last save failed (${relativeTime(r.lastBackupAt)}).`, tone: 'bad', word: 'Needs you', risk: 100 };
+  if (!r.scheduled) return { ...base, tech, meta: 'not backed up', say: 'Not backed up. If its server is lost, so is the data.', tone: 'warn', word: 'Needs you', risk: 90 };
+  if (r.lastStatus === 'failed') return { ...base, tech, meta: 'last save failed', say: `The last save failed (${relativeTime(r.lastBackupAt)}).`, tone: 'bad', word: 'Needs you', risk: 100 };
   const stale = !r.lastBackupAt || Date.now() - new Date(r.lastBackupAt).getTime() > 2 * DAY;
   const when = r.pitr ? 'saved continuously, back to any minute' : `saved ${scheduleWords(r.cron)}`;
   const last = r.lastBackupAt ? `last ${relativeTime(r.lastBackupAt)}${r.lastSizeBytes ? `, ${fmtBytes(r.lastSizeBytes)}` : ''}` : 'no save yet';
   return {
     ...base,
     tech,
+    meta: r.lastBackupAt ? `saved ${relativeTime(r.lastBackupAt)}${r.lastSizeBytes ? ` · ${fmtBytes(r.lastSizeBytes)}` : ''}` : 'no save yet',
     say: `${when[0]!.toUpperCase()}${when.slice(1)} · ${last}`,
     tone: stale ? 'warn' : 'ok',
     word: stale ? 'Needs you' : 'Online',
@@ -79,6 +92,8 @@ export function cacheItem(c: { stack: string; name: string; engine: string; memo
     app: c.stack,
     kind: 'Cache',
     name: c.name,
+    badge: KIND_BADGE.Cache,
+    meta: `${c.memoryMb} MB in memory${copies > 0 ? ` · ${copies} standby` : ''}`,
     say: copies > 0
       ? `In memory, with ${copies} standby cop${copies === 1 ? 'y' : 'ies'}. Safe if a server fails.`
       : 'In memory only, nothing to back up. The app rebuilds it after a restart.',
@@ -95,6 +110,8 @@ export function indexItem(kind: 'Search' | 'Vectors', s: { stack: string; name: 
     app: s.stack,
     kind,
     name: s.name,
+    badge: KIND_BADGE[kind],
+    meta: `${kind === 'Search' ? 'search' : 'vectors'} · ${s.engine}`,
     say: 'An index, nothing to back up. It can be rebuilt from the app’s own data.',
     tech: s.engine,
     tone: 'ok',
@@ -103,12 +120,16 @@ export function indexItem(kind: 'Search' | 'Vectors', s: { stack: string; name: 
   };
 }
 
-export function bucketItem(b: { name: string; usageBytes: number; objects: number }, app: string, copies: number): DataItem {
+export function bucketItem(b: { id: string; name: string; usageBytes: number; objects: number }, app: string, copies: number): DataItem {
   return {
     key: `bucket:${b.name}`,
     app,
     kind: 'Bucket',
     name: b.name,
+    bucketId: b.id,
+    bytes: b.usageBytes,
+    badge: KIND_BADGE.Bucket,
+    meta: `${fmtBytes(b.usageBytes)} · ${b.objects.toLocaleString()} files`,
     say: `${fmtBytes(b.usageBytes)} in ${b.objects.toLocaleString()} files · ${copies > 1 ? `kept on ${copies} servers` : 'only one copy, on one server'}`,
     tech: `garage · replication ${copies}`,
     tone: copies > 1 ? 'ok' : 'warn',
@@ -116,3 +137,4 @@ export function bucketItem(b: { name: string; usageBytes: number; objects: numbe
     risk: copies > 1 ? 5 : 50,
   };
 }
+

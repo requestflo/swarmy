@@ -1,24 +1,31 @@
 import * as React from 'react';
 import { CodeView, toYaml } from '@/components/calm';
-import type { EstateData } from './use-estate-data';
+import { REACH_YAML, type ReachMode } from '@/components/buckets/reach-model';
+import { SHARED } from './data-board-model';
+import type { DataBoard } from './use-data-board';
 
 const KIND_TYPE = { Postgres: 'postgres', Cache: 'cache', Search: 'search', Vectors: 'vector', Bucket: 'bucket' } as const;
 
 /** All data as code: each app's swarmy.yaml resources, and the live backup facts (read-only). */
-export function EstateDataCode({ d }: { d: EstateData }): React.JSX.Element {
+export function EstateDataCode({ d }: { d: DataBoard }): React.JSX.Element {
   const yaml = d.apps
-    .filter((a) => a !== 'Shared')
+    .filter((a) => a !== SHARED)
     .map((app) => {
       const resources: Record<string, Record<string, unknown>> = {};
       for (const i of d.items.filter((x) => x.app === app)) {
+        // Compose databases live in the app's compose file, not in swarmy.yaml resources.
+        if (i.kind === 'Compose') continue;
         const pg = d.pgRows.find((r) => r.stack === app && r.cluster === i.name);
+        const mode = i.bucketId ? (d.reach.get(i.bucketId)?.mode as ReachMode | undefined) : undefined;
         resources[i.name] = {
           type: KIND_TYPE[i.kind],
+          ...(mode && mode !== 'INTERNAL' ? { access: REACH_YAML[mode] } : {}),
           ...(pg?.scheduled ? { backups: { schedule: pg.cron ?? 'daily', keep: pg.retentionDays ?? 7 } } : {}),
         };
       }
-      return `# ${app}/swarmy.yaml\n${toYaml({ app, resources } as never)}`;
+      return Object.keys(resources).length ? `# ${app}/swarmy.yaml\n${toYaml({ app, resources } as never)}` : '';
     })
+    .filter(Boolean)
     .join('\n\n');
   const live = JSON.stringify(
     d.pgRows.map((r) => ({ stack: r.stack, cluster: r.cluster, scheduled: r.scheduled, cron: r.cron, lastBackupAt: r.lastBackupAt, lastStatus: r.lastStatus, target: r.targetName })),
