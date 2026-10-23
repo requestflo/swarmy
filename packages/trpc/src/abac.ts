@@ -104,6 +104,15 @@ async function loadGrants(db: DB, orgId: string, resource: ResourceInput): Promi
  * to the seeded defaults) and build the engine.
  */
 export async function loadPolicyEngine(db: DB, orgId: string): Promise<IPolicyEngine> {
+  return createEngine(await loadPolicyInputs(db, orgId));
+}
+
+/**
+ * The org's effective, enabled policy set (shipped defaults + custom rules) —
+ * what {@link loadPolicyEngine} compiles. Pure callers (the invite preview)
+ * evaluate it themselves.
+ */
+export async function loadPolicyInputs(db: DB, orgId: string): Promise<PolicyInput[]> {
   const repo = policyRepo(db);
   let all = await repo.list(orgId);
   // Defaults are managed (pre-launch, no back-compat): when the shipped set
@@ -134,8 +143,7 @@ export async function loadPolicyEngine(db: DB, orgId: string): Promise<IPolicyEn
   const custom: PolicyInput[] = all
     .filter((r) => !r.isDefault && r.enabled)
     .map((r) => ({ id: r.id, name: r.name, effect: r.effect, source: r.source, priority: r.priority, enabled: true }));
-  const inputs = [...defaults.filter((d) => d.enabled), ...custom];
-  return createEngine(inputs);
+  return [...defaults.filter((d) => d.enabled), ...custom];
 }
 
 export interface AccessResult {

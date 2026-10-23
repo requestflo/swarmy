@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { ACTIONS } from '@swarmy/abac';
-import { orgProcedure, router } from '../trpc';
+import { adminProcedure, orgProcedure, router } from '../trpc';
 import { abacProcedure } from '../abac';
 import {
   deletePolicy,
@@ -10,6 +10,7 @@ import {
   simulatePolicy,
   whoCanPolicy,
 } from '../services/policies.service';
+import { simulateInvitePolicy } from '../services/invite-preview.service';
 
 /**
  * ABAC policy management. Reads are org-members; writes are admin-only and
@@ -54,7 +55,20 @@ export const policiesRouter = router({
     )
     .query(({ ctx, input }) => whoCanPolicy(ctx, input)),
 
-  /** Re-seed the default rules (upgrade orgs persisted before the ABAC model). */
+  /**
+   * The invite form's live preview: what a hypothetical invitee (a role, plus
+   * operator on the apps the invite names) could deploy, restart, … under the
+   * org's real rules. Read-only; it decides nothing, so it writes no audit row.
+   */
+  simulateInvite: adminProcedure
+    .input(
+      z.object({
+        role: z.enum(['owner', 'admin', 'member']),
+        stackNames: z.array(z.string().min(1).max(128)).max(20).default([]),
+      }),
+    )
+    .query(({ ctx, input }) => simulateInvitePolicy(ctx, input)),
+
 
   set: abacProcedure('policy.write')
     .input(
