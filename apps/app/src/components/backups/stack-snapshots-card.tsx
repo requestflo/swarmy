@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { PlusIcon } from 'lucide-react';
 import { Button, Collapsible, CollapsibleContent, CollapsibleTrigger } from '@swarmy/ui';
-import { Section } from '@/components/calm';
+import { Section, useDepth } from '@/components/calm';
 import { BackupVolumeInline } from './backup-volume-inline';
 import { SnapshotRows, type SnapshotItem } from './snapshot-rows';
 import type { TargetOption } from './target-option';
@@ -12,14 +12,17 @@ interface StackSnapshotsCardProps {
   targets: TargetOption[];
 }
 
-/** This app's restore points — an ad-hoc save expands inline, never a modal. */
+/** This app's restore points (the latest few at Summary, all from Controls) — an ad-hoc save expands inline, never a modal. */
 export function StackSnapshotsCard({ stack, snapshots, targets }: StackSnapshotsCardProps): React.JSX.Element {
   const [backingUp, setBackingUp] = React.useState(false);
+  const { atLeast } = useDepth();
+  const shown = atLeast('controls') ? snapshots : snapshots.slice(0, 6);
   return (
     <Collapsible open={backingUp} onOpenChange={setBackingUp}>
       <Section
         title="Restore points"
         count={`${snapshots.length} kept`}
+        hint={shown.length < snapshots.length ? `latest ${shown.length} · all at Controls` : undefined}
         flush
         action={
           <CollapsibleTrigger asChild>
@@ -33,7 +36,7 @@ export function StackSnapshotsCard({ stack, snapshots, targets }: StackSnapshots
           <BackupVolumeInline stack={stack} targets={targets} onDone={() => setBackingUp(false)} />
         </CollapsibleContent>
         <SnapshotRows
-          rows={snapshots}
+          rows={shown}
           emptyTitle="No restore points yet"
           emptyDescription={`${stack}'s volumes are saved nightly; the first restore points land after tonight. Or back one up now.`}
         />

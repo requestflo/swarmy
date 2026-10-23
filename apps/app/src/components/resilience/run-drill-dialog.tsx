@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { PlayIcon } from 'lucide-react';
-import type { ResilienceDrillKind, ResilienceDrillTargetView } from '@swarmy/core';
+import type { ResilienceDrillKind, ResilienceDrillResultView, ResilienceDrillTargetView } from '@swarmy/core';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -37,11 +37,26 @@ export function RunDrillDialog({
   targets,
   disabled,
   disabledReason,
+  label = 'Run drill',
+  variant = 'outline',
+  onStart,
+  onResult,
+  onFailed,
 }: {
   kind: ResilienceDrillKind;
   targets: ResilienceDrillTargetView[];
   disabled: boolean;
   disabledReason: string | null;
+  /** Trigger text ("Run a DR drill"). */
+  label?: string;
+  /** `default` only when this is the screen's one coral action. */
+  variant?: 'default' | 'outline';
+  /** Called once the person confirms (the card shows its own running state). */
+  onStart?: () => void;
+  /** The recorded outcome, for cards that show the steps. */
+  onResult?: (r: ResilienceDrillResultView) => void;
+  /** A precondition refused it (nothing was touched). */
+  onFailed?: (message: string) => void;
 }): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
@@ -58,17 +73,26 @@ export function RunDrillDialog({
     void qc.invalidateQueries();
   };
   const opts = {
-    onSuccess: (r: { status: string; summary: string; error: string | null }) =>
-      done(r.status, r.error ?? r.summary),
-    onError: (e: { message: string }) => toast.error(e.message),
+    onSuccess: (r: ResilienceDrillResultView) => {
+      onResult?.(r);
+      done(r.status, r.error ?? r.summary);
+    },
+    onError: (e: { message: string }) => {
+      onFailed?.(e.message);
+      toast.error(e.message);
+    },
   };
   const restore = useMutation(trpc.resilience.runRestoreDrill.mutationOptions(opts));
   const verify = useMutation(trpc.resilience.runBackupVerify.mutationOptions(opts));
   const pending = restore.isPending || verify.isPending;
 
   const run = (): void => {
-    if (kind === 'backup-verify') return void verify.mutate({});
+    if (kind === 'backup-verify') {
+      onStart?.();
+      return void verify.mutate({});
+    }
     if (!selected) return;
+    onStart?.();
     restore.mutate({ stack: selected.stack, cluster: selected.cluster });
   };
 
@@ -78,8 +102,8 @@ export function RunDrillDialog({
       onOpenChange={setOpen}
     >
       <AlertDialogTrigger asChild>
-        <Button size="sm" variant="outline" disabled={disabled} title={disabledReason ?? undefined}>
-          <PlayIcon className="size-3.5" /> Run drill
+        <Button size="sm" variant={variant} disabled={disabled || pending} title={disabledReason ?? undefined}>
+          <PlayIcon className="size-3.5" /> {label}
         </Button>
       </AlertDialogTrigger>
       <AlertDialogContent>

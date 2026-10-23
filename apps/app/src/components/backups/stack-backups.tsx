@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router';
 import { Button } from '@swarmy/ui';
 import { AlreadyOn, Depth, NextAction, Say, SayHeader, SectionLink } from '@/components/calm';
 import { StackResilienceSection } from '@/components/resilience/stack-resilience-section';
+import { PgBackupsAside, PgBackupsSection } from '@/components/pgbackups/pg-backups-section';
 import { CardSkeleton, ErrorState } from '@/components/states';
 import { relativeTime } from './backup-format';
 import { StackBackupsCode } from './stack-backups-code';
@@ -49,6 +50,7 @@ export function StackBackups({ stack }: StackBackupsProps): React.JSX.Element {
     <>{b.covered} of {b.total} of {stack}&apos;s stores are saved nightly. <Say tone="warn">{b.total - b.covered} aren&apos;t.</Say></>
   );
   const firstGap = b.uncovered[0];
+  const hasNext = noHome || !!b.failed || !!firstGap;
   const gapName = firstGap ? ('name' in firstGap ? firstGap.name : firstGap.volume) : '';
   const schedules = (
     <StackSchedulesCard
@@ -89,6 +91,9 @@ export function StackBackups({ stack }: StackBackupsProps): React.JSX.Element {
           </NextAction>
         ) : null}
         <StackSnapshotsCard stack={stack} snapshots={b.snapshotRows} targets={b.targetOptions} />
+        {b.data.mine.map((r) => (
+          <PgBackupsSection key={r.cluster} stack={stack} cluster={r.cluster} primary={!hasNext} />
+        ))}
         <Depth at="controls">
           {b.coverage?.volumes ? (
             <StackVolumeCoverageCard stack={stack} volumes={b.coverage.volumes} appOptedOut={b.coverage.appOptedOut ?? false} />
@@ -100,6 +105,9 @@ export function StackBackups({ stack }: StackBackupsProps): React.JSX.Element {
       </div>
       <aside className="flex min-w-0 flex-col gap-4">
         <StackBackupsCode stack={stack} b={b} />
+        {b.data.mine.map((r) => (
+          <PgBackupsAside key={r.cluster} stack={stack} cluster={r.cluster} />
+        ))}
         <AlreadyOn
           items={backupsAlreadyOn(b.data, b.coverage)}
         />
