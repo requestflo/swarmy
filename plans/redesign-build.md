@@ -152,9 +152,13 @@ mode renders with no console errors, a pathspec commit.
 
 - Route moves in plan §B.2 (`/ingress` → `/network/edge`, etc.). URLs stay; the
   nav and tabs present the new IA. Move with redirects in a later release.
-- Boards not built for lack of a data source: TimeTravel, Connections
-  (app ↔ app), RClusters (multi-cluster), MeshConfig access-rule list, backup
-  drill steps, per-copy CPU/memory on Scaling, the AppScaling sleep chart.
+- Boards not built for lack of a data source: RClusters (multi-cluster),
+  MeshConfig access-rule list, live backup drill steps, per-copy CPU/memory on
+  Scaling. (TimeTravel, Connections and the Scaling sleep chart had their data
+  arrive and are built — §9.)
+- Writing to git from the dashboard (commit swarmy.yaml, open a PR) has no
+  backend; every "Open PR" / "Make it permanent" / "Add to swarmy.yaml" on the
+  boards is left out until it does. It is the biggest single unlock left.
 - Code views without a public API (alerts, incidents, cost, policies,
   guardrails, platform) are read-only JSON/labels; they gain REST when it exists.
   ⌘K "put back" shows `releases.rollback` for the same reason.
@@ -181,3 +185,48 @@ mode renders with no console errors, a pathspec commit.
   sub-tabs (Services · Domains · Data · Observability · Access · Config ·
   Backups · Releases · Source; `lib/stack-nav.ts`); old URLs redirect.
   Source is read-only; dashboard editing of swarmy.yaml stays deferred (§7).
+
+## 9. Boards rebuilt to the canvas (2026-10-23)
+
+The 2026-09-25 pass gave every route the Calm Layers structure; this pass
+rebuilt boards to their own drawing (their visual, interaction and copy), on
+data that exists. Each line: the board, where it lives, and what was left out
+because no backend provides it.
+
+| Board | Route | Left out (no data / backend) |
+|---|---|---|
+| 9 Move | `/nodes` (drag or Move…) | disk fit (volume sizes aren't reported), Undo (the old copy stays on the source and the mover refuses a non-empty destination), ⌥-drag to add a copy |
+| 10 Time travel | `/stacks/$name/time-travel` (from Releases) | whole-app restore, rows written since, historical db size, service-graph edges |
+| 11 Servers | `/nodes` (map first, list toggle) | 24h sparklines (no stored node stats), provider, restart agent |
+| 14 Mesh (part) | `/networking` | direct vs relayed per server only; graph and joining steps in the next pass |
+| 15 Data | `/data` | lifecycle/CORS lines, moving a database by drag |
+| 16 Backups | `/backups` | live drill steps, server-loss drill, snapshot download, offsite mirror lag, resilience score (removed on purpose) |
+| 20 Upgrade (part) | `/settings/platform` | the "from" version of third-party images (`PlatformReleaseView` has no current tag), pause after a step |
+| 21 Phone | `/overview` below `lg` | estate uptime, incident owner / "take for 30 min", rollback duration |
+| 23 Connect a repo | `/deploy?source=git` | "What we found" detectors (Postgres / Redis / S3 / cron), App #N |
+| 27 Build logs (part) | `/ci/$buildId` | the stage rail with timings (builds record only start/finish) |
+| 34 Scaling | `/stacks/$name/config/scaling` | Open PR, cost per size, cold-start time |
+| 40 Postgres backups | `/stacks/$name/backups` | offsite copy for db schedules, WAL-gap check, restore progress and row diff, PITR from an older base backup (wal-g starts from the newest) |
+| 42 Bucket | `/data/buckets/$name` | lifecycle, CORS, growth forecast, per-key last used, public-bucket approval |
+| 44 Connections | `/network/connections` | REST for connect/endpoints, a custom DATABASE_URL name |
+| 45 Alert rules | `/alerts` | backtest for signals other than error rate and disk |
+| 54 Registries | `/ci` | — |
+| 55 Channels | `/alerts` | saved test receipts, per-channel "gets N of 14 rules" |
+| 56 Sign-in (part) | `/settings/access` | password toggle, "must accept with SSO" invites |
+| 61 Errors | `/stacks/$name/errors/…` | — |
+| 64 Queue studio | `/stacks/$name/queues/$cluster` | depth-vs-workers history, autoscale cooldown |
+| 67 CLI & MCP | `/settings/api-keys` | the in-page "Is my repo ready?" check (runs locally only) |
+
+Backend fixes found while building them:
+
+- Sleep when idle counted only the activator, so a busy service was put back
+  to sleep one idle window after every wake; it now reads the edge traffic ring.
+- `decommission.moveService` ran its refusals in the background, so a refused
+  move vanished; they now run first (`planServiceMove`) and return the reason.
+- The MCP server gave a Deploy key (read + deploy) only read tools; each tool
+  now needs what its REST route needs.
+
+Found, not fixed (worth deciding):
+
+- An in-place managed Postgres restore takes no safety snapshot first.
+- A clone restore needs a second, running database cluster to exist already.
