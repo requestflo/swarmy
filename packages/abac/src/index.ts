@@ -22,6 +22,16 @@ export {
 } from './build';
 export { DEFAULT_POLICY_SPECS, defaultPolicyInputs, NON_PRODUCTION } from './defaults';
 export {
+  INVITE_ABILITIES,
+  INVITEE_MEMBER_ID,
+  simulateInvite,
+  type InviteAbility,
+  type InviteAbilityKey,
+  type InviteApp,
+  type InviteCandidate,
+  type InviteVerdict,
+} from './invite-preview';
+export {
   ENV_LABEL,
   APP_ENV_LABEL,
   PRODUCTION,

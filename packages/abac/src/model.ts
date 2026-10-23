@@ -9,6 +9,13 @@ export { parsePolicyDoc, policyMatches, PolicyParseError, type PolicyDoc, type P
 export { buildPrincipal, buildResource, type PrincipalInput, type ResourceInput } from './build';
 export { DEFAULT_POLICY_SPECS, defaultPolicyInputs, NON_PRODUCTION } from './defaults';
 export {
+  INVITE_ABILITIES,
+  simulateInvite,
+  type InviteAbilityKey,
+  type InviteApp,
+  type InviteVerdict,
+} from './invite-preview';
+export {
   ENV_LABEL,
   APP_ENV_LABEL,
   PRODUCTION,
