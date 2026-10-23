@@ -40,7 +40,7 @@ export const gaps: DomainResolvers = {
       warnings: [],
     }),
     // mesh.people.card / mesh.people.connected live in mesh.ts (two laptops online).
-    'mesh.people.grants': (): Out['mesh']['people']['grants'] => [],
+    // mesh.people.grants / revoke live in mesh-grants.ts (two personal grants).
     'mesh.people.connectInfo': (): Out['mesh']['people']['connectInfo'] => ({
       available: false,
       reason: 'People access is off in this demo.',

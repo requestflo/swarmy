@@ -2,7 +2,7 @@ import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
-import type { MeshDriverId } from './mesh-driver-card';
+import type { MeshDriverId } from './mesh-format';
 
 /** The private network page's data + mutations (moved out of the route, logic unchanged). */
 export function usePrivateNetwork() {

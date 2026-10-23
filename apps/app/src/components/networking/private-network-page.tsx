@@ -1,14 +1,11 @@
 import * as React from 'react';
+import { Link } from '@tanstack/react-router';
 import { Button } from '@swarmy/ui';
 import { SectionHeader } from '@/components/section-header';
 import { AlreadyOn, Depth, NextAction, Say, Section } from '@/components/calm';
 import { useMedia } from '@/components/estate-map/use-media';
 import { PageError, PageSkeleton } from '@/components/states';
-import { MeshDriverCard } from './mesh-driver-card';
-import { EnrollNodeCard } from './enroll-node-card';
-import { ControlPlaneCard } from './control-plane-card';
-import { PeopleAccessCard } from './people-access-card';
-import { PeopleRows, ServerRows } from './private-network-rows';
+import { ServerRows } from './private-network-rows';
 import { PrivateNetworkCode } from './private-network-code';
 import { MeshGraph } from './mesh-graph';
 import { JOINING_STATUSES } from './mesh-graph-model';
@@ -53,6 +50,11 @@ export function PrivateNetworkPage(): React.JSX.Element {
             ? `Private and encrypted${n.managed ? ', managed by swarmy' : ''}. Servers in any cloud or behind any router reach each other directly; databases and admin pages never face the internet.`
             : 'Turn it on to join servers anywhere into one encrypted network, with nothing exposed to the internet.'
         }
+        actions={
+          <Button asChild variant="outline" size="sm" className="pointer-coarse:min-h-11">
+            <Link to="/networking/settings">Mesh settings</Link>
+          </Button>
+        }
       />
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_400px]">
         <div className="flex min-w-0 flex-col gap-5">
@@ -83,33 +85,11 @@ export function PrivateNetworkPage(): React.JSX.Element {
             </Section>
           ) : null}
           {n.live ? showMap ? <Depth at="controls"><ServerRows n={n} /></Depth> : <ServerRows n={n} /> : null}
-          <Depth at="controls">
-            <div className="grid gap-4 lg:grid-cols-2">
-              <MeshDriverCard
-                driver={n.driver}
-                enabled={!!n.config?.enabled}
-                isNone={n.driver === 'none'}
-                onDriverChange={(d) => n.setDriver.mutate({ driver: d })}
-                onEnabledChange={(v) => n.setEnabled.mutate({ enabled: v })}
-              />
-              <EnrollNodeCard
-                active={n.live}
-                nodes={n.nodes}
-                enrollNodeId={n.enrollNodeId}
-                onEnrollNodeIdChange={n.setEnrollNodeId}
-                onEnroll={(nodeId) => n.enrollNode.mutate({ nodeId })}
-                isPending={n.enrollNode.isPending}
-              />
-            </div>
-            {n.driver !== 'none' ? <ControlPlaneCard driver={n.driver} /> : null}
-            {n.managed ? <PeopleAccessCard /> : null}
-          </Depth>
         </div>
         <aside className="flex min-w-0 flex-col gap-4">
           <PrivateNetworkCode n={n} />
           {n.live ? <MeshJoiningCard peers={n.peers} nodes={n.nodes} /> : null}
           {n.live ? <MeshFacts peers={n.peers} config={n.config} /> : null}
-          {n.managed ? <PeopleRows n={n} /> : null}
           {n.live ? (
             <AlreadyOn
               items={[

@@ -52,6 +52,7 @@ import { traffic } from './resolvers/traffic';
 import { stackLinks } from './resolvers/stack-links';
 import { scaling } from './resolvers/scaling';
 import { movesDemo } from './resolvers/moves';
+import { meshGrants } from './resolvers/mesh-grants';
 
 /**
  * Assembles every per-domain resolver module into flat lookup tables for the demo
@@ -112,6 +113,7 @@ const MODULES: DomainResolvers[] = [
   stackLinks,
   scaling,
   movesDemo,
+  meshGrants,
 ];
 
 export const HANDLERS: Record<string, DemoHandler> = Object.assign(

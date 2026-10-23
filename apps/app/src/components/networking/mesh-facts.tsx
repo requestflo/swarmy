@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Depth } from '@/components/calm';
-import { DRIVER_LABELS, type MeshDriverId } from './mesh-driver-card';
+import { DRIVER_LABELS, type MeshDriverId } from './mesh-format';
 import type { MeshPeerLike } from './mesh-graph-model';
 
 /** Direct vs relayed over the connected servers that reported it; null when none has. */

@@ -7,7 +7,7 @@ import { JOINING_STATUSES, type MeshPeerLike } from './mesh-graph-model';
 
 /** The joining ladder: ENROLLING → ENROLLED → CONNECTED, one step each. */
 const STEPS = [
-  { label: 'One-time key', active: 'Starting the private-network client with a one-time key', done: 'Key used once, never written to disk' },
+  { label: 'One-time key', active: 'Starting the private-network client with a one-time key', done: 'Client started with a single-use key' },
   { label: 'Joining', active: 'Client is up, finding a way to the other servers', done: 'On the private network' },
   { label: 'Connected', active: 'Waiting for the first link', done: 'Talking to the others, encrypted end to end' },
 ];
