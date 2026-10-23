@@ -3,13 +3,41 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@swarmy/ui';
 import { GitConnectGithub } from './git-connect-github';
 import { GitConnectGitlab } from './git-connect-gitlab';
 import { GitConnectGeneric } from './git-connect-generic';
+import type { GitProviderId } from './git-providers';
+import type { GitReturn } from './git-return';
 
 interface GitConnectPanelProps {
   onConnected: () => void;
+  /** One provider card's connect step (the Deploy wizard); absent = every provider in tabs (/ci). */
+  provider?: GitProviderId;
+  returnTo?: GitReturn['to'];
 }
 
 /** "Connect a git provider": GitHub one-click, GitLab OAuth/token, or any git host. */
-export function GitConnectPanel({ onConnected }: GitConnectPanelProps): React.JSX.Element {
+export function GitConnectPanel({ onConnected, provider, returnTo }: GitConnectPanelProps): React.JSX.Element {
+  if (provider === 'github') return <GitConnectGithub host="github" returnTo={returnTo} />;
+  if (provider === 'gitlab') return <GitConnectGitlab onConnected={onConnected} returnTo={returnTo} />;
+  if (provider === 'url') return <GitConnectGeneric onConnected={onConnected} />;
+  if (provider === 'self') {
+    return (
+      <Tabs defaultValue="ghes">
+        <TabsList>
+          <TabsTrigger value="ghes">GitHub Enterprise</TabsTrigger>
+          <TabsTrigger value="gitlab">GitLab self-managed</TabsTrigger>
+          <TabsTrigger value="gitea">Gitea · Forgejo · other</TabsTrigger>
+        </TabsList>
+        <TabsContent value="ghes" className="pt-3">
+          <GitConnectGithub host="self" returnTo={returnTo} />
+        </TabsContent>
+        <TabsContent value="gitlab" className="pt-3">
+          <GitConnectGitlab onConnected={onConnected} returnTo={returnTo} />
+        </TabsContent>
+        <TabsContent value="gitea" className="pt-3">
+          <GitConnectGeneric onConnected={onConnected} />
+        </TabsContent>
+      </Tabs>
+    );
+  }
   return (
     <div className="border-b px-6 py-5">
       <Tabs defaultValue="github">

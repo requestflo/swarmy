@@ -5,9 +5,12 @@ import { Button, Input, Label, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { GitSegmented } from './git-segmented';
 import { goToProvider } from './git-nav';
+import { rememberGitReturn, type GitReturn } from './git-return';
 
 interface GitConnectGitlabProps {
   onConnected: () => void;
+  /** Where the OAuth round trip comes back to (the Deploy wizard); absent = /ci. */
+  returnTo?: GitReturn['to'];
 }
 
 type Mode = 'oauth' | 'token';
@@ -18,7 +21,7 @@ const OPTIONS = [
 ] as const;
 
 /** GitLab (cloud or self-managed): an OAuth application, or a personal/group access token. */
-export function GitConnectGitlab({ onConnected }: GitConnectGitlabProps): React.JSX.Element {
+export function GitConnectGitlab({ onConnected, returnTo }: GitConnectGitlabProps): React.JSX.Element {
   const trpc = useTRPC();
   const navigate = useNavigate();
   const [mode, setMode] = React.useState<Mode>('oauth');
@@ -30,7 +33,10 @@ export function GitConnectGitlab({ onConnected }: GitConnectGitlabProps): React.
   const create = useMutation(
     trpc.gitConnections.create.mutationOptions({
       onSuccess: (res) => {
-        if (res.authorizeUrl) return goToProvider(res.authorizeUrl, navigate);
+        if (res.authorizeUrl) {
+          rememberGitReturn(returnTo ? { to: returnTo } : null);
+          return goToProvider(res.authorizeUrl, navigate);
+        }
         toast.success(
           `GitLab is connected${res.connection.account ? ` as ${res.connection.account}` : ''}.`,
         );

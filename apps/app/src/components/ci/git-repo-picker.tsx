@@ -4,6 +4,7 @@ import { LockIcon, SearchIcon } from 'lucide-react';
 import { cn, Input } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { ErrorState, TextSkeleton } from '@/components/states';
+import { GitChip } from './git-chip';
 import type { ProviderRepo } from './git-types';
 import { useDebouncedValue } from './use-debounced-value';
 
@@ -11,6 +12,8 @@ interface GitRepoPickerProps {
   connectionId: string;
   value: ProviderRepo | null;
   onChange: (repo: ProviderRepo) => void;
+  /** The apps already deployed from a repo (tagged on its row). */
+  apps?: (cloneUrl: string) => string[];
 }
 
 /** Step 2 — a searchable list of the repos this connection can see. */
@@ -18,6 +21,7 @@ export function GitRepoPicker({
   connectionId,
   value,
   onChange,
+  apps,
 }: GitRepoPickerProps): React.JSX.Element {
   const trpc = useTRPC();
   const [search, setSearch] = React.useState('');
@@ -63,12 +67,14 @@ export function GitRepoPicker({
                 <button
                   type="button"
                   onClick={() => onChange(r)}
+                  aria-pressed={value?.id === r.id}
                   className={cn(
                     'hover:bg-accent/60 flex w-full items-center gap-3 border-l-[3px] border-transparent px-4 py-2.5 text-left transition-colors',
                     value?.id === r.id && 'bg-accent border-primary',
                   )}
                 >
                   <span className="mono-data min-w-0 flex-1 truncate">{r.fullName}</span>
+                  {apps?.(r.cloneUrl).length ? <GitChip tone="mesh">{`app · ${apps(r.cloneUrl).join(', ')}`}</GitChip> : null}
                   {r.private ? (
                     <LockIcon
                       className="text-muted-foreground size-3.5 shrink-0"

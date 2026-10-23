@@ -2,109 +2,89 @@ import * as React from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { GithubIcon } from 'lucide-react';
-import { Button, Input, Label, toast } from '@swarmy/ui';
+import { Button, Input, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { TextSkeleton } from '@/components/states';
-import { goToProvider, postGithubManifest } from './git-nav';
+import { GitManifestPreview } from './git-manifest-preview';
+import { goToProvider } from './git-nav';
+import { GITHUB_WEB, hostOf } from './git-providers';
+import { rememberGitReturn, type GitReturn } from './git-return';
 import { useDebouncedValue } from './use-debounced-value';
 
-const GITHUB_WEB = 'https://github.com';
 const isHttp = (u: string): boolean => /^https?:\/\/[^\s/]+/.test(u);
 
+interface GitConnectGithubProps {
+  /** `github`: github.com only · `self`: a GitHub Enterprise host is required · absent: either (the /ci panel). */
+  host?: 'github' | 'self';
+  returnTo?: GitReturn['to'];
+}
+
 /**
- * GitHub, one click. First time: register swarmy's GitHub App from a manifest
- * (optionally under a GitHub org, optionally on GitHub Enterprise Server).
- * After that: install it on repos/accounts.
+ * GitHub, one click. First time on a host: register this controller's own
+ * GitHub App from a manifest (previewed first). After that: install it on the
+ * accounts and repos you want to deploy.
  */
-export function GitConnectGithub(): React.JSX.Element {
+export function GitConnectGithub({ host, returnTo }: GitConnectGithubProps): React.JSX.Element {
   const trpc = useTRPC();
   const navigate = useNavigate();
-  const [org, setOrg] = React.useState('');
   const [ghes, setGhes] = React.useState('');
   const typed = useDebouncedValue(ghes.trim().replace(/\/+$/, ''), 400);
-  const webBase = isHttp(typed) && typed !== GITHUB_WEB ? typed : undefined;
-  const wb = webBase ? { webBase } : undefined;
+  const custom = isHttp(typed) && typed !== GITHUB_WEB ? typed : undefined;
+  const webBase = host === 'github' ? GITHUB_WEB : (custom ?? (host === 'self' ? null : GITHUB_WEB));
+  const wb = webBase && webBase !== GITHUB_WEB ? { webBase } : undefined;
 
-  // Keep the previous answer while a new GHES URL resolves, so the field isn't swapped for a skeleton mid-typing.
+  // Keep the previous answer while a new host resolves, so the field isn't swapped for a skeleton mid-typing.
   const app = useQuery({
     ...trpc.gitConnections.githubApp.queryOptions(wb),
+    enabled: webBase !== null,
     placeholderData: (prev) => prev,
   });
   const conns = useQuery(trpc.gitConnections.list.queryOptions());
-  const installs = (conns.data ?? []).filter(
-    (c) =>
-      c.kind === 'github' && c.baseUrl.replace(/\/+$/, '') === (app.data?.webBase ?? GITHUB_WEB),
-  ).length;
-
-  const onError = (e: { message: string }): void => void toast.error(e.message);
-  const start = useMutation(
-    trpc.gitConnections.startGithubManifest.mutationOptions({
-      onSuccess: ({ postUrl, manifest }) => postGithubManifest(postUrl, manifest, navigate),
-      onError,
-    }),
-  );
+  const installs = (conns.data ?? []).filter((c) => c.kind === 'github' && c.baseUrl.replace(/\/+$/, '') === webBase).length;
   const install = useMutation(
     trpc.gitConnections.githubInstallLink.mutationOptions({
-      onSuccess: ({ url }) => goToProvider(url, navigate),
-      onError,
+      onSuccess: ({ url }) => {
+        rememberGitReturn(returnTo ? { to: returnTo } : null);
+        goToProvider(url, navigate);
+      },
+      onError: (e) => toast.error(e.message),
     }),
   );
 
-  const ghesField = (
-    <div className="grid max-w-sm gap-1.5">
-      <Label className="mono-label">GitHub Enterprise Server URL (optional)</Label>
+  const hostField =
+    host === 'github' ? (
+      <span className="font-mono text-[12.5px]">github.com</span>
+    ) : (
       <Input
         value={ghes}
         onChange={(e) => setGhes(e.target.value)}
-        placeholder="https://github.corp.example"
-        className="mono-data"
+        placeholder={host === 'self' ? 'https://github.example.com' : 'github.com, or your GitHub Enterprise URL'}
+        aria-label="GitHub host"
+        className="h-8 max-w-xs font-mono text-[12.5px]"
       />
-    </div>
-  );
+    );
 
-  if (app.isPending) return <TextSkeleton className="h-4 w-2/3" />;
-
-  if (app.data?.registered) {
+  if (webBase === null) {
     return (
-      <div className="space-y-3">
-        <p className="text-sm">
-          {installs === 0
-            ? 'Installed nowhere yet. '
-            : `Installed on ${installs} account${installs === 1 ? '' : 's'}. `}
-          swarmy’s GitHub App <span className="mono-data">{app.data.name ?? app.data.slug}</span> is
-          ready — install it on the account or repos you want to deploy.
-        </p>
-        {ghesField}
-        <Button onClick={() => install.mutate(wb)} disabled={install.isPending}>
-          <GithubIcon className="size-4" />{' '}
-          {install.isPending ? 'Opening GitHub…' : 'Install on GitHub'}
-        </Button>
+      <div className="flex flex-col gap-2">
+        <p className="text-sm">Where’s your GitHub Enterprise server? We create a private GitHub App on it in one click.</p>
+        {hostField}
       </div>
     );
   }
+  if (app.isPending) return <TextSkeleton className="h-4 w-2/3" />;
+  if (!app.data?.registered) return <GitManifestPreview webBase={webBase} hostField={hostField} returnTo={returnTo} />;
 
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col gap-3">
       <p className="text-sm">
-        We’ll create a private GitHub App for this controller. You approve it on GitHub, pick the
-        repos, and come straight back here.
+        {installs === 0 ? 'Installed nowhere yet. ' : `Installed on ${installs} account${installs === 1 ? '' : 's'}. `}
+        This controller’s GitHub App <span className="font-mono">{app.data.name ?? app.data.slug}</span> is ready on{' '}
+        {hostOf(webBase)} — install it on the account or repos you want to deploy.
       </p>
-      <div className="flex flex-wrap gap-3">
-        <div className="grid max-w-sm flex-1 gap-1.5">
-          <Label className="mono-label">GitHub org (optional)</Label>
-          <Input
-            value={org}
-            onChange={(e) => setOrg(e.target.value)}
-            placeholder="Leave blank for your account"
-          />
-        </div>
-        {ghesField}
-      </div>
-      <Button
-        onClick={() => start.mutate({ ...(org.trim() ? { githubOrg: org.trim() } : {}), ...wb })}
-        disabled={start.isPending || (ghes.trim() !== '' && !isHttp(ghes.trim()))}
-      >
-        <GithubIcon className="size-4" /> {start.isPending ? 'Opening GitHub…' : 'Connect GitHub'}
+      {host === 'github' ? null : hostField}
+      <Button className="w-fit pointer-coarse:min-h-11" onClick={() => install.mutate(wb)} disabled={install.isPending}>
+        <GithubIcon className="size-4" /> {install.isPending ? 'Opening GitHub…' : `Install on ${hostOf(webBase)} ↗`}
       </Button>
     </div>
   );

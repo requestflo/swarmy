@@ -2,6 +2,7 @@ import * as React from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { CheckCircle2Icon, HourglassIcon, TriangleAlertIcon, XIcon } from 'lucide-react';
 import { Button, cn } from '@swarmy/ui';
+import { takeGitReturn, type GitReturn } from './git-return';
 import { KIND_LABEL, type GitConnectionKind } from './git-types';
 
 /** The `?git=` result the controller's provider callbacks redirect back with. */
@@ -34,9 +35,18 @@ export function GitResultBanner({ onStart }: GitResultBannerProps): React.JSX.El
   const search = useSearch({ strict: false }) as GitResultSearch;
   const navigate = useNavigate();
   const [result, setResult] = React.useState<GitResultSearch | null>(null);
+  const returnTo = React.useRef<GitReturn | null | undefined>(undefined);
 
   React.useEffect(() => {
     if (!search.git) return;
+    // Started in the Deploy wizard: hand the result back to it (read once; effects may re-run).
+    if (returnTo.current === undefined) returnTo.current = takeGitReturn();
+    const back = returnTo.current;
+    if (back) {
+      const { git, kind, connection, message } = search;
+      void navigate({ to: back.to, search: { source: 'git', git, kind, connection, message, created: back.created }, replace: true });
+      return;
+    }
     setResult({
       git: search.git,
       kind: search.kind,

@@ -1,4 +1,5 @@
 import type { DemoStore, DomainResolvers } from '../types';
+import { DEMO_APP_NAME, demoManifest, isPreviewCall } from './gitconnections-manifest';
 
 /**
  * Git-provider connection demo resolvers (router `gitConnections`) — the
@@ -37,6 +38,10 @@ interface ProviderRepo {
 interface GitState {
   /** webBases with a registered GitHub App (github.com + a GHES that isn't installed anywhere yet). */
   githubApps: string[];
+  /** webBase → the name its App was registered under (apps made in the demo). */
+  appNames?: Record<string, string>;
+  /** host|owner keys whose manifest the wizard has previewed (see isPreviewCall). */
+  previewed?: string[];
   connections: ConnectionView[];
   /** connectionId → the repos that provider can see. */
   repos: Record<string, ProviderRepo[]>;
@@ -86,6 +91,16 @@ function buildSeed(): GitState {
         createdAt: iso(40 * DAY),
       },
       {
+        id: 'gc-github-dana',
+        kind: 'github',
+        displayName: 'dana-ops',
+        baseUrl: 'https://github.com',
+        account: 'dana-ops',
+        status: 'active',
+        repoCount: 0,
+        createdAt: iso(9 * DAY),
+      },
+      {
         id: 'gc-gitlab',
         kind: 'gitlab',
         displayName: 'GitLab',
@@ -101,9 +116,11 @@ function buildSeed(): GitState {
         gh('northwind/web'),
         gh('northwind/api'),
         gh('northwind/platform'),
+        gh('northwind/storefront'),
         gh('northwind/docs', 'main', false),
         gh('northwind/legacy-billing', 'master'),
       ],
+      'gc-github-dana': [gh('dana-ops/status-bot'), gh('dana-ops/blog', 'main', false)],
       'gc-gitlab': [
         {
           id: '48213907',
@@ -181,36 +198,54 @@ function mirrorIntoCicd(
 
 /** A believable repo tree by name: `…/platform` is a monorepo, `…/legacy-billing` predates swarmy. */
 function fakeInspect(name: string, configPath: string) {
-  const tree = name.endsWith('/platform')
+  // Only the notable files git.inspect lists (NOTABLE_FILE_RE).
+  const monorepo = name.endsWith('/platform');
+  const tree = monorepo
     ? [
-        'services/orders/swarmy.yaml',
-        'services/orders/Dockerfile',
-        'services/payments/swarmy.yaml',
-        'services/payments/Dockerfile',
         'package.json',
+        'packages/ui/package.json',
+        'services/orders/Dockerfile',
+        'services/orders/package.json',
+        'services/orders/swarmy.yaml',
+        'services/payments/Dockerfile',
+        'services/payments/go.mod',
+        'services/payments/swarmy.yaml',
+        'web/admin/package.json',
       ]
     : name.endsWith('/legacy-billing')
       ? ['Dockerfile', 'docker-compose.yml', 'Gemfile']
-      : ['swarmy.yaml', 'package.json', 'pnpm-lock.yaml'];
+      : ['swarmy.yaml', 'package.json'];
   const configPaths = tree.filter((p) => /(^|\/)swarmy\.ya?ml$/.test(p));
   const files: Record<string, string | null> = {
     [configPath]: configPaths.includes(configPath) ? 'version: 1\n' : null,
   };
-  // Mirrors git-providers/detect-build.ts for the demo repos.
-  const detected = tree.includes('Dockerfile') || tree.some((p) => p.endsWith('/Dockerfile'))
+  // Mirrors git-providers/detect-build.ts, run next to the swarmy.yaml (the root for inspectSource).
+  const dir = configPath.includes('/') ? configPath.slice(0, configPath.lastIndexOf('/')) : '';
+  const detected = tree.includes(dir ? `${dir}/Dockerfile` : 'Dockerfile')
     ? { builder: 'dockerfile' as const, summary: 'Dockerfile found — swarmy builds it as-is' }
-    : {
-        builder: 'railpack' as const,
-        provider: 'node',
-        language: 'Node.js',
-        framework: 'Next.js',
-        runtime: 'Node 22',
-        packageManager: 'pnpm',
-        start: 'pnpm start',
-        port: 3000,
-        healthPath: '/',
-        summary: 'Next.js · Node 22 · start: pnpm start',
-      };
+    : monorepo && !dir
+      ? {
+          builder: 'railpack' as const,
+          provider: 'node',
+          language: 'Node.js',
+          runtime: 'Node 22',
+          packageManager: 'pnpm',
+          port: 3000,
+          healthPath: '/',
+          summary: 'Node.js · Node 22',
+        }
+      : {
+          builder: 'railpack' as const,
+          provider: 'node',
+          language: 'Node.js',
+          framework: 'Next.js',
+          runtime: 'Node 22',
+          packageManager: 'pnpm',
+          start: 'pnpm start',
+          port: 3000,
+          healthPath: '/',
+          summary: 'Next.js · Node 22 · start: pnpm start',
+        };
   // A compose-only repo gets the converted starter the real controller returns.
   const composeDraft =
     configPaths.length === 0 && tree.includes('docker-compose.yml')
@@ -255,7 +290,9 @@ export const gitconnections: DomainResolvers = {
       return {
         registered,
         slug: registered ? slug : null,
-        name: registered ? `swarmy (${webBase === GITHUB_WEB ? 'northwind' : 'corp'})` : null,
+        name: registered
+          ? (state(s).appNames?.[webBase] ?? `swarmy (${webBase === GITHUB_WEB ? 'northwind' : 'corp'})`)
+          : null,
         htmlUrl: registered ? `${webBase}/apps/${slug}` : null,
         webBase,
       };
@@ -267,16 +304,19 @@ export const gitconnections: DomainResolvers = {
       const webBase = webBaseOf(i);
       if (st.githubApps.includes(webBase))
         throw new Error('This controller already has a GitHub App — install it instead.');
+      const manifest = demoManifest();
+      if (isPreviewCall((st.previewed ??= []), webBase, org)) return { postUrl: '/ci', manifest };
       st.githubApps.push(webBase);
+      st.appNames = { ...st.appNames, [webBase]: DEMO_APP_NAME };
       // Real flow: manifest → install on GitHub → back here. The demo does both at once.
-      const conn = addConnection(st, {
-        kind: 'github',
-        displayName: org ?? 'demo-user',
-        baseUrl: webBase,
-        account: org ?? 'demo-user',
-      });
-      st.repos[conn.id] = [gh(`${conn.account}/hello-swarmy`)];
-      return { postUrl: connectedPath('github', conn.id), manifest: '{}' };
+      const account = org ?? 'northwind';
+      const conn = addConnection(st, { kind: 'github', displayName: account, baseUrl: webBase, account });
+      st.repos[conn.id] = [`${account}/platform`, `${account}/hello-swarmy`].map((n) => ({
+        ...gh(n),
+        cloneUrl: `${webBase}/${n}.git`,
+        htmlUrl: `${webBase}/${n}`,
+      }));
+      return { postUrl: connectedPath('github', conn.id), manifest };
     },
 
     'gitConnections.githubInstallLink': (i, s) => {
