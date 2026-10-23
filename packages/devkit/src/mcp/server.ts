@@ -81,6 +81,9 @@ const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true,
 /** Build the server. Call once per connection (stdio) or per request (HTTP). */
 export function createSwarmyMcpServer(opts: SwarmyMcpOptions): McpServer {
   const { client } = opts;
+  // Same ladder as the REST API (`scopeSatisfies` in @swarmy/core): write ⊇ deploy ⊇ read.
+  // Each mutating tool needs what its REST route needs, so a Deploy key can ship.
+  const canDeploy = !opts.readOnly && (opts.scopes.includes('deploy') || opts.scopes.includes('write'));
   const canWrite = !opts.readOnly && opts.scopes.includes('write');
   const server = new McpServer(
     { name: MCP_SERVER_NAME, version: opts.version ?? '0.0.0' },
@@ -92,7 +95,9 @@ export function createSwarmyMcpServer(opts: SwarmyMcpOptions): McpServer {
         'Start with list_apps or app_status. Use check_repo before a first deploy.',
         canWrite
           ? 'This credential may deploy and change settings; confirm with the user before deploy, env_set, telemetry_toggle or remove_stack.'
-          : 'This connection is READ-ONLY: it can inspect, check and explain, but not deploy or change anything.',
+          : canDeploy
+            ? 'This credential may deploy (deploy, trial_deploy, env_set) but not change settings or remove stacks; confirm with the user before deploy or env_set.'
+            : 'This connection is READ-ONLY: it can inspect, check and explain, but not deploy or change anything.',
       ].join(' '),
     },
   );
@@ -302,9 +307,9 @@ export function createSwarmyMcpServer(opts: SwarmyMcpOptions): McpServer {
       }),
   );
 
-  if (!canWrite) return server;
+  if (!canDeploy) return server;
 
-  // ── mutating tools (write scope; the controller still applies ABAC) ────────
+  // ── shipping tools (deploy scope, like their REST routes; the controller still applies ABAC) ──
 
   server.registerTool(
     'deploy',
@@ -393,6 +398,10 @@ export function createSwarmyMcpServer(opts: SwarmyMcpOptions): McpServer {
         return ok(`Rolling out ${svc.name}: changed ${r.changed.join(', ') || 'nothing'}.`, r);
       }),
   );
+
+  if (!canWrite) return server;
+
+  // ── settings and removal (write scope) ─────────────────────────────────────
 
   server.registerTool(
     'telemetry_toggle',

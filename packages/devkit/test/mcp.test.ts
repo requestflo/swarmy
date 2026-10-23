@@ -49,6 +49,13 @@ describe('MCP tool schemas', () => {
     const ro = await connect(['read', 'write'], { readOnly: true });
     expect((await ro.mcp.listTools()).tools.map((t) => t.name).sort()).toEqual([...READ_TOOLS].sort());
   });
+
+  test('a Deploy key (read + deploy) can ship but not change settings or remove stacks', async () => {
+    const { mcp } = await connect(['read', 'deploy']);
+    const names = (await mcp.listTools()).tools.map((t) => t.name);
+    for (const n of ['deploy', 'trial_deploy', 'env_set']) expect(names).toContain(n);
+    for (const n of ['telemetry_toggle', 'remove_stack']) expect(names).not.toContain(n);
+  });
 });
 
 describe('MCP tools over the REST SDK', () => {

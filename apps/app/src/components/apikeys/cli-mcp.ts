@@ -29,10 +29,15 @@ export const MCP_READ_TOOLS: Array<[string, string]> = [
   ['env', 'a service’s variables'],
   ['explain_error', 'explain an error'],
 ];
-export const MCP_WRITE_TOOLS: Array<[string, string]> = [
+/** Registered for a key with the `deploy` scope (or `write`), like their REST routes. */
+export const MCP_DEPLOY_TOOLS: Array<[string, string]> = [
   ['deploy', 'deploy'],
   ['trial_deploy', 'trial preview deploy'],
   ['env_set', 'change variables'],
+];
+
+/** Registered only for a key with the `write` scope (the Admin preset). */
+export const MCP_ADMIN_TOOLS: Array<[string, string]> = [
   ['telemetry_toggle', 'telemetry on/off'],
   ['remove_stack', 'remove an app environment'],
 ];
