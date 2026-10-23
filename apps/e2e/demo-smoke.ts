@@ -117,6 +117,8 @@ const routes: Array<[string, RegExp?]> = [
   ['/services/new'],
   ['/stacks/new'],
   ['/stacks/storefront', /storefront/i],
+  // The app canvas (board 7): data stores, the tool row, connect mode.
+  ['/stacks/data', /How it is built[\s\S]*Connect[\s\S]*Compose/],
   ['/stacks/storefront/observability'],
   ['/stacks/storefront/releases'],
   ['/stacks/storefront/config'],

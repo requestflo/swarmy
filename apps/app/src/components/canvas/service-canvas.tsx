@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ReactFlow, Background, BackgroundVariant, Controls, MiniMap } from '@xyflow/react';
+import { ReactFlow, Background, BackgroundVariant, Controls, MiniMap, useUpdateNodeInternals } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import type { Inventory } from '@swarmy/core';
@@ -57,6 +57,12 @@ export function ServiceCanvas({ stackFilter, onNodeTap, extras, onConnectDrag, o
   const scoped: Inventory | null = React.useMemo(() => (inventory.data ? filterInventory(inventory.data, stackFilter) : null), [inventory.data, stackFilter]);
   const g = useCanvasGraph(scoped, extras, embedded);
   const types = React.useMemo(() => new Map(g.nodes.map((n) => [n.id, n.type])), [g.nodes]);
+  // Connect mode adds handles (a part's dot, the drop targets): React Flow measures handles only on resize.
+  const updateInternals = useUpdateNodeInternals();
+  const ids = g.nodes.map((n) => n.id).join('|');
+  React.useEffect(() => {
+    if (ids) updateInternals(ids.split('|'));
+  }, [connect.on, connect.from, ids, updateInternals]);
 
   if (!scoped) {
     return (
