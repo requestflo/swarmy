@@ -2,6 +2,7 @@ import * as React from 'react';
 import { CodeView, Depth, Say } from '@/components/calm';
 import { ErrorState, SkeletonBody } from '@/components/states';
 import { RowPage } from '@/components/rowpage/row-page';
+import { ControllerBackupCard } from './controller-backup-card';
 import { ImportReleaseButton } from './import-release-button';
 import { PolicyCard } from './policy-card';
 import { ReleaseFacts } from './release-facts';
@@ -41,6 +42,7 @@ export function PlatformPage(): React.JSX.Element {
           <>
             <CodeView title="The release, as swarmy sees it" tabs={[{ label: 'release', code: JSON.stringify(v.release, null, 2) }, { label: 'run', code: JSON.stringify(v.run, null, 2) }]} source="readonly" />
             <ReleaseFacts v={v} />
+            <ControllerBackupCard />
           </>
         ) : undefined
       }

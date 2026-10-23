@@ -14,6 +14,7 @@ import {
 } from '@swarmy/ui';
 import { QuietSwitch } from '@/components/rowpage/row-page';
 import { useTRPC } from '@/integrations/trpc';
+import { TrafficHeatmap } from './traffic-heatmap';
 import { usePlatformStatus } from './use-platform';
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -132,6 +133,7 @@ export function PolicyCard({ admin }: { admin: boolean }): React.JSX.Element | n
             </Select>
             <span className="text-muted-foreground text-xs">UTC</span>
           </div>
+          <TrafficHeatmap window={w} />
         </div>
       </div>
 
