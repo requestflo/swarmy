@@ -76,10 +76,12 @@ adapter contract.
    no new port**, just more routes on the running controller. Within `v1` you
    add endpoints/optional fields freely; you never remove or repurpose a field
    or path. A breaking change is a `v2`, not an edit, with a deprecation
-   window: deprecated v1 endpoints emit `Deprecation` + `Sunset` headers (RFC
-   8594) and `x-swarmy-deprecated` in the spec (not built yet — nothing is
-   deprecated). New enum values are documented as open, so adding one is
-   non-breaking.
+   window: wrap the v1 route in `deprecate({ since, sunset, successor?, link?
+   }, route)` (`deprecation.ts`) — the spec gets `deprecated: true` +
+   `x-swarmy-deprecated`, and `deprecationSignals` (the first middleware)
+   stamps `Deprecation` (RFC 9745) + `Sunset` (RFC 8594) + `Link` on every
+   response of it, read back from the same marker. Nothing is deprecated yet.
+   New enum values are documented as open, so adding one is non-breaking.
 9. **Mutations are idempotent-replayable; reads are never commands.** A mutation
    (POST/PUT/PATCH/DELETE) carrying `Idempotency-Key` stores `(orgId, key) →
    (status, body)` and replays it verbatim on retry (`idempotency.ts`, runs
@@ -125,6 +127,7 @@ adapter contract.
 | Bearer-key auth + `requireScope` + `RestEnv` | `packages/api-rest/src/middleware.ts` |
 | Idempotency-Key replay middleware | `packages/api-rest/src/idempotency.ts` |
 | RFC 9457 problem mapper (`trpcErrorToProblem`) | `packages/api-rest/src/problem.ts` |
+| Deprecation marker + `Deprecation`/`Sunset` headers | `packages/api-rest/src/deprecation.ts` |
 | `run()` — call service, encode, map errors | `packages/api-rest/src/respond.ts` |
 | Resource routes (one module per resource) | `packages/api-rest/src/routes/*` |
 | CLI/MCP developer routes (`/me`, env, logs + SSE, previews, telemetry) | `routes/devx.ts` over `@swarmy/trpc/devx` |

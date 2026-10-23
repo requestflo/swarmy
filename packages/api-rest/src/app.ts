@@ -21,6 +21,7 @@ import { registerDevxRoutes } from './routes/devx';
 import { registerDeployRoutes } from './routes/deploys';
 import { idempotency } from './idempotency';
 import { appScopeGate } from './app-scope';
+import { DEPRECATED_EXTENSION, deprecationSignals } from './deprecation';
 
 export const OPENAPI_DOC_ROUTE = '/openapi.json';
 export const DOCS_ROUTE = '/docs';
@@ -51,6 +52,9 @@ function buildResourceApp(deps: RestDeps, withAuth = true): OpenAPIHono<RestEnv>
   });
 
   if (withAuth) {
+    // First, so a deprecated operation's 401s, refusals and replays carry the
+    // Deprecation/Sunset headers too (read back from the routes' markers).
+    app.use('*', deprecationSignals(app));
     app.use('*', apiKeyAuth(deps));
     // App-scoped keys are held to their apps here, for every route (fail-closed).
     app.use('*', appScopeGate());
@@ -90,8 +94,7 @@ export function buildOpenApiDocument(deps: RestDeps): object {
     info: {
       title: 'swarmy API',
       version: '1.0.0',
-      description:
-        'Public, versioned REST API for swarmy. Authenticate with an org-scoped API key: `Authorization: Bearer swk_…`.',
+      description: `Public, versioned REST API for swarmy. Authenticate with an org-scoped API key: \`Authorization: Bearer swk_…\`.\n\n\`/api/v1\` only grows: fields and operations are added, never removed or repurposed, and enums are open (new values may appear). A breaking change ships as a new version; the v1 operation it replaces is marked \`deprecated: true\` with \`${DEPRECATED_EXTENSION}: { since, sunset, successor?, link? }\`, and every response it sends carries \`Deprecation\` (RFC 9745) and \`Sunset\` (RFC 8594) headers, plus a \`Link\` to its successor, until it is removed after the sunset date.`,
     },
     servers: [{ url: '/api/v1' }],
   });

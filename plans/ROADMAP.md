@@ -147,8 +147,6 @@ server and the BuildKit registry cache. What is left (none launch-blocking):
 
 ## REST API & Terraform
 
-- `Deprecation`/`Sunset` headers and `x-swarmy-deprecated` for v1 endpoints
-  (the policy is in `skill("rest-api-surface")` invariant 8).
 - Terraform provider: treat async (202) deploys as blocking — poll
   `/deployments/{id}` to a terminal phase and fail the apply on failure; add
   `join_token`, `ingress` and `node` resources.

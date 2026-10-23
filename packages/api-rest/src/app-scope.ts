@@ -20,6 +20,7 @@ import type { Context, MiddlewareHandler } from 'hono';
 import { keyReachesApp } from '@swarmy/core';
 import { serviceStackName, stackNameForId, type OrgContext } from '@swarmy/trpc';
 import type { RestEnv } from './middleware';
+import { compileTemplate, matchTemplate, relativePath, type PathTemplate } from './path-match';
 import { PROBLEM_CONTENT_TYPE, problem } from './problem';
 
 type Params = Record<string, string>;
@@ -84,21 +85,13 @@ export const APP_ROUTES: Record<string, AppRule> = {
 
 interface CompiledRoute {
   method: string;
-  re: RegExp;
-  names: string[];
+  template: PathTemplate;
   rule: AppRule;
 }
 
 const COMPILED: CompiledRoute[] = Object.entries(APP_ROUTES).map(([key, rule]) => {
   const [method, path] = key.split(' ') as [string, string];
-  const names: string[] = [];
-  const re = new RegExp(
-    `^${path.replace(/\{(\w+)\}/g, (_m, n: string) => {
-      names.push(n);
-      return '([^/]+)';
-    })}$`,
-  );
-  return { method, re, names, rule };
+  return { method, template: compileTemplate(path), rule };
 });
 
 /** The rule for a request (`/api/v1` prefix already stripped), or null = org-wide. */
@@ -106,21 +99,10 @@ export function appRuleFor(method: string, path: string): { rule: AppRule; param
   const m = method.toUpperCase();
   for (const r of COMPILED) {
     if (r.method !== m) continue;
-    const hit = r.re.exec(path);
-    if (!hit) continue;
-    const params: Params = {};
-    r.names.forEach((n, i) => {
-      params[n] = decodeURIComponent(hit[i + 1] ?? '');
-    });
-    return { rule: r.rule, params };
+    const params = matchTemplate(r.template, path);
+    if (params) return { rule: r.rule, params };
   }
   return null;
-}
-
-function relativePath(path: string): string {
-  const i = path.indexOf('/api/v1/');
-  const rel = i >= 0 ? path.slice(i + '/api/v1'.length) : path;
-  return rel.length > 1 && rel.endsWith('/') ? rel.slice(0, -1) : rel;
 }
 
 function refuse(c: Context<RestEnv>, status: 403 | 404, detail: string) {
