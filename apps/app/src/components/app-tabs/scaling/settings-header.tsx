@@ -14,6 +14,8 @@ export function SettingsHeader({ stack, rows, nodes }: { stack: string; rows: Pl
     .map((r) => ({ name: shortName(stack, r.inv.name), server: pinnedServer(r.detail, nodes) }))
     .filter((p) => p.server);
   const regions = new Set(nodes.map(regionOf).filter(Boolean));
+  const sleepers = rows.filter((r) => r.inv.scaleToZero).map((r) => shortName(stack, r.inv.name));
+  const sleep = sleepers.length ? `${sleepers.join(', ')} ${sleepers.length === 1 ? 'sleeps' : 'sleep'} when idle.` : '';
   const where =
     pinned.length === 0
       ? "They go wherever there's room."
@@ -32,9 +34,13 @@ export function SettingsHeader({ stack, rows, nodes }: { stack: string; rows: Pl
           )}
         </>
       }
-      lede={`More copies means a server can stop without anyone noticing. ${
-        regions.size > 1 ? `Your servers span ${regions.size} regions.` : regions.size === 1 ? `Every server is in ${[...regions][0]}.` : ''
-      }`}
+      lede={[
+        'More copies means a server can stop without anyone noticing.',
+        regions.size > 1 ? `Your servers span ${regions.size} regions.` : regions.size === 1 ? `Every server is in ${[...regions][0]}.` : '',
+        sleep,
+      ]
+        .filter(Boolean)
+        .join(' ')}
     />
   );
 }
