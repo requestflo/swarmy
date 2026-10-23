@@ -141,8 +141,9 @@ const routes: Array<[string, RegExp?]> = [
   ['/ci'],
   ['/backups'],
   ['/alerts'],
-  ['/incidents'],
-  ['/incidents/inc-failover-main-db'],
+  // Incidents live in Activity (the old /incidents URLs redirect here).
+  ['/activity?filter=incident'],
+  ['/activity?incident=inc-failover-main-db'],
   ['/status-pages'],
   ['/cost'],
   ['/audit'],
