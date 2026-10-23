@@ -6,7 +6,8 @@ import {
   UpdateScheduledJobInput,
 } from '@swarmy/core';
 import { orgProcedure, router } from '../trpc';
-import { authorize, resolveService } from '../abac';
+import { abacProcedure, authorize, resolveService } from '../abac';
+import { resolveConfigRow } from '../abac-config';
 import type { OrgContext } from '../context';
 import {
   cancelRun,
@@ -100,8 +101,8 @@ export const jobsRouter = router({
       return updateJob(ctx, input);
     }),
 
-  /** Delete a job and its run history (audited). */
-  remove: orgProcedure
+  /** Delete a job and its run history (`job.remove`; members keep it). */
+  remove: abacProcedure('job.remove', resolveConfigRow('scheduledJob'))
     .input(z.object({ id: z.string().min(1) }))
     .mutation(({ ctx, input }) => removeJob(ctx, input.id)),
 

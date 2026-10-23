@@ -175,9 +175,12 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
   middleware.ts`), which calls the SAME `authorize(ctx, action, resource)`
   step — never re-implement evaluate+audit in a route. A NEW destructive
   mutation goes on `abacProcedure` (and its REST route on `requireAction`) with
-  an owner/admin-only action — never `adminProcedure`/`orgProcedure`. Still
-  role-gated (config-level deletes, not yet swept): alerts, notifications,
-  status pages, webhooks, jobs, schedules, ai.
+  an owner/admin-only action — never `adminProcedure`/`orgProcedure`.
+  Config-level deletes are gated too (`alert|statuspage|webhook|job|ai.remove`;
+  backup schedules on `backup.remove`, AI providers on `secret.delete`) over
+  `resolveConfigRow(type)` (`abac-config.ts`, type + id, no lookup). Members
+  keep the ones `orgProcedure` allowed via `defaults-config.ts` (inbound
+  webhooks by `resourceTypes: ['inboundEndpoint']`; outbound stay admin).
 - **`abacProcedure` sits BEFORE `.input()`**, so tRPC gives the middleware no
   parsed input — it resolves the resource from `opts.getRawInput()`. Resolvers
   must read input defensively (they already `typeof`-check and re-look-up the

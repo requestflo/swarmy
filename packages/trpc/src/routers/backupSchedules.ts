@@ -3,6 +3,8 @@
  */
 import { z } from 'zod';
 import { adminProcedure, orgProcedure, router } from '../trpc';
+import { abacProcedure } from '../abac';
+import { resolveConfigRow } from '../abac-config';
 import {
   createSchedule,
   listRestoreOperations,
@@ -45,7 +47,8 @@ export const backupSchedulesRouter = router({
     .input(z.object({ id: z.string(), paused: z.boolean() }))
     .mutation(({ ctx, input }) => setSchedulePaused(ctx, input)),
 
-  remove: adminProcedure
+  /** Losing a schedule loses recoverability, like a target: `backup.remove`. */
+  remove: abacProcedure('backup.remove', resolveConfigRow('backupSchedule'))
     .input(z.object({ id: z.string() }))
     .mutation(({ ctx, input }) => removeSchedule(ctx, input.id)),
 });

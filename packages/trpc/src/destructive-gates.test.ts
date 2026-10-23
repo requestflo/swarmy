@@ -143,9 +143,23 @@ const GATES: Array<[string, unknown, string]> = [
   // AI gateway app wiring: configuring the app it injects into.
   ['ai.attachToService', { stack: 'shop', appService: 'web' }, 'service.configure'],
   ['ai.grantStackAccess', { stack: 'shop' }, 'service.configure'],
+  // Config-level deletes (2026-10): members keep those orgProcedure allowed;
+  // the adminProcedure ones (outbound webhooks, backup schedules, AI
+  // providers) stay owner/admin-only.
+  ['alerts.deleteChannel', { id: 'ch1' }, 'alert.remove'],
+  ['alerts.deleteRule', { id: 'ar1' }, 'alert.remove'],
+  ['statusPages.remove', { id: 'sp1' }, 'statuspage.remove'],
+  ['inboundWebhooks.removeEndpoint', { id: 'ie1' }, 'webhook.remove'],
+  ['webhooksOut.remove', { id: 'we1' }, 'webhook.remove'],
+  ['jobs.remove', { id: 'j1' }, 'job.remove'],
+  ['backupSchedules.remove', { id: 'bs1' }, 'backup.remove'],
+  ['ai.revokeKey', { id: 'k1' }, 'ai.remove'],
+  ['ai.removeRoute', { name: 'smart' }, 'ai.remove'],
+  ['ai.revokeStackAccess', { stack: 'shop' }, 'ai.remove'],
+  ['ai.removeProvider', { kind: 'openai' }, 'secret.delete'],
 ];
 
-/** Member-allowed today (orgProcedure before the sweep) — must stay allowed. */
+/** Member-allowed today (orgProcedure before the sweep) — must stay allowed. Actions or paths. */
 const MEMBER_KEEPS = new Set([
   'service.scale',
   'service.restart',
@@ -154,6 +168,12 @@ const MEMBER_KEEPS = new Set([
   'service.deploy',
   'service.configure',
   'stack.deploy',
+  'alert.remove',
+  'statuspage.remove',
+  'job.remove',
+  'ai.remove',
+  // `webhook.remove` is member-permitted on inbound endpoints only (by type).
+  'inboundWebhooks.removeEndpoint',
 ]);
 
 async function call(role: Role, path: string, input: unknown): Promise<{ audit: string[]; error: unknown }> {
@@ -189,7 +209,7 @@ describe('destructive mutations sit behind abacProcedure (seeded defaults)', () 
       }
     });
 
-    const memberKeeps = MEMBER_KEEPS.has(action);
+    const memberKeeps = MEMBER_KEEPS.has(action) || MEMBER_KEEPS.has(path);
     it(`${path} → ${action}: member ${memberKeeps ? 'keeps it' : 'is refused (audited)'}`, async () => {
       const { audit, error } = await call('member', path, input);
       if (memberKeeps) {

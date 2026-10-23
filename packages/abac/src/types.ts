@@ -46,7 +46,7 @@ export const ACTIONS = [
   'data.restore',
   /** Confirm a managed-DB failover that may lose the last writes (the data-loss window). */
   'data.failover',
-  /** Remove a backup target or the offsite mirror (loses recoverability, not data). */
+  /** Remove a backup target or schedule (loses recoverability, not data). */
   'backup.remove',
   /** Delete or prune a secret/config family (Docker secrets/configs). */
   'secret.delete',
@@ -100,6 +100,20 @@ export const ACTIONS = [
   'email.write',
   /** Send a test email from the Email page. */
   'email.send',
+  // Config-level deletes (2026-10). Members keep the ones they had before the
+  // gate via the `member-config-remove` / `member-inbound-webhook-remove`
+  // defaults; outbound webhooks stay owner/admin-only. Backup schedules ride
+  // `backup.remove`, an AI provider's stored key `secret.delete`.
+  /** Remove an alert channel or alert rule. */
+  'alert.remove',
+  /** Delete a status page and its uptime history. */
+  'statuspage.remove',
+  /** Remove a webhook endpoint (resource type `inboundEndpoint` or `webhookEndpoint`). */
+  'webhook.remove',
+  /** Delete a scheduled job and its run history. */
+  'job.remove',
+  /** AI gateway: revoke a virtual key or an app's grant, remove a route. */
+  'ai.remove',
 ] as const;
 
 export type Action = (typeof ACTIONS)[number];

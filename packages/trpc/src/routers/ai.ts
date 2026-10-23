@@ -14,6 +14,7 @@ import {
   UpdateAiKeyInput,
 } from '@swarmy/core';
 import { abacProcedure, resolveStackByName, resolveStackService } from '../abac';
+import { resolveConfigRow } from '../abac-config';
 import { adminProcedure, orgProcedure, router } from '../trpc';
 import {
   attachAiToService,
@@ -82,8 +83,8 @@ export const aiGatewayRouter = router({
     .input(SetAiProviderInput)
     .mutation(({ ctx, input }) => setProvider(ctx, input)),
 
-  /** Remove a provider (and its stored key). */
-  removeProvider: adminProcedure
+  /** Remove a provider (and its stored key): `secret.delete`, owner/admin by default. */
+  removeProvider: abacProcedure('secret.delete', resolveConfigRow('aiProvider', 'kind'))
     .input(RemoveAiProviderInput)
     .mutation(({ ctx, input }) => removeProvider(ctx, input.kind)),
 
@@ -106,7 +107,7 @@ export const aiGatewayRouter = router({
 
   /** Create/replace a route: fallback order or weighted load-balancing across providers. */
   setRoute: orgProcedure.input(SetAiRouteInput).mutation(({ ctx, input }) => setRoute(ctx, input)),
-  removeRoute: orgProcedure
+  removeRoute: abacProcedure('ai.remove', resolveConfigRow('aiRoute', 'name'))
     .input(RemoveAiRouteInput)
     .mutation(({ ctx, input }) => removeRoute(ctx, input.name)),
 
@@ -120,8 +121,8 @@ export const aiGatewayRouter = router({
     .input(AiPlaygroundInput)
     .mutation(({ ctx, input }) => runPlayground(ctx, input)),
 
-  /** Disable a key (the gateway answers 403 for it immediately). */
-  revokeKey: orgProcedure
+  /** Disable a key (the gateway answers 403 for it immediately). `ai.remove`. */
+  revokeKey: abacProcedure('ai.remove', resolveConfigRow('aiVirtualKey'))
     .input(z.object({ id: z.string().min(1) }))
     .mutation(({ ctx, input }) => revokeKey(ctx, input.id)),
 
@@ -152,8 +153,8 @@ export const aiGatewayRouter = router({
     .input(GrantStackAccessInput)
     .mutation(({ ctx, input }) => grantStackAccess(ctx, input)),
 
-  /** Kill the grant: disable the stack key and every per-service key. */
-  revokeStackAccess: orgProcedure
+  /** Kill the grant: disable the stack key and every per-service key. `ai.remove` on the stack. */
+  revokeStackAccess: abacProcedure('ai.remove', resolveStackByName)
     .input(StackInput)
     .mutation(({ ctx, input }) => revokeStackAccess(ctx, input.stack)),
 

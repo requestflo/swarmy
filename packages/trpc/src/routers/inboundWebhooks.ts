@@ -7,6 +7,8 @@ import {
   UpdateInboundEndpointInput,
 } from '@swarmy/core';
 import { orgProcedure, router } from '../trpc';
+import { abacProcedure } from '../abac';
+import { resolveConfigRow } from '../abac-config';
 import {
   createEndpoint,
   getDelivery,
@@ -79,8 +81,8 @@ export const inboundWebhooksRouter = router({
     .input(UpdateEndpointStackInput)
     .mutation(({ ctx, input }) => updateEndpoint(ctx, input)),
 
-  /** Delete an endpoint and its delivery history (audited). */
-  removeEndpoint: orgProcedure
+  /** Delete an endpoint and its delivery history (`webhook.remove`; members keep it). */
+  removeEndpoint: abacProcedure('webhook.remove', resolveConfigRow('inboundEndpoint'))
     .input(InboundEndpointRefInput)
     .mutation(({ ctx, input }) => removeEndpoint(ctx, input.id)),
 

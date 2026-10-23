@@ -11,7 +11,8 @@
     "build": "echo '@swarmy/api-rest resolves to src'",
     "openapi:dump": "bun run src/bin/dump-openapi.ts",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist .turbo"
+    "clean": "rm -rf dist .turbo",
+    "test": "bun test"
   },
   "dependencies": {
     "@swarmy/auth": "workspace:*",

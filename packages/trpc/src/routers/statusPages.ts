@@ -7,6 +7,8 @@ import {
   UpdateStatusPageInput,
 } from '@swarmy/core';
 import { orgProcedure, router } from '../trpc';
+import { abacProcedure } from '../abac';
+import { resolveConfigRow } from '../abac-config';
 import {
   componentOptions,
   createPage,
@@ -58,8 +60,8 @@ export const statusPagesRouter = router({
     )
     .mutation(({ ctx, input }) => updatePage(ctx, input)),
 
-  /** Delete a page and its uptime history. */
-  remove: orgProcedure
+  /** Delete a page and its uptime history (`statuspage.remove`). */
+  remove: abacProcedure('statuspage.remove', resolveConfigRow('statusPage'))
     .input(StatusPageRefInput)
     .mutation(({ ctx, input }) => removePage(ctx, input)),
 

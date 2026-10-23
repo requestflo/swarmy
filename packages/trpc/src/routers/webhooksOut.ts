@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { adminProcedure, orgProcedure, router } from '../trpc';
+import { abacProcedure } from '../abac';
+import { resolveConfigRow } from '../abac-config';
 import {
   enqueueEvent,
   listEndpoints,
@@ -32,7 +34,8 @@ export const webhooksOutRouter = router({
     .input(z.object({ id: z.string(), active: z.boolean() }))
     .mutation(({ ctx, input }) => setEndpointActive(ctx, input.id, input.active)),
 
-  remove: adminProcedure
+  /** `webhook.remove` on a `webhookEndpoint`: owner/admin-only by default. */
+  remove: abacProcedure('webhook.remove', resolveConfigRow('webhookEndpoint'))
     .input(z.object({ id: z.string() }))
     .mutation(({ ctx, input }) => removeEndpoint(ctx, input.id)),
 

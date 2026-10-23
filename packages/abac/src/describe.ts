@@ -40,7 +40,7 @@ export const ACTION_CATALOG: ActionInfo[] = [
   { id: 'data.destroy', label: 'destroy data', group: 'destructive' },
   { id: 'data.restore', label: 'restore over live data', group: 'destructive' },
   { id: 'data.failover', label: 'confirm a switch-over that can lose data', group: 'destructive' },
-  { id: 'backup.remove', label: 'remove backup targets', group: 'destructive' },
+  { id: 'backup.remove', label: 'remove backup targets and schedules', group: 'destructive' },
   { id: 'secret.delete', label: 'delete secrets', group: 'destructive' },
   { id: 'dns.remove', label: 'remove DNS', group: 'destructive' },
   { id: 'ingress.remove', label: 'remove tunnels', group: 'destructive' },
@@ -56,6 +56,11 @@ export const ACTION_CATALOG: ActionInfo[] = [
   { id: 'data.write', label: 'edit database rows', group: 'operate' },
   { id: 'email.write', label: 'configure email sending', group: 'configure' },
   { id: 'email.send', label: 'send test emails', group: 'operate' },
+  { id: 'alert.remove', label: 'remove alerts', group: 'configure' },
+  { id: 'statuspage.remove', label: 'remove status pages', group: 'configure' },
+  { id: 'webhook.remove', label: 'remove webhooks', group: 'configure' },
+  { id: 'job.remove', label: 'remove scheduled jobs', group: 'configure' },
+  { id: 'ai.remove', label: 'revoke AI keys and routes', group: 'configure' },
   { id: 'member.write', label: 'manage members', group: 'governance' },
   { id: 'policy.write', label: 'edit policies', group: 'governance' },
   { id: 'authconfig.write', label: 'change sign-in settings', group: 'governance' },
@@ -78,6 +83,7 @@ const TYPE_WORDS: Record<string, string> = {
   stack: 'apps',
   node: 'servers',
   org: 'the workspace',
+  inboundEndpoint: 'inbound webhooks',
 };
 
 function attrWords(attr: string): string {

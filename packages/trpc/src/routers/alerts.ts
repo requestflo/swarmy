@@ -12,6 +12,8 @@ import {
   UpdateChannelInput,
 } from '@swarmy/core';
 import { orgProcedure, router } from '../trpc';
+import { abacProcedure } from '../abac';
+import { resolveConfigRow } from '../abac-config';
 import {
   ackEvent,
   createChannel,
@@ -53,8 +55,8 @@ export const alertsRouter = router({
   updateChannel: orgProcedure
     .input(UpdateChannelInput)
     .mutation(({ ctx, input }) => updateChannel(ctx, input)),
-  /** Remove a channel. */
-  deleteChannel: orgProcedure
+  /** Remove a channel (`alert.remove`; members keep it by default). */
+  deleteChannel: abacProcedure('alert.remove', resolveConfigRow('notificationChannel'))
     .input(ChannelRefInput)
     .mutation(({ ctx, input }) => deleteChannel(ctx, input)),
   /** Send a test message through the channel and report the outcome. */
@@ -73,8 +75,8 @@ export const alertsRouter = router({
   updateRule: orgProcedure
     .input(UpdateAlertRuleInput)
     .mutation(({ ctx, input }) => updateRule(ctx, input)),
-  /** Remove a custom rule (defaults can only be disabled). */
-  deleteRule: orgProcedure
+  /** Remove a custom rule (defaults can only be disabled). `alert.remove`. */
+  deleteRule: abacProcedure('alert.remove', resolveConfigRow('alertRule'))
     .input(AlertRuleRefInput)
     .mutation(({ ctx, input }) => deleteRule(ctx, input)),
   /** "Mute for 1h": keep recording, send nothing, open no incident until it ends. */
