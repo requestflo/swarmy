@@ -350,7 +350,7 @@ export const releases: DomainResolvers = {
   },
 
   seed: (store) => {
-    // Eight releases across the demo stacks, newest first: one converging deploy,
+    // Nine releases across the demo stacks, newest first: one converging deploy,
     // a failed gate that auto-rolled back (and the rollback release that
     // followed it), plus healthy/superseded history for believable diffs.
     const state: ReleasesState = {
@@ -485,6 +485,23 @@ export const releases: DomainResolvers = {
           notes: null,
           createdAt: iso(4 * 24 * HOUR),
           composeSource: storefrontCompose('1.8.2', '1.8.1', 3),
+        },
+        // Early in the week, so storefront's Time travel opens on a week of versions.
+        {
+          id: 'rel-store-2',
+          stackName: 'storefront',
+          status: 'superseded',
+          images: [
+            { name: 'web', image: 'ghcr.io/northwind/storefront-web:1.8.0' },
+            { name: 'api', image: 'ghcr.io/northwind/storefront-api:1.8.0' },
+            { name: 'worker', image: 'ghcr.io/northwind/storefront-worker:1.8.0' },
+          ],
+          actor: 'jamie@northwind.dev',
+          strategy: null,
+          healthGate: { windowSec: 180, autoRollback: true },
+          notes: null,
+          createdAt: iso(6 * 24 * HOUR + 5 * HOUR),
+          composeSource: storefrontCompose('1.8.0', '1.8.0', 2),
         },
       ],
     };

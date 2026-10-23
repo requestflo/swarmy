@@ -1252,6 +1252,8 @@ export const data: DomainResolvers = {
       dbSnap('data', 'main', 'pg_dump', 26 * HOUR, 412_090_368),
       dbSnap('storefront', 'checkout', 'pg_dump', 33 * HOUR, 268_435_456),
       dbSnap('storefront', 'checkout', 'snapshot-from-replica', 57 * HOUR, 259_984_600),
+      // The rest of the week's nightly dumps (last night's failed: see dbClusters).
+      ...[81, 105, 129, 153].map((h, i) => dbSnap('storefront', 'checkout', 'pg_dump', h * HOUR, 255_852_544 - i * 3_145_728)),
     ];
 
     // Live cluster topologies (slice A2): the data/main cluster runs failover

@@ -297,6 +297,37 @@ export const incidents: DomainResolvers = {
       ],
     };
 
-    store.extra.incidents = { incidents: [failover, deployGate] } satisfies IncidentsState;
+    // Yesterday's failed 1.8.3 deploy (rel-store-4, releases.ts): its health
+    // gate failed 3 minutes in and swarmy put 1.8.2 back (rel-store-5) — the
+    // incident on storefront's Time travel timeline between those two deploys.
+    const gateFailed: DemoIncident = {
+      id: 'inc-gate-storefront-183',
+      title: 'Failed deploy on storefront',
+      status: 'resolved',
+      severity: 'critical',
+      summary: 'api errors went to 12% three minutes into 1.8.3; swarmy put 1.8.2 back by itself.',
+      openedAt: minutesAgo(1577),
+      resolvedAt: minutesAgo(1552),
+      events: [
+        { id: 'ie-g1', at: minutesAgo(1577), kind: 'opened', message: 'Incident opened (release:storefront)', meta: gkRel },
+        {
+          id: 'ie-g2',
+          at: minutesAgo(1577),
+          kind: 'deploy.gate.failed',
+          message: 'Release rel-store-4 failed its health gate (api error rate 12% over 3m; 2/3 web tasks restarting)',
+          meta: { ...gkRel, releaseId: 'rel-store-4', stackName: 'storefront' },
+        },
+        {
+          id: 'ie-g3',
+          at: minutesAgo(1560),
+          kind: 'deploy.gate.rollback',
+          message: 'Auto-rolled storefront back to release rel-store-3',
+          meta: { ...gkRel, failedReleaseId: 'rel-store-4', rolledBackTo: 'rel-store-3' },
+        },
+        { id: 'ie-g4', at: minutesAgo(1552), kind: 'resolved', message: 'Resolved: 1.8.2 healthy again', meta: { author: 'Calum Macrae' } },
+      ],
+    };
+
+    store.extra.incidents = { incidents: [failover, deployGate, gateFailed] } satisfies IncidentsState;
   },
 };

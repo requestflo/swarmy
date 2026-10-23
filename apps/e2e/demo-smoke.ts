@@ -132,6 +132,7 @@ const routes: Array<[string, RegExp?]> = [
   ['/stacks/storefront/replays'],
   ['/stacks/storefront/rum-settings'],
   ['/stacks/storefront/backups'],
+  ['/stacks/storefront/time-travel', /right now/],
   ['/stacks/data/data'],
   ['/stacks/data/studio'],
   ['/stacks/data/queues'],
