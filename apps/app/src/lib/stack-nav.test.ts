@@ -38,6 +38,7 @@ describe('stack nav (board 9-tab IA)', () => {
       '/stacks/shop/config/rollout': 'Config › Health & rollout',
       '/stacks/shop/config/placement': 'Config › Placement & volumes',
       '/stacks/shop/config/jobs': 'Config › Jobs & previews',
+      '/stacks/shop/config/email': 'Config › Email',
       '/stacks/shop/backups': 'Backups › -',
       '/stacks/shop/releases': 'Releases › -',
       '/stacks/shop/source': 'Source › -',

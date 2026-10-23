@@ -1,4 +1,5 @@
 import type { DemoStore, DomainResolvers } from '../types';
+import { APP_CRED, demoLog } from './email-log-demo';
 
 /**
  * Email-service demo resolvers (`/email`): one verified domain on swarmy DNS,
@@ -40,15 +41,11 @@ function seed(store: DemoStore): void {
     ],
     credentials: [
       { id: 'ec0', name: 'swarmy-system', stack: null, smtpUsername: 'swarmy-system.demo01@swarmy', apiKeyPrefix: 'sem_4f9Qa', domains: [], webhookUrl: null, disabled: false, system: true, createdAt: ago(5000) },
-      { id: 'ec1', name: 'app-shop', stack: 'shop', smtpUsername: 'app-shop.demo01@swarmy', apiKeyPrefix: 'sem_Zk31p', domains: ['acme.dev'], webhookUrl: 'https://shop.acme.dev/hooks/email', disabled: false, system: false, createdAt: ago(3000) },
+      { id: 'ec1', name: 'app-storefront', stack: 'storefront', smtpUsername: APP_CRED, apiKeyPrefix: 'sem_Zk31p', domains: ['acme.dev'], webhookUrl: 'https://shop.northwind.dev/hooks/email', disabled: false, system: false, createdAt: ago(3000) },
     ],
     templates: [{ id: 'et1', name: 'welcome', subject: 'Welcome, {{ name }}', html: '<p>Hi {{ name }}, thanks for joining.</p>', text: null, updatedAt: ago(900) }],
     suppressions: [{ id: 'es1', address: 'gone@example.org', reason: 'bounce', detail: 'smtp; 550 5.1.1 user unknown', credentialId: 'ec1', createdAt: ago(120) }],
-    log: [
-      { ts: ago(2), event: 'delivered', mtaId: '161c8b61', messageId: '<a1@acme.dev>', credential: 'app-shop.demo01@swarmy', sender: 'hello@acme.dev', rcpt: 'ada@example.com', domain: 'acme.dev', subject: 'Welcome, Ada', smtpCode: 0, detail: '', source: 'smtp' },
-      { ts: ago(3), event: 'queued', mtaId: '', messageId: '<a1@acme.dev>', credential: 'app-shop.demo01@swarmy', sender: 'hello@acme.dev', rcpt: 'ada@example.com', domain: 'acme.dev', subject: 'Welcome, Ada', smtpCode: 0, detail: '', source: 'api' },
-      { ts: ago(120), event: 'bounced', mtaId: '8eb7b1fd', messageId: '<b2@acme.dev>', credential: 'app-shop.demo01@swarmy', sender: 'hello@acme.dev', rcpt: 'gone@example.org', domain: 'acme.dev', subject: 'Your receipt', smtpCode: 550, detail: 'smtp; 550 5.1.1 user unknown', source: 'report' },
-    ],
+    log: demoLog(),
   };
   store.extra.email = state;
 }
@@ -141,7 +138,13 @@ export const email: DomainResolvers = {
       st(s).suppressions = st(s).suppressions.filter((x) => x.id !== (i as { id: string }).id);
       return ok;
     },
-    'email.log': (_i, s) => ({ items: st(s).log, source: 'clickhouse', storeError: null }),
+    'email.log': (i, s) => {
+      const q = (i ?? {}) as { credential?: string; event?: string; search?: string; limit?: number };
+      const items = st(s).log.filter(
+        (e) => (!q.credential || e.credential === q.credential) && (!q.event || e.event === q.event) && (!q.search || JSON.stringify(e).toLowerCase().includes(q.search.toLowerCase())),
+      );
+      return { items: items.slice(0, q.limit ?? 100), source: 'clickhouse', storeError: null };
+    },
     'email.testSend': () => ({ messageId: '<demo-test@acme.dev>', response: '250 2.0.0 OK: queued' }),
   },
 };

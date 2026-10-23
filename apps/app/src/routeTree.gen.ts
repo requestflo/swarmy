@@ -89,6 +89,7 @@ import { Route as AuthedStacksNameConfigPreviewsRouteImport } from './routes/_au
 import { Route as AuthedStacksNameConfigPlacementRouteImport } from './routes/_authed/stacks/$name.config.placement'
 import { Route as AuthedStacksNameConfigPasteRouteImport } from './routes/_authed/stacks/$name.config.paste'
 import { Route as AuthedStacksNameConfigJobsRouteImport } from './routes/_authed/stacks/$name.config.jobs'
+import { Route as AuthedStacksNameConfigEmailRouteImport } from './routes/_authed/stacks/$name.config.email'
 
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
@@ -519,6 +520,12 @@ const AuthedStacksNameConfigJobsRoute =
     path: '/config/jobs',
     getParentRoute: () => AuthedStacksNameRoute,
   } as any)
+const AuthedStacksNameConfigEmailRoute =
+  AuthedStacksNameConfigEmailRouteImport.update({
+    id: '/config/email',
+    path: '/config/email',
+    getParentRoute: () => AuthedStacksNameRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AuthedIndexRoute
@@ -585,6 +592,7 @@ export interface FileRoutesByFullPath {
   '/stacks/$name/time-travel': typeof AuthedStacksNameTimeTravelRoute
   '/terminal/sessions/$id': typeof AuthedTerminalSessionsIdRoute
   '/stacks/$name/': typeof AuthedStacksNameIndexRoute
+  '/stacks/$name/config/email': typeof AuthedStacksNameConfigEmailRoute
   '/stacks/$name/config/jobs': typeof AuthedStacksNameConfigJobsRoute
   '/stacks/$name/config/paste': typeof AuthedStacksNameConfigPasteRoute
   '/stacks/$name/config/placement': typeof AuthedStacksNameConfigPlacementRoute
@@ -665,6 +673,7 @@ export interface FileRoutesByTo {
   '/stacks/$name/time-travel': typeof AuthedStacksNameTimeTravelRoute
   '/terminal/sessions/$id': typeof AuthedTerminalSessionsIdRoute
   '/stacks/$name': typeof AuthedStacksNameIndexRoute
+  '/stacks/$name/config/email': typeof AuthedStacksNameConfigEmailRoute
   '/stacks/$name/config/jobs': typeof AuthedStacksNameConfigJobsRoute
   '/stacks/$name/config/paste': typeof AuthedStacksNameConfigPasteRoute
   '/stacks/$name/config/placement': typeof AuthedStacksNameConfigPlacementRoute
@@ -748,6 +757,7 @@ export interface FileRoutesById {
   '/_authed/stacks/$name_/time-travel': typeof AuthedStacksNameTimeTravelRoute
   '/_authed/terminal/sessions/$id': typeof AuthedTerminalSessionsIdRoute
   '/_authed/stacks/$name/': typeof AuthedStacksNameIndexRoute
+  '/_authed/stacks/$name/config/email': typeof AuthedStacksNameConfigEmailRoute
   '/_authed/stacks/$name/config/jobs': typeof AuthedStacksNameConfigJobsRoute
   '/_authed/stacks/$name/config/paste': typeof AuthedStacksNameConfigPasteRoute
   '/_authed/stacks/$name/config/placement': typeof AuthedStacksNameConfigPlacementRoute
@@ -831,6 +841,7 @@ export interface FileRouteTypes {
     | '/stacks/$name/time-travel'
     | '/terminal/sessions/$id'
     | '/stacks/$name/'
+    | '/stacks/$name/config/email'
     | '/stacks/$name/config/jobs'
     | '/stacks/$name/config/paste'
     | '/stacks/$name/config/placement'
@@ -911,6 +922,7 @@ export interface FileRouteTypes {
     | '/stacks/$name/time-travel'
     | '/terminal/sessions/$id'
     | '/stacks/$name'
+    | '/stacks/$name/config/email'
     | '/stacks/$name/config/jobs'
     | '/stacks/$name/config/paste'
     | '/stacks/$name/config/placement'
@@ -993,6 +1005,7 @@ export interface FileRouteTypes {
     | '/_authed/stacks/$name_/time-travel'
     | '/_authed/terminal/sessions/$id'
     | '/_authed/stacks/$name/'
+    | '/_authed/stacks/$name/config/email'
     | '/_authed/stacks/$name/config/jobs'
     | '/_authed/stacks/$name/config/paste'
     | '/_authed/stacks/$name/config/placement'
@@ -1580,6 +1593,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedStacksNameConfigJobsRouteImport
       parentRoute: typeof AuthedStacksNameRoute
     }
+    '/_authed/stacks/$name/config/email': {
+      id: '/_authed/stacks/$name/config/email'
+      path: '/config/email'
+      fullPath: '/stacks/$name/config/email'
+      preLoaderRoute: typeof AuthedStacksNameConfigEmailRouteImport
+      parentRoute: typeof AuthedStacksNameRoute
+    }
   }
 }
 
@@ -1596,6 +1616,7 @@ interface AuthedStacksNameRouteChildren {
   AuthedStacksNameSourceRoute: typeof AuthedStacksNameSourceRoute
   AuthedStacksNameStudioRoute: typeof AuthedStacksNameStudioRoute
   AuthedStacksNameIndexRoute: typeof AuthedStacksNameIndexRoute
+  AuthedStacksNameConfigEmailRoute: typeof AuthedStacksNameConfigEmailRoute
   AuthedStacksNameConfigJobsRoute: typeof AuthedStacksNameConfigJobsRoute
   AuthedStacksNameConfigPasteRoute: typeof AuthedStacksNameConfigPasteRoute
   AuthedStacksNameConfigPlacementRoute: typeof AuthedStacksNameConfigPlacementRoute
@@ -1626,6 +1647,7 @@ const AuthedStacksNameRouteChildren: AuthedStacksNameRouteChildren = {
   AuthedStacksNameSourceRoute: AuthedStacksNameSourceRoute,
   AuthedStacksNameStudioRoute: AuthedStacksNameStudioRoute,
   AuthedStacksNameIndexRoute: AuthedStacksNameIndexRoute,
+  AuthedStacksNameConfigEmailRoute: AuthedStacksNameConfigEmailRoute,
   AuthedStacksNameConfigJobsRoute: AuthedStacksNameConfigJobsRoute,
   AuthedStacksNameConfigPasteRoute: AuthedStacksNameConfigPasteRoute,
   AuthedStacksNameConfigPlacementRoute: AuthedStacksNameConfigPlacementRoute,

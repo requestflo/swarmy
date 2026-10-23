@@ -17,6 +17,7 @@ export type StackRoute =
   | '/stacks/$name/config/placement'
   | '/stacks/$name/config/jobs'
   | '/stacks/$name/config/previews'
+  | '/stacks/$name/config/email'
   | '/stacks/$name/backups'
   | '/stacks/$name/releases'
   | '/stacks/$name/source';
@@ -59,4 +60,5 @@ export const CONFIG_SUBS: StackSubTab[] = [
   { to: '/stacks/$name/config/placement', path: 'config/placement', label: 'Placement & volumes', blurb: 'Which servers each part may run on', keywords: 'placement constraints pinned servers regions volumes' },
   { to: '/stacks/$name/config/jobs', path: 'config/jobs', label: 'Jobs & previews', blurb: 'Scheduled jobs, webhooks & branch previews', keywords: 'cron scheduled jobs webhooks endpoints deliveries outbound previews branches pr' },
   { to: '/stacks/$name/config/previews', path: 'config/previews', label: 'Branch previews', blurb: 'A copy of the app per branch or pull request', keywords: 'previews branch pr pull request trial deploy preview data scrub ttl teardown' },
+  { to: '/stacks/$name/config/email', path: 'config/email', label: 'Email', blurb: 'The app’s mail login, sent today & how mail leaves', keywords: 'email mail smtp send delivered bounces relay port 25 credentials EMAIL_API_KEY' },
 ];

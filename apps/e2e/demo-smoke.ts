@@ -134,6 +134,7 @@ const routes: Array<[string, RegExp?]> = [
   ['/stacks/storefront/config/jobs'],
   ['/stacks/storefront/config/paste', /Paste a \.env into/],
   ['/stacks/storefront/config/previews', /New preview from a branch/],
+  ['/stacks/storefront/config/email', /sends mail as app-storefront/],
   ['/stacks/storefront/source'],
   ['/stacks/storefront/access', /Request to/],
   ['/stacks/storefront/analytics'],
