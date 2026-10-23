@@ -6,6 +6,7 @@ import { Depth } from '@/components/calm';
 import { shortImage } from '@/components/apps/app-words';
 import { DnsHealthBadge } from '@/components/geo/dns-health-badge';
 import type { ServiceFlowNode } from './build-graph';
+import { DROP_TARGET, useConnectMode } from './connect/connect-context';
 import { serviceRole } from './service-role';
 
 /** First ingress host on a service, from the `swarmy.ingress.routes` JSON label. */
@@ -35,8 +36,10 @@ const HANDLE: React.CSSProperties = {
  * image · ports — and the address it answers on. Selected = coral ring (the
  * bottom sheet shows the rest).
  */
-export function ServiceNode({ data, selected }: NodeProps<ServiceFlowNode>): React.JSX.Element {
-  const { service, tone } = data;
+export function ServiceNode({ id, data, selected }: NodeProps<ServiceFlowNode>): React.JSX.Element {
+  const { service, tone, metric } = data;
+  const connect = useConnectMode();
+  const drop = connect.on && !!connect.from && connect.from !== id;
   const { replicas, ports, status, scaleToZero } = service;
   const idle = status === 'idle';
   const host = firstIngressHost(service.labels);
@@ -53,12 +56,24 @@ export function ServiceNode({ data, selected }: NodeProps<ServiceFlowNode>): Rea
         'bg-card border-border relative w-[248px] cursor-pointer rounded-xl border px-3.5 py-3 transition-shadow',
         'hover:border-foreground/25',
         selected && 'ring-primary/70 border-primary/60 ring-2',
+        connect.from === id && 'ring-primary ring-2',
       )}
     >
+      <Handle id="in" type="target" position={Position.Left} isConnectable={drop} style={drop ? DROP_TARGET : HANDLE} />
       <Handle id="l1" type="target" position={Position.Left} style={{ ...HANDLE, top: '40%' }} isConnectable={false} />
       <Handle id="l2" type="target" position={Position.Left} style={{ ...HANDLE, top: '68%' }} isConnectable={false} />
       <Handle id="r1" type="source" position={Position.Right} style={{ ...HANDLE, top: '40%' }} isConnectable={false} />
       <Handle id="r2" type="source" position={Position.Right} style={{ ...HANDLE, top: '68%' }} isConnectable={false} />
+      {connect.on ? (
+        <Handle
+          id="out"
+          type="source"
+          position={Position.Right}
+          isConnectable
+          title={`Drag from ${service.name} to what it should use`}
+          className="!bg-primary !border-card !z-10 !size-3.5 !border-2 pointer-coarse:!size-5"
+        />
+      ) : null}
 
       <div className="flex items-center gap-2">
         <span
@@ -74,9 +89,13 @@ export function ServiceNode({ data, selected }: NodeProps<ServiceFlowNode>): Rea
           </span>
         )}
       </div>
-      <p className="text-muted-foreground mt-0.5 truncate text-[12.5px]">{serviceRole(service)}</p>
+      <p className="text-muted-foreground mt-0.5 flex items-baseline gap-2 text-[12.5px]">
+        <span className="truncate">{serviceRole(service)}</span>
+        {metric ? <span className="text-foreground ml-auto shrink-0 font-mono text-[11px]">{metric.rate}</span> : null}
+      </p>
       <Depth at="controls">
         <p className="text-muted-foreground mt-1.5 line-clamp-2 font-mono text-[11px] leading-snug">{tech}</p>
+        {metric ? <p className="text-muted-foreground mt-0.5 font-mono text-[11px]">{metric.tech}</p> : null}
         {host ? (
           <div className="mt-1.5 flex items-center gap-1.5">
             <DnsHealthBadge host={host} compact />
