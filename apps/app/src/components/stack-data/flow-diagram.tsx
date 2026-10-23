@@ -59,6 +59,8 @@ function Links({ left, right, links, height }: { left: FlowBox[]; right: FlowBox
     return (height - colHeight(col.length)) / 2 + i * (BOX + GAP) + BOX / 2;
   };
   const here = links.filter((l) => left.some((b) => b.key === l.from) && right.some((b) => b.key === l.to));
+  // A label said once per gap: lines that share it ("REDIS_URL" from two apps) don't repeat it.
+  const said = new Set<string>();
   const mid = LINK_W / 2;
   return (
     <svg width={LINK_W} height={height} className="shrink-0 overflow-visible" aria-hidden>
@@ -68,7 +70,7 @@ function Links({ left, right, links, height }: { left: FlowBox[]; right: FlowBox
         return (
           <g key={`${l.from}>${l.to}`}>
             <path d={`M0 ${y1} C ${mid} ${y1} ${mid} ${y2} ${LINK_W} ${y2}`} fill="none" strokeWidth={1.5} strokeDasharray={l.dashed ? '4 4' : undefined} style={{ stroke: STROKE[l.tone], opacity: 0.7 }} />
-            {l.label ? (
+            {l.label && !said.has(l.label) && said.add(l.label) ? (
               <text x={mid} y={(y1 + y2) / 2 - 6} textAnchor="middle" className="fill-muted-foreground font-mono" style={{ fontSize: 10 }}>
                 {l.label}
               </text>

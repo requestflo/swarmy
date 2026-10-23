@@ -4,13 +4,14 @@ import type { SearchProvisionResult } from '@swarmy/core';
 import { useTRPC } from '@/integrations/trpc';
 import { SecretRevealBanner } from '@/components/cache/secret-reveal-banner';
 import { SearchProvisionForm } from './search-provision-form';
-import { SearchRow, SearchSummaryRow } from './search-row';
+import { SearchBlock } from './search-block';
 import { ManagedServiceSection } from '@/components/stack-data/managed-service-section';
 
 /**
- * Search section of the stack Data tab: this stack's managed Meilisearch /
- * Typesense instances as flat rows (row-expand for detail), an inline
- * provision card (Collapsible — never a modal) and the reveal-once key banner.
+ * Search section of the stack Data tab: each managed Meilisearch / Typesense
+ * instance as the DataStores board lays it out (board 41, `SearchBlock`), an
+ * inline provision card (Collapsible — never a modal) and the reveal-once key
+ * banner.
  */
 export function SearchSection({ stack }: { stack: string }): React.JSX.Element {
   const trpc = useTRPC();
@@ -21,6 +22,13 @@ export function SearchSection({ stack }: { stack: string }): React.JSX.Element {
     refetchInterval: 5_000,
   });
   const rows = instances.data ?? [];
+  const blocks = (
+    <div className="divide-border divide-y">
+      {rows.map((i) => (
+        <SearchBlock key={`${i.stack}/${i.name}`} v={i} />
+      ))}
+    </div>
+  );
 
   return (
     <ManagedServiceSection
@@ -57,12 +65,8 @@ export function SearchSection({ stack }: { stack: string }): React.JSX.Element {
       error={instances.error?.message ?? null}
       onRetry={() => void instances.refetch()}
       empty={`No search in ${stack} yet. swarmy can run Meilisearch or Typesense, master key in a Docker secret, host injected into the apps you attach.`}
-      summaryRows={rows.map((i) => (
-        <SearchSummaryRow key={`${i.stack}/${i.name}`} view={i} />
-      ))}
-      controlRows={rows.map((i) => (
-        <SearchRow key={`${i.stack}/${i.name}`} view={i} />
-      ))}
+      summaryRows={blocks}
+      controlRows={blocks}
     />
   );
 }

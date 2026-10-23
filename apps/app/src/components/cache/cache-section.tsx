@@ -3,14 +3,15 @@ import { useQuery } from '@tanstack/react-query';
 import type { CacheProvisionResult } from '@swarmy/core';
 import { useTRPC } from '@/integrations/trpc';
 import { CacheProvisionForm } from './cache-provision-form';
-import { CacheRow, CacheSummaryRow } from './cache-row';
+import { CacheBlock } from './cache-block';
 import { ManagedServiceSection } from '@/components/stack-data/managed-service-section';
 import { SecretRevealBanner } from './secret-reveal-banner';
 
 /**
- * Caches section of the stack Data tab: this stack's managed Valkey/Redis
- * clusters as flat rows (row-expand for detail), an inline provision card
- * (Collapsible — never a modal) and the reveal-once password banner.
+ * Caches section of the stack Data tab: each managed Valkey/Redis cluster as
+ * the DataStores board lays it out (board 41, `CacheBlock`), an inline
+ * provision card (Collapsible — never a modal) and the reveal-once password
+ * banner.
  */
 export function CacheSection({ stack }: { stack: string }): React.JSX.Element {
   const trpc = useTRPC();
@@ -21,6 +22,13 @@ export function CacheSection({ stack }: { stack: string }): React.JSX.Element {
     refetchInterval: 5_000,
   });
   const rows = clusters.data ?? [];
+  const blocks = (
+    <div className="divide-border divide-y">
+      {rows.map((c) => (
+        <CacheBlock key={`${c.stack}/${c.name}`} v={c} />
+      ))}
+    </div>
+  );
 
   return (
     <ManagedServiceSection
@@ -57,12 +65,8 @@ export function CacheSection({ stack }: { stack: string }): React.JSX.Element {
       error={clusters.error?.message ?? null}
       onRetry={() => void clusters.refetch()}
       empty={`No caches in ${stack} yet. One click deploys Valkey or Redis, password in a Docker secret, REDIS_URL wired into the apps you attach.`}
-      summaryRows={rows.map((c) => (
-        <CacheSummaryRow key={`${c.stack}/${c.name}`} view={c} />
-      ))}
-      controlRows={rows.map((c) => (
-        <CacheRow key={`${c.stack}/${c.name}`} view={c} />
-      ))}
+      summaryRows={blocks}
+      controlRows={blocks}
     />
   );
 }

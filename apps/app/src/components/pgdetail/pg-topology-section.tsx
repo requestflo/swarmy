@@ -89,7 +89,7 @@ export function PgTopologySection({
       </dl>
       <p className="text-muted-foreground -mt-1 text-[13.5px] leading-relaxed">{facts.say}</p>
       <Tech>
-        RPO · RTO above · swarmy.db.topology={mode} · {facts.tech}
+        could lose = RPO · down for = RTO · swarmy.db.topology={mode} · {facts.tech}
       </Tech>
     </Section>
   );
