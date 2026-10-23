@@ -6,9 +6,9 @@ import { QuietSwitch } from '@/components/rowpage/row-page';
 import { AckButton } from './ack-button';
 import { RuleEditorFooter } from './rule-editor-footer';
 import { evaluatorKey, rawExpression } from './rule-facts';
-import { RuleHistoryChart } from './rule-history-chart';
 import { RuleKnobs } from './rule-knobs';
 import { resourceName } from './rule-sentence';
+import { RuleWeek } from './rule-week';
 import { SentenceTokens } from './sentence-tokens';
 import type { AlertsData } from './use-alerts-data';
 import { useAlertTargets } from './use-alert-targets';
@@ -88,13 +88,7 @@ export function RuleEditor({ rule, data, onDirtyChange, onSaved, onDeleted }: Ru
         </Tech>
       </div>
 
-      <RuleHistoryChart
-        events={data.events}
-        signal={d.draft.signal}
-        selector={d.draft.selector}
-        changed={!rule || d.draft.threshold !== d.base.threshold || d.draft.forSeconds !== d.base.forSeconds}
-        pageFull={data.events.length >= 200}
-      />
+      <RuleWeek rule={rule} draft={d.draft} base={d.base} events={data.events} pageFull={data.events.length >= 200} />
 
       {/* Board 45's "Who hears about it" escalation chain and "Group related alerts" are left out by owner decision Q10 (e). */}
 

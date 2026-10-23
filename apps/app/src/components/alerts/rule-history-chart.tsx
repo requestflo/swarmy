@@ -16,17 +16,17 @@ interface RuleHistoryChartProps {
   signal: string;
   /** The rule's target: only its subjects count. */
   selector: AlertSelector;
-  /** The draft's threshold / duration differ from what's saved. */
-  changed: boolean;
+  /** Why there's no "would have fired" replay here, said under the chart (null = say nothing). */
+  noBacktest: string | null;
   /** The event page came back full (200), so the week may be cut short. */
   pageFull: boolean;
 }
 
 /**
- * LAST 7 DAYS · REAL DATA: every time this signal fired, from the event feed.
- * It is the history of the saved rule — an unsaved threshold has none yet.
+ * LAST 7 DAYS · REAL DATA: every time this signal fired, from the event feed —
+ * the history of the saved rule, for signals (or targets) swarmy can't replay.
  */
-export function RuleHistoryChart({ events, signal, selector, changed, pageFull }: RuleHistoryChartProps): React.JSX.Element {
+export function RuleHistoryChart({ events, signal, selector, noBacktest, pageFull }: RuleHistoryChartProps): React.JSX.Element {
   const [now] = React.useState(() => Date.now());
   const { fires, partial } = weekHistory(events, signal, now, pageFull, selector);
   const from = now - WEEK_MS;
@@ -83,9 +83,7 @@ export function RuleHistoryChart({ events, signal, selector, changed, pageFull }
           ) : null}
         </>
       )}
-      {changed ? (
-        <p className="text-muted-foreground text-xs">This is what really fired under the rule in charge today. A new setting has no history to test against yet.</p>
-      ) : null}
+      {noBacktest ? <p className="text-muted-foreground text-xs">{noBacktest} This is what really fired under the rule in charge today.</p> : null}
     </section>
   );
 }

@@ -37,7 +37,7 @@ const demoAutolock = { keyStored: false };
 let demoDepth: 'summary' | 'controls' | 'code' | null = null;
 
 /** Disk use per demo node (percent of the root filesystem). */
-const DEMO_DISK_PCT: Record<string, number> = { 'n-mgr-1': 38, 'n-mgr-2': 44, 'n-wkr-1': 81, 'n-wkr-2': 57, 'n-wkr-3': 23 };
+export const DEMO_DISK_PCT: Record<string, number> = { 'n-mgr-1': 38, 'n-mgr-2': 44, 'n-wkr-1': 81, 'n-wkr-2': 57, 'n-wkr-3': 23 };
 
 export const core: DomainResolvers = {
   handlers: {

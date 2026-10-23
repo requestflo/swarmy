@@ -20,6 +20,7 @@ import { appaccess } from './resolvers/appaccess';
 import { jobs } from './resolvers/jobs';
 import { webhookgw } from './resolvers/webhookgw';
 import { alerts } from './resolvers/alerts';
+import { alertsDisk } from './resolvers/alerts-disk';
 import { incidents } from './resolvers/incidents';
 import { statuspages } from './resolvers/statuspages';
 import { releases } from './resolvers/releases';
@@ -79,6 +80,7 @@ const MODULES: DomainResolvers[] = [
   jobs,
   webhookgw,
   alerts,
+  alertsDisk,
   incidents,
   statuspages,
   releases,
