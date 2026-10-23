@@ -5,6 +5,7 @@ import { Button, cn } from '@swarmy/ui';
 import { Tech } from '@/components/calm';
 import { useTRPC } from '@/integrations/trpc';
 import { ChannelEdit } from './channel-edit';
+import { ChannelPreview } from './channel-preview';
 import { ChannelKindIcon, maskedTarget } from './channel-kind-icon';
 
 interface TestOutcome {
@@ -20,8 +21,11 @@ export function ChannelRow({ channel, usedBy }: { channel: NotificationChannelVi
   const trpc = useTRPC();
   const [editing, setEditing] = React.useState(false);
   const [outcome, setOutcome] = React.useState<TestOutcome | null>(null);
+  /** When the last test went out — the preview's timestamp. */
+  const [sentAt, setSentAt] = React.useState<string | null>(null);
   const test = useMutation(
     trpc.alerts.testChannel.mutationOptions({
+      onMutate: () => setSentAt(new Date().toISOString()),
       onSuccess: (r) => setOutcome({ at: hhmm(), ok: r.ok, detail: r.detail }),
       onError: (e) => setOutcome({ at: hhmm(), ok: false, detail: e.message }),
     }),
@@ -49,6 +53,7 @@ export function ChannelRow({ channel, usedBy }: { channel: NotificationChannelVi
           {outcome.ok ? `Sent ${outcome.at} · ${outcome.detail}` : `Didn’t arrive (${outcome.at}): ${outcome.detail}`}
         </p>
       ) : null}
+      {sentAt && outcome?.ok ? <ChannelPreview channel={channel} at={sentAt} /> : null}
       <Tech className="pl-11">
         {channel.id} · named by {usedBy} rule{usedBy === 1 ? '' : 's'} · also gets every “Every channel” rule
       </Tech>

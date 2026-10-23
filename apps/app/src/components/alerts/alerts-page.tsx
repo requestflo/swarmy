@@ -6,6 +6,7 @@ import { RowPage } from '@/components/rowpage/row-page';
 import { CardSkeleton, ErrorState } from '@/components/states';
 import { alertsLede, alertsSay } from './alerts-say';
 import { ChannelsColumn } from './channels-column';
+import { EventsTable } from './events-table';
 import { RuleEditor } from './rule-editor';
 import { RulesList, orderRules } from './rules-list';
 import { useAlertsData } from './use-alerts-data';
@@ -15,7 +16,8 @@ type Selection = { mode: 'edit'; id: string } | { mode: 'new' } | null;
 /**
  * Activity → Alerts (boards 45 + 55): the rules list (several rules per
  * signal, each with its target), the sentence editor and the channels with
- * quiet hours, side by side at xl, two columns at lg, stacked on a phone.
+ * quiet hours, side by side at xl, two columns at lg, stacked on a phone;
+ * then "Events I care about", the built-in rules as one table.
  * The one coral is "New rule" — until the editor holds unsaved changes, when
  * "Save rule" takes it and New rule steps back to outline.
  */
@@ -96,6 +98,7 @@ export function AlertsPage(): React.JSX.Element {
             rule={isNew ? null : selected ?? null}
             quietHours={data.quietHours}
             className="lg:col-span-2 xl:col-span-1" />
+          <EventsTable rules={data.rules} channels={data.channels} className="lg:col-span-2 xl:col-span-3" />
         </div>
       )}
     </RowPage>
