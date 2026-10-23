@@ -55,6 +55,7 @@ import { movesDemo } from './resolvers/moves';
 import { meshGrants } from './resolvers/mesh-grants';
 import { phoneHome } from './resolvers/phone-home';
 import { placementDemo } from './resolvers/placement-demo';
+import { jobsYesterday } from './resolvers/jobs-yesterday';
 
 /**
  * Assembles every per-domain resolver module into flat lookup tables for the demo
@@ -119,6 +120,7 @@ const MODULES: DomainResolvers[] = [
   // Wraps core's nodes.list and infraextra's generateJoinToken, so it comes after both.
   phoneHome,
   placementDemo,
+  jobsYesterday,
 ];
 
 export const HANDLERS: Record<string, DemoHandler> = Object.assign(
