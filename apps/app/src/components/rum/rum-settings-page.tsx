@@ -11,6 +11,7 @@ import { GdprDeleteUserCard } from './gdpr-delete-user-card';
 import { KeepCard } from './keep-card';
 import { LegalCard } from './legal-card';
 import { MaskingCard } from './masking-card';
+import { RecorderPreview } from './recorder-preview';
 import { RecordingCard } from './recording-card';
 import { RoutesCard } from './routes-card';
 import { pct, type RumSettings } from './rum-shared';
@@ -93,6 +94,7 @@ export function RumSettingsPage({ stack }: { stack: string }): React.JSX.Element
             <MaskingCard {...card} />
           </div>
           <div className="flex min-w-0 flex-col gap-4">
+            <RecorderPreview settings={s} />
             <AnalyticsModeCard stack={stack} {...card} />
             <ConsentCard {...card} />
             <LegalCard />
