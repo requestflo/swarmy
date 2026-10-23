@@ -6,6 +6,7 @@ import { SkeletonBody } from '@/components/states';
 import { RowPage } from '@/components/rowpage/row-page';
 import { TwoFactorCard } from '@/components/security/two-factor-card';
 import { useEstateSummary } from '@/lib/use-estate-summary';
+import { ApiSection } from './api-section';
 import { PreferencesSection } from './preferences-section';
 import { SettingsSections } from './settings-sections';
 import { TokensTab } from './tokens-tab';
@@ -17,6 +18,7 @@ const SECTIONS = [
   { id: 'security', label: 'Your security' },
   { id: 'preferences', label: 'Preferences' },
   { id: 'join', label: 'Server join tokens' },
+  { id: 'api', label: 'API' },
 ];
 
 /** Settings → Workspace: the workspace, your own sign-in security, your preferences. */
@@ -54,6 +56,7 @@ export function WorkspacePage(): React.JSX.Element {
             <TokensTab />
           </Depth>
         </Section>
+        <ApiSection />
       </SettingsSections>
     </RowPage>
   );
