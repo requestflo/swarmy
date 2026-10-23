@@ -1,5 +1,7 @@
 import * as React from 'react';
-import { CopyButton } from '@swarmy/ui';
+import { Link } from '@tanstack/react-router';
+import { ClipboardPasteIcon } from 'lucide-react';
+import { Button, CopyButton } from '@swarmy/ui';
 import { Section } from '@/components/calm';
 import { ErrorState } from '@/components/states';
 import { RowsSkeleton } from '../tab-body';
@@ -12,7 +14,6 @@ import { envText, rowsFor } from './var-table-model';
 import { ScopeChips, VarToolbar, type VarView } from './var-toolbar';
 import { VarRow } from './var-row';
 import { variablesCode } from './variables-model';
-import { PasteEnvButton } from './paste-env-button';
 import { SecretRevealBanner, type RevealedSecret } from '@/components/secretsmgr/secret-reveal-banner';
 
 /**
@@ -57,7 +58,15 @@ export function VariablesSection({ stack, preset }: { stack: string; preset?: { 
           onEnv={setEnvKey}
           view={mode}
           onView={setMode}
-          paste={pasteTo ? <PasteEnvButton serviceId={pasteTo.id} label={shortName(view, pasteTo.name)} /> : null}
+          paste={
+            pasteTo ? (
+              <Button asChild variant="outline" size="sm" className="pointer-coarse:min-h-11">
+                <Link to="/stacks/$name/config/paste" params={{ name: view }} search={{ service: pasteTo.id }}>
+                  <ClipboardPasteIcon className="size-3.5" /> Paste .env
+                </Link>
+              </Button>
+            ) : null
+          }
         />
         {tab?.note ? <p className="text-muted-foreground pb-2 text-xs">{tab.note}</p> : null}
         {data.ready && services.length > 1 ? (

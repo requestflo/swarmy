@@ -130,6 +130,7 @@ const routes: Array<[string, RegExp?]> = [
   ['/stacks/storefront/config/rollout'],
   ['/stacks/storefront/config/placement'],
   ['/stacks/storefront/config/jobs'],
+  ['/stacks/storefront/config/paste', /Paste a \.env into/],
   ['/stacks/storefront/source'],
   ['/stacks/storefront/access'],
   ['/stacks/storefront/analytics'],

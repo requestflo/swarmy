@@ -28,6 +28,8 @@ export interface StackSubTab {
   path: string;
   /** Own only `path` itself, not what's under it (Config › Variables vs Config › Scaling). */
   exact?: boolean;
+  /** Sub-views that also light this sub-tab (Config › Variables › Paste .env). */
+  also?: string[];
   /** Palette hint. */
   blurb: string;
   keywords?: string;
@@ -50,7 +52,7 @@ export const OBS_SUBS: StackSubTab[] = [
 ];
 
 export const CONFIG_SUBS: StackSubTab[] = [
-  { to: '/stacks/$name/config', path: 'config', exact: true, label: 'Variables & secrets', blurb: 'Variables, secrets & config files', keywords: 'env variables secrets rotation configs env files' },
+  { to: '/stacks/$name/config', path: 'config', exact: true, also: ['config/paste'], label: 'Variables & secrets', blurb: 'Variables, secrets & config files', keywords: 'env variables secrets rotation configs env files' },
   { to: '/stacks/$name/config/scaling', path: 'config/scaling', label: 'Scaling', blurb: 'Copies, and the app’s own settings', keywords: 'copies replicas scale rename ai gateway outlet environment danger remove delete' },
   { to: '/stacks/$name/config/rollout', path: 'config/rollout', label: 'Health & rollout', blurb: 'Health watch, auto put-back & canary', keywords: 'safety health gate canary strategy rolling blue green auto rollback' },
   { to: '/stacks/$name/config/placement', path: 'config/placement', label: 'Placement & volumes', blurb: 'Which servers each part may run on', keywords: 'placement constraints pinned servers regions volumes' },

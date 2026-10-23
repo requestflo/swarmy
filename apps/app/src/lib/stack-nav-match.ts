@@ -8,7 +8,7 @@ export function stackSubPath(pathname: string): string | null {
 }
 
 function ownsSub(sub: StackSubTab, rest: string): boolean {
-  return rest === sub.path || (!sub.exact && rest.startsWith(`${sub.path}/`));
+  return rest === sub.path || (!sub.exact && rest.startsWith(`${sub.path}/`)) || !!sub.also?.includes(rest);
 }
 
 /** Which tab (and sub-tab) a workspace URL lights. Unknown paths light nothing. */
