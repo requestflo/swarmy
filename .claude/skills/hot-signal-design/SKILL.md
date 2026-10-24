@@ -74,6 +74,13 @@ with a `SayHeader size="md"`.
 `CalmTabs` · `StatusWord`. Tones: `ok · warn · bad · info · mesh · idle`
 (`TONE_TEXT` for words, `TONE_DOT` for dots). Reuse these; don't fork them.
 
+Flow diagrams (cards joined by curves: Front door's topology, the Network ›
+Domains route map) use `components/flow/`: `useFlowPaths(links)` measures the
+cards marked `data-flow="<id>"` off the real DOM, so text never scales and
+layout stays CSS, and `FlowSvg` draws the decorative links layer behind them
+(tones `hot · base · dim · mesh`, optional dashes). The cards carry the words.
+Reuse it rather than hand-drawing an SVG per board.
+
 ## Shell & navigation
 
 **Desktop (`lg` ≥ 1024px)** — fixed navy sidenav (`w-60`, `bg-nav`),
@@ -86,6 +93,8 @@ wash + semibold. Badges: amber mono counts rolled up onto their row.
 
 **Mobile (< 1024px)** — header: wordmark, search, **All pages** sheet, avatar.
 Tab bar: **Overview · Apps · coral + · Servers · Activity**. No hamburger.
+Overview below `lg` is the phone glance (`components/overview/phone-glance.tsx`):
+visits, the incident's best guess with Put back / Ack inline, then the apps.
 
 Deploy is a verb (the coral nav button, ⌘K, `/deploy`), not a row. URLs are
 stable: the IA regroups routes, it doesn't move them.
@@ -152,9 +161,12 @@ shows only once settled. A metric shown twice comes from one hook
 ## File map
 
 - Tokens: `@swarmy/ui/src/styles.css`, `apps/app/src/styles/globals.css`.
-- Calm primitives: `apps/app/src/components/calm/*`.
+- Calm primitives: `apps/app/src/components/calm/*`; flow diagrams
+  `components/flow/{flow-svg.tsx,use-flow-paths.ts}`.
 - Shell: `components/shell/{app-shell,sidenav,mobile-chrome,user-menu,command-palette}.tsx`.
 - Headers: `components/section-header.tsx`, `components/page-header.tsx`.
-- Nav model: `lib/destinations.ts`; app tabs: `lib/stack-nav.ts`.
+- Nav model: `lib/destinations.ts`; app tabs: `lib/stack-nav.ts`, sub-tabs
+  `lib/stack-nav-subs.ts` (`also` lets a sub-view light its parent, e.g.
+  Config › Variables & secrets for Paste .env).
 - Data: `useTRPC()` + `useQuery(trpc.x.queryOptions())` (`skill("react-components")`);
   every new query needs a demo resolver (`src/demo/resolvers/*`).
