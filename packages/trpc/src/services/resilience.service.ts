@@ -64,6 +64,8 @@ import {
 import { appDbVerifySteps } from './appDbBackup.service';
 import { resolveExecTarget } from './live-resolve';
 import { getConfig as getControllerBackupConfig } from './controllerBackup.service';
+import { getStoreStatus } from './controllerStore.service';
+import { controllerStoreProblems, controllerStoreSignal, type ControllerStoreSignal } from './resilience.controller-store';
 import { getConfig as getStorageConfig } from './replicatedStore.service';
 import { drillProgressBus, type DrillProgress } from './drill-progress';
 
@@ -121,6 +123,8 @@ export interface ResilienceSnapshot {
   };
   geodns: { enabled: boolean; recordRegions: string[] };
   controllerBackup: { enabled: boolean; lastRunAt: string | null };
+  /** control.db replication (null = no store runtime in this process). Optional for older fixtures. */
+  controllerStore?: ControllerStoreSignal | null;
   /** Last successful restore drill (read back from the audit log), ISO. */
   lastRestoreDrillAt: string | null;
   /** Swarm manager census (Docker-truth via the hub's node inventory).
@@ -368,6 +372,9 @@ export function runChecks(snap: ResilienceSnapshot): ResilienceProblemView[] {
     );
   }
 
+  // 9b. The controller store itself: local only, or replicated but behind.
+  out.push(...controllerStoreProblems(snap.controllerStore, snap.managers.total));
+
   // 10–12. Swarm manager quorum (WS2). The check ids are additive to
   // ResilienceCheckId; the views.ts union is owned by another workstream this
   // round, so widen locally until integration folds them in.
@@ -588,6 +595,8 @@ export async function buildSnapshot(ctx: OrgContext, stack?: string): Promise<Re
     ]);
 
   const offsite = await offsiteSnapshot(ctx, stack).catch(() => null);
+  // No store runtime in this process (tests, tools) → no signal, not "local only".
+  const controllerStore = await getStoreStatus(ctx).then(controllerStoreSignal).catch(() => null);
 
   const lastRestore = drills.find((d) => d.kind === 'restore' && d.status === 'passed');
 
@@ -615,6 +624,7 @@ export async function buildSnapshot(ctx: OrgContext, stack?: string): Promise<Re
       enabled: Boolean(controller?.enabled),
       lastRunAt: controller?.lastRunAt ?? null,
     },
+    controllerStore,
     lastRestoreDrillAt: lastRestore?.at ?? null,
     managers: {
       total: managerNodes.length,

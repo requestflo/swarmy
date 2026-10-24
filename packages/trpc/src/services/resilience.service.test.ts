@@ -235,6 +235,18 @@ describe('runChecks — classifiers', () => {
     expect(byCheck(stale, 'controller-backup')[0]?.title).toContain('older than');
   });
 
+  it('controller store: local only warns on a multi-manager swarm; caught up or unknown says nothing', () => {
+    const store = { mode: 'local-only' as const, replicating: false, lagSeconds: null, problem: null, summary: 'controller store: local only', hostname: 'mgr-1' };
+    const local = byCheck(runChecks(healthySnapshot({ controllerStore: store })), 'controller-store');
+    expect(local).toHaveLength(1);
+    expect(local[0]).toMatchObject({ severity: 'warn', fixPath: '/backups', fixLabel: 'Turn on replication' });
+    expect(local[0]?.detail).toContain('controller store: local only');
+    const caughtUp = { ...store, mode: 'replicated' as const, replicating: true, lagSeconds: 0, summary: 'controller store: replicated (lag 0s)' };
+    expect(byCheck(runChecks(healthySnapshot({ controllerStore: caughtUp })), 'controller-store')).toHaveLength(0);
+    expect(byCheck(runChecks(healthySnapshot({ controllerStore: null })), 'controller-store')).toHaveLength(0);
+    expect(byCheck(runChecks(healthySnapshot()), 'controller-store')).toHaveLength(0);
+  });
+
   it('sorts problems crit → warn → info', () => {
     const problems = runChecks(
       healthySnapshot({
