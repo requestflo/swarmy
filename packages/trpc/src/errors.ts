@@ -9,6 +9,8 @@ export type SwarmyCode =
   | 'COMMAND_REJECTED'
   | 'NOT_FOUND'
   | 'POLICY_DENIED'
+  /** A rule change would leave no owner able to change rules (refused, nothing written). */
+  | 'POLICY_LOCKOUT'
   /** The operation needs an interactive browser round-trip (OAuth / GitHub App install) — use the dashboard. */
   | 'BROWSER_FLOW_REQUIRED';
 

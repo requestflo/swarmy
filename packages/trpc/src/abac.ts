@@ -2,7 +2,6 @@ import { stacks } from './services/apps.repo';
 import { TRPCError } from '@trpc/server';
 import {
   createEngine,
-  defaultPolicyInputs,
   buildPrincipal as buildAbacPrincipal,
   buildResource as buildAbacResource,
   isAction,
@@ -25,6 +24,7 @@ import { orgProcedure } from './trpc';
 import type { OrgContext } from './context';
 import { writeAudit } from './services/audit.service';
 import { defaultsDrift, policyRepo } from './services/policy-repo';
+import { effectivePolicyInputs } from './services/policy-effective';
 
 /**
  * Resolves the target resource for a procedure from its input. Returns a
@@ -128,25 +128,9 @@ export async function loadPolicyInputs(db: DB, orgId: string): Promise<PolicyInp
       /* evaluate the shipped defaults in memory */
     }
   }
-  // The engine always runs the SHIPPED default rules (stored default rows only
-  // carry the admin's enable/disable and a real id for the audit trail) plus
-  // the org's enabled custom rules.
-  const storedDefaults = new Map(all.filter((r) => r.isDefault).map((r) => [r.name, r]));
-  const defaults: PolicyInput[] = defaultPolicyInputs().map((p) => {
-    const stored = storedDefaults.get(p.name);
-    return {
-      id: stored?.id ?? `default:${p.key}`,
-      name: p.name,
-      effect: p.effect,
-      source: p.source,
-      priority: p.priority,
-      enabled: stored ? stored.enabled : true,
-    };
-  });
-  const custom: PolicyInput[] = all
-    .filter((r) => !r.isDefault && r.enabled)
-    .map((r) => ({ id: r.id, name: r.name, effect: r.effect, source: r.source, priority: r.priority, enabled: true }));
-  return [...defaults.filter((d) => d.enabled), ...custom];
+  // The engine always runs the SHIPPED default rules plus the org's enabled
+  // custom rules (policy-effective.ts).
+  return effectivePolicyInputs(all);
 }
 
 export interface AccessResult {

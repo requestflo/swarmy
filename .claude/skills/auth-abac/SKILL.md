@@ -190,7 +190,13 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
   rewrites drifted default rows automatically (`policy-repo` `ensureDefaults`,
   `defaultsDrift`). There is no "reset defaults"; admins may switch a default
   off, never edit it. Editing `defaults.ts` changes every org on its next
-  decision — cover it with a unit.
+  decision — cover it with a unit. The effective set is one pure function,
+  `effectivePolicyInputs` (`services/policy-effective.ts`).
+- **Owners can't be locked out of the rules.** `setPolicy`/`deletePolicy` run
+  `assertNoOwnerLockout` (`services/policy-lockout.ts`) before writing: a change
+  after which no owner is permitted `policy.write` (a forbid covering owners,
+  "Owners can do anything" switched off) is refused with `swarmyCode:
+  POLICY_LOCKOUT`, and nothing is written.
 - **`authorize()` is the only who-may check.** `TerminalPolicy.allowedRoles` is
   gone; terminal access is `terminal.open` (owners/admins by default, others by
   a grant). Container exec is governed on the service, node shells on the node.

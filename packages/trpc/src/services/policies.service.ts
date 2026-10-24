@@ -13,6 +13,7 @@ import { notFound } from '../errors';
 import { writeAudit } from './audit.service';
 import { evaluateAccess, resolveNode, resolveService, resolveStack, whoCan, type WhoCanRow } from '../abac';
 import { policyRepo, type PolicyRecord } from './policy-repo';
+import { assertNoOwnerLockout } from './policy-lockout';
 
 export interface PolicyView extends PolicyRecord {
   /** The rule in plain words ("Members of platform can deploy apps …"). */
@@ -82,7 +83,9 @@ export async function setPolicy(ctx: OrgContext, args: SetPolicyArgs): Promise<P
         throw new Error('Default rules are managed by swarmy. Turn this one off, or add your own rule (a forbid overrides).');
       }
     }
+    if (!existing) throw notFound('policy', args.id);
   }
+  await assertNoOwnerLockout(ctx, { kind: 'upsert', write: args });
   const row = await repo.upsert(ctx.activeOrgId, args, ctx.user.id);
   if (!row) throw notFound('policy', args.id ?? '');
   await writeAudit(ctx, {
@@ -102,6 +105,7 @@ export async function deletePolicy(
   const row = await repo.get(ctx.activeOrgId, id);
   if (!row) throw notFound('policy', id);
   if (row.isDefault) throw new Error('default policies cannot be deleted');
+  await assertNoOwnerLockout(ctx, { kind: 'delete', id });
   await repo.delete(ctx.activeOrgId, id);
   await writeAudit(ctx, { action: 'policy.delete', targetType: 'policy', targetId: id });
   return { id, deleted: true };
