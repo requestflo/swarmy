@@ -14,20 +14,20 @@ import { StackEnvCard } from './stack-env-card';
 export function GuardrailsPage(): React.JSX.Element {
   const trpc = useTRPC();
   const config = useQuery({ ...trpc.guardrails.config.queryOptions(), refetchInterval: 15_000 });
-  const decisions = useQuery({ ...trpc.guardrails.recentDecisions.queryOptions({ limit: 30 }), refetchInterval: 15_000 });
+  const tally = useQuery({ ...trpc.guardrails.tally.queryOptions({}), refetchInterval: 30_000 });
   const envs = useQuery(trpc.guardrails.stackEnvs.queryOptions());
   const c = config.data;
   const on = c?.rules.filter((r) => r.enabled) ?? [];
   const blocking = on.filter((r) => r.severity === 'block').length;
-  const since = Date.now() - 30 * 86_400_000;
-  const stopped = (decisions.data ?? []).filter((d) => d.kind === 'blocked' && new Date(d.at).getTime() >= since).length;
+  // Deploys a guardrail refused (image and exposure refusals are counted on their own pages).
+  const stopped = tally.data?.blockedBy.guardrails ?? 0;
 
   const title = !c ? (
     'Guardrails.'
   ) : (
     <>
       {plural(blocking, 'rule')} block, {on.length - blocking} warn.{' '}
-      {decisions.data ? (stopped ? <Say tone="ok">Last 30 days they stopped {plural(stopped, 'deploy')}.</Say> : <em>Nothing stopped in 30 days.</em>) : null}
+      {tally.data ? (stopped ? <Say tone="ok">Last 30 days they stopped {tally.data.capped ? 'at least ' : ''}{plural(stopped, 'deploy')}.</Say> : <em>Nothing stopped in 30 days.</em>) : null}
     </>
   );
   const code = c
@@ -56,7 +56,7 @@ export function GuardrailsPage(): React.JSX.Element {
       ) : c ? (
         <>
           <SafetyModeNext config={c} />
-          <RulesList config={c} decisions={decisions.data ?? []} />
+          <RulesList config={c} tally={tally.data} tallyFailed={tally.isError} />
           <SafetyModeCard config={c} />
         </>
       ) : null}

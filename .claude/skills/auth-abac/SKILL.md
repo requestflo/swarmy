@@ -58,7 +58,8 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
 9. **Deploy-shaped mutations pass the admission pipeline before the swarm.**
    Build an `AdmissionIntent` and call `evaluateAdmission`; refuse when any
    `block` violation returns unless `intent.override` is set (and audit the
-   override with `stack.deploy.override` / `service.deploy.override`). The
+   override with `stack.deploy.override` / `service.deploy.override`; every
+   other decision is a receipt too, see "Admission receipts"). The
    spine's shape (`admission.service.ts`) is a contract — add rules inside an
    evaluator, never change the spine's fan-out. `enforceAdmission`
    (`admission-gate.ts`) is the one refuse/override step: a caller that passes
@@ -122,6 +123,14 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
   (`authz.permit:service.restart`, `guardrails.deploy.blocked`,
   `guardrails.safetyMode.set`). The Recent-decisions feed reads
   `DECISION_ACTIONS`.
+- **Admission receipts**: the gate (never an evaluator) records each admission
+  run once via `recordAdmission` (`admission-record.ts`; row shape and actions
+  are `@swarmy/core` `admissionRecord`): `guardrails.deploy.blocked|warned|
+  allowed` or the override actions, with per-check `checks[{rule, outcome}]`,
+  `admitted`, and `wouldBlock[]` — Warn/Off guardrails re-armed at Block by the
+  pure shadow pass (`admission-guardrails-shadow.ts`, sharing the evaluation's
+  memoized facts). A clean pass with no `wouldBlock` writes nothing.
+  `guardrails.tally` counts them per rule (`tallyAdmission`).
 - **Identity**: `@swarmy/auth` wraps Better Auth (`organization` plugin always
   present as element 0; social/OIDC-SSO/magic-link/passkey injected at runtime
   from `AuthProviderConfig`). API keys/OAuth clients are hashed at rest and
@@ -233,6 +242,7 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
 | Refuse / override step (`enforceAdmission`, override reason) | `packages/trpc/src/services/admission-gate.ts`; UI `apps/app/src/components/services/{deploy-override-panel.tsx,policy-refusal.ts}` |
 | Active-org switch that forwards the refreshed session cookies | `packages/trpc/src/services/active-org.ts` (`setActiveOrg`; test `routers/org.switch.test.ts`) |
 | Guardrails config + Recent decisions | `packages/trpc/src/services/guardrails.service.ts` |
+| Admission receipts (record, would-block shadow, tally) | `packages/trpc/src/services/admission-{record,guardrails-shadow,guardrails-facts,tally.service}.ts`; pure `packages/core/src/admission-{record,tally}.ts` |
 | Identity / access routers | `packages/trpc/src/routers/{org,members,policies,sso,oauth,authConfig,apiKeys,guardrails,cost,auditLog}.ts` |
 | Better Auth wiring (runtime-built) | `packages/auth/src/{server,config,client}.ts` |
 | Access & auth models | `packages/db/prisma/schema/access.prisma` (`Policy`, `ResourceGrant`, `SsoProvider`, `AuthProviderConfig`) |

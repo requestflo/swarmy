@@ -33,6 +33,7 @@ import { secretsmgr } from './resolvers/secretsmgr';
 import { configsmgr } from './resolvers/configsmgr';
 import { exposure } from './resolvers/exposure';
 import { guardrails } from './resolvers/guardrails';
+import { guardrailsTally } from './resolvers/guardrails-tally';
 import { auditlog } from './resolvers/auditlog';
 import { cost } from './resolvers/cost';
 import { resilience } from './resolvers/resilience';
@@ -109,6 +110,7 @@ const MODULES: DomainResolvers[] = [
   configsmgr,
   exposure,
   guardrails,
+  guardrailsTally,
   auditlog,
   cost,
   resilience,

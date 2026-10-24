@@ -11,6 +11,10 @@ import type { StatusTone } from '@swarmy/ui';
 const EXACT: Record<string, string> = {
   'stack.deploy': 'deployed stack',
   'stack.deploy.override': 'deployed stack (override)',
+  'service.deploy.override': 'deployed service (override)',
+  'guardrails.deploy.blocked': 'deploy stopped by a guardrail:',
+  'guardrails.deploy.warned': 'deploy warned by a guardrail:',
+  'guardrails.deploy.allowed': 'deploy let through that Block would have stopped:',
   'service.builder.deploy': 'deployed service',
   'cicd.triggerBuild': 'triggered a build for',
   'release.rollback': 'rolled back',

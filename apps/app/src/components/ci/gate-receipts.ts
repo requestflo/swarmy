@@ -1,14 +1,17 @@
+import { emptyRuleTally, type AdmissionRuleTally, type AdmissionTallyView } from '@swarmy/core';
+
 /**
- * Supply-chain gate receipts (board 51), from the two real records swarmy
- * keeps: image scans (`registryPolicy.listScans`, newest first) and the
- * admission decisions in the audit log (`guardrails.recentDecisions`).
+ * Supply-chain gate receipts (board 51), from the real records swarmy keeps:
+ * image scans (`registryPolicy.listScans`, newest first), the admission
+ * receipts counted per check (`guardrails.tally`), and the override rows in
+ * the decisions feed (`guardrails.recentDecisions`) for who went past a gate.
  *
  * - The CVE gate decides on an image's LATEST scan (`decideImageAdmission`),
  *   so "images it refuses" = images whose newest scan in the window has a
  *   critical CVE.
- * - A refused image deploy is not written to the audit log; an override is
- *   (`stack.deploy.override` / `service.deploy.override` with the
- *   violations). So per-gate receipts are the overrides that went ahead.
+ * - Every admission run is recorded per check, so each gate's "stopped N" is
+ *   the deploys it refused in the window (`images/critical-cves`,
+ *   `images/unsigned`), and "warned" the unscanned images it let through.
  */
 export const SCAN_LIMIT = 200;
 export const WINDOW_DAYS = 30;
@@ -38,9 +41,15 @@ export interface GateReceipts {
   /** Images whose newest scan has a critical CVE: what the CVE gate refuses. */
   criticalImages: Array<{ ref: string; critical: number }>;
   overrides: { cve: DecisionLike[]; unsigned: DecisionLike[] };
+  /** Per-check counts from the admission receipts. */
+  checks: { cve: AdmissionRuleTally; unscanned: AdmissionRuleTally; unsigned: AdmissionRuleTally };
+  /** The receipts window held more than one read: every count is a floor. */
+  checksCapped: boolean;
 }
 
-export function gateReceipts(scans: readonly ScanLike[], decisions: readonly DecisionLike[], now: number): GateReceipts {
+const check = (tally: AdmissionTallyView, rule: string): AdmissionRuleTally => tally.rules.find((r) => r.rule === rule) ?? emptyRuleTally(rule);
+
+export function gateReceipts(scans: readonly ScanLike[], decisions: readonly DecisionLike[], tally: AdmissionTallyView, now: number): GateReceipts {
   const since = now - WINDOW_DAYS * 86_400_000;
   const recent = scans.filter((s) => Date.parse(s.scannedAt) >= since);
   const latest = new Map<string, ScanLike>();
@@ -56,6 +65,8 @@ export function gateReceipts(scans: readonly ScanLike[], decisions: readonly Dec
     errored: recent.filter((s) => s.status === 'error').length,
     criticalImages,
     overrides: { cve: overridden.filter((d) => has(d, 'images/critical-cves')), unsigned: overridden.filter((d) => has(d, 'images/unsigned')) },
+    checks: { cve: check(tally, 'images/critical-cves'), unscanned: check(tally, 'images/unscanned'), unsigned: check(tally, 'images/unsigned') },
+    checksCapped: tally.capped,
   };
 }
 
