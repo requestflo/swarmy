@@ -19,12 +19,20 @@ import {
 import { QuietSwitch } from '@/components/rowpage/row-page';
 import { useTRPC } from '@/integrations/trpc';
 
-type GcMode = 'on-healthcheck' | 'age-days';
+type GcMode = 'on-healthcheck' | 'age-days' | 'keep-last';
+
+/** What the registry does under each mode (servers always drop what the mode selects). */
+const REGISTRY_NOTE: Record<GcMode, string> = {
+  'on-healthcheck': 'Servers drop old builds; the registry keeps them so you can put one back.',
+  'age-days': 'Older builds are deleted from servers and the registry. Anything running stays.',
+  'keep-last': 'Each repo keeps its newest builds on servers and in the registry. Anything running stays too.',
+};
 
 interface GcPolicy {
   mode: GcMode;
   keepProd: boolean;
   days: number | null;
+  keepLast?: number | null;
   cacheMaxAgeDays?: number;
   cacheMaxGb?: number;
 }
@@ -40,6 +48,7 @@ export function GcPolicyCard({ value, onDone }: GcPolicyCardProps): React.JSX.El
   const [mode, setMode] = React.useState<GcMode>(value?.mode ?? 'on-healthcheck');
   const [keepProd, setKeepProd] = React.useState(value?.keepProd ?? true);
   const [days, setDays] = React.useState(value?.days ?? 14);
+  const [keepLast, setKeepLast] = React.useState(value?.keepLast ?? 10);
   const [cacheDays, setCacheDays] = React.useState(value?.cacheMaxAgeDays ?? 14);
   const [cacheGb, setCacheGb] = React.useState(value?.cacheMaxGb ?? 20);
 
@@ -48,6 +57,7 @@ export function GcPolicyCard({ value, onDone }: GcPolicyCardProps): React.JSX.El
       setMode(value.mode);
       setKeepProd(value.keepProd);
       setDays(value.days ?? 14);
+      setKeepLast(value.keepLast ?? 10);
       setCacheDays(value.cacheMaxAgeDays ?? 14);
       setCacheGb(value.cacheMaxGb ?? 20);
     }
@@ -79,13 +89,21 @@ export function GcPolicyCard({ value, onDone }: GcPolicyCardProps): React.JSX.El
             <SelectContent>
               <SelectItem value="on-healthcheck">Promote on healthcheck</SelectItem>
               <SelectItem value="age-days">Older than N days</SelectItem>
+              <SelectItem value="keep-last">Keep the last N per repo</SelectItem>
             </SelectContent>
           </Select>
+          <p className="text-muted-foreground text-xs">{REGISTRY_NOTE[mode]}</p>
         </div>
         {mode === 'age-days' && (
           <div className="grid gap-1.5">
             <Label className="mono-label">Keep days</Label>
             <Input type="number" value={days} onChange={(e) => setDays(Number(e.target.value))} />
+          </div>
+        )}
+        {mode === 'keep-last' && (
+          <div className="grid gap-1.5">
+            <Label className="mono-label" htmlFor="gc-keep-last">Builds to keep per repo</Label>
+            <Input id="gc-keep-last" type="number" min={1} value={keepLast} onChange={(e) => setKeepLast(Number(e.target.value))} />
           </div>
         )}
         <div className="bg-accent/40 flex items-center justify-between rounded-xl px-4 py-3">
@@ -122,6 +140,7 @@ export function GcPolicyCard({ value, onDone }: GcPolicyCardProps): React.JSX.El
               mode,
               keepProd,
               days: mode === 'age-days' ? days : null,
+              keepLast: Math.max(1, Math.round(keepLast)),
               cacheMaxAgeDays: Math.max(1, Math.round(cacheDays)),
               cacheMaxGb: Math.max(1, Math.round(cacheGb)),
             })

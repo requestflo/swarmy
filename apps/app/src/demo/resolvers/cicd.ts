@@ -70,9 +70,10 @@ interface RegistryConfigView {
 }
 
 interface GcPolicyView {
-  mode: 'on-healthcheck' | 'age-days';
+  mode: 'on-healthcheck' | 'age-days' | 'keep-last';
   keepProd: boolean;
   days: number | null;
+  keepLast: number | null;
   cacheMaxAgeDays: number;
   cacheMaxGb: number;
 }
@@ -220,7 +221,7 @@ function buildSeed(): CicdState {
       online: true,
       updatedAt: iso(3 * DAY),
     },
-    gc: { mode: 'on-healthcheck', keepProd: true, days: null, cacheMaxAgeDays: 14, cacheMaxGb: 20 },
+    gc: { mode: 'keep-last', keepProd: true, days: null, keepLast: 10, cacheMaxAgeDays: 14, cacheMaxGb: 20 },
   };
 }
 
@@ -458,6 +459,7 @@ export const cicd: DomainResolvers = {
         mode: b.mode,
         keepProd: b.keepProd,
         days: b.days,
+        keepLast: b.keepLast ?? st.gc.keepLast,
         cacheMaxAgeDays: b.cacheMaxAgeDays ?? st.gc.cacheMaxAgeDays,
         cacheMaxGb: b.cacheMaxGb ?? st.gc.cacheMaxGb,
       };

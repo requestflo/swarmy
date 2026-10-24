@@ -55,10 +55,12 @@ export const registryConfigs = kvTable<RegistryConfigDoc>('registry', {
 });
 
 export interface ImageGcPolicyDoc {
-  /** ImageGcMode enum value. */
+  /** ImageGcMode enum value: ON_HEALTHCHECK | AGE_DAYS | KEEP_LAST. */
   mode: string;
   keepProd: boolean;
   days: number | null;
+  /** KEEP_LAST: newest builds kept per repo (absent on docs written before the mode existed). */
+  keepLast?: number | null;
   /** Registry build cache: drop a cache ref no build has written for this many days. */
   cacheMaxAgeDays: number;
   /** Registry build cache: total budget; the least recently written refs go first. */

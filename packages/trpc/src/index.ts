@@ -110,7 +110,7 @@ export {
   computeGcPlan,
   bareDigest,
 } from './services/cicd.service';
-export type { GcCandidate, GcPlan, GcPlanInput, BuildLogLine } from './services/cicd.service';
+export type { GcCandidate, GcMode, GcPlan, GcPlanInput, BuildLogLine } from './services/cicd.service';
 // ── git-apps P2: provider connections, JIT credentials, feedback ──
 export {
   completeGithubManifest,

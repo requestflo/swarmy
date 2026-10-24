@@ -31,9 +31,11 @@ import {
   bareDigest,
   computeGcPlan,
   convergeRegistryAuth,
+  DEFAULT_KEEP_LAST,
+  gcModeOf,
   systemContext,
-  type GcCandidate,
 } from './cicd.service';
+import { loadGcCandidates } from './gc-candidates';
 import { canonicalRegistryHost } from './registryPolicy.service';
 
 export interface GcRunResult {
@@ -76,25 +78,15 @@ export async function runImageGcForOrg(
   // No policy row, or age-days with no window → nothing to do.
   if (!policy) return empty(orgId, opts.dryRun ?? false);
 
-  const mode: 'on-healthcheck' | 'age-days' = policy.mode === 'AGE_DAYS' ? 'age-days' : 'on-healthcheck';
+  const mode = gcModeOf(policy.mode);
   if (mode === 'age-days' && !policy.days) return empty(orgId, opts.dryRun ?? false);
 
-  const builds = await db.build.findMany({
-    where: { orgId, status: 'SUCCEEDED', image: { not: null } },
-    select: { id: true, image: true, finishedAt: true },
-    orderBy: { finishedAt: 'desc' },
-    take: 1000,
-  });
-  const candidates: GcCandidate[] = builds.map((b) => ({
-    buildId: b.id,
-    digest: b.image && b.image.includes('@sha256:') ? bareDigest(b.image) : null,
-    finishedAt: b.finishedAt,
-  }));
-
+  const candidates = await loadGcCandidates(db, orgId);
   const pinnedDigests = computePinnedDigests(hub, orgId);
   const plan = computeGcPlan({
     mode,
     days: policy.days,
+    keepLast: policy.keepLast ?? DEFAULT_KEEP_LAST,
     keepProd: policy.keepProd,
     pinnedDigests,
     candidates,
@@ -125,7 +117,8 @@ export async function runImageGcForOrg(
         node.id,
         'image.prune',
         {
-          keepDigests: plan.pinned,
+          // keep-last also keeps each repo's newest N (the rest of the plan is pinned-only).
+          keepDigests: [...plan.pinned, ...plan.kept],
           repoPrefix,
           strategy: mode === 'age-days' ? 'until' : 'all-except-keep',
           untilDays: policy.days ?? undefined,

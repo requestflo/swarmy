@@ -118,19 +118,34 @@ export interface RegistryConfigView {
   updatedAt: string;
 }
 
+export type GcMode = 'on-healthcheck' | 'age-days' | 'keep-last';
+
 export interface GcPolicyView {
-  mode: 'on-healthcheck' | 'age-days';
+  mode: GcMode;
   keepProd: boolean;
   days: number | null;
+  /** keep-last: newest builds kept per repo (plus anything running in prod). */
+  keepLast: number | null;
   /** Registry build cache: drop refs no build has written for this many days. */
   cacheMaxAgeDays: number;
   /** Registry build cache: total budget (GB); least recently written go first. */
   cacheMaxGb: number;
 }
 
-/** `setGcPolicy` input: the cache budget is optional (older clients keep it). */
-export type GcPolicyInput = Omit<GcPolicyView, 'cacheMaxAgeDays' | 'cacheMaxGb'> &
-  Partial<Pick<GcPolicyView, 'cacheMaxAgeDays' | 'cacheMaxGb'>>;
+/** `setGcPolicy` input: the cache budget and keep-last count are optional (older clients keep them). */
+export type GcPolicyInput = Omit<GcPolicyView, 'cacheMaxAgeDays' | 'cacheMaxGb' | 'keepLast'> &
+  Partial<Pick<GcPolicyView, 'cacheMaxAgeDays' | 'cacheMaxGb' | 'keepLast'>>;
+
+/** Default "keep the last N per repo" when a policy picks the mode without a count. */
+export const DEFAULT_KEEP_LAST = 10;
+
+/** Stored ImageGcMode enum value ↔ the API's mode. Unknown values read as the default. */
+export function gcModeOf(stored: string | null | undefined): GcMode {
+  return stored === 'AGE_DAYS' ? 'age-days' : stored === 'KEEP_LAST' ? 'keep-last' : 'on-healthcheck';
+}
+function gcModeRow(mode: GcMode): string {
+  return mode === 'age-days' ? 'AGE_DAYS' : mode === 'keep-last' ? 'KEEP_LAST' : 'ON_HEALTHCHECK';
+}
 
 // ── Git repos ────────────────────────────────────────────────────────────────
 
@@ -747,9 +762,10 @@ export async function getGcPolicy(ctx: OrgContext): Promise<GcPolicyView> {
     update: {},
   });
   return {
-    mode: row.mode === 'AGE_DAYS' ? 'age-days' : 'on-healthcheck',
+    mode: gcModeOf(row.mode),
     keepProd: row.keepProd,
     days: row.days,
+    keepLast: row.keepLast ?? null,
     cacheMaxAgeDays: row.cacheMaxAgeDays,
     cacheMaxGb: row.cacheMaxGb,
   };
@@ -759,22 +775,13 @@ export async function setGcPolicy(ctx: OrgContext, input: GcPolicyInput): Promis
   const cache = {
     ...(input.cacheMaxAgeDays !== undefined ? { cacheMaxAgeDays: input.cacheMaxAgeDays } : {}),
     ...(input.cacheMaxGb !== undefined ? { cacheMaxGb: input.cacheMaxGb } : {}),
+    ...(input.keepLast !== undefined ? { keepLast: input.keepLast } : {}),
   };
+  const fields = { mode: gcModeRow(input.mode), keepProd: input.keepProd, days: input.days, ...cache };
   await imageGcPolicies(ctx, ctx.activeOrgId).upsert({
     where: { orgId: ctx.activeOrgId },
-    create: {
-      orgId: ctx.activeOrgId,
-      mode: input.mode === 'age-days' ? 'AGE_DAYS' : 'ON_HEALTHCHECK',
-      keepProd: input.keepProd,
-      days: input.days,
-      ...cache,
-    },
-    update: {
-      mode: input.mode === 'age-days' ? 'AGE_DAYS' : 'ON_HEALTHCHECK',
-      keepProd: input.keepProd,
-      days: input.days,
-      ...cache,
-    },
+    create: { orgId: ctx.activeOrgId, ...fields },
+    update: fields,
   });
   await writeAudit(ctx, { action: 'cicd.gc.set', targetType: 'imageGcPolicy', targetId: ctx.activeOrgId, metadata: { ...input } });
   return getGcPolicy(ctx);
@@ -872,11 +879,15 @@ export interface GcCandidate {
   buildId: string;
   digest: string | null;
   finishedAt: Date | null;
+  /** Registry repository (`name` of `host/name@sha256:…`) — groups keep-last. */
+  repo?: string;
 }
 
 export interface GcPlanInput {
-  mode: 'on-healthcheck' | 'age-days';
+  mode: GcMode;
   days: number | null;
+  /** keep-last: the newest N distinct digests per repo are kept. Unset/<1 ⇒ nothing is removed. */
+  keepLast?: number | null;
   keepProd: boolean;
   /** Digests referenced by a service/deployment running in prod — never deleted. */
   pinnedDigests: Set<string>;
@@ -889,6 +900,8 @@ export interface GcPlan {
   remove: string[];
   /** Digests kept because they are pinned in prod. */
   pinned: string[];
+  /** keep-last: digests kept as one of their repo's newest N (empty for other modes). */
+  kept: string[];
 }
 
 /** Bare `sha256:…` from a `repo@sha256:…` ref (or pass-through). */
@@ -906,8 +919,31 @@ export function bareDigest(ref: string): string {
 export function computeGcPlan(input: GcPlanInput): GcPlan {
   const pinned = input.keepProd ? new Set([...input.pinnedDigests].map(bareDigest)) : new Set<string>();
   const remove = new Set<string>();
+  const kept = new Set<string>();
 
-  if (input.mode === 'age-days') {
+  if (input.mode === 'keep-last') {
+    // Newest N distinct digests per repo are kept; older ones go unless pinned.
+    // No count ⇒ remove nothing (never guess a retention window).
+    const n = input.keepLast ?? 0;
+    const byRepo = new Map<string, Array<{ d: string; ts: number }>>();
+    for (const c of input.candidates) {
+      if (!c.digest || n < 1) continue;
+      const list = byRepo.get(c.repo ?? '') ?? [];
+      list.push({ d: bareDigest(c.digest), ts: c.finishedAt?.getTime() ?? 0 });
+      byRepo.set(c.repo ?? '', list);
+    }
+    for (const list of byRepo.values()) {
+      const seen = new Set<string>();
+      for (const { d } of list.sort((a, b) => b.ts - a.ts)) {
+        if (seen.has(d)) continue;
+        seen.add(d);
+        if (seen.size <= n) kept.add(d);
+        else if (!pinned.has(d)) remove.add(d);
+      }
+    }
+    // A digest kept in one repo is never removed because it is old in another.
+    for (const d of kept) remove.delete(d);
+  } else if (input.mode === 'age-days') {
     const cutoff = input.now.getTime() - (input.days ?? 0) * 24 * 60 * 60 * 1000;
     for (const c of input.candidates) {
       if (!c.digest) continue;
@@ -927,7 +963,7 @@ export function computeGcPlan(input: GcPlanInput): GcPlan {
     }
   }
 
-  return { remove: [...remove], pinned: [...pinned] };
+  return { remove: [...remove], pinned: [...pinned], kept: [...kept] };
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

@@ -70,9 +70,11 @@ export const cicdRouter = router({
   setGcPolicy: adminProcedure
     .input(
       z.object({
-        mode: z.enum(['on-healthcheck', 'age-days']),
+        mode: z.enum(['on-healthcheck', 'age-days', 'keep-last']),
         keepProd: z.boolean(),
         days: z.number().int().positive().nullable(),
+        /** keep-last: newest builds kept per repo (anything running in prod is always kept too). */
+        keepLast: z.number().int().min(1).max(1000).nullable().optional(),
         cacheMaxAgeDays: z.number().int().min(1).max(365).optional(),
         cacheMaxGb: z.number().int().min(1).max(10_000).optional(),
       }),
