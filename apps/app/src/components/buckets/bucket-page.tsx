@@ -6,6 +6,7 @@ import { CalmPage, Say, SayHeader, TONE_DOT, Tech, type Crumb } from '@/componen
 import { PageError, SkeletonBody } from '@/components/states';
 import { BucketAttachedSection } from './bucket-attached-section';
 import { BucketCopiesSection } from './bucket-copies-section';
+import { BucketCorsSection } from './bucket-cors-section';
 import { BucketDelete } from './bucket-delete';
 import { BucketKeysPanel } from './bucket-keys-panel';
 import { BucketMoreControls } from './bucket-more-controls';
@@ -73,6 +74,7 @@ export function BucketPage({ name }: { name: string }): React.JSX.Element {
       <BucketCopiesSection copies={p.copies} members={p.members} />
       <BucketAttachedSection bucket={b} store={p.store} />
       <BucketKeysPanel bucket={b} endpoint={p.store?.endpoint ?? null} />
+      <BucketCorsSection bucketId={b.id} access={p.access} />
       <BucketMoreControls bucket={b} />
       <BucketDelete bucket={b} />
     </CalmPage>

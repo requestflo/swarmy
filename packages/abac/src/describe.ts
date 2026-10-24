@@ -54,6 +54,7 @@ export const ACTION_CATALOG: ActionInfo[] = [
   { id: 'ai.use', label: 'use AI models', group: 'access' },
   { id: 'data.read', label: 'read database rows', group: 'access' },
   { id: 'data.write', label: 'edit database rows', group: 'operate' },
+  { id: 'data.configure', label: 'change which websites can fetch a bucket', group: 'configure' },
   { id: 'email.write', label: 'configure email sending', group: 'configure' },
   { id: 'email.send', label: 'send test emails', group: 'operate' },
   { id: 'alert.remove', label: 'remove alerts', group: 'configure' },

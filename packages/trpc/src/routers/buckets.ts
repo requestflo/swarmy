@@ -40,6 +40,7 @@ import {
 } from '../services/bucket-access.service';
 import { applyObjectStorageExposure, edgeMeshIps, orgDashboardDomain } from '../services/ingress.service';
 import type { OrgContext } from '../context';
+import { bucketRuleProcedures } from './bucket-rules';
 
 const accessMode = z.enum(BUCKET_ACCESS_MODES as [BucketAccessMode, ...BucketAccessMode[]]);
 
@@ -178,4 +179,6 @@ export const objectStorageRouter = router({
   detach: adminProcedure
     .input(DetachBucketInput)
     .mutation(({ ctx, input }) => detach(ctx, input.appService)),
+
+  ...bucketRuleProcedures,
 });

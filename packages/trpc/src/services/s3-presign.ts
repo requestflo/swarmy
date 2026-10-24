@@ -21,11 +21,19 @@ export interface PresignS3Input {
    * endpoint already addresses the bucket (virtual-hosted style).
    */
   bucket: string;
-  /** Object key (may contain `/` — segments are encoded individually). */
+  /**
+   * Object key (may contain `/` — segments are encoded individually). Empty =
+   * the bucket itself (`/<bucket>`), for bucket sub-resource calls.
+   */
   key: string;
   accessKeyId: string;
   secretAccessKey: string;
-  method: 'GET' | 'PUT';
+  method: 'GET' | 'PUT' | 'DELETE';
+  /**
+   * S3 sub-resource keyword signed into the query (`cors`, `lifecycle`) —
+   * turns an object call into a bucket-configuration call.
+   */
+  subresource?: string;
   /** 1..604800 (7 days) — the SigV4 presign limit. */
   expiresSeconds: number;
   /** Signing time — injected for determinism; callers pass `new Date()`. */
@@ -40,9 +48,9 @@ function uriEncode(s: string): string {
   );
 }
 
-/** Canonical URI: each path segment encoded, `/` preserved. */
+/** Canonical URI: each path segment encoded, `/` preserved; no key = the bucket itself. */
 function canonicalPath(bucket: string, key: string): string {
-  const segments = [...(bucket ? [bucket] : []), ...key.split('/')];
+  const segments = [...(bucket ? [bucket] : []), ...(key ? key.split('/') : [])];
   return `/${segments.map(uriEncode).join('/')}`;
 }
 
@@ -86,6 +94,7 @@ export function presignS3Url(input: PresignS3Input): string {
     ['X-Amz-Date', amzDate],
     ['X-Amz-Expires', String(input.expiresSeconds)],
     ['X-Amz-SignedHeaders', 'host'],
+    ...(input.subresource ? [[input.subresource, ''] as [string, string]] : []),
   ];
   const canonicalQuery = params
     .map(([k, v]) => [uriEncode(k), uriEncode(v)] as const)

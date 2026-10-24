@@ -16,6 +16,7 @@ import { access } from './resolvers/access';
 import { infraextra } from './resolvers/infraextra';
 import { cache } from './resolvers/cache';
 import { buckets } from './resolvers/buckets';
+import { bucketRules } from './resolvers/bucket-rules';
 import { queues } from './resolvers/queues';
 import { appaccess } from './resolvers/appaccess';
 import { jobs } from './resolvers/jobs';
@@ -88,6 +89,7 @@ const MODULES: DomainResolvers[] = [
   infraextra,
   cache,
   buckets,
+  bucketRules,
   queues,
   appaccess,
   jobs,

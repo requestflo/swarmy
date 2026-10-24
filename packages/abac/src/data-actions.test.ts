@@ -23,8 +23,13 @@ describe('database studio actions (data.read / data.write)', () => {
     expect(engine.evaluate({ principal: member, action: 'data.read', resource: db({ 'swarmy.env': 'production' }) }).decision).toBe('deny');
   });
 
-  it('writes and destructive statements need a grant, even outside production', () => {
-    for (const action of ['data.write', 'data.destroy'] as const) {
+  it('data.configure (bucket CORS) is registered and catalogued', () => {
+    expect(ACTIONS).toContain('data.configure');
+    expect(ACTION_CATALOG.find((c) => c.id === 'data.configure')?.group).toBe('configure');
+  });
+
+  it('writes, destructive statements and bucket rules need a grant, even outside production', () => {
+    for (const action of ['data.write', 'data.destroy', 'data.configure'] as const) {
       expect(engine.evaluate({ principal: member, action, resource: db() }).decision).toBe('deny');
       expect(engine.evaluate({ principal: admin, action, resource: db({ 'swarmy.env': 'production' }) }).decision).toBe('permit');
     }

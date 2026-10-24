@@ -80,6 +80,11 @@ export const ACTIONS = [
   'data.read',
   /** Insert, update or delete rows (or run a write statement) in the database studio. */
   'data.write',
+  /**
+   * Change how managed data behaves for its clients: a bucket's CORS rules
+   * (which websites a browser may fetch it from). Owner/admin-only by default.
+   */
+  'data.configure',
   // Auth for your apps (epic developer-platform §2). "Protect my app": who may
   // sign in to an app behind the swarmy identity-aware proxy, evaluated on the
   // app's STACK (its env/labels) for every request. Owner/admin-only in the

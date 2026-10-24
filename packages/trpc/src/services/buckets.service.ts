@@ -343,7 +343,7 @@ export const ATTACH_ENV_KEYS = [
 
 // ── Store access ──────────────────────────────────────────────────────────────
 
-interface StoreHandle {
+export interface StoreHandle {
   region: string;
   adminToken: string;
   memberNodeIds: string[];
@@ -363,7 +363,7 @@ async function loadStore(ctx: OrgContext): Promise<StoreHandle | null> {
   };
 }
 
-async function requireStore(ctx: OrgContext): Promise<StoreHandle> {
+export async function requireStore(ctx: OrgContext): Promise<StoreHandle> {
   const store = await loadStore(ctx);
   if (!store) {
     throw commandRejected(
@@ -386,7 +386,7 @@ async function storeNode(ctx: OrgContext, _store: StoreHandle): Promise<{ id: st
 type AdminCall = GarageCall;
 
 /** Dispatch one admin call as a runOnce curl; throws a typed error on HTTP ≥400. */
-async function garageAdmin(ctx: OrgContext, store: StoreHandle, call: AdminCall): Promise<string> {
+export async function garageAdmin(ctx: OrgContext, store: StoreHandle, call: AdminCall): Promise<string> {
   const node = await storeNode(ctx, store);
   const req = toGarageRequest(call, store.major);
   let res: RunOnceResult;
@@ -851,7 +851,7 @@ export const PRESIGN_KEY_NAME = 'swarmy-presign';
  * encrypted `*Ref` columns on the StorageCluster row — same pattern as the
  * admin token). Minted lazily on first presign.
  */
-async function ensurePresignKey(
+export async function ensurePresignKey(
   ctx: OrgContext,
   store: StoreHandle,
 ): Promise<{ accessKeyId: string; secretAccessKey: string }> {
@@ -870,6 +870,29 @@ async function ensurePresignKey(
   });
   await retireSupersededSystemKeys(ctx, PRESIGN_KEY_NAME, key.accessKeyId);
   return { accessKeyId: key.accessKeyId, secretAccessKey: key.secretAccessKey };
+}
+
+/**
+ * Grant the signing key what a call on this bucket needs, on demand: read +
+ * write for object links and lifecycle rules, plus owner for CORS rules
+ * (Garage gates `?cors` on owner). The key's secret never leaves the
+ * controller, and a presigned URL authorizes only the one call it signs, so
+ * owner here widens nothing a link holder can do. No call when already held.
+ */
+export async function ensurePresignGrant(
+  ctx: OrgContext,
+  store: StoreHandle,
+  bucket: Pick<BucketDetailView, 'id' | 'keys'>,
+  accessKeyId: string,
+  need: { owner: boolean },
+): Promise<void> {
+  const held = bucket.keys.find((k) => k.accessKeyId === accessKeyId)?.permissions;
+  if (held?.read && held.write && (!need.owner || held.owner)) return;
+  await garageAdmin(ctx, store, {
+    method: 'POST',
+    path: '/bucket/allow',
+    body: buildGrantBody(bucket.id, accessKeyId, { read: true, write: true, owner: need.owner }),
+  });
 }
 
 export interface PresignUrlInput {
@@ -909,19 +932,7 @@ export async function presignObjectUrl(
   // Also proves the bucket belongs to THIS org's store (404 otherwise).
   const bucket = await getBucket(ctx, input.bucketId);
   const creds = await ensurePresignKey(ctx, store);
-
-  const grant = bucket.keys.find((k) => k.accessKeyId === creds.accessKeyId);
-  if (!grant?.permissions.read || !grant.permissions.write) {
-    await garageAdmin(ctx, store, {
-      method: 'POST',
-      path: '/bucket/allow',
-      body: buildGrantBody(bucket.id, creds.accessKeyId, {
-        read: true,
-        write: true,
-        owner: false,
-      }),
-    });
-  }
+  await ensurePresignGrant(ctx, store, bucket, creds.accessKeyId, { owner: false });
 
   const now = new Date();
   const url = presignS3Url({

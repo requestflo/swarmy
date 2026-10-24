@@ -38,6 +38,7 @@ export * from './edge-traffic';
 export * from './edge-traffic-hosts';
 export * from './node-stats-history';
 export * from './image-ref';
+export * from './bucket-cors';
 // NOTE: './crypto' (node:crypto credential vault) is server-only and is NOT
 // re-exported here — import it via '@swarmy/core/crypto' so it never reaches the
 // browser bundle.

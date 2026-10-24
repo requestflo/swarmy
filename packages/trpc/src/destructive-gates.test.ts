@@ -95,6 +95,7 @@ const GATES: Array<[string, unknown, string]> = [
   ['vector.destroy', {}, 'data.destroy'],
   ['buckets.deleteBucket', {}, 'data.destroy'],
   ['buckets.deleteKey', {}, 'data.destroy'],
+  ['buckets.setCors', {}, 'data.configure'],
   ['storage.disable', undefined, 'data.destroy'],
   ['queues.remove', {}, 'data.destroy'],
   ['queues.drain', {}, 'data.destroy'],

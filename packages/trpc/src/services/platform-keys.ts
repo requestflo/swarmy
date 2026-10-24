@@ -51,7 +51,7 @@ export interface PlatformKeyPurpose {
 }
 
 export const PLATFORM_KEY_PURPOSES: readonly PlatformKeyPurpose[] = [
-  { id: 'presign', name: 'swarmy-presign', usedBy: 'Signs share and download links' },
+  { id: 'presign', name: 'swarmy-presign', usedBy: 'Signs share links and applies bucket rules' },
   {
     id: 'control-litestream',
     name: 'swarmy-control-litestream',

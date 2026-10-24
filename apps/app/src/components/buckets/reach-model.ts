@@ -62,6 +62,11 @@ export function reachUrl(e: ReachEndpoints): string {
   return e.public ?? e.mesh[0] ?? e.internal;
 }
 
+/** The S3 origin a client outside points at (`--endpoint-url`): the widest address, scheme + host only. */
+export function reachOrigin(e: ReachEndpoints | undefined): string {
+  return new URL(e ? reachUrl(e) : 'http://swarmy-garage:3900').origin;
+}
+
 /** Why a mode can't be picked yet, or null when it can. */
 export function reachBlocked(mode: ReachMode, v: { meshAvailable: boolean; publicDomain: string | null }): string | null {
   if (mode === 'MESH' && !v.meshAvailable) return 'Needs the private network and a front door on it.';

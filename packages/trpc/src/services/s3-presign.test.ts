@@ -84,3 +84,37 @@ describe('presignS3Url (golden: AWS SigV4 known-answer vector)', () => {
     expect(amzTimestamp(new Date('2026-07-04T12:34:56.789Z'))).toBe('20260704T123456Z');
   });
 });
+
+describe('presignS3Url — bucket sub-resource calls (CORS, lifecycle)', () => {
+  const base = {
+    ...AWS_VECTOR,
+    endpoint: 'http://swarmy-garage:3900',
+    region: 'swarmy',
+    bucket: 'storefront-media',
+    key: '',
+    expiresSeconds: 300,
+  };
+
+  it('addresses the bucket itself and signs the keyword into the query', () => {
+    const url = presignS3Url({ ...base, method: 'PUT', subresource: 'cors' });
+    // `cors=` sorts after the X-Amz-* params (byte order), signature last.
+    expect(url).toMatch(
+      /^http:\/\/swarmy-garage:3900\/storefront-media\?X-Amz-Algorithm=AWS4-HMAC-SHA256&.*&X-Amz-SignedHeaders=host&cors=&X-Amz-Signature=[0-9a-f]{64}$/,
+    );
+  });
+
+  it('the keyword is covered by the signature (cors ≠ lifecycle ≠ none)', () => {
+    const sig = (u: string) => u.split('X-Amz-Signature=')[1];
+    const cors = presignS3Url({ ...base, method: 'GET', subresource: 'cors' });
+    const life = presignS3Url({ ...base, method: 'GET', subresource: 'lifecycle' });
+    const none = presignS3Url({ ...base, method: 'GET' });
+    expect(new Set([sig(cors), sig(life), sig(none)]).size).toBe(3);
+    expect(none).toMatch(/\/storefront-media\?X-Amz-Algorithm=/);
+  });
+
+  it('signs DELETE (remove the rules) distinctly from GET', () => {
+    const get = presignS3Url({ ...base, method: 'GET', subresource: 'lifecycle' });
+    const del = presignS3Url({ ...base, method: 'DELETE', subresource: 'lifecycle' });
+    expect(del).not.toBe(get);
+  });
+});
