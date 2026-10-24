@@ -26,19 +26,18 @@ import {
   buildIssuesListQuery,
   buildIssueStateQuery,
   buildIssueTagsQuery,
-  buildIssueTrendQuery,
   buildReleaseQuery,
   type EventListRow,
   type EventPayloadRow,
   type IssueListRow,
   type IssueStateRow,
   type IssueStatus,
-  type IssueTrendRow,
   type ReleaseRow,
   type TagRow,
 } from './query';
 import { artifactRow, errorsStore, invalidateArtifactIndex, issueRow, releaseRow, TABLES } from './store';
 import { clearSourceMapCache } from './symbolicate';
+import { loadTrends } from './trend';
 
 export type ReadStatus = 'ok' | 'disabled' | 'unreachable' | 'no_project';
 
@@ -347,19 +346,6 @@ export interface IssuesListResult {
   issues: IssueView[];
 }
 
-function trendFor(rows: IssueTrendRow[], fingerprint: string, now = Date.now()): number[] {
-  const hour = 3_600_000;
-  const start = Math.floor(now / hour) * hour - 23 * hour;
-  const out = new Array<number>(24).fill(0);
-  for (const r of rows) {
-    if (r.fingerprint !== fingerprint) continue;
-    const t = Date.parse(`${r.bucket.replace(' ', 'T')}Z`);
-    const i = Math.round((t - start) / hour);
-    if (i >= 0 && i < 24) out[i] = num(r.c);
-  }
-  return out;
-}
-
 export async function listIssues(
   ctx: OrgContext,
   q: { stack: string; status?: IssueStatus | 'all'; query?: string; release?: string; sort?: 'last_seen' | 'first_seen' | 'count' | 'users'; limit?: number },
@@ -372,10 +358,8 @@ export async function listIssues(
     buildIssuesListQuery(ch.database, ctx.activeOrgId, { projectId: project.projectId, status: q.status, query: q.query, release: q.release, sort: q.sort, limit: q.limit }),
   );
   if (rows === null) return { status: 'unreachable', issues: [] };
-  const trend = rows.length
-    ? ((await ch.query<IssueTrendRow>(buildIssueTrendQuery(ch.database, ctx.activeOrgId, project.projectId, rows.map((r) => r.fingerprint)))) ?? [])
-    : [];
-  return { status: 'ok', issues: rows.map((r) => issueView(r, trendFor(trend, r.fingerprint))) };
+  const trendOf = await loadTrends(ch, ctx.activeOrgId, project.projectId, rows.map((r) => r.fingerprint));
+  return { status: 'ok', issues: rows.map((r) => issueView(r, trendOf(r.fingerprint))) };
 }
 
 export async function issueDetail(
@@ -390,11 +374,12 @@ export async function issueDetail(
   const db = ch.database;
   const org = ctx.activeOrgId;
   const pid = project.projectId;
-  const [issueRows, payloadRows, eventRows, tagRows] = await Promise.all([
+  const [issueRows, payloadRows, eventRows, tagRows, trendOf] = await Promise.all([
     ch.query<IssueListRow>(buildIssueDetailQuery(db, org, pid, q.fingerprint)),
     ch.query<EventPayloadRow>(buildEventPayloadQuery(db, org, pid, q.fingerprint, q.eventId)),
     ch.query<EventListRow>(buildIssueEventsQuery(db, org, pid, q.fingerprint, 25)),
     ch.query<TagRow>(buildIssueTagsQuery(db, org, pid, q.fingerprint)),
+    loadTrends(ch, org, pid, [q.fingerprint]),
   ]);
   if (issueRows === null) return { ...empty, status: 'unreachable' };
   const row = issueRows[0];
@@ -412,7 +397,7 @@ export async function issueDetail(
   }
   return {
     status: 'ok',
-    issue: issueView(row),
+    issue: issueView(row, trendOf(row.fingerprint)),
     event: payloadRows?.[0] ? eventDetail(payloadRows[0]) : null,
     events: (eventRows ?? []).map(eventSummary),
     tags: [...tags.entries()].map(([key, values]) => ({ key, values })),
