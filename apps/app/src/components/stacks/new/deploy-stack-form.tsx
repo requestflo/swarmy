@@ -5,6 +5,7 @@ import { Input, Label, Textarea, toast } from '@swarmy/ui';
 import { Depth, Tech } from '@/components/calm';
 import { useTRPC } from '@/integrations/trpc';
 import { handDeploy } from '@/components/deploy/deploy-handoff';
+import { policyRefusal } from '@/components/services/policy-refusal';
 import { useComposeCheck } from './use-compose-check';
 import { ComposeFeedback } from './compose-feedback';
 import { ComposeAside } from './compose-aside';
@@ -108,6 +109,7 @@ export function DeployStackForm(): React.JSX.Element {
           check={check}
           ready={ready}
           pending={deploy.isPending}
+          refusal={policyRefusal(deploy.error)}
           onDeploy={run}
         />
       </aside>

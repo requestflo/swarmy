@@ -5,17 +5,22 @@ import { Loader2Icon } from 'lucide-react';
 import type { CreateServiceInput } from '@swarmy/core';
 import { Button } from '@swarmy/ui';
 import { AlreadyOn, CodeView, Tech, curl } from '@/components/calm';
+import type { PolicyRefusal } from '@/components/services/policy-refusal';
+import { refusalExchange } from '@/components/services/refusal-rest';
 
 type FormValues = z.input<typeof CreateServiceInput>;
 
-/** The image deploy's aside: the same call over REST (Code), what happens, Deploy. */
+/** The image deploy's aside: the same call over REST (Code) and its 412 when refused, what happens, Deploy. */
 export function NewServiceAside({
   form,
   pending,
+  refusal,
   onCancel,
 }: {
   form: UseFormReturn<FormValues>;
   pending: boolean;
+  /** A guardrail stopped the last try: the REST tab shows the same call's 412. */
+  refusal: PolicyRefusal | null;
   onCancel: () => void;
 }): React.JSX.Element {
   const v = form.watch();
@@ -27,10 +32,12 @@ export function NewServiceAside({
     ...(env.length ? { env } : {}),
   };
   const copies = Number(v.replicas ?? 1);
+  const call = curl('POST', '/services', body);
+  const rest = refusal ? `${call}\n\n${refusalExchange('/services', refusal)}` : call;
   return (
     <>
       <CodeView
-        tabs={[{ label: 'REST', code: curl('POST', '/services', body) }]}
+        tabs={[{ label: 'REST', code: rest }]}
         note="The same deploy over REST. Ports, the app it joins and the web address are dashboard fields for now."
       />
       <section aria-label="What happens" className="calm-card flex flex-col gap-3 px-5 py-5">

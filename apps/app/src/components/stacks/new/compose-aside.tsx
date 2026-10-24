@@ -2,11 +2,14 @@ import * as React from 'react';
 import { Loader2Icon } from 'lucide-react';
 import { Button } from '@swarmy/ui';
 import { AlreadyOn, CodeView, Tech, curl } from '@/components/calm';
+import type { PolicyRefusal } from '@/components/services/policy-refusal';
+import { refusalExchange } from '@/components/services/refusal-rest';
 import type { ComposeCheck } from './use-compose-check';
 
 /**
- * The compose deploy's aside: the file as REST (Code), what deploying it
- * does, and the one coral Deploy button.
+ * The compose deploy's aside: the file as REST (Code, with the 412 a
+ * guardrail answers when it stops the deploy), what deploying it does, and
+ * the one coral Deploy button.
  */
 export function ComposeAside({
   name,
@@ -15,6 +18,7 @@ export function ComposeAside({
   check,
   ready,
   pending,
+  refusal,
   onDeploy,
 }: {
   name: string;
@@ -23,14 +27,18 @@ export function ComposeAside({
   check: ComposeCheck;
   ready: boolean;
   pending: boolean;
+  /** A guardrail stopped the last try. */
+  refusal: PolicyRefusal | null;
   onDeploy: () => void;
 }): React.JSX.Element {
   const n = check.services.length;
   const body = { name: name || 'my-app', compose_source: compose || 'services: {}' };
+  const call = curl('POST', '/stacks', body);
+  const rest = refusal ? `${call}\n\n${refusalExchange('/stacks', refusal)}` : call;
   return (
     <>
       <CodeView
-        tabs={[{ label: 'REST', code: curl('POST', '/stacks', body) }]}
+        tabs={[{ label: 'REST', code: rest }]}
         note={envSource.trim() ? 'The .env values are filled in by the dashboard before the call; over REST, substitute them first.' : 'The same deploy over REST. It returns at once and the app rolls out in the background.'}
       />
       <section aria-label="What happens" className="calm-card flex flex-col gap-3 px-5 py-5">

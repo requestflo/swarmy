@@ -1,6 +1,21 @@
 import * as React from 'react';
-import { CodeView } from '@/components/calm';
+import { CodeView, curl, restExchange } from '@/components/calm';
 import type { StackEndpoints } from './types';
+
+/** `GET /stacks/{id}/endpoints` as REST sends it (api-rest stackEndpointsToDto: snake_case). */
+function endpointsDto(e: StackEndpoints) {
+  return {
+    stack: e.stack,
+    connected_apps: e.connectedApps,
+    services: e.services.map((s) => ({
+      service: s.service,
+      short_name: s.short,
+      ports: s.ports,
+      names: s.names.map((n) => ({ host: n.host, port: n.port ?? null, scope: n.scope, reachable_from: n.from ?? [] })),
+    })),
+    resources: e.resources.map((r) => ({ kind: r.kind, name: r.name, host: r.host, port: r.port, role: r.role ?? null, attached: r.attached })),
+  };
+}
 
 /** `connect: [a, b]`, the flow style swarmy.yaml examples use. */
 function connectLine(peers: string[]): string {
@@ -9,8 +24,9 @@ function connectLine(peers: string[]): string {
 
 /**
  * The Connections tab as code: the app's `connect:` list in swarmy.yaml, the
- * dashboard calls behind the page (tRPC; no public REST route yet), and the
- * Docker labels that are the record of each pairing.
+ * same reads and changes over REST (`/stacks/{id}/endpoints`,
+ * `/stacks/{id}/connections`), and the Docker labels that are the record of
+ * each pairing.
  */
 export function ConnectionsCode({ endpoints: e, peer }: { endpoints: StackEndpoints; peer: string | undefined }): React.JSX.Element {
   const linked = e.connectedApps;
@@ -22,15 +38,15 @@ export function ConnectionsCode({ endpoints: e, peer }: { endpoints: StackEndpoi
     ...(peer && !linked.includes(peer) ? ['', `# to connect ${peer} as well`, connectLine([...linked, peer])] : []),
   ].join('\n');
   const other = peer ?? '<app>';
-  const calls = [
-    '# the names on this page (a dashboard query: tRPC, not public REST)',
-    `stacks.endpoints { "stack": "${e.stack}" }`,
-    JSON.stringify(e, null, 2),
+  const rest = [
+    '# the names on this page ({id} takes the app\'s id or name)',
+    restExchange('GET', `/stacks/${e.stack}/endpoints`, endpointsDto(e)),
     '',
-    '# connect or disconnect one pair: deploy permission on both apps,',
-    '# audited as stack.link.add / stack.link.remove',
-    `stacks.connect { "stack": "${e.stack}", "peer": "${other}" }`,
-    `stacks.disconnect { "stack": "${e.stack}", "peer": "${other}" }`,
+    '# connect or disconnect one pair: deploy permission on both apps (an',
+    '# app-scoped key must reach both), audited as stack.link.add / stack.link.remove',
+    curl('POST', `/stacks/${e.stack}/connections`, { peer: other }),
+    '',
+    curl('DELETE', `/stacks/${e.stack}/connections/${other}`),
   ].join('\n');
   const width = Math.max(0, ...e.services.map((s) => s.service.length)) + 2;
   const labels = [
@@ -47,7 +63,7 @@ export function ConnectionsCode({ endpoints: e, peer }: { endpoints: StackEndpoi
     <CodeView
       tabs={[
         { label: 'swarmy.yaml', code: yaml },
-        { label: 'tRPC', code: calls },
+        { label: 'REST', code: rest },
         { label: 'labels', code: labels },
       ]}
       note="Lives in each app’s swarmy.yaml (connect). Apps deployed from git list each other there, or the next deploy disconnects them. Connecting here applies now."

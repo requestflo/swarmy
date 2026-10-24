@@ -99,7 +99,7 @@ export function NewServicePage({ stack }: { stack?: string }): React.JSX.Element
             </Depth>
           </div>
           <aside className="flex min-w-0 flex-col gap-4">
-            <NewServiceAside form={form} pending={create.isPending} onCancel={cancel} />
+            <NewServiceAside form={form} pending={create.isPending} refusal={refusal} onCancel={cancel} />
           </aside>
         </form>
       </Form>
