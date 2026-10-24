@@ -95,14 +95,14 @@ function graphOf(d: DesiredApp): AppGraphView {
     stack: d.stack,
     services: d.services.map((s) => ({
       name: s.name,
-      meta: [s.source.kind === 'build' ? `built from ${s.source.context}` : s.source.image, s.port ? `:${s.port}` : 'no address', `${s.replicas} cop${s.replicas === 1 ? 'y' : 'ies'}`].join(' · '),
+      meta: [s.source.kind === 'build' ? 'build' : s.source.image, s.port ? `:${s.port}` : 'no address', `${s.replicas} cop${s.replicas === 1 ? 'y' : 'ies'}`].join(' · '),
       wires: s.dependsOn,
     })),
     data: d.resources.map((r) => ({
       name: r.name,
       meta:
         r.type === 'postgres'
-          ? `postgres ${r.version} · ${r.ha === 'single' ? 'one server' : r.ha} · ${r.backups ? `backed up ${r.backups.schedule}, kept ${r.backups.keep}` : 'no backups'}`
+          ? [`postgres ${r.version}`, r.ha === 'single' ? null : r.ha, r.backups ? `backed up ${r.backups.schedule}` : 'no backups'].filter(Boolean).join(' · ')
           : r.type === 'cache'
             ? `${r.engine}${r.purpose === 'queue' ? ' queue' : ''} · ${r.memoryMb} MB`
             : r.type === 'bucket'

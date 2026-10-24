@@ -62,12 +62,12 @@ describe('draftConfig', () => {
     expect(d.graph).toEqual({
       stack: 'orders',
       services: [
-        { name: 'web', meta: 'built from services/orders · :3000 · 1 copy', wires: ['cache', 'db'] },
-        { name: 'worker', meta: 'built from services/orders · no address · 1 copy', wires: ['cache', 'db'] },
+        { name: 'web', meta: 'build · :3000 · 1 copy', wires: ['cache', 'db'] },
+        { name: 'worker', meta: 'build · no address · 1 copy', wires: ['cache', 'db'] },
       ],
       data: [
         { name: 'cache', meta: 'valkey · 256 MB' },
-        { name: 'db', meta: 'postgres 16 · one server · backed up daily, kept 7' },
+        { name: 'db', meta: 'postgres 16 · backed up daily' },
       ],
       jobs: [],
     });

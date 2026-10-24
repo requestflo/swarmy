@@ -38,7 +38,7 @@ export function detectWeb(c: ScanCtx, hint?: FrameworkHint): Detection {
   const from = c.find('Dockerfile', /^\s*FROM\s+(\S+)/i);
   const manifest = ['package.json', 'pyproject.toml', 'requirements.txt', 'go.mod', 'Gemfile', 'composer.json'].map((n) => c.file(n)).find((f) => f?.lines.length);
   const fallback: Evidence | undefined = manifest ? { file: manifest.path, line: manifest.lines[0]!.no, text: manifest.lines[0]!.text.trim().slice(0, 160) } : undefined;
-  const found = uniqEvidence([from?.ev, chosen?.[1], procWeb?.ev, fwDep?.ev]);
+  const found = uniqEvidence([chosen?.[1], from?.ev, procWeb?.ev, fwDep?.ev]);
   const evidence = found.length ? found : uniqEvidence([fallback]);
   const how = df ? 'built from its Dockerfile' : hint ? `built with zero-config (${hint.name})` : 'built from source';
   return {
