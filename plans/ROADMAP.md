@@ -74,9 +74,10 @@ paste. So did most of the next tier: the pre-deploy `release` command, DNS-01
 wildcards via swarmy-dns, named environments, previews with data, the CLI + MCP
 server and the BuildKit registry cache. What is left (none launch-blocking):
 
-- **Environments**: "clone as a new environment" and shared-vs-override
-  variables in the dashboard (promote-by-digest exists). M–L.
-- **Gitea** as a git provider; a Heroku importer. M each.
+- A Heroku importer. M.
+- ~~Environments~~ (clone as a new environment, shared-vs-override variables)
+  and ~~Gitea / Forgejo~~ — shipped 2026-10-24. A cloned environment can't be
+  removed from the dashboard yet.
 - ~~Route basic-auth~~ — shipped 2026-10-24 ("Require a password" on a route;
   bcrypt hashes sealed in the ingress swarm-kv document, never on a label).
 
@@ -105,6 +106,9 @@ server and the BuildKit registry cache. What is left (none launch-blocking):
   shell, mesh, builds), so a compromised controller alone can't use them.
 - Viewer / Developer roles (board 48 shows them) — an owner decision; today's
   roles are owner · admin · member plus per-app grants.
+- The 2026-09 security review is closed except M13 (terminal access to
+  services that mount secrets — a product decision) and M16 (registry
+  credentials on the unencrypted routing mesh) — `security-review-2026-09.md`.
 - Done 2026-10-24: every config-level and remaining role-gated delete runs the
   policy gate; agent ↔ controller version skew is judged on register; the
   config preview seals tunnel tokens and credentials (it returned them to any
@@ -140,15 +144,16 @@ server and the BuildKit registry cache. What is left (none launch-blocking):
 
 ## Observability
 
-- The collector is OTLP-only: no `filelog` stdout tailing (so uninstrumented
-  images show no logs), no gateway tier — `docs/product/observability.md`
-  describes both as the direction.
+- No gateway tier yet (`docs/product/observability.md` describes it). Container
+  stdout logs ship since 2026-10-24 (opt-in per org: a per-node `filelog`
+  agent); verify Swarm passes the `labels=` log option through on a real swarm.
 
 ## REST API & Terraform
 
-- Terraform: `swarmy_join_token` and `swarmy_ingress` need REST routes first;
-  changing a `swarmy_service` image calls `/restart`, which doesn't apply it
-  (there is no REST service update yet).
+- `swarmy_ingress` needs an `updateIngressSettings` service first (each
+  `ingress.*` setter re-converges the edge on its own).
+- Done 2026-10-24 (later): `PATCH /services/{id}` (Terraform image changes
+  apply), join tokens over REST + `swarmy_join_token`, Go/Python SDK methods.
 - Done 2026-10-24: deprecation signalling, connections over REST, the
   guardrail 412 in the spec, blocking Terraform deploys, `swarmy_node`.
 

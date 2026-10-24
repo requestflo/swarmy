@@ -3,7 +3,9 @@
 Scope: the ~110 commits since `origin/main`: auth, ABAC, secret variables,
 the registry, agent commands, git apps, DNS-01, ingest endpoints and the installer.
 Every finding was verified by reading the working tree. **Status** gives the fix
-commit, or explains why the finding is still open.
+commit, or explains why the finding is still open. Updated 2026-10-24: every
+finding is fixed except **M13** (a product decision) and **M16** (the registry
+still rides the unencrypted routing mesh).
 
 ## Critical
 
@@ -31,7 +33,7 @@ commit, or explains why the finding is still open.
 | H9 | The managed data plane has no gate | `manageddb.ts`, cache/search/vector, `dbBackup.ts`, `backups.ts` | A member injects production DB credentials into a service they choose, or runs `migrateStorage` with `skipBackup` | `stack.deploy` / `service.configure` / admin | `fa9521c` |
 | H10 | Node labels and uncordon have no gate (tRPC and REST) | `nodes.ts:46/112`, REST `node-actions.ts:61,78` | A member steers production placement or un-drains a node | `node.setLabels` / `node.drain` | `875e2e4` |
 | H11 | zstd decompression bomb on unauthenticated error ingest | `trpc/services/errors/envelope.ts:136` (no output cap; decode runs before auth) | A ~20 MB frame expands to many GB and exhausts the controller's memory | Streaming zstd with a byte cap, or refuse zstd, and check the key before decoding | `8a69488`: key checked before decoding; every codec bounded (≤20 MiB, ≤100× input) |
-| H12 | Unauthenticated `/_wake/:service` scales any service in any org and redirects anywhere | `apps/api/src/activator.ts` | It starts services deliberately stopped at 0 and works as an open 307 redirect | Only services opted into scale-to-zero; `return` must be on the same host | `502e7e1` (org-signed wake tokens are still a follow-up) |
+| H12 | Unauthenticated `/_wake/:service` scales any service in any org and redirects anywhere | `apps/api/src/activator.ts` | It starts services deliberately stopped at 0 and works as an open 307 redirect | Only services opted into scale-to-zero; `return` must be on the same host | `502e7e1`; org-signed wake links: `3c44537a` (2026-10-24) |
 | H13 | No request body limits | `apps/api/src/index.ts:395` (Bun's 128 MB default); `webhooks.ts` reads the whole body before the HMAC check | Parallel 128 MB POSTs exhaust the controller's memory | `bodyLimit` of 10 MB on webhooks; a global `maxRequestBodySize` and per-mount limits | webhooks `145cce9`, ingest/RUM `1a8e6b3`, AI `6c5a76c`; global `maxRequestBodySize` is a patch for `index.ts` (below) |
 | H14 | AI gateway SSRF that reflects the response | `ai-gateway.ts:496-517`; `baseUrl` is not validated (`ai.service.ts:199`) | An admin points `baseUrl` at `http://127.0.0.1:<port>/x?`, and the 2xx body is returned verbatim | Reject loopback, link-local and RFC1918 addresses unless the host is in the inventory; refuse `?` and `#` | `891c9d6` guard, `8aaff87` at save, `6c5a76c` at request time (no redirects, no reflected error bodies). Residual: DNS-rebinding race; no operator opt-out for LAN endpoints |
 | H15 | `state.env` is briefly world-readable | `scripts/install-swarmy.sh:135-138` (no umask) | A local user reads the `.tmp` file and gets the swarm manager token | `umask 077`, `mktemp` in the state directory | `22542fe` (the commit also swept in unfinished `--mesh swarmy` work; the mesh agent is completing it) |
@@ -44,33 +46,33 @@ commit, or explains why the finding is still open.
 |---|---|---|---|
 | M1 | A session with MFA pending can get OAuth tokens and disable 2FA | `oidc-provider.ts:180`, `two-factor.ts:67` | `60cd341` |
 | M2 | Linking any social account satisfies an email-named invite | `provisioning.ts:126`, `server.ts:211` | `3059560` |
-| M3 | Plain env values returned unredacted to members (`services.get`, `inventory.get`, REST DTOs); the redaction heuristic misses `*_PASS` and `PASSPHRASE`; Args like `--requirepass` are not masked | `service.service.ts:140`, `dotenv.ts:136` | `6332eec`: heuristic, plus `services.get` masked without `secrets.read`. `inventory.get` and Args masking are **OPEN** |
-| M4 | Resolvers return null for an unknown id, which then authorizes against the org (fail-open by design); an offline node looks non-production | `abac.ts:403,418,503` | patch below (the `destructive-gates.test.ts` fixture must use real ids first) |
-| M5 | An admin can lock owners out (forbid on owner / disable "Owners can do anything") | `policies.service.ts:76` | **OPEN** |
-| M6 | Git OAuth/App `state` is not tied to the browser (installation hijack) | `git-providers/state.ts:26-65` | **OPEN** |
-| M7 | Installation tokens not narrowed per repo; clone URL not bound to the connection host | `git-credentials.ts:76`, `git-connections.service.ts:605,710` | **OPEN** |
-| M8 | Webhook replay dedup is in memory only (a signed old push replays as a rollback) | `webhook-verify.ts:118` | **OPEN** |
+| M3 | Plain env values returned unredacted to members (`services.get`, `inventory.get`, REST DTOs); the redaction heuristic misses `*_PASS` and `PASSPHRASE`; Args like `--requirepass` are not masked | `service.service.ts:140`, `dotenv.ts:136` | `6332eec`: heuristic, plus `services.get` masked without `secrets.read`. `inventory.get` and Args masking: `76bd19b4` (2026-10-24) |
+| M4 | Resolvers return null for an unknown id, which then authorizes against the org (fail-open by design); an offline node looks non-production | `abac.ts:403,418,503` | `2b69e1a6`; offline nodes judged as production and the node-shell resolver: `4090a6f6` (2026-10-24) |
+| M5 | An admin can lock owners out (forbid on owner / disable "Owners can do anything") | `policies.service.ts:76` | `71cb1353` (2026-10-24): `POLICY_LOCKOUT` refuses it |
+| M6 | Git OAuth/App `state` is not tied to the browser (installation hijack) | `git-providers/state.ts:26-65` | `b3e1232d` (2026-10-24): a `__Host-` nonce cookie on every provider's callback |
+| M7 | Installation tokens not narrowed per repo; clone URL not bound to the connection host | `git-credentials.ts:76`, `git-connections.service.ts:605,710` | `fd78d750` (2026-10-24) |
+| M8 | Webhook replay dedup is in memory only (a signed old push replays as a rollback) | `webhook-verify.ts:118` | `841ea90f` (2026-10-24): deliveries in control.db for 7 days; a stale push is refused at the plan |
 | M9 | `purgeAppData` never checks that the resource is in `led.kept` | `apps.service.ts:1710` | patch below |
 | M10 | Members read DLQ payloads and requeue jobs | `routers/queues.ts:77-88` | patch below |
-| M11 | The exec veto only applies to `execCommand`; `dbQuery`, `appDb*`, `queueOp` and `runOnce` (any binds) skip it | `apps/agent/src/executor.ts` | local veto: patch below; `runOnce` bind allowlist **OPEN** |
-| M12 | MySQL `SET PASSWORD`/`SET ROLE` classified as read; studio lexer drifts on non-default string modes | `studio/classify.ts:39` | SET: `fcb6bbe`; string-mode **OPEN** |
+| M11 | The exec veto only applies to `execCommand`; `dbQuery`, `appDb*`, `queueOp` and `runOnce` (any binds) skip it | `apps/agent/src/executor.ts` | local veto: patch below; `runOnce` bind allowlist: `8bffd7e8` (2026-10-24) |
+| M12 | MySQL `SET PASSWORD`/`SET ROLE` classified as read; studio lexer drifts on non-default string modes | `studio/classify.ts:39` | SET: `fcb6bbe`; string modes: `248347e1` (2026-10-24, fails closed) |
 | M13 | `terminal.open` gets past `secrets.read` for services that mount secrets; recordings capture the values | shim + `terminal.ts` | **OPEN** (product decision) |
-| M14 | NetBird PAT on curl argv; `--admin-password` flag; `:latest` agent image and `main` stack file are not pinned | `install-swarmy.sh:114,557,664`, `agent env.ts:21` | PAT on curl argv: `22542fe`; the rest **OPEN** |
-| M15 | Uninstall leaves `agent.json`, the mesh sidecar and `state.env`, and doesn't rotate join tokens | `installer.ts:152`, `install-swarmy.sh:916` | **OPEN** |
+| M14 | NetBird PAT on curl argv; `--admin-password` flag; `:latest` agent image and `main` stack file are not pinned | `install-swarmy.sh:114,557,664`, `agent env.ts:21` | PAT on curl argv: `22542fe`; `--admin-password-file`/stdin: `248bfe32`; release-pinned images and stack file: `1b1444f4` (2026-10-24) |
+| M15 | Uninstall leaves `agent.json`, the mesh sidecar and `state.env`, and doesn't rotate join tokens | `installer.ts:152`, `install-swarmy.sh:916` | `a8744540` (2026-10-24): removes agent state, the mesh sidecar and `state.env`; rotates join tokens |
 | M16 | Basic-auth registry creds cross the unencrypted `ingress` overlay between nodes | routing mesh | **OPEN**: move the registry off the routing mesh onto a loopback forwarder on the encrypted `swarmy` overlay |
 
 ## Low
 
-- JWT access tokens outlive sign-out and session revocation (`api-tokens.ts:58`). Use a shorter TTL or a `tokensRevokedAt` check.
-- Placeholder SSO emails collide (`identity.ts:28`): `acme.corp` and `acme_corp` map to the same address. Hash `providerId+sub` instead.
-- A deleted SSO provider's `account` rows survive, so a re-created provider id in another org can reclaim those identities.
-- Any org admin can register the controller-wide GitHub App (first one wins).
-- Forward-auth accepts broad wildcards like `*.com` as the code redirect host. The decision cache ignores session revocation for `DECISION_CACHE_MS`.
-- The AI keys have no default RPM limit, and there is no per-IP 401 limit.
-- Renaming a default policy re-enables it through `ensureDefaults`. `whoCan` ignores ReBAC grants for hypothetical resources.
-- A redis argv starting with `-` becomes a CLI flag; Mongo passes `--password=` on argv; the studio audit stores statement text.
-- `daemon.json.swarmy-bak` is overwritten by the second merge step, so the operator's original is lost.
-- Secrets are echoed at the end of the install.
+- JWT access tokens outlive sign-out and session revocation (`api-tokens.ts:58`). Use a shorter TTL or a `tokensRevokedAt` check. Fixed `f0f8b1b5` (`tokensRevokedAt`).
+- Placeholder SSO emails collide (`identity.ts:28`): `acme.corp` and `acme_corp` map to the same address. Hash `providerId+sub` instead. Fixed `b0358352`.
+- A deleted SSO provider's `account` rows survive, so a re-created provider id in another org can reclaim those identities. Fixed `1433da5e`.
+- Any org admin can register the controller-wide GitHub App (first one wins). Fixed `0f7a9c0d` (instance owner only).
+- Forward-auth accepts broad wildcards like `*.com` as the code redirect host. The decision cache ignores session revocation for `DECISION_CACHE_MS`. Fixed `982bbee6`, `df66e393`.
+- The AI keys have no default RPM limit, and there is no per-IP 401 limit. Fixed `49ca375e`.
+- Renaming a default policy re-enables it through `ensureDefaults`. `whoCan` ignores ReBAC grants for hypothetical resources. Fixed `bd944e57`, `090b16ec`.
+- A redis argv starting with `-` becomes a CLI flag; Mongo passes `--password=` on argv; the studio audit stores statement text. Fixed `e9f4e7bd`, `8700d556`, `e1e5095f` (literals stripped).
+- `daemon.json.swarmy-bak` is overwritten by the second merge step, so the operator's original is lost. Fixed `b0031801`.
+- Secrets are echoed at the end of the install. Fixed `5350bfe4` (0600 files; only paths printed).
 
 ## Verified sound
 

@@ -273,6 +273,16 @@ routing diagram and Domains tab (13, 30), the upgrade's pause / resume /
 abandon (20), restore-as-a-copy creating its own database and live DR drill
 steps (10, 16, 40).
 
+**Fourth pass (2026-10-24, later):** the health check is editable with Test
+now and the probes Docker keeps (35); search indexes, settings, Try it and key
+rotation (41); cache hit-rate, queue depth/workers, worker throughput and
+bucket growth history (41, 64, 37, 42); pg_stat_statements and slow queries
+over 24 h (39, 63); clone as a new environment and shared variables (57, 33);
+p50 per edge and blocked a minute (13, 30); guardrail "would have stopped" and
+real supply-chain counts (19, 51); the app header (environment, git source,
+newest release, Rewind / Redeploy) and per-part sparklines (7); Convert to
+swarmy.yaml for compose apps.
+
 Found, not fixed (worth deciding):
 
 - Board 52 offers "All minor updates" for auto-patching; the upgrades epic
