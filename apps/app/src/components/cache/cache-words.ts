@@ -5,9 +5,9 @@ import { serverList } from '@/components/stack-data/use-member-servers';
 
 /**
  * A cache in plain words (board 41, DataStores): its shape as boxes and
- * lines, "If <server> dies: …" from its members and the servers they run on,
- * and what swarmy fixes for it (eviction, persistence — hard-coded in
- * cache.service, not settings). PURE — tested in cache-words.test.ts.
+ * lines and "If <server> dies: …" from its members and the servers they run
+ * on. Its when-full + persistence words are in cache-policy-words. PURE —
+ * tested in cache-words.test.ts.
  */
 
 /** `cache.list` carries the purpose (`swarmy.cache.purpose`) beside the core view. */
@@ -78,18 +78,6 @@ export function ifDies(v: CacheView, place: Placement): { server: string; text: 
     tech: `quorum ${need} · ${env} names ${v.host}: only sentinel-aware clients (port 26379) follow a switch-over`,
   };
 }
-
-/** When it's full: allkeys-lru for a cache, noeviction for a BullMQ queue store. */
-export function evictionWords(v: CacheView): { say: string; tech: string } {
-  return v.purpose === 'queue'
-    ? { say: 'refuses new writes instead of dropping keys, so no job is lost', tech: 'maxmemory-policy noeviction (a queue store) · fixed by swarmy, not a setting' }
-    : { say: 'drops the least recently used keys first', tech: 'maxmemory-policy allkeys-lru · fixed by swarmy, not a setting' };
-}
-
-export const PERSISTENCE = {
-  say: 'every write goes to a log on disk, so a restart keeps the data',
-  tech: 'appendonly yes (synced every second) · --dir /data · fixed by swarmy, not a setting',
-};
 
 /** Apps → primary → standby copies, as diagram columns. */
 export function cacheDiagram(v: CacheView, place: Placement, tech: boolean): { columns: FlowBox[][]; links: FlowLink[] } {

@@ -1,7 +1,9 @@
 import type {
   CacheBackupView,
   CacheClusterView,
+  CacheEvictionPolicy,
   CacheMemberView,
+  CachePersistence,
   CacheProvisionResult,
   CacheStatsView,
   CacheTopology,
@@ -119,6 +121,9 @@ function makeCluster(input: {
     topology: input.topology,
     memoryMb: input.memoryMb,
     declaredReplicas: input.topology === 'single' ? 0 : replicas,
+    evictionPolicy: input.purpose === 'queue' ? 'noeviction' : 'allkeys-lru',
+    persistence: 'aof',
+    policyApplied: true,
     primary: { service: `${input.stack}_${input.name}-cache`, status: 'running' },
     replicas:
       input.topology === 'single'
@@ -170,6 +175,8 @@ export const cache: DomainResolvers = {
       memoryMb: 128,
       replicas: 0,
     });
+    // Sessions keep periodic snapshots rather than the every-write log.
+    sessions.persistence = 'rdb';
     sessions.stats = {
       usedMemoryBytes: 41 * MB,
       maxMemoryBytes: 128 * MB,
@@ -264,6 +271,24 @@ export const cache: DomainResolvers = {
       c.memoryMb = memoryMb;
       if (c.stats) c.stats = { ...c.stats, maxMemoryBytes: memoryMb * MB };
       return { cluster: c.name, memoryMb };
+    },
+
+    'cache.setPolicy': (
+      i,
+      s,
+    ): { cluster: string; evictionPolicy: CacheEvictionPolicy; persistence: CachePersistence; unchanged: boolean } => {
+      const b = i as { evictionPolicy?: CacheEvictionPolicy; persistence?: CachePersistence };
+      const c = require_(getState(s), i) as CacheView;
+      const evictionPolicy = b.evictionPolicy ?? c.evictionPolicy;
+      const persistence = b.persistence ?? c.persistence;
+      if (c.purpose === 'queue' && evictionPolicy !== 'noeviction') {
+        throw new Error('a queue store must keep noeviction: under an LRU policy a full store drops queued jobs');
+      }
+      const unchanged = evictionPolicy === c.evictionPolicy && persistence === c.persistence;
+      // The demo has no reconcile worker: the change lands at once.
+      c.evictionPolicy = evictionPolicy;
+      c.persistence = persistence;
+      return { cluster: c.name, evictionPolicy, persistence, unchanged };
     },
 
     'cache.destroy': (i, s): { cluster: string; removed: true } => {

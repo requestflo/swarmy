@@ -455,6 +455,14 @@ export type CacheTopology = (typeof CACHE_TOPOLOGIES)[number];
 
 export type CacheRole = 'primary' | 'replica' | 'sentinel';
 
+/** What a cache does when it is full (`maxmemory-policy`, `swarmy.cache.evictionPolicy`). */
+export const CACHE_EVICTION_POLICIES = ['allkeys-lru', 'volatile-lru', 'noeviction'] as const;
+export type CacheEvictionPolicy = (typeof CACHE_EVICTION_POLICIES)[number];
+
+/** How a cache keeps data across restarts (`swarmy.cache.persistence`): nothing, RDB snapshots, or the AOF log. */
+export const CACHE_PERSISTENCE_MODES = ['off', 'rdb', 'aof'] as const;
+export type CachePersistence = (typeof CACHE_PERSISTENCE_MODES)[number];
+
 /**
  * A live `INFO` sample from the cluster primary. Also the JSON payload of the
  * `swarmy.cache.stats` label the cache-reconcile worker stamps each tick.
@@ -499,6 +507,12 @@ export interface CacheClusterView {
   memoryMb: number;
   /** Declared replica count (`swarmy.cache.replicas` — the reconcile target). */
   declaredReplicas: number;
+  /** Declared "when full" policy (`swarmy.cache.evictionPolicy`; default by purpose). */
+  evictionPolicy: CacheEvictionPolicy;
+  /** Declared persistence (`swarmy.cache.persistence`; default `aof`). */
+  persistence: CachePersistence;
+  /** False while cache-reconcile is still applying a changed policy to the members. */
+  policyApplied: boolean;
   primary: { service: string; status: CacheServiceStatus | 'absent' };
   replicas: { desired: number; running: number };
   sentinels: { desired: number; running: number };

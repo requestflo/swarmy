@@ -38,6 +38,21 @@ import { resolveManagerNode } from './dispatch.service';
 import { patchLiveService } from './service-patch';
 import { resolveExecTarget } from './live-resolve';
 import { chooseDataPin, dataVolumeNode, isMultiNodeSwarm, runningTaskSwarmNodes } from './data-pin';
+import {
+  CACHE_APPLIED_POLICY_LABEL,
+  CACHE_EVICTION_LABEL,
+  CACHE_PERSISTENCE_LABEL,
+  CACHE_POLICY_ENV,
+  CACHE_POLICY_ENV_TEMPLATE,
+  POLICY_SERVER_ARGS,
+  appliedCachePolicy,
+  declaredCachePolicy,
+  defaultCachePolicy,
+  encodeCachePolicy,
+  policyStartPrelude,
+  samePolicy,
+  type CachePolicy,
+} from './cache-policy';
 
 /**
  * Managed cache (slice A3) — Valkey/Redis clusters mirroring manageddb.service.
@@ -401,6 +416,16 @@ export interface CacheClusterDecl {
   avoidNode?: string;
   /** `queue` = BullMQ-ready (noeviction). Omitted = a plain LRU cache. */
   purpose?: CachePurpose;
+  /** Declared when-full + persistence (`swarmy.cache.evictionPolicy|persistence`). Default by purpose. */
+  policy?: CachePolicy;
+  /** What data members start with (`swarmy.cache.appliedPolicy`). Default = `policy`. */
+  appliedPolicy?: CachePolicy;
+}
+
+/** The decl's declared policy and the one its data members start with. */
+function policiesOf(decl: CacheClusterDecl): { declared: CachePolicy; applied: CachePolicy } {
+  const declared = decl.policy ?? defaultCachePolicy(decl.purpose);
+  return { declared, applied: decl.appliedPolicy ?? declared };
 }
 
 /**
@@ -440,6 +465,9 @@ function cacheLabels(
     [SCALE_TO_ZERO_EXEMPT_LABEL]: 'true',
     ...(decl.purpose === 'queue' ? { [CACHE_PURPOSE_LABEL]: 'queue' } : {}),
     ...(role === 'sentinel' ? {} : { [CACHE_APPLIED_MEMORY_LABEL]: String(decl.memoryMb) }),
+    [CACHE_EVICTION_LABEL]: policiesOf(decl).declared.eviction,
+    [CACHE_PERSISTENCE_LABEL]: policiesOf(decl).declared.persistence,
+    ...(role === 'sentinel' ? {} : { [CACHE_APPLIED_POLICY_LABEL]: encodeCachePolicy(policiesOf(decl).applied) }),
     ...extra,
   };
 }
@@ -460,19 +488,22 @@ function engineCli(engine: CacheEngine): string {
   return engine === 'redis' ? 'redis-cli' : 'valkey-cli';
 }
 
-/** Server command (valkey-server / redis-server) reading the password from the secret file. */
+/**
+ * Server command (valkey-server / redis-server) reading the password from the
+ * secret file and its when-full + persistence policy from `SWARMY_CACHE_POLICY`
+ * (the member's applied label, see cache-policy), falling back to the decl's.
+ */
 export function cacheServerCommand(decl: CacheClusterDecl, replicaOf?: string): string {
   const parts = [
     `exec ${decl.engine === 'redis' ? 'redis-server' : 'valkey-server'}`,
     '--requirepass "$(cat /run/secrets/cache-password)"',
     '--masterauth "$(cat /run/secrets/cache-password)"',
     `--maxmemory ${decl.memoryMb}mb`,
-    `--maxmemory-policy ${decl.purpose === 'queue' ? 'noeviction' : 'allkeys-lru'}`,
-    '--appendonly yes',
+    POLICY_SERVER_ARGS,
     '--dir /data',
   ];
   if (replicaOf) parts.push(`--replicaof ${replicaOf} ${CACHE_PORT}`);
-  return parts.join(' ');
+  return `${policyStartPrelude(policiesOf(decl).applied)}\n${parts.join(' ')}`;
 }
 
 /** A data member (primary or replica). NO ports — private-only, always. */
@@ -499,15 +530,15 @@ function dataMemberSpec(
     networks: [cacheNetworkName(decl.stack, decl.cluster)],
     secrets: secretRef(decl),
     resources: { limits: { memoryBytes: memoryLimitBytes(decl.memoryMb) } },
-    // A queue primary names its password FILE (the official image ignores the
-    // var) so the default-on logical backup resolves credentials in-task.
-    ...(isPrimary && decl.purpose === 'queue'
-      ? {
-          env: {
-            [decl.engine === 'redis' ? 'REDIS_PASSWORD_FILE' : 'VALKEY_PASSWORD_FILE']: `/run/secrets/${CACHE_SECRET_TARGET}`,
-          },
-        }
-      : {}),
+    env: {
+      // The policy a (re)started task runs: swarm expands the member's applied label.
+      [CACHE_POLICY_ENV]: CACHE_POLICY_ENV_TEMPLATE,
+      // A queue primary names its password FILE (the official image ignores the
+      // var) so the default-on logical backup resolves credentials in-task.
+      ...(isPrimary && decl.purpose === 'queue'
+        ? { [decl.engine === 'redis' ? 'REDIS_PASSWORD_FILE' : 'VALKEY_PASSWORD_FILE']: `/run/secrets/${CACHE_SECRET_TARGET}` }
+        : {}),
+    },
     // Only the primary persists — its volume is the backup/restore unit.
     ...(isPrimary
       ? {
@@ -696,6 +727,8 @@ function declOf(c: LiveCluster, multiNode = false): CacheClusterDecl {
     ...(pinNode ? { pinNode } : {}),
     ...(pinNode && multiNode ? { avoidNode: pinNode } : {}),
     ...(cachePurposeOf(anchor) === 'queue' ? { purpose: 'queue' as const } : {}),
+    policy: declaredCachePolicy(anchor, cachePurposeOf(anchor)),
+    appliedPolicy: appliedCachePolicy(c.primary?.labels ?? anchor, cachePurposeOf(anchor)),
   };
 }
 
@@ -748,6 +781,8 @@ function toView(ctx: OrgContext, c: LiveCluster): CacheClusterPurposeView {
     }))
     .sort((a, b) => a.service.localeCompare(b.service));
 
+  const declaredPolicy = decl.policy ?? defaultCachePolicy(decl.purpose);
+  const dataMembers = [c.primary, ...replicaMembers];
   return {
     stack: c.stack,
     name: c.name,
@@ -756,6 +791,12 @@ function toView(ctx: OrgContext, c: LiveCluster): CacheClusterPurposeView {
     memoryMb: decl.memoryMb,
     purpose: decl.purpose ?? 'cache',
     declaredReplicas: decl.replicas,
+    evictionPolicy: declaredPolicy.eviction,
+    persistence: declaredPolicy.persistence,
+    // Members parked at 0 tasks have nothing running to apply it to.
+    policyApplied: dataMembers.every(
+      (s) => !s || s.replicas.desired === 0 || samePolicy(appliedCachePolicy(s.labels, decl.purpose), declaredPolicy),
+    ),
     primary: { service: host, status: c.primary?.status ?? 'absent' },
     replicas: {
       desired: replicaMembers.reduce((n, s) => n + s.replicas.desired, 0),

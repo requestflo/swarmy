@@ -121,6 +121,7 @@ const POLICY_GATES: Array<[string, unknown, string]> = [
   ['cache.provision', { stack: 'shop', name: 'kv' }, 'stack.deploy'],
   ['cache.setReplicas', { ...shop, replicas: 1 }, 'stack.deploy'],
   ['cache.setMemory', { ...shop, memoryMb: 128 }, 'stack.deploy'],
+  ['cache.setPolicy', { ...shop, persistence: 'rdb' }, 'stack.deploy'],
   ['cache.attachToService', { ...shop, appService: 'web' }, 'service.configure'],
   ['cache.detach', { ...shop, appService: 'web' }, 'service.configure'],
   ['search.provision', { stack: 'shop', name: 'idx' }, 'stack.deploy'],

@@ -304,6 +304,18 @@ export {
   cacheSentinelSpec,
 } from './services/cache.service';
 export type { CacheClusterDecl } from './services/cache.service';
+// Cache when-full + persistence policy: label scheme, live-apply script and the
+// per-member plan the cache-reconcile worker converges with.
+export {
+  CACHE_APPLIED_POLICY_LABEL,
+  POLICY_APPLIED_MARKER,
+  appliedCachePolicy,
+  declaredCachePolicy,
+  encodeCachePolicy,
+  policyApplyScript,
+  type CachePolicy,
+} from './services/cache-policy';
+export { parseLivePolicy, planCachePolicy, type CachePolicyStep, type LivePolicySample } from './services/cache-policy-plan';
 export { sampleQueueClusters, type SampledCluster } from './services/queue-studio.service';
 export { runDueDbBackups } from './services/dbBackup.service';
 export { runDueScheduledJobs } from './services/jobs.service';

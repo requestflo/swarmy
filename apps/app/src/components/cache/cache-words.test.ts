@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { NodeSummary } from '@swarmy/core';
-import { cacheDiagram, evictionWords, ifDies, sentinelLine, type CacheView } from './cache-words';
+import { cacheDiagram, ifDies, sentinelLine, type CacheView } from './cache-words';
 
 const node = (id: string): NodeSummary => ({ id, name: id, region: null, status: 'online' }) as NodeSummary;
 
@@ -11,6 +11,9 @@ const view = (over: Partial<CacheView> = {}): CacheView => ({
   topology: 'sentinel',
   memoryMb: 512,
   declaredReplicas: 2,
+  evictionPolicy: 'allkeys-lru',
+  persistence: 'aof',
+  policyApplied: true,
   primary: { service: 'shop_main-cache', status: 'running' },
   replicas: { desired: 2, running: 2 },
   sentinels: { desired: 3, running: 3 },
@@ -55,11 +58,7 @@ describe('ifDies', () => {
   });
 });
 
-describe('fixed settings and the diagram', () => {
-  test('a queue store never evicts', () => {
-    expect(evictionWords(view({ purpose: 'queue' })).tech).toContain('noeviction');
-    expect(evictionWords(view()).say).toBe('drops the least recently used keys first');
-  });
+describe('the diagram', () => {
   test('apps → main copy → one box per standby server', () => {
     const { columns, links } = cacheDiagram(view(), place, false);
     expect(columns.map((c) => c.map((b) => b.title))).toEqual([['web', 'api'], ['wkr-2'], ['wkr-1', 'mgr-2']]);

@@ -1,18 +1,24 @@
 import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
 import {
+  appliedCachePolicy,
   cachePrimarySpec,
   cacheRegionReplicaSpec,
   cacheReplicaSpec,
   cacheSentinelSpec,
+  declaredCachePolicy,
   fireEvent,
+  parseLivePolicy,
   reconcileDataPin,
   systemContext,
   type CacheClusterDecl,
+  type CachePolicy,
+  type LivePolicySample,
 } from '@swarmy/trpc';
 import { CACHE_AVOID_NODE_LABEL, CACHE_PIN_NODE_LABEL, STACK_LABEL } from '@swarmy/core';
 import type { ContainerInfo, ServiceSpec, SwarmServiceInfo } from '@swarmy/core/protocol';
 import { hub, store } from '../gateway';
+import { convergeCachePolicy, type PolicyMember } from './cache-policy-reconcile';
 
 /**
  * Managed-cache reconcile worker (slice A3).
@@ -26,6 +32,11 @@ import { hub, store } from '../gateway';
  * the primary (exec — the password stays inside the container's secret file)
  * and stamps the result as the `swarmy.cache.stats` label, firing alert events
  * when used memory crosses 90% of maxmemory or the primary is down.
+ *
+ * Policy (step 6, cache-policy-reconcile): the declared when-full +
+ * persistence labels are CONFIG SET live on every data member and stamped as
+ * `swarmy.cache.appliedPolicy` once on disk; only a member built before the
+ * policy was settable gets a rolling rebuild. Gated on that stamp.
  *
  * Storage (step 0, @swarmy/core data-pin via `reconcileDataPin`): the primary's
  * data is on a node-local volume, so it must be pinned (`swarmy.cache.node`).
@@ -89,6 +100,10 @@ interface Decl {
   regionReplicas: Record<string, number>;
   /** `swarmy.cache.purpose=queue` ⇒ noeviction — a converge must never revert it to LRU. */
   queue: boolean;
+  /** The anchor's labels (declared policy source). */
+  anchor: Record<string, string>;
+  /** Declared when-full + persistence (`swarmy.cache.evictionPolicy|persistence`). */
+  policy: CachePolicy;
 }
 
 function topologyOf(labels: Record<string, string> | undefined): CacheTopology {
@@ -115,7 +130,14 @@ function declOf(c: Cluster): Decl {
     replicas: Number.isFinite(replicas) && replicas >= 0 ? replicas : 0,
     regionReplicas,
     queue: anchor['swarmy.cache.purpose'] === 'queue',
+    anchor,
+    policy: declaredCachePolicy(anchor, anchor['swarmy.cache.purpose'] === 'queue' ? 'queue' : 'cache'),
   };
+}
+
+/** The decl to (re)build `member` with: its OWN applied policy (new members: the declared one). */
+function forMember(cd: CacheClusterDecl, decl: Decl, member?: SwarmServiceInfo): CacheClusterDecl {
+  return member ? { ...cd, appliedPolicy: appliedCachePolicy(member.labels, decl.queue ? 'queue' : 'cache') } : cd;
 }
 
 // ── Spec builders — the CANONICAL @swarmy/trpc cache.service builders ───────
@@ -138,6 +160,7 @@ function toClusterDecl(
     ...(decl.queue ? { purpose: 'queue' as const } : {}),
     ...(pin.pinNode ? { pinNode: pin.pinNode } : {}),
     ...(pin.pinNode && pin.multiNode ? { avoidNode: pin.pinNode } : {}),
+    policy: decl.policy,
   };
 }
 
@@ -206,7 +229,12 @@ function execTarget(
   return undefined;
 }
 
-async function sampleStats(orgId: string, c: Cluster, decl: Decl): Promise<StatsSample | null> {
+/** The primary's INFO → stats + the policy it is really running (null = not sampled). */
+async function sampleStats(
+  orgId: string,
+  c: Cluster,
+  decl: Decl,
+): Promise<{ stats: StatsSample | null; live: LivePolicySample | null } | null> {
   if (!c.primary || (c.primary.runningReplicas ?? 0) < 1) return null;
   const target = execTarget(orgId, c.primary);
   if (!target) return null;
@@ -225,7 +253,7 @@ async function sampleStats(orgId: string, c: Cluster, decl: Decl): Promise<Stats
     );
     if (res.exitCode !== 0 || !res.output) return null;
     const sample = parseInfo(res.output);
-    return sample ? { ...sample, at: new Date().toISOString() } : null;
+    return { stats: sample ? { ...sample, at: new Date().toISOString() } : null, live: parseLivePolicy(res.output) };
   } catch {
     return null;
   }
@@ -360,6 +388,7 @@ async function reconcileOrg(orgId: string): Promise<void> {
     }
 
     // (4) Memory drift: redeploy any data member built with a different maxmemory.
+    const rebuilt = new Set<string>();
     const applied = (s: SwarmServiceInfo): number | null => {
       const n = Number.parseInt(s.labels[CACHE_APPLIED_MEMORY_LABEL] ?? '', 10);
       return Number.isFinite(n) ? n : null;
@@ -373,7 +402,8 @@ async function reconcileOrg(orgId: string): Promise<void> {
       applied(c.primary) !== null &&
       applied(c.primary) !== decl.memoryMb
     ) {
-      await deploy(cachePrimarySpec(cd));
+      await deploy(cachePrimarySpec(forMember(cd, decl, c.primary)));
+      rebuilt.add(c.primary.name);
     }
     // Base replicas: memory drift, or anti-affinity drift vs the primary's pin
     // (they re-sync from the primary, so a rebuild moves no data).
@@ -385,11 +415,13 @@ async function reconcileOrg(orgId: string): Promise<void> {
       ((applied(c.replica) !== null && applied(c.replica) !== decl.memoryMb) ||
         (avoidDrift && (c.replica.desiredReplicas ?? 0) > 0))
     ) {
-      await deploy(cacheReplicaSpec(cd, c.replica.desiredReplicas ?? replicaTarget));
+      await deploy(cacheReplicaSpec(forMember(cd, decl, c.replica), c.replica.desiredReplicas ?? replicaTarget));
+      rebuilt.add(c.replica.name);
     }
     for (const [region, sib] of c.regionSiblings) {
       if (applied(sib) !== null && applied(sib) !== decl.memoryMb) {
-        await deploy(cacheRegionReplicaSpec(cd, region, sib.desiredReplicas ?? 1));
+        await deploy(cacheRegionReplicaSpec(forMember(cd, decl, sib), region, sib.desiredReplicas ?? 1));
+        rebuilt.add(sib.name);
       }
     }
 
@@ -403,7 +435,8 @@ async function reconcileOrg(orgId: string): Promise<void> {
         message: `Cache ${c.stack}/${c.cluster}: primary is down (0/${c.primary?.desiredReplicas ?? 1} running)`,
       }).catch(() => undefined);
     }
-    const stats = await sampleStats(orgId, c, decl);
+    const sampled = await sampleStats(orgId, c, decl);
+    const stats = sampled?.stats ?? null;
     if (stats && c.primary) {
       await setLabels(c.primary.name, {
         [CACHE_STATS_LABEL]: JSON.stringify(stats),
@@ -419,6 +452,48 @@ async function reconcileOrg(orgId: string): Promise<void> {
         }).catch(() => undefined);
       }
     }
+
+    // (6) When-full + persistence policy: CONFIG SET live, stamp once on disk;
+    //     only a member built before policies were settable is rebuilt. A
+    //     member rebuilt above this tick waits for the next one (stale view).
+    const members: PolicyMember[] = [];
+    if (c.primary && !rebuilt.has(c.primary.name)) {
+      members.push({
+        service: c.primary,
+        live: sampled?.live ?? null,
+        // A canonical primary rebuild needs its pin (it carries node.id==pin).
+        canRebuild: Boolean(pinNode) && !primaryFrozen,
+        rebuild: async (target) => {
+          await deploy(cachePrimarySpec({ ...cd, appliedPolicy: target }));
+        },
+      });
+    }
+    const replica = c.replica;
+    if (replica && (replica.desiredReplicas ?? 0) > 0 && !rebuilt.has(replica.name)) {
+      members.push({
+        service: replica,
+        rebuild: async (target) => {
+          await deploy(cacheReplicaSpec({ ...cd, appliedPolicy: target }, replica.desiredReplicas ?? replicaTarget));
+        },
+      });
+    }
+    for (const [region, sib] of c.regionSiblings) {
+      if ((sib.desiredReplicas ?? 0) < 1 || rebuilt.has(sib.name)) continue;
+      members.push({
+        service: sib,
+        rebuild: async (target) => {
+          await deploy(cacheRegionReplicaSpec({ ...cd, appliedPolicy: target }, region, sib.desiredReplicas ?? 1));
+        },
+      });
+    }
+    await convergeCachePolicy({
+      orgId,
+      managerNode: node,
+      engine: decl.engine,
+      purpose: decl.queue ? 'queue' : 'cache',
+      anchorLabels: decl.anchor,
+      members,
+    }).catch(() => undefined);
   }
 }
 

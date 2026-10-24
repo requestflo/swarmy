@@ -132,6 +132,7 @@ state belongs see `skill("docker-native-storage")`.
 | Postgres reconcile (failover/lag/PITR) + pure core | `apps/api/src/workers/manageddb-reconcile.ts`, `…-reconcile.core.ts` |
 | Failover safety rule (`decideFailover`) + pending/confirm label codecs | `packages/core/src/manageddb-failover.ts` (+ `.test.ts`); confirm = `manageddb.service.ts#confirmFailover`; UI `components/stacks/db-failover-confirm.tsx` |
 | Cache: `swarmy.cache.*`, sentinel, maxmemory+headroom, password secret | `packages/trpc/src/services/cache.service.ts`, `apps/api/src/workers/cache-reconcile.ts` |
+| Cache when-full + persistence (`swarmy.cache.evictionPolicy|persistence` declared, `.appliedPolicy` per member; CONFIG SET live, stamp only once on disk; queue stores keep noeviction) | `packages/trpc/src/services/cache-policy{,-plan,.service}.ts`, `apps/api/src/workers/cache-policy-reconcile.ts` |
 | Search: Meilisearch/Typesense, master-key secret, attach env | `packages/trpc/src/services/search.service.ts`, `apps/api/src/workers/search-reconcile.ts` |
 | Vector: Qdrant instance + in-place pgvector enable | `packages/trpc/src/services/vector.service.ts`, `apps/api/src/workers/vector-reconcile.ts` |
 | Buckets: Garage admin curl, keys, quotas, attach `S3_*` | `packages/trpc/src/services/buckets.service.ts` (router `routers/buckets.ts`) |

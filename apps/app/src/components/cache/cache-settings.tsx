@@ -1,26 +1,16 @@
 import * as React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { cn, toast } from '@swarmy/ui';
-import { Depth, Tech } from '@/components/calm';
+import { Depth } from '@/components/calm';
 import { useTRPC } from '@/integrations/trpc';
 import { bytes } from '@/lib/format';
-import { PERSISTENCE, evictionWords, type CacheView } from './cache-words';
+import { Kv } from './cache-kv';
+import { CachePolicyRows } from './cache-policy-rows';
+import type { CacheView } from './cache-words';
 
 const MB = 1024 * 1024;
 const CHOICES = [128, 256, 512, 1024, 2048, 4096];
 const fmtMb = (m: number): string => (m >= 1024 ? `${m / 1024} GB` : `${m} MB`);
-
-function Kv({ k, children, tech }: { k: string; children: React.ReactNode; tech?: React.ReactNode }): React.JSX.Element {
-  return (
-    <div className="border-border flex flex-col gap-1 border-t py-2.5 sm:flex-row sm:items-start sm:gap-4">
-      <span className="text-muted-foreground w-28 shrink-0 text-[13px]">{k}</span>
-      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-        {children}
-        {tech ? <Tech>{tech}</Tech> : null}
-      </div>
-    </div>
-  );
-}
 
 /** Memory limit: what's used of the cap; the cap itself at Controls (`cache.setMemory`). */
 function MemoryRow({ v }: { v: CacheView }): React.JSX.Element {
@@ -69,21 +59,15 @@ function MemoryRow({ v }: { v: CacheView }): React.JSX.Element {
 
 /**
  * A cache's settings as the board lays them out: memory limit, when full,
- * persistence and hit rate. Eviction and persistence are fixed by swarmy
- * (cache.service), so they read as facts, never as pickers.
+ * persistence and hit rate. Each reads as a sentence at Summary and becomes a
+ * picker at Controls (`cache.setMemory`, `cache.setPolicy`).
  */
 export function CacheSettings({ v }: { v: CacheView }): React.JSX.Element {
-  const evict = evictionWords(v);
   const s = v.stats;
   return (
     <div className="flex flex-col">
       <MemoryRow v={v} />
-      <Kv k="When full" tech={evict.tech}>
-        <span className="text-[13px]">It {evict.say}.</span>
-      </Kv>
-      <Kv k="Persistence" tech={PERSISTENCE.tech}>
-        <span className="text-[13px]">On: {PERSISTENCE.say}.</span>
-      </Kv>
+      <CachePolicyRows v={v} />
       <Kv k="Hit rate" tech={s ? `INFO keyspace_hits / (hits + misses) · sampled ${new Date(s.at).toLocaleTimeString()} · swarmy.cache.stats` : undefined}>
         <span className="text-[13px]">
           {s?.hitRatePct != null ? (

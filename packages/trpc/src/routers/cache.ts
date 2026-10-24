@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AttachCacheInput, ProvisionCacheInput } from '@swarmy/core';
+import { AttachCacheInput, CACHE_EVICTION_POLICIES, CACHE_PERSISTENCE_MODES, ProvisionCacheInput } from '@swarmy/core';
 import { orgProcedure, router } from '../trpc';
 import { abacProcedure, resolveStackByName, resolveStackService } from '../abac';
 import {
@@ -17,6 +17,7 @@ import {
   setCacheMemory,
   setCacheReplicas,
 } from '../services/cache.service';
+import { setCachePolicy } from '../services/cache-policy.service';
 
 const stackName = z
   .string()
@@ -60,6 +61,24 @@ export const managedCacheRouter = router({
   setMemory: abacProcedure('stack.deploy', resolveStackByName)
     .input(clusterRef.extend({ memoryMb: z.number().int().min(64).max(65536) }))
     .mutation(({ ctx, input }) => setCacheMemory(ctx, input)),
+
+  /**
+   * When full (maxmemory-policy) and persistence (off / RDB / AOF). Stamps the
+   * declared labels; cache-reconcile applies them live. A queue store keeps
+   * noeviction.
+   */
+  setPolicy: abacProcedure('stack.deploy', resolveStackByName)
+    .input(
+      clusterRef
+        .extend({
+          evictionPolicy: z.enum(CACHE_EVICTION_POLICIES).optional(),
+          persistence: z.enum(CACHE_PERSISTENCE_MODES).optional(),
+        })
+        .refine((v) => v.evictionPolicy !== undefined || v.persistence !== undefined, {
+          message: 'set evictionPolicy, persistence or both',
+        }),
+    )
+    .mutation(({ ctx, input }) => setCachePolicy(ctx, input)),
 
   /** Remove every member + the password secret. Blocked while apps are attached. */
   destroy: abacProcedure('data.destroy')

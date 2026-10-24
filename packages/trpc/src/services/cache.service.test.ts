@@ -264,7 +264,8 @@ describe('spec builders — private-only, secret-fed, memory-capped', () => {
   it('redis members run the official image with the same secret-file wrapper (no Bitnami)', () => {
     const spec = cacheReplicaSpec({ ...d, engine: 'redis' }, 2);
     expect(spec.image).toBe('redis:7.4');
-    expect(spec.env).toBeUndefined();
+    // The only env: the swarm template over the member's applied policy (no secret values).
+    expect(spec.env).toEqual({ SWARMY_CACHE_POLICY: '{{index .Service.Labels "swarmy.cache.appliedPolicy"}}' });
     expect(spec.command).toEqual(['sh', '-c']);
     expect(spec.args?.[0]).toContain('exec redis-server');
     expect(spec.args?.[0]).toContain('--requirepass "$(cat /run/secrets/cache-password)"');
@@ -319,23 +320,44 @@ describe('queue purpose — a BullMQ-ready cache', () => {
 
   it('data members run noeviction with AOF; plain caches keep allkeys-lru', () => {
     for (const spec of [cachePrimarySpec(q), cacheReplicaSpec(q, 1)]) {
-      expect(spec.args?.[0]).toContain('--maxmemory-policy noeviction');
-      expect(spec.args?.[0]).toContain('--appendonly yes');
+      // The policy comes from SWARMY_CACHE_POLICY, falling back to the decl's.
+      expect(spec.args?.[0]).toContain('*) E=noeviction;; esac');
+      expect(spec.args?.[0]).toContain('*) A=yes; S="3600 1 300 100 60 10000";; esac');
+      expect(spec.args?.[0]).toContain('--maxmemory-policy "$E" --appendonly "$A" --save "$S"');
       expect(spec.labels?.['swarmy.cache.purpose']).toBe('queue');
+      expect(spec.labels?.['swarmy.cache.evictionPolicy']).toBe('noeviction');
+      expect(spec.labels?.['swarmy.cache.persistence']).toBe('aof');
+      expect(spec.labels?.['swarmy.cache.appliedPolicy']).toBe('noeviction/aof');
     }
     const plain = cachePrimarySpec({ ...q, purpose: undefined });
-    expect(plain.args?.[0]).toContain('--maxmemory-policy allkeys-lru');
+    expect(plain.args?.[0]).toContain('*) E=allkeys-lru;; esac');
+    expect(plain.labels?.['swarmy.cache.appliedPolicy']).toBe('allkeys-lru/aof');
     expect(plain.labels?.['swarmy.cache.purpose']).toBeUndefined();
+  });
+
+  it('a declared policy is labelled; members start from their APPLIED one (sentinels carry no applied stamp)', () => {
+    const decl = { ...q, purpose: undefined, policy: { eviction: 'volatile-lru' as const, persistence: 'rdb' as const }, appliedPolicy: { eviction: 'allkeys-lru' as const, persistence: 'aof' as const } };
+    const spec = cachePrimarySpec(decl);
+    expect(spec.labels?.['swarmy.cache.evictionPolicy']).toBe('volatile-lru');
+    expect(spec.labels?.['swarmy.cache.persistence']).toBe('rdb');
+    expect(spec.labels?.['swarmy.cache.appliedPolicy']).toBe('allkeys-lru/aof');
+    expect(spec.args?.[0]).toContain('*) E=allkeys-lru;; esac');
+    const sentinel = cacheSentinelSpec({ ...decl, topology: 'sentinel' });
+    expect(sentinel.labels?.['swarmy.cache.evictionPolicy']).toBe('volatile-lru');
+    expect(sentinel.labels?.['swarmy.cache.appliedPolicy']).toBeUndefined();
+    expect(sentinel.env).toBeUndefined();
   });
 
   it('the queue primary names its password FILE for the logical backup, never the value', () => {
     const spec = cachePrimarySpec(q);
-    expect(spec.env).toEqual({ VALKEY_PASSWORD_FILE: '/run/secrets/cache-password' });
+    const policyEnv = { SWARMY_CACHE_POLICY: '{{index .Service.Labels "swarmy.cache.appliedPolicy"}}' };
+    expect(spec.env).toEqual({ ...policyEnv, VALKEY_PASSWORD_FILE: '/run/secrets/cache-password' });
     expect(cachePrimarySpec({ ...q, engine: 'redis' }).env).toEqual({
+      ...policyEnv,
       REDIS_PASSWORD_FILE: '/run/secrets/cache-password',
     });
-    expect(cacheReplicaSpec(q, 1).env).toBeUndefined();
-    expect(cachePrimarySpec({ ...q, purpose: undefined }).env).toBeUndefined();
+    expect(cacheReplicaSpec(q, 1).env).toEqual(policyEnv);
+    expect(cachePrimarySpec({ ...q, purpose: undefined }).env).toEqual(policyEnv);
   });
 
   it('queues bind QUEUE_URL by default, caches REDIS_URL', () => {
