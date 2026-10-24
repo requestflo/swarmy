@@ -1,3 +1,4 @@
+import { DOCKER_HEALTH_DEFAULTS } from '@swarmy/core';
 import type { ServiceSpec } from '@swarmy/core/protocol';
 
 /**
@@ -9,8 +10,8 @@ import type { ServiceSpec } from '@swarmy/core/protocol';
 
 type Healthcheck = NonNullable<ServiceSpec['healthcheck']>;
 
-/** Docker's defaults for a HEALTHCHECK field left unset (docs.docker.com, HEALTHCHECK). */
-export const DOCKER_HEALTH_DEFAULTS = { intervalSec: 30, timeoutSec: 30, retries: 3, startSec: 0 } as const;
+/** Docker's defaults for a HEALTHCHECK field left unset — shared with the controller (@swarmy/core). */
+export { DOCKER_HEALTH_DEFAULTS };
 
 export interface HealthFact {
   label: string;

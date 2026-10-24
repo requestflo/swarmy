@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
+import type { SpecHealthcheck } from '@swarmy/core';
 import { CodeView } from '@/components/calm';
 import { SafetyCard } from '@/components/releases/safety-card';
 import { CardSkeleton, HeaderSkeleton } from '@/components/states';
@@ -30,12 +31,17 @@ export function RolloutTab({ stack }: { stack: string }): React.JSX.Element {
   const picked = rows?.find((r) => r.inv.id === pickedId)?.inv ?? rows?.[0]?.inv;
   const svc = useScalingService(picked);
   const name = picked ? shortName(stack, picked.name) : '';
+  // The unsaved health-check edit at Controls, so the Code view shows what Save writes.
+  const [draft, setDraft] = React.useState<{ id: string; hc: SpecHealthcheck | undefined } | null>(null);
+  const pickedKey = picked?.id;
+  const onDraft = React.useCallback((hc: SpecHealthcheck | undefined | null) => setDraft(hc === null || !pickedKey ? null : { id: pickedKey, hc }), [pickedKey]);
+  const shownDraft = draft && draft.id === picked?.id ? draft : undefined;
   return (
     <TabBody
       asideAt="code"
       header={safety.data ? <RolloutHeader safety={safety.data} /> : <HeaderSkeleton />}
       aside={
-        picked && svc.spec ? <CodeView title="Rollout as code" tabs={rolloutCode(stack, name, svc.spec, safety.data)} source="readonly" note={ROLLOUT_NOTE} /> : undefined
+        picked && svc.spec ? <CodeView title="Rollout as code" tabs={rolloutCode(stack, name, svc.spec, safety.data, shownDraft)} source="readonly" note={ROLLOUT_NOTE} /> : undefined
       }
     >
       {rows === undefined ? (
@@ -45,7 +51,7 @@ export function RolloutTab({ stack }: { stack: string }): React.JSX.Element {
       ) : (
         <>
           <ServicePicker stack={stack} rows={rows} value={picked.id} onChange={setPickedId} />
-          <HealthCheckSection key={`h-${picked.id}`} name={name} inv={picked} spec={svc.spec} />
+          <HealthCheckSection key={`h-${picked.id}`} name={name} inv={picked} spec={svc.spec} onDraft={onDraft} />
           <DeployOrderSection key={`o-${picked.id}`} name={name} inv={picked} spec={svc.spec} />
           <CanarySection key={`c-${picked.id}`} stack={stack} inv={picked} name={name} address={svc.address} />
         </>
