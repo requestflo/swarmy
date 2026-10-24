@@ -182,6 +182,18 @@ Four ideas, one story:
   stack's health narrative after the window: healthy → promoted; degraded/down →
   FAILED, and if auto-rollback is on, the last healthy release is redeployed. A
   gate never wedges forever — `unknown` health passes after 2× the window.
+- **The health check is editable, testable and visible.** Health & rollout
+  edits a service's Docker health check: ask for a web page or run a command
+  (or Off), every, give up after, unhealthy after, grace on start; blank means
+  Docker's default, and clearing it falls back to the image's own check. Save
+  sends only what changed as one `services.update` (`service.configure`), so
+  Docker replaces the copies in one rolling update. **Test now**
+  (`services.testHealthcheck`, audited) runs the saved check once in the newest
+  running copy over the existing exec command, behind the same exec gate, and
+  says the result, exit code and time. The last probes Docker keeps (5 per
+  copy) come from the agents' container snapshots (`services.healthProbes`, no
+  command): p50, a slow outlier, misses. The check stays on the Docker service
+  spec, never in swarmy's store.
 - **Canary, blue-green, rollback.** A canary deploys `<svc>--canary` (1 replica,
   no published ports) and stamps a weighted upstream onto the stable service's
   `swarmy.ingress.routes`; the deploy-canary worker promotes after a clean window
@@ -197,7 +209,11 @@ Four ideas, one story:
   per-host request counts keep a busy service awake. (Before 2026-10 only the
   activator counted, and a busy service went back to sleep one idle window
   after every wake.) The counts are per host, not per path, so a host shared by
-  several services keeps all of them awake: it errs towards awake.
+  several services keeps all of them awake: it errs towards awake. Wake links
+  are signed: a cold route renders `/_wake/<service>/<token>`, an HMAC over the
+  org and service keyed by `SWARMY_SECRET_KEY`, and a forged or missing token
+  gets the same 404 as an unknown name. The edge rewrites to the signed path
+  internally, so a visitor never sees the token.
 - **Wire a part to its data on the canvas.** The app canvas draws each data
   store the app uses as its own node. In connect mode, dragging from a part to
   a store first says what changes: the variables swarmy adds, and that the
@@ -294,6 +310,12 @@ homes:
   (`recordRelease`, `rollbackTo`, `getSafety`/`setSafety`, `startCanary`/
   `promoteCanary`/`abortCanary`), `routers/releases.ts`, and the workers
   `apps/api/src/workers/{deploy-safety,deploy-canary,scale-to-zero}.ts`.
+- **Health check edit + Test now + probes**: `packages/core/src/healthcheck.ts`
+  (edit merge, the exec command), `container-health.ts` (Docker's record),
+  `packages/trpc/src/services/service-health.service.ts`; the agent's
+  `apps/agent/src/health-probes.ts`.
+- **Signed wake links**: `packages/core/src/wake-token.ts`,
+  `apps/api/src/{activator,activator-auth}.ts`.
 - **Blueprints**: `services/blueprints.service.ts` (+ `blueprints/catalog.ts`).
   Previews live with git apps (`services/apps.service.ts`).
 - **Data model**: `packages/db/prisma/schema/releases.prisma` (`Release`) and
