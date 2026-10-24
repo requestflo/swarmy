@@ -102,8 +102,11 @@ Four ideas, one story:
   feeds per-stack breakdowns.
 - **What swarmy's DB owns is only its own identity + credentials**: the `Node`
   row (org scoping, `nodeId`, hostname, `sessionSecretHash`, `sessionVersion`)
-  and `JoinToken` (uses, expiry, revocation, label/role intent).
-  Everything derivable about the machine is derived from swarm truth.
+  and `JoinToken` (uses, expiry, revocation, label/role intent; only its hash
+  is stored, and the plaintext is shown once at mint).
+  Everything derivable about the machine is derived from swarm truth. Join
+  tokens are also minted, listed and revoked over REST (`/api/v1/join-tokens`,
+  the same guards as the dashboard) and by Terraform (`swarmy_join_token`).
 
 ## Dial-out behaviour (what "the agent dials out" commits us to)
 
@@ -127,7 +130,10 @@ Four ideas, one story:
 - **Reads are not commands.** `list`/`inspect`/`stats` are served from the hub's
   in-memory snapshots the agent already streams (containers, services, nodes,
   metrics). Only mutations dispatch a command to the node. This keeps the
-  dashboard instant and the socket quiet.
+  dashboard instant and the socket quiet. The container snapshot also carries
+  Docker's own health record for each running container with a check (status,
+  miss streak, the effective test and the last probes Docker keeps), read at
+  most once per 10 s per container or when its health word changes.
 - **An agent out of step with the controller is named, not guessed at.** On
   every register the controller compares the agent's release and protocol
   versions with its own. A server whose agent is behind says so in plain words
@@ -155,6 +161,9 @@ Four ideas, one story:
 | Duplicate agent for one node (re-run installer) | Enrollment is idempotent: same hostname upserts (or **re-adopts**) the same `Node`; the newer session wins and the stale socket is closed. Re-running the one-liner switches to repair mode and never creates a duplicate. |
 | Node reboots / loses its session file | The session was persisted durably (retry + read-back), so it reconnects on its own. If the session is gone, the env-file join token re-adopts the same node by hostname. |
 | Node won't reconnect, machine is up | **Repair this node** in the dashboard (re-mints the one-liner) or `swarmy-agent doctor --fix` on the box. See [`node-recovery.md`](./node-recovery.md). |
+| Repair one-liner re-run on an enrolled node | The mesh config moves as one unit: a line that brings a setup key brings the whole mesh config; one without a key keeps the node's saved config whole, including a `SWARMY_ALLOW_MESH=false` opt-out and its driver. A key the agent will ignore is warned about. |
+| A node starts without joining the mesh | The daemon logs why in one line (mesh off on this node, or no setup key), and `doctor` reports a key the opt-out makes it ignore as a warning with the fix. |
+| A dead manager address lingers in the swarm | `doctor`'s swarm rung probes every listed manager address and says whose record it is and the fix (a swarm rebuild for our own stale record; demote/remove, or fix the path, for another manager's) before new overlays break with "no VNI provided". |
 | Node lost every credential (session + token) | The recovery beacon: the agent prints a fingerprint in its journal and posts a claim; a dashboard banner lets the operator approve it after matching the fingerprint (SSH-host-key trust). |
 | Controller down, data at risk on a cut-off node | `swarmy-agent backup export`/`push` moves the node's volumes with zero controller contact. |
 | Docker not yet installed / unavailable | Install script installs Docker first; a running agent that can't reach Docker still reports OS-only node facts and stays connected rather than crash-looping. |
@@ -207,10 +216,31 @@ checksums, then fetches a checksum-pinned installer and agent binary — so
 downloads afterward is content-addressed. Re-running is safe and is the
 supported **repair** path — on an already-enrolled box the installer detects the
 existing install, refreshes the binary + credentials, keeps the node's identity
-(hostname re-adoption), and runs the on-box doctor; `systemctl disable --now` (or
-removing the container) uninstalls cleanly. When a node won't come back, the
+(hostname re-adoption), and runs the on-box doctor. The node installer's
+`--uninstall` removes the agent and its state (`agent.json`, `agent.env` and the
+other state files), the mesh client sidecar, its identity and the mesh pin; on
+the node that runs the mesh control plane it stops unless `--keep-data` or
+`--yes` is given. It doesn't rotate the swarm join tokens: a node never stores
+one, a worker can't rotate them, and rotating from one manager would revoke the
+live controller's. When a node won't come back, the
 dashboard offers **Repair this node** on its detail page; the full ladder is in
 [`node-recovery.md`](./node-recovery.md).
+
+The self-host installer (`scripts/install-swarmy.sh`, which stands up the
+controller itself) follows the same rules. A release's installer is stamped
+from its signed `platform.json` with the controller and agent pinned as
+`<repo>:<tag>@<digest>` and the release's stack file embedded
+(`scripts/stamp-install-swarmy.ts`); `--image`, `--agent-image`, `SWARMY_REF`
+and `SWARMY_RAW_BASE` override the pins with a warning, and an older installer
+never rolls back a controller Settings › Platform already upgraded. The owner
+password comes from `--admin-password-file` or stdin (`--admin-password -`),
+never argv unless you insist (it warns). Generated secrets go to 0600 files in
+the root-only state directory (`admin-password`, `add-node.txt`) and only their
+paths are printed. The operator's original `/etc/docker/daemon.json` is backed
+up once and never overwritten by a later step or re-run. `--uninstall` removes
+node #1's agent and state, the stack and its secrets, the data and the mesh
+(after a typed confirmation, or `--yes` with `--non-interactive`;
+`--keep-data` keeps them) and rotates both swarm join tokens.
 
 ## Implementation map
 
@@ -236,4 +266,7 @@ persistence, recovery beacon; `index.ts` is a back-compat daemon shim),
 `packages/trpc/src/services/volumeMove.service.ts` (`planServiceMove`, the move),
 `packages/trpc/src/services/node.service.ts` (roles/region/public-ip labels,
 drain), and the `apps/api/src/install/*` routes + `scripts/install-swarmy.sh`
-for the install script.
+for the install script (release pins `apps/api/src/install/self-host-pins.ts` +
+`scripts/stamp-install-swarmy.ts`; the repair-mode mesh salvage
+`apps/api/src/install/repair-env-sh.ts`). Join tokens over REST:
+`packages/api-rest/src/routes/join-tokens.ts`.

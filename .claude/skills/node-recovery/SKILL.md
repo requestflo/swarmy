@@ -101,6 +101,18 @@ green+yellow, re-checks, and prints an install-log-friendly summary; `--json`
 feeds support bundles and the crash snapshot. Add a rung by appending a check
 function to the array — keep it time-boxed and non-throwing.
 
+- The **swarm** rung probes every address in the node's `RemoteManagers` (2 s,
+  in parallel; `cli/swarm-peers.ts`, shared with `rejoin`) and warns with the
+  pure `stalePeerFinding()` (`cli/rejoin-plan.ts`): our own stale record → only
+  a swarm rebuild clears it; another manager's dead address → demote/remove it
+  from a healthy manager, or fix the path. A dead address silently breaks new
+  overlays cluster-wide ("no VNI provided"). Clearing it has no Docker API, so
+  doctor only says it.
+- The **mesh** rung reports a configured setup key that `SWARMY_ALLOW_MESH=false`
+  makes the agent ignore as a `warn` with the fix, not a `skip`; the daemon
+  logs the same `meshSkipReason()` line (`apps/agent/src/mesh-startup.ts`) at
+  startup.
+
 ## OpenTUI cross-compile (the sharp edge)
 
 `cli/tui.ts` uses `@opentui/core` (imperative API: `createCliRenderer`,
@@ -124,6 +136,9 @@ path.
 | Daemon-mode shim (container ENTRYPOINT / dev:agent back-compat) | `apps/agent/src/index.ts` |
 | CLI↔daemon unix socket (`/status`, `/reconnect`) | `apps/agent/src/local-socket.ts` |
 | Doctor check ladder (time-boxed, tiered fixes) | `apps/agent/src/cli/checks.ts` |
+| Manager-address probe + stale-peer finding (doctor + rejoin) | `apps/agent/src/cli/{swarm-peers,rejoin-plan}.ts` |
+| Mesh-first join skip reason (daemon log + doctor) | `apps/agent/src/mesh-startup.ts` |
+| Repair-mode env salvage (mesh config as one unit) | `apps/api/src/install/repair-env-sh.ts` (+ `.test.ts`) |
 | CLI plumbing: socket client, controller probe, prompts, flag parse | `apps/agent/src/cli/context.ts` |
 | Commands | `apps/agent/src/cli/{status,doctor,reconnect,rejoin,mesh-cli,backup,logs,support-bundle,update-cli,reset,help}.ts` |
 | OpenTUI dashboard (overview/workloads/logs/backup tabs) | `apps/agent/src/cli/tui.ts` |
@@ -160,7 +175,23 @@ before enrollment. Installers are POSIX `sh` (Alpine/busybox have no bash). The
 loader must render the same bytes whichever address fetched it, because its
 sha256 pins it (`installerOptionsFor` in `apps/api/src/index.ts`).
 `get.docker.com` is a known unpinned trust hop — prefer the distro's own Docker
-when present.
+when present. Repair mode salvages the mesh config from `/etc/swarmy/agent.env`
+as ONE unit (`apps/api/src/install/repair-env-sh.ts`, embedded in the
+installer): a one-liner that brings a setup key brings the whole mesh config,
+one without keeps the saved config whole; `SWARMY_ALLOW_MESH`/
+`SWARMY_MESH_DRIVER` are salvaged before they are defaulted. Never salvage mesh
+settings one by one (a fresh key landed on an old self-hosted URL).
+`repair-env-sh.test.ts` runs the snippet against a real env file. Both
+installers back up the operator's `daemon.json` ONCE (`daemon.json.swarmy-bak`,
+never overwritten by a later step or a re-run; a failed Docker restart rolls
+back from a per-step temp copy).
+
+**Touch uninstall.** The node installer's `--uninstall` removes `agent.json` and
+the other state files, `agent.env`, the mesh client sidecar, its identity and
+the mesh pin; on the node running the mesh control plane it stops unless
+`--keep-data` or `--yes`. It never rotates swarm join tokens (a node stores
+none, a worker can't, and a manager rotating would revoke the live
+controller's). The self-host `install-swarmy.sh --uninstall` does rotate them.
 
 ## Verification
 

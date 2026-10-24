@@ -28,7 +28,14 @@ skill is the agent-and-protocol third of that.
 2. **Reads are NOT commands.** `list`/`inspect`/`stats` are served from the hub's
    in-memory snapshots the agent streams (containers, services, nodes, metrics).
    Only a MUTATION dispatches a `CommandName`. If you're about to add a command
-   just to read state, stop — surface it from the snapshot instead.
+   just to read state, stop — surface it from the snapshot instead. Docker's
+   health record is the pattern: the container snapshot folds in `State.Health`
+   (`ContainerInfo.health`, optional; `apps/agent/src/health-probes.ts`) for
+   running containers with a check — one inspect per container per 10 s at
+   most, sooner when its health word changes, ≤ 32 per tick, best-effort — and
+   `services.healthProbes` reads it with no dispatch. "Test now"
+   (`services.testHealthcheck`) reuses the existing `exec` command behind the
+   exec gate rather than adding one.
 3. **Every command is one entry in three places, in this order:** (a) a Zod
    message in `packages/core/src/protocol/*` added to the `ControllerToAgentMessage`
    union in `messages.ts`; (b) a `CommandName` + its wire `type` in
@@ -86,7 +93,13 @@ skill is the agent-and-protocol third of that.
     `@swarmy/core`). Container exec is default-ON — the real gate is
     controller-side (`terminal.open` ABAC + TerminalPolicy + audit + recording);
     `swarmy.node.exec=false` turns it off and `SWARMY_ALLOW_EXEC` is a tri-state
-    override. Node shell (host RCE) is default-OFF: only `swarmy.node.shell=true`
+    override; its local veto (`false`) also refuses `dbQuery`, `queueOp` and
+    `appDb*`, which run a client inside a task (`execVetoed`, proven by
+    `executor-veto.test.ts`). `runOnce` mounts only the bind shapes swarmy's own
+    one-shots use (`@swarmy/core/protocol` `run-once-binds.ts`: named volumes at
+    safe paths, the Docker socket for the docker-CLI image, a node restic repo
+    for the restic image) and answers anything else `E_BIND_REFUSED` before it
+    pulls or creates. Node shell (host RCE) is default-OFF: only `swarmy.node.shell=true`
     enables it, `SWARMY_ALLOW_NODE_SHELL=false` vetoes locally and `true` can NOT
     force it on. Builds follow the `swarmy.node.builder` role
     (`SWARMY_ALLOW_BUILD` override); mesh is on unless `SWARMY_ALLOW_MESH=false`.
@@ -124,6 +137,9 @@ skill is the agent-and-protocol third of that.
 | Capabilities (deploy/mesh/dns/backup/build/storage/terminal/…) | `apps/agent/src/handlers/*` |
 | Web terminal: exec/node-shell PTY over the agent WS, tickets, recording | `apps/agent/src/handlers/terminal.ts`, `protocol/terminal.ts`, `apps/api/src/terminal{,-tickets,-recording}.ts`, `schema/terminal.prisma` |
 | Node facts, public-IP detect, snapshots, stats | `apps/agent/src/{public-ip,snapshots,stats,state}.ts` |
+| Docker health probes on the container snapshot | `apps/agent/src/health-probes.ts`; pure `packages/core/src/container-health.ts`, edit/test shapes `packages/core/src/healthcheck.ts` |
+| Local exec veto + runOnce bind allowlist | `apps/agent/src/executor.ts` (`execVetoed`), `packages/core/src/protocol/run-once-binds.ts`; tests `apps/agent/src/executor-veto.test.ts` |
+| Why a node skipped the mesh-first join (logged, shown by `doctor`) | `apps/agent/src/mesh-startup.ts` (`meshSkipReason`) |
 | Wire protocol: envelope, messages, auth, per-domain types | `packages/core/src/protocol/*` |
 | Docker/dockerode wrapper (single source) | `@swarmy/core/docker` (`packages/core/src/docker.ts`) |
 | `CommandName` → wire `type` registry | `packages/trpc/src/hub/types.ts` (`COMMAND_PROTOCOL_TYPE`) |
