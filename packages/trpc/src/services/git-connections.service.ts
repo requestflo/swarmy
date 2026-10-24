@@ -31,6 +31,7 @@ import {
   type GitConnectionView,
 } from './git-connection-view';
 import { bindBrowser, notStartedHere } from './git-browser-bind';
+import { INSTANCE_OWNER_REQUIRED, isInstanceOwner } from './instance-owner';
 import { createGiteaConnection, registerGiteaHook, type GiteaConnectionInput } from './git-gitea.service';
 import {
   assertRemoteOnConnection,
@@ -196,6 +197,9 @@ export async function completeGithubManifest(
 ): Promise<{ installUrl: string }> {
   const s = verifyState(stateKey(), input.state, 'github-manifest', input.browserNonce);
   if (!s) throw notStartedHere('GitHub');
+  // The App is controller-wide: still the instance owner when GitHub calls back?
+  if (!(await isInstanceOwner(deps.db, s.userId)))
+    throw new TRPCError({ code: 'FORBIDDEN', message: INSTANCE_OWNER_REQUIRED });
   const webBase = s.ref ?? GITHUB_WEB;
   const conv = await convertManifest(gitFetch, githubApiBase(webBase), input.code);
   const app = await deps.db.gitHubApp.create({

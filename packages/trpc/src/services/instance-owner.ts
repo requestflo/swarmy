@@ -10,7 +10,8 @@ import type { DB } from '@swarmy/db';
  * otherwise they could swap a provider's client id/secret, point GitLab at
  * their own IdP, or open `allowedDomains` into the controller's org.
  */
-export const INSTANCE_OWNER_REQUIRED = 'Only the owner of this swarmy’s organization can change instance-wide sign-in settings';
+export const INSTANCE_OWNER_REQUIRED =
+  'Only the owner of this swarmy’s organization can change instance-wide settings (sign-in, the GitHub App)';
 
 type InstanceOwnerDb = Pick<DB, 'organization' | 'member'>;
 

@@ -3,12 +3,13 @@
  * GitHub App, bind installations, connect GitLab / Gitea·Forgejo / generic git, pick a
  * repo + branch, link it as an app binding, and read a commit (git.inspect).
  * Secrets never leave the service layer; mutations are admin-only and
- * audited, removal is ABAC-gated (`cicd.remove`).
+ * audited, registering the controller-wide GitHub App is instance-owner-only,
+ * removal is ABAC-gated (`cicd.remove`).
  */
 import { z } from 'zod';
 import { DetectionSchema } from '@swarmy/app-config';
 import { abacProcedure } from '../abac';
-import { adminProcedure, orgProcedure, router } from '../trpc';
+import { adminProcedure, instanceOwnerProcedure, orgProcedure, router } from '../trpc';
 import {
   createConnection,
   getGithubApp,
@@ -49,8 +50,12 @@ export const gitConnectionsRouter = router({
     .input(z.object({ webBase: httpUrl.optional() }).optional())
     .query(({ ctx, input }) => getGithubApp(ctx, input?.webBase)),
 
-  /** Returns `{ postUrl, manifest }` — the dashboard auto-submits a form with field `manifest`. */
-  startGithubManifest: adminProcedure
+  /**
+   * Returns `{ postUrl, manifest }` — the dashboard auto-submits a form with field `manifest`.
+   * The App is controller-wide (one per GitHub host, first one wins), so only
+   * the instance owner registers it; any org's admin then installs it.
+   */
+  startGithubManifest: instanceOwnerProcedure
     .input(
       z
         .object({
