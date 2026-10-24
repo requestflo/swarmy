@@ -491,9 +491,17 @@ export async function rotateSecretFamily(
  */
 export async function attachSecretToService(
   ctx: OrgContext,
-  input: AttachSecretInput,
+  /**
+   * `target` (controller-internal, never a client input): mount a file
+   * delivery at /run/secrets/<target> instead of the family's own path — an
+   * environment's own family (`stripe-key.qa`) where the app reads `stripe-key`.
+   * Rotation keeps each ref's target (`swapFamilyRefs`).
+   */
+  input: AttachSecretInput & { target?: string },
 ): Promise<AttachSecretResult> {
   const family = input.family.trim();
+  const target = input.target?.trim() || null;
+  if (target && !FAMILY_RE.test(target)) throw commandRejected(`invalid secret mount name "${target}"`);
   const node = await resolveManagerNode(ctx);
   const group = await requireFamily(ctx, node.id, family);
   const current = group.versions[0]!;
@@ -515,8 +523,8 @@ export async function attachSecretToService(
   } else {
     await deploy(ctx, node.id, app, {
       removeSecrets: (n) => oldNames.has(n),
-      addSecrets: secretRefsFor([current.name]),
-      ...(envName ? { setEnv: { [envName]: secretMountPath(family) } } : {}),
+      addSecrets: target ? [{ source: current.name, target }] : secretRefsFor([current.name]),
+      ...(envName ? { setEnv: { [envName]: secretMountPath(target ?? family) } } : {}),
     });
   }
   await writeAudit(ctx, {
@@ -529,7 +537,7 @@ export async function attachSecretToService(
     family,
     service: app.name,
     version: current.version,
-    mountPath: delivery === 'env' && envName ? `/run/secrets/${envName}` : secretMountPath(family),
+    mountPath: delivery === 'env' && envName ? `/run/secrets/${envName}` : secretMountPath(target ?? family),
     envName,
   };
 }

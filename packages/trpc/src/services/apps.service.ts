@@ -32,8 +32,10 @@ import {
   PRODUCTION,
   signature,
   toDesired,
+  cloneNameProblem,
   type AppConfig,
   type ConfigIssue,
+  type DashboardEnvironment,
   type DesiredApp,
   type DesiredJob,
   type DesiredResource,
@@ -63,6 +65,13 @@ import { rollOutBuilds } from './build-rollout.service';
 import { resolveManagerNode } from './dispatch.service';
 import { inspectCommit, listProviderBranches } from './git-connections.service';
 import { rememberConfigText } from './apps/config-file';
+import {
+  asClone,
+  dashboardDesired,
+  dashboardEnvironments,
+  dashboardEnvView,
+  type SecretSlotView,
+} from './apps/dashboard-envs';
 import { reportCommitStatus, upsertPrComment } from './git-feedback.service';
 import { controllerPublicUrl } from './git-credentials';
 import { deployFromCompose } from './stack.service';
@@ -100,6 +109,7 @@ import { attachSecretToService } from './secretsMgr.service';
 import { bindAiToService } from './ai.service';
 import { bindEmailToService } from './email/bind';
 import { listDbBackups, restoreDb } from './dbBackup.service';
+import { restoreNewestInto } from './dbRestoreCopy.into';
 import { execInService, waitForPostgres } from './resilience.service';
 import { applyPlan, type ActionOutcome, type AppOps } from './apps/apply';
 import { publicS3EndpointFor } from './public-s3';
@@ -121,7 +131,8 @@ export type AppTrigger =
   | 'poll'
   | 'drift'
   | 'confirm'
-  | 'promote';
+  | 'promote'
+  | 'clone';
 
 // ── views ────────────────────────────────────────────────────────────────────
 
@@ -160,6 +171,8 @@ export interface AppView {
     latest: AppPlanView | null;
     /** Removed Postgres clusters whose data is still on disk (purge-able). */
     keptVolumes: Array<{ resource: string; volumes: string[] }>;
+    /** Declared from the dashboard (Clone as a new environment), not swarmy.yaml — until the file names it. */
+    dashboard?: { from: string; data?: { mask: boolean }; secretSlots: SecretSlotView[] };
   }>;
   /** Live PR previews (latest plan per PR, torn-down ones excluded). */
   previews: Array<{
@@ -695,6 +708,8 @@ async function seedPreviewDatabase(
   database: string,
 ): Promise<void> {
   const pd = d.previewData!;
+  // A cloned environment keeps its copy: the restore-as-copy path picks the save.
+  if (d.dashboard) return seedClonedDatabase(ctx, d, repo, sha, cluster, database);
   const snapshots = await listDbBackups(ctx, { stack: pd.fromStack, cluster });
   const latest = snapshots[0];
   if (!latest) {
@@ -707,13 +722,7 @@ async function seedPreviewDatabase(
   if (engine === 'wal-g' || engine === 'pgbackrest') {
     throw commandRejected('previews.data copies logical backups (pg_dump) only');
   }
-  let scrubSql: string | null = null;
-  if (pd.scrub) {
-    const file = await inspectCommit(ctx, { repoId: repo.id, ref: sha, paths: [pd.scrub] });
-    scrubSql = file.files[pd.scrub] ?? null;
-    if (scrubSql == null)
-      throw commandRejected(`previews.data.scrub: ${pd.scrub} is not in this commit`);
-  }
+  const scrubSql = await readScrub(ctx, repo, sha, pd.scrub);
   const primary = primaryServiceName(d.stack, cluster);
   await waitForPostgres(ctx, primary);
   await restoreDb(ctx, {
@@ -725,14 +734,7 @@ async function seedPreviewDatabase(
     targetStack: d.stack,
     targetCluster: cluster,
   });
-  if (scrubSql) {
-    const b64 = Buffer.from(scrubSql, 'utf8').toString('base64');
-    await execInService(
-      ctx,
-      primary,
-      `echo '${b64}' | base64 -d | ${PG_PASSWORD_FROM_MEMBER} psql -U postgres -h 127.0.0.1 -p 5432 -v ON_ERROR_STOP=1 -d '${database.replace(/'/g, '')}'`,
-    );
-  }
+  if (scrubSql) await runScrub(ctx, primary, database, scrubSql);
   await writeAudit(ctx, {
     action: 'app.preview.data',
     targetType: 'managedResource',
@@ -743,6 +745,51 @@ async function seedPreviewDatabase(
       snapshot: latest.id,
       scrubbed: Boolean(scrubSql),
     },
+  });
+}
+
+async function readScrub(ctx: OrgContext, repo: { id: string }, sha: string, path: string | undefined): Promise<string | null> {
+  if (!path) return null;
+  const file = await inspectCommit(ctx, { repoId: repo.id, ref: sha, paths: [path] });
+  const text = file.files[path] ?? null;
+  if (text == null) throw commandRejected(`previews.data.scrub: ${path} is not in this commit`);
+  return text;
+}
+
+async function runScrub(ctx: OrgContext, primary: string, database: string, sql: string): Promise<void> {
+  const b64 = Buffer.from(sql, 'utf8').toString('base64');
+  await execInService(
+    ctx,
+    primary,
+    `echo '${b64}' | base64 -d | ${PG_PASSWORD_FROM_MEMBER} psql -U postgres -h 127.0.0.1 -p 5432 -v ON_ERROR_STOP=1 -d '${database.replace(/'/g, '')}'`,
+  );
+}
+
+/**
+ * A cloned environment's own Postgres starts as a copy of its source's newest
+ * backup (the restore-as-copy choice of save), then the mask step when asked.
+ * Like a preview, a missing backup or a failed mask FAILS the step.
+ */
+async function seedClonedDatabase(
+  ctx: OrgContext,
+  d: DesiredApp,
+  repo: { id: string },
+  sha: string,
+  cluster: string,
+  database: string,
+): Promise<void> {
+  const pd = d.previewData!;
+  const scrubSql = await readScrub(ctx, repo, sha, pd.scrub);
+  const primary = primaryServiceName(d.stack, cluster);
+  await waitForPostgres(ctx, primary);
+  const copied = await restoreNewestInto(ctx, { stack: pd.fromStack, cluster, targetStack: d.stack, targetCluster: cluster });
+  if (scrubSql) await runScrub(ctx, primary, database, scrubSql);
+  await writeAudit(ctx, {
+    action: 'app.environment.data',
+    targetType: 'managedResource',
+    targetId: `${d.stack}/${cluster}`,
+    actorType: ctx.user ? 'user' : 'system',
+    metadata: { from: `${pd.fromStack}/${cluster}`, ...copied, masked: Boolean(scrubSql) },
   });
 }
 
@@ -780,6 +827,8 @@ export interface PlanCommitInput {
   retry?: boolean;
   /** Retry only: the environment the failed plan ran in. */
   environment?: string;
+  /** Clone as a new environment: declare it from the dashboard (apps/clone.ts). */
+  clone?: DashboardEnvironment;
 }
 
 /** PURE — may this existing plan row be reset by a retry? Only a failed or partly applied one. */
@@ -953,8 +1002,13 @@ export async function planCommit(
       environmentForBranch(cfg, input.baseRef ?? repo.branch, repo.branch) ?? PRODUCTION;
   } else {
     // A retry names the environment its failed plan ran in (the ref alone
-    // would re-derive it from the production branch).
-    const env = input.environment ?? environmentForBranch(cfg, input.ref, repo.branch);
+    // would re-derive it from the production branch). A clone names its own.
+    const env =
+      input.clone?.name ??
+      input.environment ??
+      environmentForBranch(cfg, input.ref, repo.branch) ??
+      (await dashboardEnvironments(ctx.db, repo.id)).find((e) => e.marker.branch === input.ref)?.environment ??
+      null;
     if (!env)
       return {
         planId: null,
@@ -974,7 +1028,21 @@ export async function planCommit(
     });
   }
 
-  const desired = toDesired(cfg, preview ? { preview, environment: previewBase } : { environment });
+  // An environment the dashboard declared: the clone itself, or its newest marker.
+  let dashboard: DashboardEnvironment | null = null;
+  if (input.clone) {
+    const problem = cloneNameProblem(cfg, input.clone.name);
+    if (problem) throw commandRejected(problem);
+    dashboard = input.clone;
+  } else if (!preview && environment !== PRODUCTION && !cfg.environments?.[environment]) {
+    const row = (await dashboardEnvironments(ctx.db, repo.id)).find((e) => e.environment === environment);
+    if (!row)
+      return { planId: null, status: 'skipped', environment: null, stack: null, reason: `no environment named ${environment}` };
+    dashboard = asClone(row);
+  }
+  const desired = dashboard
+    ? dashboardDesired(cfg, dashboard)
+    : toDesired(cfg, preview ? { preview, environment: previewBase } : { environment });
   const prNumber = branchPr ?? input.prNumber ?? 0;
   return withAppLock(envKey(repo.id, environment, prNumber), async () => {
     const ledger = await latestLedger(ctx.db, repo.id, environment, prNumber);
@@ -1408,6 +1476,11 @@ export async function listApps(ctx: OrgContext): Promise<AppView[]> {
       })),
     ];
     for (const [env, row] of latestByEnv) {
+      const marker = (row.desiredJson as unknown as DesiredApp | null)?.dashboard;
+      if (marker) {
+        envs.push(dashboardEnvView(ctx, env, row.stack, marker, toPlanView(row)));
+        continue;
+      }
       const existing =
         envs.find((e) => e.environment === env) ??
         envs.find((e) => !e.environment && e.stack === '');
@@ -2001,6 +2074,19 @@ export async function pollApp(ctx: OrgContext, repoId: string): Promise<PlanComm
       await planCommit(ctx, { repoId: repo.id, ref: branch, sha: head.sha, trigger: 'poll' }),
     );
   }
+  // Dashboard environments track their branch too (even production's branch).
+  for (const e of await dashboardEnvironments(ctx.db, repo.id)) {
+    const head = heads.find((h) => h.name === e.marker.branch);
+    if (!head) continue;
+    const seen = await ctx.db.appPlan.findFirst({
+      where: { repoId: repo.id, environment: e.environment, sha: head.sha, prNumber: 0 },
+      select: { id: true },
+    });
+    if (seen) continue;
+    out.push(
+      await planCommit(ctx, { repoId: repo.id, ref: e.marker.branch, sha: head.sha, trigger: 'poll', environment: e.environment }),
+    );
+  }
   return out;
 }
 
@@ -2045,6 +2131,10 @@ export async function handleBranchPush(
     });
     return { status: res.stack ? 'torn-down' : 'ignored', stack: res.stack };
   }
+  // A dashboard environment tracking this branch deploys it (it is long-lived, never torn down here).
+  const tracked = (await dashboardEnvironments(ctx.db, input.repoId)).find((e) => e.marker.branch === input.ref);
+  if (tracked)
+    return planCommit(ctx, { repoId: input.repoId, ref: input.ref, sha: input.sha, trigger: 'push', environment: tracked.environment });
   const prod = (
     await ctx.db.appPlan.findMany({
       where: { repoId: input.repoId, environment: PRODUCTION, prNumber: 0 },

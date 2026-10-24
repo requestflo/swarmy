@@ -25,6 +25,7 @@ import {
   setRequireApproval,
 } from '../services/apps.service';
 import { readAppConfigFile } from '../services/apps/config-file';
+import { appEnvironmentProcedures } from './apps-environments';
 
 const id = z.string().min(1).max(100);
 
@@ -47,6 +48,7 @@ const resolvePreviewStack: ResolveResource = async (ctx, input) => {
 };
 
 export const appsRouter = router({
+  ...appEnvironmentProcedures,
   list: orgProcedure.query(({ ctx }) => listApps(ctx)),
   /**
    * The swarmy.yaml text an app stack runs from (its last planned commit), for
