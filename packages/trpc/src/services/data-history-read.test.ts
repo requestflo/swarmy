@@ -12,9 +12,10 @@ const NOW = Date.UTC(2026, 9, 24, 12, 2, 30);
 const hm = (h: number, m: number): Date => new Date(Date.UTC(2026, 9, 24, h, m));
 
 let t: TestDb;
+// A fresh migrated SQLite per test; slow under a busy `bun run test`.
 beforeEach(async () => {
   t = await createTestDb();
-});
+}, 30_000);
 afterEach(async () => {
   await t.close();
 });

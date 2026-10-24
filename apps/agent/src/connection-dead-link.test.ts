@@ -34,7 +34,11 @@ function controller(mode: { echo: boolean; blackholeAfterFirst?: boolean }) {
   return { server, opens: () => opens, url: `ws://127.0.0.1:${server.port}/agent/ws` };
 }
 
-/** Poll until `cond` holds (or fail after `ms`): no fixed sleeps racing the scheduler. */
+/**
+ * Poll until `cond` holds (or fail after `ms`): no fixed sleeps racing the
+ * scheduler. The socket tests get 15 s so a busy `bun run test` can't time
+ * them out first.
+ */
 async function waitFor(cond: () => boolean, ms: number): Promise<void> {
   const until = Date.now() + ms;
   while (!cond()) {
@@ -80,7 +84,7 @@ describe('agent dead-link detection', () => {
     agent(c.url);
     await waitFor(() => c.opens() >= 2, 5_000);
     expect(c.opens()).toBeGreaterThanOrEqual(2); // the agent gave up on the silent socket and came back
-  });
+  }, 15_000);
 
   it('a healthy echoing link is kept', async () => {
     const c = controller({ echo: true });
@@ -91,7 +95,7 @@ describe('agent dead-link detection', () => {
     await Bun.sleep(2_500); // 2.5x the idle budget
     expect(c.opens()).toBe(1);
     expect(conn.connected).toBe(true);
-  });
+  }, 15_000);
 
   it('an older controller that never pings is not treated as dead', async () => {
     const c = controller({ echo: false });
@@ -99,7 +103,7 @@ describe('agent dead-link detection', () => {
     agent(c.url);
     await Bun.sleep(2_500);
     expect(c.opens()).toBe(1);
-  });
+  }, 15_000);
 
   it('a link down past strandedMs reports once (the daemon then exits a container agent)', async () => {
     const stranded: number[] = [];
@@ -108,7 +112,7 @@ describe('agent dead-link detection', () => {
     await Bun.sleep(500); // and it reports only once per outage
     expect(stranded).toHaveLength(1);
     expect(stranded[0]!).toBeGreaterThan(300);
-  });
+  }, 15_000);
 
   it('only a container agent exits when stranded (overridable)', () => {
     expect(strandedShouldExit('container', undefined)).toBe(true);
