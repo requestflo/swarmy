@@ -76,8 +76,9 @@ server and the BuildKit registry cache. What is left (none launch-blocking):
 
 - **Environments**: "clone as a new environment" and shared-vs-override
   variables in the dashboard (promote-by-digest exists). M–L.
-- **Route basic-auth** as an edge protection (not in the protection model). S.
 - **Gitea** as a git provider; a Heroku importer. M each.
+- ~~Route basic-auth~~ — shipped 2026-10-24 ("Require a password" on a route;
+  bcrypt hashes sealed in the ingress swarm-kv document, never on a label).
 
 ## Launch verification
 
@@ -85,86 +86,88 @@ server and the BuildKit registry cache. What is left (none launch-blocking):
   routing mesh (see `issues/swarm-routing-mesh-unreachable-in-lima-vm.md`), real
   public-IP ingress + ACME, and geo-DNS answering per region. Local Lima
   verification passed on 2026-09-22/23.
+- Things built 2026-10-23/24 that only a real swarm can prove (each has unit or
+  golden tests): the mesh MTU numbers (overlays at 1280 → containers 1230 /
+  1204 encrypted), expired people grants leaving a live NetBird, Headscale's
+  relayed state from `tailscale status --json`, the registry read-only GC
+  window, cache policy from a Swarm label template, bucket CORS/lifecycle on a
+  live Garage (v1 refuses `*.domain` origins), and the NetBird control-plane
+  client (one live pass still owed).
 - Open issues: `issues/manual-recovery-required-not-magical.md`,
   `issues/swarm-routing-mesh-unreachable-in-lima-vm.md`,
   `issues/vm-disk-chronically-full.md`.
 
 ## Security & governance
 
-- Sweep the config-level deletes onto `abacProcedure` too (alert
-  channels/rules, notification templates, status pages, inbound/outbound
-  webhooks, jobs, workflows, backup schedules, AI-gateway keys) — still
-  role-gated after the destructive-action sweep (`skill("auth-abac")`).
 - SAML SSO rows are stored but skipped at build time (no SAML plugin in the
   Better Auth version in use).
 - Open question: a second, agent-side factor for privileged capabilities (node
   shell, mesh, builds), so a compromised controller alone can't use them.
-- The controller receives `agentVersion`/`protocolVersions` on register but never
-  checks agent ↔ controller skew.
+- Viewer / Developer roles (board 48 shows them) — an owner decision; today's
+  roles are owner · admin · member plus per-app grants.
+- Done 2026-10-24: every config-level and remaining role-gated delete runs the
+  policy gate; agent ↔ controller version skew is judged on register; the
+  config preview seals tunnel tokens and credentials (it returned them to any
+  member).
 
 ## Edge & exposure
 
-- Declared exposure (`swarmy.expose`): the background exposure-audit worker
-  doesn't alert on declared-vs-observed drift (the Exposure page does), and the
-  ingress renderer doesn't consult the label.
-- Per-domain driver override (`route.driver`) is saved on the route label but
-  ignored at render time.
-- Country rules: `geoipMmdbPath` has no UI and no automatic mmdb download (reuse
-  `apps/dns`'s geoip manager).
+- `route.driver` works at render time but has no UI (API and label only).
+- The installer's own dashboard domain still uses sslip.io (the auto-address
+  base is configurable since 2026-10-24, `SWARMY_AUTO_ADDRESS_BASE`).
 - Verify the `edge-per-node` topology on a real multi-node swarm now that the
   Caddyfile is written inside the task rather than to a host path.
 
 ## Data & storage
 
-- ~~Managed Postgres still runs `bitnamilegacy/postgresql`~~ — done (B5):
-  `pgvector/pgvector:pg17` (official `postgres` + pgvector) under swarmy's own
-  boot layer (`@swarmy/core` manageddb-pg); caches/sentinels on official Valkey/Redis.
-- Managed-DB placement ignores the `swarmy.node.database` role label
-  (`manageddb-reconcile.ts` places by region only).
 - Live-verify the held-failover path on a real geo cluster (kill the primary
-  mid-write; confirm the Data-tab window, then promote) and persist the LSN
-  watermark across controller restarts (today a restart ⇒ unknown ⇒ hold).
-- Garage presigned URLs sign the in-swarm endpoint; add a public S3 endpoint
-  setting.
-- Registry GC is node-local only; registry manifests/blobs are never deleted, so
-  the registry volume only grows.
+  mid-write; confirm the Data-tab window, then promote). The LSN watermark now
+  survives a short controller restart; a long outage or a moved controller
+  still holds.
+- A refused PITR still takes the safety backup and a brief restart before the
+  agent refuses (moving the check earlier needs a new agent command).
+- Done 2026-10-24: database-role placement, cache eviction/persistence
+  settings, bucket CORS + lifecycle, the public S3 endpoint for presigned
+  links, registry-side GC (keep-last-N mode), restore-as-a-copy creating its
+  own cluster, a safety backup before every in-place restore.
 
 ## Mesh
 
 - `managed-by-swarmy` is a mode value only — swarmy doesn't stand up its own
   NetBird server yet (designed in `epic-self-hosted-mesh-and-fleets.md`).
-- Direct-connect TTL: `expiresAt` is recorded but nothing sweeps expired routes.
-- MTU isn't managed (WireGuard under VXLAN can fragment/drop large packets).
-- The NetBird client image floats on `:latest` (covered by
-  `epic-platform-upgrades.md`).
-- The NetBird control-plane client still needs one live verification pass.
+- MTU: swarmy checks and explains; it can't safely recreate existing networks,
+  so the fix is a manual step shown on Mesh settings.
 
 ## Observability
 
 - The collector is OTLP-only: no `filelog` stdout tailing (so uninstrumented
-  images show no logs), no tail sampling, no gateway tier —
-  `docs/product/observability.md` describes all three as the direction.
+  images show no logs), no gateway tier — `docs/product/observability.md`
+  describes both as the direction.
 
 ## REST API & Terraform
 
-- Terraform provider: treat async (202) deploys as blocking — poll
-  `/deployments/{id}` to a terminal phase and fail the apply on failure; add
-  `join_token`, `ingress` and `node` resources.
+- Terraform: `swarmy_join_token` and `swarmy_ingress` need REST routes first;
+  changing a `swarmy_service` image calls `/restart`, which doesn't apply it
+  (there is no REST service update yet).
+- Done 2026-10-24: deprecation signalling, connections over REST, the
+  guardrail 412 in the spec, blocking Terraform deploys, `swarmy_node`.
 
 ## Dashboard
 
 (Board-by-board status and what's deferred: `redesign-build.md`.)
 
-- Switching org can show the previous org for up to 60 s (Better Auth
-  `cookieCache` isn't refreshed by `switchOrg`).
-- `/services/new` has no admin override for guardrail blocks.
+- Writing to git from the dashboard (commit swarmy.yaml, open a PR) — an owner
+  decision: the GitHub App would need `contents: write` and
+  `pull_requests: write`, and existing installations must re-approve. It blocks
+  every "Open PR" / "Commit" on the boards.
 
 ## CI & release
 
 - The Release workflow is manual until launch; restore `push: branches: [main]`
   afterwards.
-- DCO sign-off is documented in `CONTRIBUTING.md` but not enforced.
-- Only the root `package.json` carries a `license` field; no `NOTICE` file.
+- DCO sign-off: an enforcing workflow is ready on its own branch, unmerged —
+  existing commits carry no `Signed-off-by`, so turning it on means a
+  `git rebase --signoff` the owner makes.
 
 ## Deferred (not blocking launch)
 
