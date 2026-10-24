@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AttachSearchInput, ProvisionSearchInput } from '@swarmy/core';
+import { AttachSearchInput, ProvisionSearchInput, SearchIndexRef, SearchInstanceRef } from '@swarmy/core';
 import { orgProcedure, router } from '../trpc';
 import { abacProcedure, resolveStackByName, resolveStackService } from '../abac';
 import {
@@ -14,6 +14,7 @@ import {
   restoreSearch,
   searchStats,
 } from '../services/search.service';
+import { searchIndex, searchIndexes } from '../services/search-indexes.service';
 
 const stackName = z
   .string()
@@ -80,6 +81,12 @@ export const managedSearchRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => restoreSearch(ctx, input)),
+
+  /** Every index (documents, size, last change), read from the engine inside its container. Audited. */
+  indexes: orgProcedure.input(SearchInstanceRef).query(({ ctx, input }) => searchIndexes(ctx, input)),
+
+  /** One index with its searchable / filterable / sortable fields and synonyms. Audited. */
+  index: orgProcedure.input(SearchIndexRef).query(({ ctx, input }) => searchIndex(ctx, input)),
 
   /** Snapshots for this instance (restic catalog filtered by the search tag). */
   listBackups: orgProcedure

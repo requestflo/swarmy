@@ -123,11 +123,11 @@ export function searchBackupTag(stack: string, name: string): string {
 }
 
 /** URL-safe secret (no chars needing escaping in headers or env). */
-function generateMasterKey(): string {
+export function generateMasterKey(): string {
   return randomBytes(24).toString('base64url').replace(/[^A-Za-z0-9]/g, '').slice(0, 32);
 }
 
-function searchEngineOf(labels: Record<string, string> | undefined): SearchEngine {
+export function searchEngineOf(labels: Record<string, string> | undefined): SearchEngine {
   const v = labels?.[SEARCH_ENGINE_LABEL];
   return (SEARCH_ENGINES as readonly string[]).includes(v ?? '')
     ? (v as SearchEngine)
@@ -388,12 +388,12 @@ export function searchInstanceSpec(decl: SearchInstanceDecl): ServiceSpec {
 
 // ── Live instance discovery (hub inventory — never the DB) ────────────────────
 
-function liveOrgServices(ctx: OrgContext): InvService[] {
+export function liveOrgServices(ctx: OrgContext): InvService[] {
   const { services, containers } = ctx.hub.liveInventory(ctx.activeOrgId);
   return buildInventory(services, containers).services;
 }
 
-interface LiveInstance {
+export interface LiveInstance {
   stack: string;
   name: string;
   service: InvService;
@@ -414,7 +414,7 @@ function findInstance(ctx: OrgContext, stack: string, name: string): LiveInstanc
   return groupInstances(liveOrgServices(ctx)).find((i) => i.stack === stack && i.name === name);
 }
 
-function requireInstance(ctx: OrgContext, stack: string, name: string): LiveInstance {
+export function requireInstance(ctx: OrgContext, stack: string, name: string): LiveInstance {
   const i = findInstance(ctx, stack, name);
   if (!i) throw notFound('search instance', `${stack}/${name}`);
   return i;
