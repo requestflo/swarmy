@@ -15,8 +15,10 @@
  *    (the operator chose; respect it);
  *  - merge into an existing daemon.json with python3 or jq; if neither is
  *    available, leave it alone and warn (never hand-edit JSON with sed);
- *  - validate with `dockerd --validate` when the engine supports it, keep a
- *    `.swarmy-bak` backup, and restore it on a failed validation;
+ *  - validate with `dockerd --validate` when the engine supports it, keep the
+ *    operator's original as `daemon.json.swarmy-bak` (written ONCE: the
+ *    registry-mirror merge and re-runs never overwrite it), and roll back to
+ *    the pre-merge file when Docker does not come back;
  *  - only restart dockerd when NO container is running (a fresh box); a busy
  *    node gets the file + a warning that it applies on the next restart —
  *    swarmy services are already bounded by their own LogDriver.
@@ -83,7 +85,14 @@ ensure_docker_log_opts() {
     fi
     if [ -n "$edlo_tmp" ]; then
       mkdir -p "$(dirname "$edlo_file")"
-      [ -f "$edlo_file" ] && cp -p "$edlo_file" "$edlo_file.swarmy-bak"
+      edlo_prev=""
+      if [ -f "$edlo_file" ]; then
+        # .swarmy-bak is the operator's ORIGINAL: written once, never by a later
+        # merge (the registry-mirror step, a re-run). Rollback uses edlo_prev.
+        [ -e "$edlo_file.swarmy-bak" ] || cp -p "$edlo_file" "$edlo_file.swarmy-bak"
+        edlo_prev="$(mktemp)"
+        cp -p "$edlo_file" "$edlo_prev"
+      fi
       cat "$edlo_tmp" > "$edlo_file"
       rm -f "$edlo_tmp"
       if [ -z "$(docker ps -q 2>/dev/null)" ] && command -v systemctl >/dev/null 2>&1; then
@@ -91,12 +100,13 @@ ensure_docker_log_opts() {
           ok "Docker log rotation on (json-file $SWARMY_LOG_MAX_SIZE x $SWARMY_LOG_MAX_FILE)."
         else
           warn "Docker did not come back with the new daemon.json — restoring the previous one."
-          if [ -f "$edlo_file.swarmy-bak" ]; then cp -p "$edlo_file.swarmy-bak" "$edlo_file"; else rm -f "$edlo_file"; fi
+          if [ -n "$edlo_prev" ]; then cp -p "$edlo_prev" "$edlo_file"; else rm -f "$edlo_file"; fi
           systemctl restart docker >/dev/null 2>&1 || true
         fi
       else
         ok "Docker log rotation written to $edlo_file — applies to new containers after the next Docker restart."
       fi
+      [ -z "$edlo_prev" ] || rm -f "$edlo_prev"
     fi
   fi
   # journald cap (the systemd-backend agent logs there): only when not already set.

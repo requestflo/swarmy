@@ -585,7 +585,14 @@ ensure_docker_log_opts() {
     fi
     if [ -n "$edlo_tmp" ]; then
       mkdir -p "$(dirname "$edlo_file")"
-      [ -f "$edlo_file" ] && cp -p "$edlo_file" "$edlo_file.swarmy-bak"
+      edlo_prev=""
+      if [ -f "$edlo_file" ]; then
+        # .swarmy-bak is the operator's ORIGINAL: written once, never by a later
+        # merge (the registry-mirror step, a re-run). Rollback uses edlo_prev.
+        [ -e "$edlo_file.swarmy-bak" ] || cp -p "$edlo_file" "$edlo_file.swarmy-bak"
+        edlo_prev="$(mktemp)"
+        cp -p "$edlo_file" "$edlo_prev"
+      fi
       cat "$edlo_tmp" > "$edlo_file"
       rm -f "$edlo_tmp"
       if [ -z "$(docker ps -q 2>/dev/null)" ] && command -v systemctl >/dev/null 2>&1; then
@@ -593,12 +600,13 @@ ensure_docker_log_opts() {
           ok "Docker log rotation on (json-file $SWARMY_LOG_MAX_SIZE x $SWARMY_LOG_MAX_FILE)."
         else
           warn "Docker did not come back with the new daemon.json — restoring the previous one."
-          if [ -f "$edlo_file.swarmy-bak" ]; then cp -p "$edlo_file.swarmy-bak" "$edlo_file"; else rm -f "$edlo_file"; fi
+          if [ -n "$edlo_prev" ]; then cp -p "$edlo_prev" "$edlo_file"; else rm -f "$edlo_file"; fi
           systemctl restart docker >/dev/null 2>&1 || true
         fi
       else
         ok "Docker log rotation written to $edlo_file — applies to new containers after the next Docker restart."
       fi
+      [ -z "$edlo_prev" ] || rm -f "$edlo_prev"
     fi
   fi
   # journald cap (the systemd-backend agent logs there): only when not already set.
@@ -691,7 +699,14 @@ ensure_docker_registry_mirror() {
     return 0
   fi
   mkdir -p "$(dirname "$edrm_file")"
-  [ -f "$edrm_file" ] && cp -p "$edrm_file" "$edrm_file.swarmy-bak"
+  edrm_prev=""
+  if [ -f "$edrm_file" ]; then
+    # .swarmy-bak is the operator's ORIGINAL (the log-opts step may already
+    # have written it): keep the first one. Rollback uses edrm_prev.
+    [ -e "$edrm_file.swarmy-bak" ] || cp -p "$edrm_file" "$edrm_file.swarmy-bak"
+    edrm_prev="$(mktemp)"
+    cp -p "$edrm_file" "$edrm_prev"
+  fi
   cat "$edrm_tmp" > "$edrm_file"
   rm -f "$edrm_tmp"
   if [ -z "$(docker ps -q 2>/dev/null)" ] && command -v systemctl >/dev/null 2>&1; then
@@ -699,12 +714,13 @@ ensure_docker_registry_mirror() {
       ok "Docker Hub pulls go through the swarm's pull-through cache ($SWARMY_REGISTRY_MIRROR${SWARMY_REGISTRY_MIRROR_FALLBACK:+, then $SWARMY_REGISTRY_MIRROR_FALLBACK})."
     else
       warn "Docker did not come back with the new daemon.json — restoring the previous one."
-      if [ -f "$edrm_file.swarmy-bak" ]; then cp -p "$edrm_file.swarmy-bak" "$edrm_file"; else rm -f "$edrm_file"; fi
+      if [ -n "$edrm_prev" ]; then cp -p "$edrm_prev" "$edrm_file"; else rm -f "$edrm_file"; fi
       systemctl restart docker >/dev/null 2>&1 || true
     fi
   else
     ok "Registry mirror written to $edrm_file — applies after the next Docker restart."
   fi
+  [ -z "$edrm_prev" ] || rm -f "$edrm_prev"
   return 0
 }
 # <<< swarmy docker-registry-mirror

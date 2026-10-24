@@ -17,8 +17,10 @@
  *  - never touch a daemon.json that already sets `registry-mirrors` (the
  *    operator chose; ours already present is a no-op);
  *  - merge with python3 or jq; neither → leave it alone and warn (never sed JSON);
- *  - validate with `dockerd --validate` when supported, keep a `.swarmy-bak`,
- *    and restore it when validation or the restart fails;
+ *  - validate with `dockerd --validate` when supported; the operator's original
+ *    stays in `daemon.json.swarmy-bak` (the first backup wins, so this second
+ *    merge never overwrites it), and a failed restart rolls back to the
+ *    pre-merge file;
  *  - restart dockerd only when NO container is running; a busy node gets the
  *    file + a warning that it applies on the next restart.
  *
@@ -114,7 +116,14 @@ ensure_docker_registry_mirror() {
     return 0
   fi
   mkdir -p "$(dirname "$edrm_file")"
-  [ -f "$edrm_file" ] && cp -p "$edrm_file" "$edrm_file.swarmy-bak"
+  edrm_prev=""
+  if [ -f "$edrm_file" ]; then
+    # .swarmy-bak is the operator's ORIGINAL (the log-opts step may already
+    # have written it): keep the first one. Rollback uses edrm_prev.
+    [ -e "$edrm_file.swarmy-bak" ] || cp -p "$edrm_file" "$edrm_file.swarmy-bak"
+    edrm_prev="$(mktemp)"
+    cp -p "$edrm_file" "$edrm_prev"
+  fi
   cat "$edrm_tmp" > "$edrm_file"
   rm -f "$edrm_tmp"
   if [ -z "$(docker ps -q 2>/dev/null)" ] && command -v systemctl >/dev/null 2>&1; then
@@ -122,12 +131,13 @@ ensure_docker_registry_mirror() {
       ok "Docker Hub pulls go through the swarm's pull-through cache ($SWARMY_REGISTRY_MIRROR\${SWARMY_REGISTRY_MIRROR_FALLBACK:+, then $SWARMY_REGISTRY_MIRROR_FALLBACK})."
     else
       warn "Docker did not come back with the new daemon.json — restoring the previous one."
-      if [ -f "$edrm_file.swarmy-bak" ]; then cp -p "$edrm_file.swarmy-bak" "$edrm_file"; else rm -f "$edrm_file"; fi
+      if [ -n "$edrm_prev" ]; then cp -p "$edrm_prev" "$edrm_file"; else rm -f "$edrm_file"; fi
       systemctl restart docker >/dev/null 2>&1 || true
     fi
   else
     ok "Registry mirror written to $edrm_file — applies after the next Docker restart."
   fi
+  [ -z "$edrm_prev" ] || rm -f "$edrm_prev"
   return 0
 }
 # <<< swarmy docker-registry-mirror
