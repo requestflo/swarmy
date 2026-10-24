@@ -23,7 +23,9 @@
  *   - every boot → regenerate `swarmy.conf` (primary_conninfo for a standby,
  *     pointed at the CURRENT `SWARMY_PG_PRIMARY_HOST` — that is how a failover
  *     repoint lands), ensure the includes + pg_hba rule (a promoted replica
- *     inherits them from the clone anyway).
+ *     inherits them from the clone anyway), and write `SWARMY_PG_PRELOAD` as
+ *     `shared_preload_libraries` (extensions like pg_stat_statements — the
+ *     reconcile changes it with a rolling restart, see manageddb-extensions).
  *   - failover safety (never silently lose data):
  *       · a PROMOTED replica restarting under its old replica spec keeps its
  *         writer data and starts as a writer (the promotion is labels-only; the
@@ -78,7 +80,26 @@ export const PG_ENV = {
   primaryPort: 'SWARMY_PG_PRIMARY_PORT',
   /** Failover epoch a repointed member rejoins under (see the boot script). */
   rejoin: 'SWARMY_PG_REJOIN',
+  /** `shared_preload_libraries` written on every start (manageddb-extensions). */
+  preload: 'SWARMY_PG_PRELOAD',
 } as const;
+
+/** Container-local conf the boot layer writes `shared_preload_libraries` into. */
+export const MANAGED_PG_PRELOAD_CONF = `${MANAGED_PG_CONF_DIR}/swarmy-preload.conf`;
+
+/**
+ * Boot-script lines: `SWARMY_PG_PRELOAD` → `shared_preload_libraries` in a
+ * container-local conf the server includes (`include_dir`). Written fresh on
+ * every start, so a spec change plus the restart it causes is the whole
+ * mechanism; anything but a plain library list is ignored, never interpolated.
+ */
+export function pgPreloadLines(conf: string = MANAGED_PG_PRELOAD_CONF): string[] {
+  return [
+    `PRELOAD="\${${PG_ENV.preload}:-}"`,
+    'case "$PRELOAD" in *[!a-z0-9_,]*) log "ignoring SWARMY_PG_PRELOAD (not a library list)"; PRELOAD="";; esac',
+    `if [ -n "$PRELOAD" ]; then echo "shared_preload_libraries = '$PRELOAD'" > "${conf}"; else rm -f "${conf}"; fi`,
+  ];
+}
 
 export type PgBootRole = 'primary' | 'replica';
 
@@ -423,6 +444,7 @@ export function pgBootScript(): string {
     '    /usr/local/bin/swarmy-pg-conf "$PGDATA" writer',
     '  fi',
     'fi',
+    ...pgPreloadLines(),
     'exec docker-entrypoint.sh postgres',
   ].join('\n');
 }
