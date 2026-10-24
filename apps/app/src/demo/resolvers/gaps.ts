@@ -52,6 +52,8 @@ export const gaps: DomainResolvers = {
       services: [],
       grantors: [],
       loginExpiryHours: 12,
+      downloads: [],
+      cliInstall: null,
     }),
 
     // Node retirement: a plan with nothing to move, and no run in progress.

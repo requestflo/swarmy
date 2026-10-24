@@ -6,6 +6,8 @@ node_modules/
 # build outputs
 dist/
 dist-bin/
+# NetBird desktop clients fetched for the controller mirror (scripts/fetch-netbird-clients.ts)
+/netbird-clients/
 build/
 out/
 .output/

@@ -90,6 +90,7 @@ describe('install transport (H17)', () => {
   it('the piped entrypoints get the refusal as a script that only prints and exits 1', () => {
     expect(isPipedScriptPath('/install/loader.sh')).toBe(true);
     expect(isPipedScriptPath('/install.sh')).toBe(true);
+    expect(isPipedScriptPath('/install/netbird.sh')).toBe(true);
     expect(isPipedScriptPath('/install/1.2.0/install.sh')).toBe(false);
     const script = refusalScript("it's refused\nline two\n");
     const r = Bun.spawnSync(['sh', '-c', script]);

@@ -18,6 +18,9 @@ dist
 coverage
 **/coverage
 
+# A local NetBird client mirror (the image fetches its own in the netbirdclients stage)
+netbird-clients
+
 # Generated Prisma client (the controller image runs db:generate itself)
 packages/db/src/generated
 

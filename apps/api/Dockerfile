@@ -90,6 +90,24 @@ RUN set -eu; mkdir -p /out; \
       "DB-IP \"IP to Country Lite\" (edition $(cat /out/EDITION)), CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)." > /out/NOTICE; \
   else echo "no DB-IP edition reachable ($months) - analytics countries will read Unknown"; fi
 
+# ── Stage 1f: NetBird client installers ("Connect from your laptop", M3) ────
+# The desktop NetBird clients people install to reach their apps over the mesh
+# (macOS .pkg, Windows .exe, Linux CLI tarballs), mirrored like the agent
+# binaries: served at /install/netbird/<file> so connecting never needs GitHub
+# (plans/epic-self-hosted-mesh-and-fleets.md §3.4). Every file is checked
+# against the sha256 pinned in packages/mesh/src/client-downloads.ts.
+# Adds roughly 100 MB to the image. BEST-EFFORT: a build with no egress ships
+# without them and the dashboard links upstream; SWARMY_BUNDLE_NETBIRD_CLIENTS=0
+# opts out. Arch-independent, so it runs once on the build host.
+FROM --platform=$BUILDPLATFORM oven/bun:1.3.14-alpine AS netbirdclients
+WORKDIR /app
+ARG SWARMY_BUNDLE_NETBIRD_CLIENTS=1
+COPY packages/mesh/src/client-downloads.ts packages/mesh/src/
+COPY scripts/fetch-netbird-clients.ts scripts/
+RUN set -eu; mkdir -p /out; \
+  if [ "$SWARMY_BUNDLE_NETBIRD_CLIENTS" = "0" ]; then printf '{"version":"","files":{}}\n' > /out/manifest.json; echo "netbird clients skipped"; exit 0; fi; \
+  bun run scripts/fetch-netbird-clients.ts /out
+
 # ── Stage 1d: Litestream for control.db replication (resilience P3) ─────────
 # controller-store/litestream.ts runs `litestream replicate` as a supervised
 # child while this controller holds the raft lease, and boot.ts runs
@@ -138,6 +156,10 @@ ENV SWARMY_AGENT_BIN_DIR=/app/agent-binaries
 # `swarmy` CLI binaries + manifest, served at /install/cli/<platform>.
 COPY --from=clibin /app/cli-binaries /app/cli-binaries
 ENV SWARMY_CLI_BIN_DIR=/app/cli-binaries
+
+# NetBird desktop clients + manifest, served at /install/netbird/<file>.
+COPY --from=netbirdclients /out/ /app/netbird-clients/
+ENV SWARMY_NETBIRD_CLIENT_DIR=/app/netbird-clients
 
 # Bake the build commit so `GET /version` reports it.
 ARG SWARMY_COMMIT=dev

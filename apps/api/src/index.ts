@@ -33,6 +33,7 @@ import { resolveControllerPublicUrl } from '@swarmy/core';
 import { renderInstallScript } from './install-script';
 import { renderLoader, renderChecksumFile, sha256Hex } from './install/loader';
 import { renderInstaller, type RenderInstallerOptions } from './install/installer';
+import { netbirdClientsApp } from './install/netbird-clients';
 import { releaseForBuild, type StoredRelease } from './install/release';
 import {
   decideInstallTransport,
@@ -278,6 +279,9 @@ app.get('/install/bin/:file{[a-z0-9.-]+}', (c) => {
     },
   });
 });
+// NetBird desktop clients for people access ("Connect from your laptop"),
+// mirrored like the agent binaries: /install/netbird/* and /install/netbird.sh.
+app.route('/', netbirdClientsApp(requestControllerUrl));
 app.on(['GET', 'POST'], '/api/auth/*', (c) => authRegistry.getAuth().handler(c.req.raw));
 // swarmy's OIDC provider: RFC 8414 metadata lives at the root with the issuer
 // path appended (OIDC discovery is under /api/auth, handled above).

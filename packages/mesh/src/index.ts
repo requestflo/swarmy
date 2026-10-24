@@ -15,3 +15,4 @@ export * from './control-plane/litestream';
 export * from './control-plane/netbird-admin';
 export * from './control-plane/people-sync';
 export * from './images';
+export * from './client-downloads';

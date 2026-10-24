@@ -99,7 +99,7 @@ export const INSECURE_REFUSAL =
 
 /** The entrypoints people pipe into `sh` (`curl -fsSL … | sh`). */
 export function isPipedScriptPath(pathname: string): boolean {
-  return pathname === '/install.sh' || pathname === '/install/loader.sh';
+  return pathname === '/install.sh' || pathname === '/install/loader.sh' || pathname === '/install/netbird.sh';
 }
 
 /**

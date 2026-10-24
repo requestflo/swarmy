@@ -14,14 +14,7 @@ import {
   toast,
 } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
-
-const OS = {
-  mac: { label: 'macOS', install: 'brew install netbirdio/tap/netbird-ui' },
-  win: { label: 'Windows', install: 'winget install NetBird.NetBird' },
-  linux: { label: 'Linux', install: 'curl -fsSL https://pkgs.netbird.io/install.sh | sh' },
-  ios: { label: 'iPhone / Android', install: 'App Store or Google Play: “NetBird”' },
-} as const;
-type OsKey = keyof typeof OS;
+import { ClientDownloads, Cmd } from './client-downloads';
 
 const TTLS = [
   { label: '1 hour', sec: 3600 },
@@ -50,15 +43,6 @@ function Step({ n, on, title, children }: { n: number; on?: boolean; title: stri
   );
 }
 
-function Cmd({ value }: { value: string }) {
-  return (
-    <div className="bg-muted flex h-[38px] items-center gap-2 rounded-[10px] pr-1.5 pl-3">
-      <code className="mono-data min-w-0 flex-1 truncate text-xs">{value}</code>
-      <CopyButton value={value} className="size-7" />
-    </div>
-  );
-}
-
 /**
  * App → Network → "Connect from your laptop" (plan §3.4, design board
  * RLaptop): install NetBird, sign in with swarmy (a per-cluster profile, so a
@@ -73,7 +57,6 @@ export function ConnectFromLaptop({ stack }: { stack: string }): React.JSX.Eleme
   const connected = useQuery({ ...trpc.mesh.people.connected.queryOptions({ stack }), refetchInterval: 10_000 });
   const grants = useQuery(trpc.mesh.people.grants.queryOptions({ stack }));
   const members = useQuery(trpc.members.list.queryOptions());
-  const [os, setOs] = React.useState<OsKey>('mac');
   const [who, setWho] = React.useState('');
   const [ttl, setTtl] = React.useState('28800');
   const invalidate = () => void qc.invalidateQueries();
@@ -119,22 +102,7 @@ export function ConnectFromLaptop({ stack }: { stack: string }): React.JSX.Eleme
                 allows here — nothing else.
               </p>
               <Step n={1} on title="Install the NetBird app">
-                <div className="flex flex-wrap gap-1.5">
-                  {(Object.keys(OS) as OsKey[]).map((k) => (
-                    <button
-                      key={k}
-                      type="button"
-                      onClick={() => setOs(k)}
-                      className={cn(
-                        'h-7 rounded-lg border px-2.5 text-[12.5px] font-semibold',
-                        os === k ? 'bg-accent border-transparent' : 'text-muted-foreground',
-                      )}
-                    >
-                      {OS[k].label}
-                    </button>
-                  ))}
-                </div>
-                <Cmd value={OS[os].install} />
+                <ClientDownloads downloads={d.downloads ?? []} cliInstall={d.cliInstall ?? null} />
               </Step>
               <Step n={2} title="Sign in with swarmy">
                 <p className="text-muted-foreground">

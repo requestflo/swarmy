@@ -17,6 +17,8 @@ export type { AuditEntry, AuditActorType } from './services/audit.service';
 // checksums into the rendered installer.
 export { agentRelease, agentBinaryPath } from './services/agent-release.service';
 export type { AgentReleaseManifest } from './services/agent-release.service';
+// NetBird desktop-client mirror (people access, M3): served at /install/netbird/*.
+export { netbirdClientMirror, netbirdClientFilePath, mirroredCliAssets } from './services/netbird-client-mirror';
 export * from './errors';
 
 // ── REST front door: api-key→OrgContext seam + service functions it reuses ──

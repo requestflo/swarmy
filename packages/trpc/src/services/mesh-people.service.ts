@@ -44,6 +44,9 @@ import { whoCan } from '../abac-who-can';
 import { writeAudit } from './audit.service';
 import { meshConfigRepo } from './mesh-config.repo';
 import { currentPublicUrl, managedAdmin, managedOf, type ManagedControlPlane } from './mesh-control.service';
+import { connectCliInstall, connectDownloads } from './netbird-client-mirror';
+import { controllerPublicUrl } from './git-credentials';
+import type { ClientDownloadLink } from '@swarmy/mesh';
 
 export interface PeopleAccessSettings {
   enabled: boolean;
@@ -527,6 +530,10 @@ export interface ConnectInfoView {
   /** When not allowed: who can grant access (admins/owners). */
   grantors: { name: string | null; email: string | null }[];
   loginExpiryHours: number;
+  /** Step 1: the NetBird client per platform — this controller's mirror where it has one, else upstream (M3). */
+  downloads: ClientDownloadLink[];
+  /** `curl -fsSL <controller>/install/netbird.sh | sh` when the Linux/macOS CLI is mirrored here. */
+  cliInstall: string | null;
 }
 
 function hintFor(fqdn: string, p: DeclaredPort | undefined, image: string): string | null {
@@ -554,6 +561,8 @@ export async function connectInfo(ctx: OrgContext, stack: string): Promise<Conne
     services: [],
     grantors: [],
     loginExpiryHours: settings.loginExpiryHours,
+    downloads: [],
+    cliInstall: null,
   };
   if (!m || !row.enabled) return { ...empty, reason: 'The mesh control plane does not run in swarmy on this cluster.' };
   if (!settings.enabled) return { ...empty, reason: 'People access is off. An admin can turn it on in Networking → Mesh.' };
@@ -610,6 +619,8 @@ export async function connectInfo(ctx: OrgContext, stack: string): Promise<Conne
     services,
     grantors,
     loginExpiryHours: settings.loginExpiryHours,
+    downloads: connectDownloads(controllerPublicUrl()),
+    cliInstall: connectCliInstall(controllerPublicUrl()),
   };
 }
 
