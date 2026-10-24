@@ -94,8 +94,9 @@ export function readAdmissionRow(row: AdmissionRowLike): AdmissionRowRead | null
  * Tally rows (newest first) per rule. `wouldBlock` counts only runs that went
  * ahead: "on Block it would have stopped N" means N deploys shipped past it.
  */
-export function tallyAdmission(rows: readonly AdmissionRowLike[]): Pick<AdmissionTallyView, 'totals' | 'rules'> {
+export function tallyAdmission(rows: readonly AdmissionRowLike[]): Pick<AdmissionTallyView, 'totals' | 'blockedBy' | 'rules'> {
   const totals = { blocked: 0, warned: 0, overridden: 0, allowed: 0 };
+  const blockedBy: Record<string, number> = {};
   const byRule = new Map<string, AdmissionRuleTally>();
   const entry = (rule: string): AdmissionRuleTally => {
     let t = byRule.get(rule);
@@ -109,6 +110,9 @@ export function tallyAdmission(rows: readonly AdmissionRowLike[]): Pick<Admissio
     const r = readAdmissionRow(row);
     if (!r) continue;
     totals[r.outcome] += 1;
+    for (const family of new Set(r.checks.filter((c) => c.outcome === 'blocked').map((c) => c.rule.split('/')[0] ?? c.rule))) {
+      blockedBy[family] = (blockedBy[family] ?? 0) + 1;
+    }
     for (const c of r.checks) {
       const t = entry(c.rule);
       t[c.outcome] += 1;
@@ -121,7 +125,7 @@ export function tallyAdmission(rows: readonly AdmissionRowLike[]): Pick<Admissio
       touch(t, r.stack);
     }
   }
-  return { totals, rules: [...byRule.values()].sort((a, b) => a.rule.localeCompare(b.rule)) };
+  return { totals, blockedBy, rules: [...byRule.values()].sort((a, b) => a.rule.localeCompare(b.rule)) };
 }
 
 /** A zeroed tally for a rule with no record in the window. */

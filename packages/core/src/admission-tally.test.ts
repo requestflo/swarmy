@@ -21,6 +21,7 @@ describe('tallyAdmission: the receipts per rule', () => {
       row({ violations: [warn('images/unscanned')], admitted: true, mode: 'automation' }),
     ]);
     expect(t.totals).toEqual({ blocked: 2, warned: 1, overridden: 1, allowed: 0 });
+    expect(t.blockedBy).toEqual({ images: 2 });
     expect(t.rules).toEqual([
       { rule: 'images/critical-cves', blocked: 0, warned: 0, overridden: 1, wouldBlock: 0, stacks: ['shop'] },
       { rule: 'images/unscanned', blocked: 0, warned: 1, overridden: 0, wouldBlock: 0, stacks: ['shop'] },
@@ -51,6 +52,7 @@ describe('tallyAdmission: the receipts per rule', () => {
     expect(readAdmissionRow(legacy[2]!)).toBeNull();
     const t = tallyAdmission(legacy);
     expect(t.totals).toEqual({ blocked: 1, warned: 0, overridden: 1, allowed: 0 });
+    expect(t.blockedBy).toEqual({ guardrails: 1 });
     expect(t.rules).toEqual([{ rule: 'guardrails/no-latest-tag-in-prod', blocked: 1, warned: 0, overridden: 1, wouldBlock: 0, stacks: ['shop', 'web'] }]);
   });
 

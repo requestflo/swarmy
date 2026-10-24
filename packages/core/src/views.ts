@@ -1987,6 +1987,8 @@ export interface AdmissionTallyView {
   capped: boolean;
   /** Admission runs by outcome (`allowed` = went ahead clean, but a Warn/Off rule would have refused it). */
   totals: { blocked: number; warned: number; overridden: number; allowed: number };
+  /** Refused runs per check family (`guardrails`, `images`, `exposure`), each run counted once. */
+  blockedBy: Record<string, number>;
   rules: AdmissionRuleTally[];
 }
 
