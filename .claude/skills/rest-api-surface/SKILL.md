@@ -209,10 +209,11 @@ adapter contract.
 - **`swk_` not `swy_`.** The wire prefix in code is `swk_` (`API_KEY_PREFIX` in
   `apiKeys.service.ts`); the epic plan's `swy_` is stale. Grep for `swk_` when
   wiring leak-scanners or SDK examples.
-- **Idempotency middleware needs a migrated model.** The `IdempotencyKey`
-  delegate is reached through a narrow typed accessor (`models(db)` in
-  `idempotency.ts`) until the Prisma migration lands — mirror that pattern,
-  don't add the column to the committed schema prematurely.
+- **Idempotency rows are a real model now.** `IdempotencyKey` lives in
+  `packages/db/prisma/schema/cluster.prisma`; `idempotency.ts` still reaches
+  it through the narrow `models(db)` cast it was written with before the
+  migration landed (a no-op today). A new model gets a migration
+  (`bun run db:migration <name>`) in the same PR, not a cast.
 - **Never widen a scope in a route to "make it work."** A GET is `read`;
   shipping (deploy, create or update a stack or service, env patch, scale, restart,
   previews, promote, confirming held steps) is `deploy`; every other mutation
