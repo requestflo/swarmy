@@ -373,6 +373,40 @@ export function pinnedTaggedRef(key: SystemImageKey, images: readonly SystemImag
 }
 
 /**
+ * swarmy's own builds that the self-host installer (`scripts/install-swarmy.sh`)
+ * pins to the release it ships with (security review M14). Their BOM refs float
+ * on `:latest`; a release resolves each to a digest in `platform.json`, and the
+ * installer asset is stamped with {@link releasePinnedRef} of each.
+ */
+export const INSTALLER_PINNED_KEYS = ['controller', 'agent'] as const satisfies readonly SystemImageKey[];
+
+const RELEASE_TAG_RE = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/;
+
+/**
+ * `<repo>:<tag>@<digest>` for one of swarmy's own builds at a release: the tag
+ * stays for people, Docker pulls by digest. The repo is the BOM entry's unless
+ * the release published the build elsewhere (`image`: a fork, a local registry).
+ * Throws on a missing/malformed digest or tag: an installer is never stamped
+ * with a pin that floats.
+ */
+export function releasePinnedRef(
+  key: SystemImageKey,
+  release: { tag?: string; digest?: string; image?: string },
+  images: readonly SystemImage[] = SYSTEM_IMAGES,
+): string {
+  const img = systemImage(key, images);
+  if (!release.digest || !DIGEST_RE.test(release.digest)) throw new Error(`${key}: the release has no digest to pin`);
+  // `latest` is the BOM's floating tag, not a release's: the pin must name the release.
+  if (!release.tag || release.tag === 'latest' || !RELEASE_TAG_RE.test(release.tag)) {
+    throw new Error(`${key}: the release has no usable tag (${release.tag ?? 'none'})`);
+  }
+  const p = parseImageRef(img.ref);
+  const repo = release.image?.trim() || `${p.host}/${p.path}`;
+  if (!/^[a-z0-9]+([._:/-][a-z0-9]+)*$/.test(repo)) throw new Error(`${key}: bad image repository ${repo}`);
+  return `${repo}:${release.tag}@${release.digest}`;
+}
+
+/**
  * Plan image rewrites for a Railpack build: the exact tag refs a plan names →
  * digest-pinned refs (mirrored when trusted), so a build never floats on a tag
  * and pulls from the cluster when it can.

@@ -288,10 +288,17 @@ jobs:
         # Fails the job (and so skips the publish) when the key is missing or the
         # signature is empty: an unsigned manifest never reaches the feed.
         run: bash scripts/sign-platform-manifest.sh platform.json
+      # Security review M14: the self-host installer, stamped with this release's
+      # controller + agent (<tag>@<digest>, from the manifest above) and its stack
+      # file, embedded. Fails the job when either image has no digest.
+      - name: Stamp the self-host installer with this release's pins
+        run: bun scripts/stamp-install-swarmy.ts --manifest platform.json --out install-swarmy.sh
       - uses: actions/upload-artifact@v4
         with:
           name: platform-manifest
-          path: platform.json*
+          path: |
+            platform.json*
+            install-swarmy.sh
       - name: Publish to the feed
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -299,11 +306,12 @@ jobs:
           set -euo pipefail
           # Belt and braces: never publish without a real signature.
           [ -s platform.json.sig ] || { echo "::error::platform.json.sig is missing or empty; refusing to publish an unsigned manifest."; exit 1; }
-          # Rolling channel release: <feed>/<channel>/platform.json.
+          # Rolling channel release: <feed>/<channel>/platform.json (+ the pinned
+          # self-host installer, <feed>/<channel>/install-swarmy.sh).
           gh release view "$CHANNEL" >/dev/null 2>&1 || gh release create "$CHANNEL" --prerelease \
             --title "swarmy ${CHANNEL} channel" --notes "Rolling platform manifest for the ${CHANNEL} channel (swarmy upgrade feed)."
-          gh release upload "$CHANNEL" platform.json platform.json.sig --clobber
+          gh release upload "$CHANNEL" platform.json platform.json.sig install-swarmy.sh --clobber
           # The versioned release keeps its own copy (history; offline bundles).
           if [ "$CHANNEL" = stable ] && gh release view "v${VERSION}" >/dev/null 2>&1; then
-            gh release upload "v${VERSION}" platform.json platform.json.sig --clobber
+            gh release upload "v${VERSION}" platform.json platform.json.sig install-swarmy.sh --clobber
           fi

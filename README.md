@@ -63,7 +63,7 @@ in a checkout lists every flag and env var):
 | `--admin-email <e>` / `--admin-password-file <f>` | The owner login (password from the first line of a file, or `--admin-password -` for stdin; generated if unset). `--admin-password <p>` still works but puts the password in `ps` and shell history |
 | `--allow-signup` | Open self-registration (default: invite-only) |
 | `--port <n>` | Dashboard/API port (default `3021`) |
-| `--image <ref>` / `--agent-image <ref>` | Controller / agent image (default `ghcr.io/requestflo/swarmy-{controller,agent}:latest`) |
+| `--image <ref>` / `--agent-image <ref>` | Controller / agent image. A release's installer pins both to the release (`<version>@sha256:…`); these override the pin with a warning. The script on `main` defaults to `:latest` |
 | `--check` | Preflight only — detect and report, change nothing |
 | `--uninstall` | Remove the stack, secrets, node #1 agent and its session, rotate the swarm join tokens, and delete the data (store, `state.env`, mesh) after a confirmation; `--keep-data` keeps the data for a re-install |
 
@@ -72,9 +72,13 @@ curl -fsSL https://raw.githubusercontent.com/requestflo/swarmy/main/scripts/inst
   | sudo bash -s -- --non-interactive --admin-email you@example.com
 ```
 
-A `curl | bash` install fetches its stack file from the same ref; set
-`SWARMY_REF=<tag-or-branch>` (or `SWARMY_RAW_BASE=<url>`) to install from
-something other than `main`.
+For an install pinned to a release (images by digest, stack file embedded),
+use the release's installer:
+`https://github.com/requestflo/swarmy/releases/download/stable/install-swarmy.sh`
+(or `…/download/v<version>/…`, or `…/download/edge/…` for the latest `main`
+build). The script on `main` floats on `:latest` and fetches `main`'s stack
+file, and says so with a warning. `SWARMY_REF=<tag-or-branch>` (or
+`SWARMY_RAW_BASE=<url>`) fetches the stack file from somewhere else.
 
 Then, in the dashboard:
 

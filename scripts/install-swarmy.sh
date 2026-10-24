@@ -2,6 +2,9 @@
 #
 # install-swarmy.sh — stand up a self-hosted swarmy control plane on a fresh VPS.
 #
+#   # a release (images and stack file pinned to it; `edge` for the latest main build):
+#   curl -fsSL https://github.com/requestflo/swarmy/releases/download/stable/install-swarmy.sh | sudo bash
+#   # main as it is now (NOT pinned: :latest images, main's stack file; it warns):
 #   curl -fsSL https://raw.githubusercontent.com/requestflo/swarmy/main/scripts/install-swarmy.sh | sudo bash
 #   # or, from a checkout:
 #   bash scripts/install-swarmy.sh
@@ -65,8 +68,13 @@
 #                                swarmy's https address (it only accepts https issuers)
 #   --default-addr-pool <cidr>   swarm overlay pool (default with a mesh: 10.2xx.0.0/16,
 #                                clear of the 10.0.x LANs people's laptops sit on)
-#   --image <ref>                SWARMY_IMAGE       (controller image)
-#   --agent-image <ref>          SWARMY_AGENT_IMAGE
+#   --image <ref>                SWARMY_IMAGE — controller image. A release's installer pins
+#                                it to the release (<tag>@<digest>); this overrides the pin,
+#                                with a warning. Given once, it is remembered for re-runs.
+#   --agent-image <ref>          SWARMY_AGENT_IMAGE — node #1's agent image (same rules)
+#   SWARMY_REF / SWARMY_RAW_BASE where to fetch the stack file from instead of the one a
+#                                release's installer carries (warns; default for a
+#                                non-release build: the checkout, else main)
 #   --port <n>                   SWARMY_PUBLISH_PORT (default 3021)
 #   --allow-signup               SWARMY_ALLOW_SIGNUP=true — open self-registration.
 #                                Default (unset): invite-only — only the seeded owner
@@ -96,10 +104,32 @@ umask 077
 # the script itself and must never be read for input (--admin-password -).
 SCRIPT_SOURCE="${BASH_SOURCE[0]:-}"
 
+# ── release pins (security review M14) ─────────────────────────────────────
+# A release's installer asset (<feed>/<channel>/install-swarmy.sh) is stamped
+# here by scripts/stamp-install-swarmy.ts from its signed platform.json: the
+# controller + agent at the release's tag AND digest (the BOM in
+# packages/core/src/system-images.ts, resolved by CI), and the release's own
+# stack file, embedded. Empty = not a release build (a checkout, raw `main`):
+# images then float on :latest and the stack file comes from the checkout or
+# SWARMY_RAW_BASE, with a warning.
+# >>> swarmy release pins (stamped at release by scripts/stamp-install-swarmy.ts)
+RELEASE_VERSION=""
+RELEASE_CONTROLLER_IMAGE=""
+RELEASE_AGENT_IMAGE=""
+release_stack() { return 1; }
+# <<< swarmy release pins
+RELEASE_INSTALLER_URL="https://github.com/requestflo/swarmy/releases/download/stable/install-swarmy.sh"
+
 # ── constants ───────────────────────────────────────────────────────────────
-DEFAULT_IMAGE="ghcr.io/requestflo/swarmy-controller:latest"
-DEFAULT_AGENT_IMAGE="ghcr.io/requestflo/swarmy-agent:latest"
-# Where a curl|bash install fetches its companion files (stack files) from.
+# What installers before release pinning defaulted to (and recorded as CFG_*).
+FLOATING_IMAGE="ghcr.io/requestflo/swarmy-controller:latest"
+FLOATING_AGENT_IMAGE="ghcr.io/requestflo/swarmy-agent:latest"
+DEFAULT_IMAGE="${RELEASE_CONTROLLER_IMAGE:-$FLOATING_IMAGE}"
+DEFAULT_AGENT_IMAGE="${RELEASE_AGENT_IMAGE:-$FLOATING_AGENT_IMAGE}"
+# Where a curl|bash install fetches its companion files (stack files) from when
+# it carries none (not a release build), or when told to (an explicit override).
+STACK_SOURCE_OVERRIDE=0
+if [ -n "${SWARMY_RAW_BASE:-}" ] || [ -n "${SWARMY_REF:-}" ]; then STACK_SOURCE_OVERRIDE=1; fi
 SWARMY_RAW_BASE="${SWARMY_RAW_BASE:-https://raw.githubusercontent.com/requestflo/swarmy/${SWARMY_REF:-main}}"
 STACK_NAME="swarmy"
 STATE_DIR="/var/lib/swarmy/install"
@@ -222,7 +252,8 @@ while [ $# -gt 0 ]; do
     --release-pubkey) RELEASE_PUBKEY="${2:?}"; EXPLICIT="${EXPLICIT}RELEASE_PUBKEY "; shift ;;
     --platform-feed-url) PLATFORM_FEED_URL="${2:?}"; EXPLICIT="${EXPLICIT}PLATFORM_FEED_URL "; shift ;;
     --allow-insecure-install) ALLOW_INSECURE_INSTALL=1 EXPLICIT="${EXPLICIT}ALLOW_INSECURE_INSTALL " ;;
-    -h|--help) grep -E '^#( |$)' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    # The header comment only (a release build embeds a stack file whose YAML comments start with # too).
+    -h|--help) awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"; exit 0 ;;
     *) die "unknown argument: $1 (try --help)" ;;
   esac
   shift
@@ -394,11 +425,90 @@ remember_settings() {
   for v in ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP DOMAIN NO_HTTPS ZONE ALLOW_INSECURE_INSTALL RELEASE_PUBKEY PLATFORM_FEED_URL; do
     eval "saved=\${CFG_$v:-}"
     [ -n "$saved" ] || continue
-    explicit "$v" || eval "$v=\$saved"
+    # Images: only an operator's choice is remembered. Older installers recorded
+    # their floating default; that is not a choice, so this installer's pin wins.
+    case "$v:$saved" in "IMAGE:$FLOATING_IMAGE"|"AGENT_IMAGE:$FLOATING_AGENT_IMAGE") continue ;; esac
+    if ! explicit "$v"; then
+      eval "$v=\$saved"
+      case "$v" in IMAGE|AGENT_IMAGE) EXPLICIT="$EXPLICIT$v " ;; esac   # still the operator's choice
+    fi
   done
   for v in ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP DOMAIN NO_HTTPS ZONE ALLOW_INSECURE_INSTALL RELEASE_PUBKEY PLATFORM_FEED_URL; do
+    # A default image is never recorded: the next (newer) release installer's pin must apply.
+    case "$v" in IMAGE|AGENT_IMAGE) if ! explicit "$v"; then state_set "CFG_$v" ""; continue; fi ;; esac
     eval "state_set CFG_$v \"\${$v}\""
   done
+}
+
+# ── release pins at run time (pure helpers — unit-tested by sourcing this file) ─
+# semver_newer A B → 0 when version A is newer than B (a pre-release such as
+# 1.2.4-edge.7 sorts below 1.2.4 and above 1.2.3). Non-semver → 1 (not newer).
+semver_newer() {
+  local re='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$' a b ac bc ap bp i x y
+  local -a A B
+  [[ "$1" =~ $re ]] && [[ "$2" =~ $re ]] || return 1
+  a="${1%%+*}"; b="${2%%+*}"
+  ac="${a%%-*}"; bc="${b%%-*}"
+  ap=""; [ "$a" = "$ac" ] || ap="${a#*-}"
+  bp=""; [ "$b" = "$bc" ] || bp="${b#*-}"
+  IFS=. read -r -a A <<< "$ac"; IFS=. read -r -a B <<< "$bc"
+  for i in 0 1 2; do
+    [ "${A[$i]}" -gt "${B[$i]}" ] && return 0
+    [ "${A[$i]}" -lt "${B[$i]}" ] && return 1
+  done
+  if [ -z "$ap" ]; then [ -n "$bp" ]; return; fi   # same x.y.z: a release beats its pre-releases
+  [ -n "$bp" ] || return 1
+  IFS=. read -r -a A <<< "$ap"; IFS=. read -r -a B <<< "$bp"
+  for (( i = 0; ; i++ )); do
+    [ "$i" -lt "${#A[@]}" ] || return 1            # A ran out first, or they are equal
+    [ "$i" -lt "${#B[@]}" ] || return 0
+    x="${A[$i]}"; y="${B[$i]}"
+    [ "$x" != "$y" ] || continue
+    if [[ "$x" =~ ^[0-9]+$ ]] && [[ "$y" =~ ^[0-9]+$ ]]; then [ "$x" -gt "$y" ]; return; fi
+    if [[ "$x" =~ ^[0-9]+$ ]]; then return 1; fi    # numeric identifiers sort below alphanumeric ones
+    if [[ "$y" =~ ^[0-9]+$ ]]; then return 0; fi
+    [[ "$x" > "$y" ]]; return
+  done
+}
+
+# running_controller_version → the version the deployed controller reports, or nothing.
+running_controller_version() {
+  docker service inspect "${STACK_NAME}_controller" >/dev/null 2>&1 || return 0
+  curl -fsS -m 3 "http://localhost:${PUBLISH_PORT}/version" 2>/dev/null | sed -n 's/.*"version":"\([^"]*\)".*/\1/p' | head -n1
+}
+
+# apply_release_pins — say where this run is NOT on its release pins (an
+# override, or not a release build), and never roll a newer running platform
+# (Settings → Platform upgrades it in place) back to this installer's release.
+apply_release_pins() {
+  local running
+  if [ -z "$RELEASE_VERSION" ]; then
+    if ! explicit IMAGE || ! explicit AGENT_IMAGE || [ "$STACK_SOURCE_OVERRIDE" = 1 ]; then
+      warn "this installer is not a release build: images not given with --image/--agent-image float on :latest, and the stack file comes from the checkout or ${SWARMY_RAW_BASE}. For a pinned install use a release's installer (${RELEASE_INSTALLER_URL})."
+    fi
+    return 0
+  fi
+  if explicit IMAGE && [ "$IMAGE" != "$RELEASE_CONTROLLER_IMAGE" ]; then
+    warn "--image/SWARMY_IMAGE overrides release ${RELEASE_VERSION}'s pinned controller (${RELEASE_CONTROLLER_IMAGE}) with ${IMAGE}, which is not checked against the release."
+  fi
+  if explicit AGENT_IMAGE && [ "$AGENT_IMAGE" != "$RELEASE_AGENT_IMAGE" ]; then
+    warn "--agent-image/SWARMY_AGENT_IMAGE overrides release ${RELEASE_VERSION}'s pinned agent (${RELEASE_AGENT_IMAGE}) with ${AGENT_IMAGE}, which is not checked against the release."
+  fi
+  if [ "$STACK_SOURCE_OVERRIDE" = 1 ]; then
+    warn "SWARMY_REF/SWARMY_RAW_BASE: the stack file comes from ${SWARMY_RAW_BASE}, not the one release ${RELEASE_VERSION} ships with."
+  fi
+  explicit IMAGE && return 0
+  running="$(running_controller_version)"
+  if [ -n "$running" ] && semver_newer "$running" "$RELEASE_VERSION"; then
+    warn "the controller already runs ${running}, newer than this installer's release ${RELEASE_VERSION}: keeping the running controller and agent (an older installer never rolls the platform back). Use the ${running} installer, or --image to force one."
+    IMAGE="$(docker service inspect "${STACK_NAME}_controller" -f '{{.Spec.TaskTemplate.ContainerSpec.Image}}' 2>/dev/null || true)"
+    [ -n "$IMAGE" ] || IMAGE="$DEFAULT_IMAGE"
+    if ! explicit AGENT_IMAGE; then
+      AGENT_IMAGE="$(docker inspect "$AGENT_CONTAINER" -f '{{.Config.Image}}' 2>/dev/null || true)"
+      [ -n "$AGENT_IMAGE" ] || AGENT_IMAGE="$DEFAULT_AGENT_IMAGE"
+    fi
+  fi
+  return 0
 }
 marker_set()  { state_set "MARK_$1" 1; }
 
@@ -1430,6 +1540,11 @@ controller_placement() {
 # ════════════════════════════════════════════════════════════════════════════
 write_stack_file() {  # emit the chosen stack file to $STATE_DIR (self-contained curl|sh path)
   local dst="$STATE_DIR/$STACK_FILE" src
+  # A release build carries its own stack file: pinned with its images, nothing to fetch.
+  if [ -n "$RELEASE_VERSION" ] && [ "$STACK_SOURCE_OVERRIDE" != 1 ]; then
+    release_stack > "$dst" || die "this installer's embedded stack file is missing (a damaged release asset?)."
+    printf '%s' "$dst"; return
+  fi
   for src in "deploy/$STACK_FILE" "$(dirname "$0")/../deploy/$STACK_FILE"; do
     if [ -f "$src" ]; then cp "$src" "$dst"; printf '%s' "$dst"; return; fi
   done
@@ -1918,6 +2033,7 @@ main() {
   with_public_umask ensure_docker_log_opts   # idempotent; 022 keeps daemon.json/journald drop-ins 0644
   with_public_umask ensure_docker_registry_mirror   # idempotent: Docker Hub via the swarm's pull-through cache
   remember_settings
+  apply_release_pins   # M14: warn off-pin; never roll a newer platform back
   wizard
   ensure_secrets
   ensure_mesh_node1

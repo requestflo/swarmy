@@ -16,7 +16,14 @@
  * Pure module — no I/O. Unit-tested in `platform-manifest.test.ts`.
  */
 import { z } from 'zod';
-import { SYSTEM_IMAGES, parseImageRef, type SystemImage, type SystemImageKey } from './system-images';
+import {
+  INSTALLER_PINNED_KEYS,
+  SYSTEM_IMAGES,
+  parseImageRef,
+  releasePinnedRef,
+  type SystemImage,
+  type SystemImageKey,
+} from './system-images';
 
 export const PLATFORM_MANIFEST_SCHEMA = 1;
 export type PlatformChannel = 'stable' | 'edge';
@@ -230,6 +237,30 @@ export function manifestImages(m: PlatformManifest | null | undefined, bom: read
 export function componentRef(m: PlatformManifest, key: SystemImageKey): string | null {
   const c = m.components[key];
   return c?.digest ? `${c.image}@${c.digest}` : null;
+}
+
+/** What the self-host installer asset of one release is stamped with (security review M14). */
+export interface InstallerReleasePins {
+  version: string;
+  commit: string;
+  /** `<repo>:<tag>@<digest>` per {@link INSTALLER_PINNED_KEYS}. */
+  controllerImage: string;
+  agentImage: string;
+}
+
+/**
+ * The release pins for `scripts/install-swarmy.sh`, from the manifest CI just
+ * built off the BOM: the controller and agent at this release's tag and
+ * digest. Throws when either is unresolved — a release whose own images did
+ * not build must not ship an installer that claims to be pinned.
+ */
+export function installerReleasePins(m: PlatformManifest, bom: readonly SystemImage[] = SYSTEM_IMAGES): InstallerReleasePins {
+  const ref = (key: (typeof INSTALLER_PINNED_KEYS)[number]) => {
+    const c = m.components[key];
+    if (!c) throw new Error(`the manifest has no ${key} component`);
+    return releasePinnedRef(key, { tag: c.tag, digest: c.digest, image: c.image }, bom);
+  };
+  return { version: m.version, commit: m.commit, controllerImage: ref('controller'), agentImage: ref('agent') };
 }
 
 // ── versions ─────────────────────────────────────────────────────────────────

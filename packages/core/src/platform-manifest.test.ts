@@ -9,6 +9,7 @@ import {
   componentRef,
   describeWindow,
   inMaintenanceWindow,
+  installerReleasePins,
   isPatchUpgrade,
   manifestImages,
   parsePlatformManifest,
@@ -16,7 +17,7 @@ import {
   upgradeBlockReason,
 } from './platform-manifest';
 import { signPlatformManifest, verifyPlatformManifest } from './platform-verify';
-import { SYSTEM_IMAGES, type SystemImage } from './system-images';
+import { INSTALLER_PINNED_KEYS, SYSTEM_IMAGES, releasePinnedRef, type SystemImage } from './system-images';
 
 const DC = `sha256:${'c'.repeat(64)}`;
 const DA = `sha256:${'a'.repeat(64)}`;
@@ -24,6 +25,41 @@ const BOM: SystemImage[] = [
   { key: 'controller', ref: 'ghcr.io/requestflo/swarmy-controller:latest' },
   { key: 'registry', ref: 'registry:2', digest: DA },
 ];
+
+describe('installer release pins (M14: the self-host installer ships pinned to its release)', () => {
+  const DG = `sha256:${'d'.repeat(64)}`;
+
+  test('the controller and agent BOM entries, at the release tag + digest', () => {
+    expect([...INSTALLER_PINNED_KEYS]).toEqual(['controller', 'agent']);
+    const m = buildPlatformManifest({ version: '1.2.0', channel: 'stable', commit: 'abc1234', tag: '1.2.0', digests: { controller: DC, agent: DG } });
+    expect(installerReleasePins(m)).toEqual({
+      version: '1.2.0',
+      commit: 'abc1234',
+      controllerImage: `ghcr.io/requestflo/swarmy-controller:1.2.0@${DC}`,
+      agentImage: `ghcr.io/requestflo/swarmy-agent:1.2.0@${DG}`,
+    });
+  });
+
+  test('an edge build pins its sha tag; a fork pins its own repository', () => {
+    const m = buildPlatformManifest({
+      version: '1.2.1-edge.57', channel: 'edge', commit: 'f00d', tag: 'sha-f00dcafe', digests: { controller: DC, agent: DG },
+      images: { agent: '10.0.0.5:5000/swarmy-agent' },
+    });
+    const pins = installerReleasePins(m);
+    expect(pins.controllerImage).toBe(`ghcr.io/requestflo/swarmy-controller:sha-f00dcafe@${DC}`);
+    expect(pins.agentImage).toBe(`10.0.0.5:5000/swarmy-agent:sha-f00dcafe@${DG}`);
+  });
+
+  test('never pins a floating ref: a missing digest or tag throws', () => {
+    const noAgent = buildPlatformManifest({ version: '1.2.0', channel: 'stable', commit: '', tag: '1.2.0', digests: { controller: DC } });
+    expect(() => installerReleasePins(noAgent)).toThrow(/agent: the release has no digest/);
+    const noTag = buildPlatformManifest({ version: '1.2.0', channel: 'stable', commit: '', digests: { controller: DC, agent: DG } });
+    expect(() => installerReleasePins(noTag)).toThrow(/no usable tag/);
+    expect(() => releasePinnedRef('agent', { tag: '1.0.0', digest: 'sha256:short' })).toThrow(/no digest/);
+    expect(() => releasePinnedRef('agent', { tag: 'a b', digest: DG })).toThrow(/no usable tag/);
+    expect(() => releasePinnedRef('agent', { tag: '1.0.0', digest: DG, image: 'evil; rm -rf /' })).toThrow(/bad image repository/);
+  });
+});
 
 describe('buildPlatformManifest (generated from the BOM, never a second list)', () => {
   test('covers every SYSTEM_IMAGES entry; pinned digests carried, own builds take CI digests', () => {

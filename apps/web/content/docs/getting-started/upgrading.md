@@ -9,15 +9,36 @@ converges instead of duplicating anything.
 
 ## Images
 
-The installer deploys `ghcr.io/requestflo/swarmy-controller:latest` and (for
-node #1) `ghcr.io/requestflo/swarmy-agent:latest`. `:latest` follows the `main`
-branch. Each release tag also publishes `:<version>` and `:<major>.<minor>`
-(for example `:1.0.0` and `:1.0`). To pin a version, pass it explicitly:
+Each release publishes an installer that is **pinned to that release**:
+
+- `https://github.com/requestflo/swarmy/releases/download/stable/install-swarmy.sh`
+  is the latest stable release;
+- `…/download/v<version>/install-swarmy.sh` is one exact release;
+- `…/download/edge/install-swarmy.sh` is the latest `main` build.
+
+A pinned installer deploys `swarmy-controller:<version>@sha256:…` and (for
+node #1) `swarmy-agent:<version>@sha256:…`. Those are the digests CI built and
+listed in the release's signed `platform.json`. The installer also carries the
+release's own stack file, so it downloads nothing that can move.
+
+The script on `main`
+(`raw.githubusercontent.com/requestflo/swarmy/main/scripts/install-swarmy.sh`)
+is not a release build. It deploys `:latest`, fetches `main`'s stack file, and
+says so with a warning.
+
+`--image` / `--agent-image` override the pins, with a warning. An image you
+pass explicitly is remembered for later re-runs. Re-running without one goes
+back to the installer's pin:
 
 ```bash
 --image ghcr.io/requestflo/swarmy-controller:1.0.0 \
 --agent-image ghcr.io/requestflo/swarmy-agent:1.0.0
 ```
+
+An older installer never rolls the platform back. If **Settings → Platform**
+already upgraded the controller past the installer's release, a re-run keeps
+the running controller and agent and prints a warning. Use that release's
+installer, or pass `--image` to force one.
 
 ## Before you upgrade: back up `state.env`
 
@@ -39,8 +60,9 @@ these keys and the database, so it's a good second copy.
 
 Re-run the installer **with the same flags you installed with**. The installer
 does not remember most flags: `--admin-email`, `--port`,
-`--allow-signup`, `--image` / `--agent-image`, and a `SWARMY_PUBLIC_URL`
-override all fall back to their defaults if you leave them out. In particular:
+`--allow-signup` and a `SWARMY_PUBLIC_URL` override all fall back to their
+defaults if you leave them out (`--image` / `--agent-image` are remembered, see
+[Images](#images)). In particular:
 
 - There is one controller tier: an embedded SQLite store, no database service.
   `--standard` was removed and now errors. A controller installed with the old
@@ -61,27 +83,27 @@ curl -fsSL https://raw.githubusercontent.com/requestflo/swarmy/main/scripts/inst
   | sudo bash -s -- --non-interactive --admin-email you@example.com   # + your other flags, as installed
 ```
 
-To upgrade from a release tag instead of `main`, also set `SWARMY_REF`. The
-installer fetches its stack file from the same ref:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/requestflo/swarmy/v1.0.0/scripts/install-swarmy.sh \
-  | sudo SWARMY_REF=v1.0.0 bash -s -- --non-interactive --admin-email you@example.com \
-      --image ghcr.io/requestflo/swarmy-controller:1.0.0 --agent-image ghcr.io/requestflo/swarmy-agent:1.0.0
-```
+To upgrade to a release instead of `main`, pipe that release's installer
+(`https://github.com/requestflo/swarmy/releases/download/v1.0.0/install-swarmy.sh`,
+or `…/download/stable/…`) the same way. It brings its own images and stack
+file. `SWARMY_REF` / `SWARMY_RAW_BASE` still point the stack file somewhere
+else, with a warning.
 
 What the re-run does:
 
 - It skips the phases it already completed (egress check, Docker install, swarm
   init) and reuses the secrets in `state.env`. Existing Docker secrets are kept
   as they are.
-- It runs `docker stack deploy` again. That re-resolves the image tag against
-  the registry, so the controller rolls to the new image. On start, the
+- It runs `docker stack deploy` again with the installer's pinned controller
+  image (or the one you passed), so the controller rolls to it. A controller
+  that is already newer is kept (see [Images](#images)). On start, the
   controller applies any pending database migrations itself (to `control.db`
   and `telemetry.db`). The bootstrap seed is idempotent, so no new org, owner or token
   appears.
-- It **leaves a running node #1 agent alone** and doesn't update the agents on
-  your other nodes. See the next section.
+- It replaces node #1's agent container when the pinned agent image differs
+  from the running one (its identity is on the `swarmy-agent` volume, so it
+  reconnects on its stored session). It doesn't update the agents on your
+  other nodes. See the next section.
 
 ## Upgrade the agents
 

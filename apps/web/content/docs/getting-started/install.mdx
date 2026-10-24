@@ -19,6 +19,14 @@ One script installs swarmy on a fresh server. The same script upgrades it later.
 curl -fsSL https://raw.githubusercontent.com/requestflo/swarmy/main/scripts/install-swarmy.sh | sudo bash
 ```
 
+This script from the repository is not a release build. It deploys `:latest`
+images, fetches `main`'s stack file, and prints a warning that it does. Each
+release also publishes an installer pinned to it: the controller and agent
+images by version and digest, with the stack file embedded. Use
+`https://github.com/requestflo/swarmy/releases/download/stable/install-swarmy.sh`
+for the latest stable release, or `…/download/edge/install-swarmy.sh` for the
+latest `main` build. See [Upgrading → Images](/docs/getting-started/upgrading#images).
+
 It asks a few questions: admin email, password, and optional
 ingress and mesh choices. Press Enter to accept each default. If you leave the
 password blank, the installer generates one.
@@ -92,8 +100,9 @@ non-interactive path.
 | `--no-https` / `--https` | `SWARMY_NO_HTTPS=1` | Keep the dashboard on plain `http://<ip>:<port>` only, or turn HTTPS back on. |
 | `--ingress none\|caddy\|cloudflare` | `SWARMY_INGRESS` | Ingress for the dashboard. |
 | `--mesh none\|netbird-cloud\|netbird-external` | `SWARMY_MESH` | Mesh for the dashboard. |
-| `--image <ref>` | `SWARMY_IMAGE` | Controller image. |
-| `--agent-image <ref>` | `SWARMY_AGENT_IMAGE` | Agent image. |
+| `--image <ref>` | `SWARMY_IMAGE` | Controller image. A release's installer pins it to the release (`<version>@sha256:…`). This flag overrides the pin, prints a warning, and is remembered for re-runs. |
+| `--agent-image <ref>` | `SWARMY_AGENT_IMAGE` | Agent image for node #1. Same rules as `--image`. |
+| | `SWARMY_REF` / `SWARMY_RAW_BASE` | Fetch the stack file from another git ref or base URL instead of using the one the installer carries. Prints a warning. |
 | `--port <n>` | `SWARMY_PUBLISH_PORT` | Dashboard port. Default `3021`. |
 | `--allow-signup` | `SWARMY_ALLOW_SIGNUP=true` | Open self-registration. By default sign-up is invite-only. |
 | `--release-pubkey <file\|pem>` | `SWARMY_RELEASE_PUBKEY` | The swarmy release public key. Releases and node installs are checked against it. Empty means the key built into the controller. |
