@@ -1,5 +1,57 @@
 import { describe, expect, it } from 'bun:test';
-import { explainReformFailure, hostOf, shouldRestartDockerFirst, stalePeers } from './rejoin-plan';
+import { explainReformFailure, hostOf, shouldRestartDockerFirst, stalePeerFinding, stalePeers } from './rejoin-plan';
+
+describe('stalePeerFinding (doctor swarm rung, manual-recovery item 3)', () => {
+  const dead = new Set(['100.71.150.60:2377', '10.0.0.9:2377']);
+  const reachable = (a: string) => !dead.has(a);
+
+  it('every listed manager answers → no finding', () => {
+    expect(
+      stalePeerFinding(
+        [
+          { NodeID: 'a', Addr: '100.71.224.116:2377' },
+          { NodeID: 'b', Addr: '10.0.0.5:2377' },
+        ],
+        { nodeId: 'a', nodeAddr: '100.71.224.116' },
+        reachable,
+        'manager',
+      ),
+    ).toBeNull();
+  });
+
+  it('the preserved self-record with a dead address: names it, warns about overlays, says only a rebuild clears it', () => {
+    const f = stalePeerFinding(
+      [{ NodeID: 'ypj9', Addr: '100.71.150.60:2377' }],
+      { nodeId: 'ypj9', nodeAddr: '100.71.224.116' },
+      reachable,
+      'manager',
+    );
+    expect(f?.detail).toBe(
+      'active (manager), advertising 100.71.224.116, but manager address(es) 100.71.150.60:2377 do not answer',
+    );
+    expect(f?.hint).toContain('no VNI provided');
+    expect(f?.hint).toContain("own manager record still carries the old address 100.71.150.60:2377");
+    expect(f?.hint).toContain('only rebuilding the swarm');
+    expect(f?.hint).not.toContain('docker node rm');
+  });
+
+  it("another node's dead address (seen from a worker): points at demote/remove, not a rebuild", () => {
+    const f = stalePeerFinding(
+      [
+        { NodeID: 'm1', Addr: '10.0.0.5:2377' },
+        { NodeID: 'm2', Addr: '10.0.0.9:2377' },
+      ],
+      { nodeId: 'w1', nodeAddr: '10.0.0.7' },
+      reachable,
+      'worker',
+    );
+    expect(f?.detail).toContain('active (worker)');
+    expect(f?.detail).toContain('10.0.0.9:2377');
+    expect(f?.hint).toContain('If 10.0.0.9:2377 is a manager that will not come back');
+    expect(f?.hint).toContain('docker node rm');
+    expect(f?.hint).not.toContain('own manager record');
+  });
+});
 
 describe('stalePeers', () => {
   const dead = new Set(['100.71.150.60:2377']);

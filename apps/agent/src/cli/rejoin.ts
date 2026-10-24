@@ -20,14 +20,8 @@ import { DockerClient } from '@swarmy/core/docker';
 import { env } from '../env';
 import { sampleMeshState } from '../handlers/mesh';
 import { confirmPhrase, daemonReconnect, daemonStatus, fail, fmt, say, timebox } from './context';
-import {
-  explainReformFailure,
-  hostOf,
-  shouldRestartDockerFirst,
-  stalePeers,
-  type ReformAttempt,
-  type RemoteManager,
-} from './rejoin-plan';
+import { explainReformFailure, shouldRestartDockerFirst, type ReformAttempt } from './rejoin-plan';
+import { detectStalePeers } from './swarm-peers';
 
 export async function rejoinCommand(flags: Set<string>): Promise<void> {
   const force = flags.has('force');
@@ -204,33 +198,6 @@ const LIST_NODES_TIMEOUT_MS = 10_000;
 const REFORM_TIMEOUT_MS = 60_000;
 const LEAVE_TIMEOUT_MS = 60_000;
 const DOCKER_RESTART_TIMEOUT_MS = 90_000;
-const PEER_PROBE_TIMEOUT_MS = 2_000;
-
-/** RemoteManagers entries that aren't us and don't answer on their swarm port. */
-async function detectStalePeers(docker: DockerClient): Promise<string[]> {
-  const info = (await timebox(5_000, () => docker.docker.info() as Promise<unknown>)) as {
-    Swarm?: { NodeID?: string; NodeAddr?: string; RemoteManagers?: RemoteManager[] | null };
-  } | null;
-  const remote = info?.Swarm?.RemoteManagers ?? [];
-  const probed = new Map<string, boolean>();
-  await Promise.all(
-    remote
-      .filter((r) => r.Addr)
-      .map(async (r) => probed.set(r.Addr!, await tcpReachable(r.Addr!, PEER_PROBE_TIMEOUT_MS))),
-  );
-  return stalePeers(remote, { nodeId: info?.Swarm?.NodeID, nodeAddr: info?.Swarm?.NodeAddr }, (a) => probed.get(a) ?? true);
-}
-
-async function tcpReachable(addr: string, ms: number): Promise<boolean> {
-  const host = hostOf(addr);
-  const port = Number(addr.slice(addr.lastIndexOf(':') + 1)) || 2377;
-  const ok = await timebox(ms, async () => {
-    const sock = await Bun.connect({ hostname: host, port, socket: { data() {}, error() {} } });
-    sock.end();
-    return true;
-  });
-  return ok === true;
-}
 
 /** Restart dockerd (systemd hosts). Returns true when docker answers again. */
 async function restartDocker(): Promise<boolean> {

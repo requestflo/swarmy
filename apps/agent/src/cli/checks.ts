@@ -14,6 +14,8 @@ import { env } from '../env';
 import { loadState } from '../state';
 import { sampleMeshState } from '../handlers/mesh';
 import { meshSkipReason } from '../mesh-startup';
+import { stalePeerFinding } from './rejoin-plan';
+import { probeRemoteManagers } from './swarm-peers';
 import { versionInfo } from '../version';
 import type { DaemonStatus } from '../local-socket';
 import { controllerHttpBase, daemonReconnect, daemonStatus, probeController, timebox, type ControllerProbe } from './context';
@@ -313,6 +315,12 @@ async function checkSwarm(ctx: Ctx): Promise<CheckResult> {
   } | null;
   const nodeAddr = raw?.Swarm?.NodeAddr ?? '?';
   const role = raw?.Swarm?.ControlAvailable ? 'manager' : 'worker';
+
+  // Dead manager addresses in the raft state break new overlay networks
+  // cluster-wide ("no VNI provided") long before anything else looks wrong.
+  const peers = await probeRemoteManagers(ctx.docker);
+  const stale = stalePeerFinding(peers.remote, peers.self, peers.reachable, role);
+  if (stale) return { ...base, status: 'warn', detail: stale.detail, hint: stale.hint };
 
   // The mesh-first invariant: when the mesh is up, swarm traffic should ride it.
   const mesh = await sampleMeshState().catch(() => null);

@@ -73,6 +73,15 @@ membership on the mesh IP. On a worker it leaves and the controller re-joins it;
 on a sole manager it uses `docker swarm init --force-new-cluster` (services and
 data are kept).
 
+**Manager address(es) that do not answer** (doctor warns "manager address(es)
+`<addr>` do not answer"). Docker still lists a dead manager address, and while
+it does, creating a new overlay network can fail with `no VNI provided`, so
+deploys that need one fail. If the dead address is another manager that is gone
+for good, demote and remove it from a healthy manager (`docker node demote`,
+`docker node rm`). If it is this node's own old address (left behind by an
+earlier `--force-new-cluster`), `rejoin --force` will not clear it: the swarm
+has to be rebuilt.
+
 **Every credential is gone** (session file deleted AND the env-file token
 revoked). The daemon enters **recovery mode** after repeated auth failures: it
 prints a **fingerprint** in its journal and posts a claim to the controller. In
