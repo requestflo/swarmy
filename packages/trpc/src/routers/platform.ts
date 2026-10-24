@@ -20,6 +20,7 @@ import {
 } from '../services/platform-upgrade.service';
 import { abandonPlatformUpgrade, requestPlatformPause, resumePlatformUpgrade } from '../services/platform-upgrade-control.service';
 import { writeAudit } from '../services/audit.service';
+import { platformBundleRouter } from './platform-bundle';
 
 const PLATFORM_ACTION = 'authconfig.write' as const;
 
@@ -57,6 +58,9 @@ export const platformRouter = router({
   importRelease: abacProcedure(PLATFORM_ACTION)
     .input(z.object({ manifest: z.string().min(2).max(512_000), signature: z.string().min(1).max(16_000) }))
     .mutation(({ ctx, input }) => importRelease(ctx, input)),
+
+  /** Offline bundle upload: the whole `swarmy-<ver>.tar` — verified, images loaded into the registry, release offered. */
+  bundle: platformBundleRouter,
 
   /** Upgrade to the available, verified release. `version` guards against a stale page. */
   start: abacProcedure(PLATFORM_ACTION)

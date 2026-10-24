@@ -202,8 +202,16 @@ export async function checkFeed(ctx: Pick<OrgContext, 'db' | 'activeOrgId'>, fet
   }
 }
 
-/** Offline-bundle / manual import: verify and store as the available release. */
-export async function importRelease(ctx: OrgContext, input: { manifest: string; signature: string }): Promise<AvailableRelease> {
+/**
+ * Offline-bundle / manual import: verify and store as the available release.
+ * `adopt: false` when the caller already pushed the images and stamped their
+ * mirror labels itself (the bundle upload, `platform-bundle.load.ts`).
+ */
+export async function importRelease(
+  ctx: OrgContext,
+  input: { manifest: string; signature: string },
+  opts: { adopt?: boolean } = {},
+): Promise<AvailableRelease> {
   const rel: AvailableRelease = { ...verifyRelease(input.manifest, input.signature), source: 'bundle' };
   if (!rel.manifest) throw badRequest(rel.reason ?? 'not a platform manifest');
   if (!rel.verified) throw commandRejected(`unverified release: ${rel.reason}`);
@@ -217,7 +225,7 @@ export async function importRelease(ctx: OrgContext, input: { manifest: string; 
   });
   // Images a bundle pushed into the built-in registry become trusted mirror
   // copies (best-effort: without a registry the run pulls upstream).
-  void adoptBundleImages(ctx, rel.manifest).catch(() => undefined);
+  if (opts.adopt !== false) void adoptBundleImages(ctx, rel.manifest).catch(() => undefined);
   return rel;
 }
 
