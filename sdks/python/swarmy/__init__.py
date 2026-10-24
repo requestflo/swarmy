@@ -7,12 +7,17 @@ from .errors import SwarmyApiError
 from .models import (
     DeploymentRef,
     IngressDomain,
+    JoinToken,
+    JoinTokenIssued,
     Node,
     Problem,
     Removed,
+    Revoked,
     Service,
     ServiceReplicas,
     Stack,
+    StackConnection,
+    StackEndpoints,
 )
 
 __all__ = [
@@ -25,6 +30,11 @@ __all__ = [
     "IngressDomain",
     "DeploymentRef",
     "Removed",
+    "Revoked",
+    "StackConnection",
+    "StackEndpoints",
+    "JoinToken",
+    "JoinTokenIssued",
     "Problem",
 ]
 

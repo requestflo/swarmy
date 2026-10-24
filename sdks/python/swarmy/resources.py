@@ -9,10 +9,15 @@ from ._http import HttpTransport
 from .models import (
     DeploymentRef,
     IngressDomain,
+    JoinToken,
+    JoinTokenIssued,
     Node,
     Removed,
+    Revoked,
     Service,
     Stack,
+    StackConnection,
+    StackEndpoints,
     StackRemoved,
 )
 
@@ -74,6 +79,42 @@ class ServicesResource:
             self._http.request("POST", "/services/{}/scale".format(_quote(service_id)), body={"replicas": replicas})
         )
 
+    def update(
+        self,
+        service_id: str,
+        image: Optional[str] = None,
+        replicas: Optional[int] = None,
+        command: Optional[List[str]] = None,
+        env: Optional[List[Dict[str, Any]]] = None,
+        remove_secret_keys: Optional[List[str]] = None,
+        resources: Optional[Dict[str, Any]] = None,
+        restart_policy: Optional[Dict[str, Any]] = None,
+        update_order: Optional[str] = None,
+        set_labels: Optional[Dict[str, str]] = None,
+        remove_labels: Optional[List[str]] = None,
+    ) -> DeploymentRef:
+        """Change a running service: only the arguments given change, the rest keep
+        their live values. Async (202). ``env`` is the plain variables as a whole
+        (``{"key", "value", "secret"?, "delivery"?}`` items). It runs the same
+        admission checks as a deploy, so a guardrail can refuse it
+        (``SwarmyApiError`` 412, code ``POLICY_DENIED``)."""
+        fields = {
+            "image": image,
+            "replicas": replicas,
+            "command": command,
+            "env": env,
+            "remove_secret_keys": remove_secret_keys,
+            "resources": resources,
+            "restart_policy": restart_policy,
+            "update_order": update_order,
+            "set_labels": set_labels,
+            "remove_labels": remove_labels,
+        }
+        payload = {k: v for k, v in fields.items() if v is not None}
+        return DeploymentRef.from_dict(
+            self._http.request("PATCH", "/services/{}".format(_quote(service_id)), body=payload)
+        )
+
     def restart(self, service_id: str) -> DeploymentRef:
         return DeploymentRef.from_dict(
             self._http.request("POST", "/services/{}/restart".format(_quote(service_id)))
@@ -108,6 +149,28 @@ class StacksResource:
         query = {"delete_data": "true"} if delete_data else None
         return StackRemoved.from_dict(
             self._http.request("DELETE", "/stacks/{}".format(_quote(stack_id)), query=query)
+        )
+
+    def endpoints(self, stack_id: str) -> StackEndpoints:
+        """How to reach the app's services and managed resources from inside the
+        cluster: the DNS names swarm answers and each resource's host:port."""
+        return StackEndpoints.from_dict(
+            self._http.request("GET", "/stacks/{}/endpoints".format(_quote(stack_id)))
+        )
+
+    def connect(self, stack_id: str, peer: str) -> StackConnection:
+        """Connect two apps over one private network (both roll once to join it).
+        ``stack_id`` and ``peer`` are a stack id or name. Idempotent."""
+        return StackConnection.from_dict(
+            self._http.request("POST", "/stacks/{}/connections".format(_quote(stack_id)), body={"peer": peer})
+        )
+
+    def disconnect(self, stack_id: str, peer: str) -> StackConnection:
+        """Disconnect two apps: both leave the pair network."""
+        return StackConnection.from_dict(
+            self._http.request(
+                "DELETE", "/stacks/{}/connections/{}".format(_quote(stack_id), _quote(peer))
+            )
         )
 
     def iterate(self, limit: Optional[int] = None) -> Iterator[Stack]:
@@ -161,3 +224,32 @@ class IngressResource:
 
     def iterate_domains(self, limit: Optional[int] = None) -> Iterator[IngressDomain]:
         return _paginate(lambda c: self.list_domains(cursor=c, limit=limit))
+
+
+class JoinTokensResource:
+    """Join tokens: what a new server's installer presents to enroll."""
+
+    def __init__(self, http: HttpTransport) -> None:
+        self._http = http
+
+    def list(self) -> Tuple[List[JoinToken], Optional[str]]:
+        """The org's join tokens, newest first (never the token itself)."""
+        body = self._http.request("GET", "/join-tokens")
+        return [JoinToken.from_dict(x) for x in body["data"]], body.get("next_cursor")
+
+    def create(
+        self,
+        label: Optional[str] = None,
+        ttl_seconds: Optional[int] = None,
+        max_uses: Optional[int] = None,
+        profile: Optional[str] = None,
+    ) -> JoinTokenIssued:
+        """Mint a join token (admins and owners). ``token``, and ``mesh`` when the
+        org runs a mesh, are returned ONCE — store them."""
+        fields = {"label": label, "ttl_seconds": ttl_seconds, "max_uses": max_uses, "profile": profile}
+        payload = {k: v for k, v in fields.items() if v is not None}
+        return JoinTokenIssued.from_dict(self._http.request("POST", "/join-tokens", body=payload))
+
+    def revoke(self, token_id: str) -> Revoked:
+        """Revoke a join token: it enrolls nothing from now on."""
+        return Revoked.from_dict(self._http.request("DELETE", "/join-tokens/{}".format(_quote(token_id))))

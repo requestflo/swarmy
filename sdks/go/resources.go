@@ -45,6 +45,18 @@ func (s *ServicesService) Scale(ctx context.Context, id string, replicas int) (*
 	return &out, nil
 }
 
+// Update changes a running service: only the fields set in body change, the
+// rest keep their live values. Async (202). It runs the same admission checks
+// as a deploy, so a guardrail can refuse it (412, APIError with
+// swarmy_code POLICY_DENIED).
+func (s *ServicesService) Update(ctx context.Context, id string, body UpdateServiceRequest) (*DeploymentRef, error) {
+	var out DeploymentRef
+	if err := s.client.do(ctx, "PATCH", "/services/"+pathEscape(id), nil, body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // Restart restarts a service. Async (202).
 func (s *ServicesService) Restart(ctx context.Context, id string) (*DeploymentRef, error) {
 	var out DeploymentRef
@@ -129,6 +141,35 @@ func (s *StacksService) Remove(ctx context.Context, id string, opts RemoveStackO
 		q = url.Values{"delete_data": {"true"}}
 	}
 	if err := s.client.do(ctx, "DELETE", "/stacks/"+pathEscape(id), q, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Endpoints says how to reach the app's services and managed resources from
+// inside the cluster: the DNS names swarm answers and each resource's host:port.
+func (s *StacksService) Endpoints(ctx context.Context, id string) (*StackEndpoints, error) {
+	var out StackEndpoints
+	if err := s.client.do(ctx, "GET", "/stacks/"+pathEscape(id)+"/endpoints", nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Connect connects two apps over one private network (both roll once to join
+// it). id and peer are a stack id or name. Idempotent.
+func (s *StacksService) Connect(ctx context.Context, id, peer string) (*StackConnection, error) {
+	var out StackConnection
+	if err := s.client.do(ctx, "POST", "/stacks/"+pathEscape(id)+"/connections", nil, ConnectStackRequest{Peer: peer}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Disconnect disconnects two apps: both leave the pair network.
+func (s *StacksService) Disconnect(ctx context.Context, id, peer string) (*StackConnection, error) {
+	var out StackConnection
+	if err := s.client.do(ctx, "DELETE", "/stacks/"+pathEscape(id)+"/connections/"+pathEscape(peer), nil, nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -243,6 +284,38 @@ func (s *IngressService) IterateDomains(ctx context.Context, limit int, fn func(
 		}
 		cursor = *page.NextCursor
 	}
+}
+
+// JoinTokensService groups join-token operations (/join-tokens): the token a
+// new server's installer presents to enroll.
+type JoinTokensService struct{ client *Client }
+
+// List returns the org's join tokens, newest first (never the token itself).
+func (s *JoinTokensService) List(ctx context.Context) (*JoinTokenList, error) {
+	var out JoinTokenList
+	if err := s.client.do(ctx, "GET", "/join-tokens", nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Create mints a join token (admins and owners; 201). The plaintext Token, and
+// Mesh when the org runs a mesh, are returned ONCE — store them.
+func (s *JoinTokensService) Create(ctx context.Context, body CreateJoinTokenRequest) (*JoinTokenIssued, error) {
+	var out JoinTokenIssued
+	if err := s.client.do(ctx, "POST", "/join-tokens", nil, body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Revoke revokes a join token: it enrolls nothing from now on.
+func (s *JoinTokensService) Revoke(ctx context.Context, id string) (*Revoked, error) {
+	var out Revoked
+	if err := s.client.do(ctx, "DELETE", "/join-tokens/"+pathEscape(id), nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // GitService groups git provider connection + linked-repo operations

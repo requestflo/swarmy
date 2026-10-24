@@ -170,3 +170,69 @@ def test_stack_remove_keeps_data_unless_delete_data():
     gone = client.stacks.remove("stk_1", delete_data=True)
     assert opener.requests[1].full_url == "https://swarm.example.com/api/v1/stacks/stk_1?delete_data=true"
     assert gone.delete_data is True
+
+
+def test_service_update_patches_only_given_fields():
+    client, opener = make_client([FakeResponse(json.dumps({"id": "svc-1", "deployment_id": "svc-1"}), status=202)])
+    ref = client.services.update(
+        "svc-1",
+        image="nginx:1.28",
+        replicas=0,
+        env=[{"key": "LOG_LEVEL", "value": "debug"}],
+        resources={"limits": {"cpus": 0.5}},
+    )
+    req = opener.requests[0]
+    assert req.get_method() == "PATCH"
+    assert req.full_url == "https://swarm.example.com/api/v1/services/svc-1"
+    assert json.loads(req.data.decode("utf-8")) == {
+        "image": "nginx:1.28",
+        "replicas": 0,
+        "env": [{"key": "LOG_LEVEL", "value": "debug"}],
+        "resources": {"limits": {"cpus": 0.5}},
+    }
+    assert ref.deployment_id == "svc-1"
+
+
+def test_stack_connections():
+    conn = {"stack": "shop", "peer": "billing", "network": "swarmy-link-ab12", "services": ["shop_web"]}
+    endpoints = {"stack": "shop", "connected_apps": ["billing"], "services": [], "resources": []}
+    client, opener = make_client(
+        [FakeResponse(json.dumps(conn)), FakeResponse(json.dumps({**conn, "services": []})), FakeResponse(json.dumps(endpoints))]
+    )
+    out = client.stacks.connect("shop", "billing")
+    assert opener.requests[0].get_method() == "POST"
+    assert opener.requests[0].full_url == "https://swarm.example.com/api/v1/stacks/shop/connections"
+    assert json.loads(opener.requests[0].data.decode("utf-8")) == {"peer": "billing"}
+    assert out.network == "swarmy-link-ab12"
+    client.stacks.disconnect("shop", "bill ing")
+    assert opener.requests[1].get_method() == "DELETE"
+    assert opener.requests[1].full_url == "https://swarm.example.com/api/v1/stacks/shop/connections/bill%20ing"
+    ep = client.stacks.endpoints("shop")
+    assert opener.requests[2].full_url == "https://swarm.example.com/api/v1/stacks/shop/endpoints"
+    assert ep.connected_apps == ["billing"]
+
+
+def test_join_tokens():
+    issued = {
+        "id": "jt1", "token": "swt_ab12cd34_x", "label": "ci", "profile": None, "expires_at": "2026-10-01T01:00:00.000Z",
+        "max_uses": 1, "mesh": None, "install": {"url": "https://swarm.example.com", "loopback": False, "warning": None},
+    }
+    listed = {"data": [{"id": "jt1", "label": "ci", "profile": None, "token_prefix": "ab12cd34",
+                        "created_at": "2026-10-01T00:00:00.000Z", "expires_at": None, "max_uses": 1, "used_count": 0,
+                        "revoked_at": None, "status": "active"}], "next_cursor": None}
+    client, opener = make_client(
+        [FakeResponse(json.dumps(issued), status=201), FakeResponse(json.dumps(listed)),
+         FakeResponse(json.dumps({"id": "jt1", "revoked": True}))]
+    )
+    tok = client.join_tokens.create(label="ci", ttl_seconds=3600)
+    assert opener.requests[0].get_method() == "POST"
+    assert opener.requests[0].full_url == "https://swarm.example.com/api/v1/join-tokens"
+    assert json.loads(opener.requests[0].data.decode("utf-8")) == {"label": "ci", "ttl_seconds": 3600}
+    assert tok.token == "swt_ab12cd34_x" and tok.mesh is None
+    tokens, next_cursor = client.join_tokens.list()
+    assert [t.token_prefix for t in tokens] == ["ab12cd34"] and next_cursor is None
+    assert not hasattr(tokens[0], "token")
+    revoked = client.join_tokens.revoke("jt1")
+    assert opener.requests[2].get_method() == "DELETE"
+    assert opener.requests[2].full_url == "https://swarm.example.com/api/v1/join-tokens/jt1"
+    assert revoked.revoked is True

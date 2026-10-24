@@ -158,3 +158,39 @@ describe('connect apps', () => {
     expect(err.violations).toEqual(problem.violations as SwarmyApiError['violations']);
   });
 });
+
+describe('service update + join tokens', () => {
+  it('update PATCHes the service with only the fields given', async () => {
+    const { fetch, calls } = mockFetch(() => json({ id: 'svc-1', deployment_id: 'svc-1' }, 202));
+    const client = new SwarmyClient({ endpoint: 'http://x', apiKey: 'swk_y', fetch });
+
+    const ref = await client.services.update('svc 1', { image: 'nginx:1.28', env: [{ key: 'A', value: '1' }] });
+
+    expect(`${calls[0]!.init!.method} ${calls[0]!.url}`).toBe('PATCH http://x/api/v1/services/svc%201');
+    expect(JSON.parse(calls[0]!.init!.body as string)).toEqual({ image: 'nginx:1.28', env: [{ key: 'A', value: '1' }] });
+    expect(ref.deployment_id).toBe('svc-1');
+  });
+
+  it('joinTokens list / create / revoke', async () => {
+    const issued = {
+      id: 'jt1', token: 'swt_ab12cd34_x', label: 'ci', profile: null, expires_at: '2026-10-01T01:00:00.000Z', max_uses: 1,
+      mesh: null, install: { url: 'https://swarm.example.com', loopback: false, warning: null },
+    };
+    const { fetch, calls } = mockFetch((_url, init) =>
+      init?.method === 'POST' ? json(issued, 201)
+        : init?.method === 'DELETE' ? json({ id: 'jt1', revoked: true })
+          : json({ data: [], next_cursor: null }),
+    );
+    const client = new SwarmyClient({ endpoint: 'http://x', apiKey: 'swk_y', fetch });
+
+    expect((await client.joinTokens.create({ label: 'ci', ttl_seconds: 600 })).token).toBe('swt_ab12cd34_x');
+    expect((await client.joinTokens.list()).data).toEqual([]);
+    expect((await client.joinTokens.revoke('jt1')).revoked).toBe(true);
+    expect(calls.map((c) => `${c.init!.method} ${c.url}`)).toEqual([
+      'POST http://x/api/v1/join-tokens',
+      'GET http://x/api/v1/join-tokens',
+      'DELETE http://x/api/v1/join-tokens/jt1',
+    ]);
+    expect(JSON.parse(calls[0]!.init!.body as string)).toEqual({ label: 'ci', ttl_seconds: 600 });
+  });
+});

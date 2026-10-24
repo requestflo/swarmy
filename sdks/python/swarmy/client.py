@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional
 from ._http import HttpTransport
 from .resources import (
     IngressResource,
+    JoinTokensResource,
     NodesResource,
     ServicesResource,
     StacksResource,
@@ -35,6 +36,7 @@ class SwarmyClient:
         self.stacks = StacksResource(self._http)
         self.nodes = NodesResource(self._http)
         self.ingress = IngressResource(self._http)
+        self.join_tokens = JoinTokensResource(self._http)
 
     def __repr__(self) -> str:
         return "SwarmyClient(endpoint={!r})".format(self._http.base)

@@ -4,6 +4,7 @@ import {
   AppsResource,
   DeploymentsResource,
   IngressResource,
+  JoinTokensResource,
   NodesResource,
   ServicesResource,
   StacksResource,
@@ -33,6 +34,7 @@ export class SwarmyClient {
   readonly ingress: IngressResource;
   readonly apps: AppsResource;
   readonly deployments: DeploymentsResource;
+  readonly joinTokens: JoinTokensResource;
 
   private readonly http: HttpTransport;
 
@@ -44,6 +46,7 @@ export class SwarmyClient {
     this.ingress = new IngressResource(this.http);
     this.apps = new AppsResource(this.http);
     this.deployments = new DeploymentsResource(this.http);
+    this.joinTokens = new JoinTokensResource(this.http);
   }
 
   /** Who this credential acts as (org, user, role) and its scopes. */

@@ -13,11 +13,15 @@ import type {
   ErrorProject,
   PreviewResult,
   StackErrorsStatus,
-  Principal,
   ServiceEnv,
   StackTelemetry,
+  CreateJoinTokenRequest,
   CreateServiceRequest,
   DeployStackRequest,
+  JoinTokenIssued,
+  JoinTokenList,
+  Revoked,
+  UpdateServiceRequest,
   DeploymentRef,
   IngressDomain,
   IngressDomainList,
@@ -66,6 +70,15 @@ export class ServicesResource {
     return this.http.request<DeploymentRef>('POST', `/services/${encodeURIComponent(id)}/scale`, {
       body: { replicas },
     });
+  }
+
+  /**
+   * Change a running service: only the fields sent change, the rest keep their
+   * live values. Async (202 Accepted). It runs the same admission checks as a
+   * deploy, so a guardrail can refuse it (`SwarmyApiError` 412, `POLICY_DENIED`).
+   */
+  update(id: string, body: UpdateServiceRequest): Promise<DeploymentRef> {
+    return this.http.request<DeploymentRef>('PATCH', `/services/${encodeURIComponent(id)}`, { body });
   }
 
   /** Restart a service. Async (202 Accepted). */
@@ -308,6 +321,26 @@ export class IngressResource {
 
   iterateDomains(opts?: ListOptions): AsyncIterableIterator<IngressDomain> {
     return paginate((cursor) => this.listDomains({ ...opts, cursor }));
+  }
+}
+
+/** Join tokens: what a new server's installer presents to enroll. */
+export class JoinTokensResource {
+  constructor(private readonly http: HttpTransport) {}
+
+  /** The org's join tokens, newest first (never the token itself). */
+  list(): Promise<JoinTokenList> {
+    return this.http.request<JoinTokenList>('GET', '/join-tokens');
+  }
+
+  /** Mint a join token (admins and owners). `token`, and `mesh` when the org runs a mesh, are returned ONCE. */
+  create(body: CreateJoinTokenRequest = {}): Promise<JoinTokenIssued> {
+    return this.http.request<JoinTokenIssued>('POST', '/join-tokens', { body });
+  }
+
+  /** Revoke a join token: it enrolls nothing from now on. */
+  revoke(id: string): Promise<Revoked> {
+    return this.http.request<Revoked>('DELETE', `/join-tokens/${encodeURIComponent(id)}`);
   }
 }
 

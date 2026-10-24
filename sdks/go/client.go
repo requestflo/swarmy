@@ -42,12 +42,13 @@ type Client struct {
 	httpClient *http.Client
 	headers    map[string]string
 
-	Services *ServicesService
-	Stacks   *StacksService
-	Nodes    *NodesService
-	Ingress  *IngressService
-	Git      *GitService
-	Apps     *AppsService
+	Services   *ServicesService
+	Stacks     *StacksService
+	Nodes      *NodesService
+	Ingress    *IngressService
+	Git        *GitService
+	Apps       *AppsService
+	JoinTokens *JoinTokensService
 }
 
 // Option configures a Client.
@@ -91,6 +92,7 @@ func NewClient(endpoint, apiKey string, opts ...Option) (*Client, error) {
 	c.Ingress = &IngressService{client: c}
 	c.Git = &GitService{client: c}
 	c.Apps = &AppsService{client: c}
+	c.JoinTokens = &JoinTokensService{client: c}
 	return c, nil
 }
 

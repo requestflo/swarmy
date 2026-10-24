@@ -19,7 +19,7 @@ Each SDK is split into two layers:
 
 - **Hand-written, stable** transport + resource layer:
   - a `SwarmyClient` configured with `{ endpoint, apiKey }`,
-  - resource groups (`services`, `stacks`, `nodes`, `ingress`) with idiomatic
+  - resource groups (`services`, `stacks`, `nodes`, `ingress`, join tokens, …) with idiomatic
     methods,
   - a `SwarmyApiError` / `APIError` that carries the RFC 9457
     `application/problem+json` document (including `swarmy_code`),
