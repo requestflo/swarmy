@@ -148,6 +148,11 @@ export const BuildImagePayload = z.object({
   builder: BuildBuilder.optional(),
   railpack: RailpackBuildOptions.optional(),
   cache: BuildCacheOptions.optional(),
+  /**
+   * Report clone → build → push as `buildStage` frames (see ./build-stage).
+   * Additive: absent ⇒ the program and the frames are exactly as before.
+   */
+  reportStages: z.boolean().optional(),
 });
 export type BuildImagePayload = z.infer<typeof BuildImagePayload>;
 
