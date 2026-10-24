@@ -25,6 +25,9 @@ describe('install transport (H17)', () => {
     expect(isVerifiedBlobPath('/install/bin/linux-x64.sha256')).toBe(false);
     expect(isVerifiedBlobPath('/install/bin/manifest.json')).toBe(false);
     expect(isVerifiedBlobPath('/install/loader.sh')).toBe(false);
+    expect(isVerifiedBlobPath(`/install/images/sha256-${'a'.repeat(64)}-linux-arm64.tar`)).toBe(true);
+    expect(isVerifiedBlobPath(`/install/images/sha256-${'a'.repeat(64)}-linux-arm64.tar.sha256`)).toBe(false);
+    expect(isVerifiedBlobPath('/install/images/manifest.json')).toBe(false);
   });
 
   it('HTTPS is served', () => {

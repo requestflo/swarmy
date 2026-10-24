@@ -72,6 +72,14 @@
     "./system-images-bundle": {
       "types": "./src/system-images-bundle.ts",
       "import": "./src/system-images-bundle.ts"
+    },
+    "./image-archive": {
+      "types": "./src/image-archive.ts",
+      "import": "./src/image-archive.ts"
+    },
+    "./tar": {
+      "types": "./src/tar.ts",
+      "import": "./src/tar.ts"
     }
   },
   "scripts": {

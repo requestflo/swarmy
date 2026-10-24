@@ -19,11 +19,13 @@
  *     unless the operator opted in with `SWARMY_ALLOW_INSECURE_INSTALL=1`
  *     (installer `--allow-insecure-install`; on by default only in dev).
  *
- * Binary BLOBS (`/install/bin/<platform>`, `/install/cli/<platform>`) are the
+ * Binary BLOBS (`/install/bin/<platform>`, `/install/cli/<platform>`, and the
+ * node image archives `/install/images/sha256-<hex>-linux-<arch>.tar`) are the
  * one relaxation: when there is no HTTPS address they are still served,
  * because every consumer checks them against a sha256 delivered over a
  * trusted channel (the HTTPS-fetched installer, the signed release manifest,
- * or the agent's authenticated command). Their `.sha256` / manifest files are
+ * the agent's authenticated command, or the image digest compiled into the
+ * agent). Their `.sha256` / manifest files are
  * NOT blobs: those carry trust and follow the full policy.
  *
  * Pure; unit-tested in transport.test.ts.
@@ -41,7 +43,8 @@ export function isInstallPath(pathname: string): boolean {
 
 /** A binary blob whose bytes every consumer verifies against an out-of-band sha256. */
 export function isVerifiedBlobPath(pathname: string): boolean {
-  return /^\/install\/(bin|cli)\/[a-z0-9-]+$/.test(pathname);
+  // Node image archives are checked against the digest the agent's own ref pins (./node-images.ts).
+  return /^\/install\/(bin|cli)\/[a-z0-9-]+$/.test(pathname) || /^\/install\/images\/sha256-[a-f0-9]{64}-linux-(amd64|arm64)\.tar$/.test(pathname);
 }
 
 /** 127.0.0.0/8, ::1 and their IPv4-mapped forms. */

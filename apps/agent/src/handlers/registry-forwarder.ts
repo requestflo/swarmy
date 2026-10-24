@@ -18,6 +18,7 @@
  */
 import { createHash } from 'node:crypto';
 import { DockerClient, defaultContainerLogConfig } from '@swarmy/core/docker';
+import { loadImageFromController } from './controller-image';
 import {
   REGISTRY_FORWARDER_CONTAINER,
   REGISTRY_FORWARDER_NETWORK,
@@ -76,12 +77,21 @@ async function overlayEncrypted(docker: DockerClient): Promise<boolean | undefin
   return n ? Boolean(n.Options && 'encrypted' in n.Options) : undefined;
 }
 
-async function ensureImage(docker: DockerClient, image: string): Promise<void> {
+/**
+ * The image to create the forwarder from: on the node already, else the
+ * controller's verified archive (a new node can't reach Docker Hub through a
+ * forwarder it hasn't got yet; it runs by id), else pulled.
+ */
+async function ensureImage(docker: DockerClient, image: string): Promise<string> {
   const have = await docker.docker
     .getImage(image)
     .inspect()
     .then(() => true, () => false);
-  if (!have) await docker.pullImage(image);
+  if (have) return image;
+  const loaded = await loadImageFromController(docker, image, { log: (...a) => console.log('[swarmy-agent]', ...a) });
+  if (loaded) return loaded;
+  await docker.pullImage(image);
+  return image;
 }
 
 /** Converge the forwarder on this node. Never throws. */
@@ -103,8 +113,8 @@ export async function superviseRegistryForwarder(
     if (action === 'none') return { status: 'running', encrypted: await overlayEncrypted(docker) };
     if (action === 'recreate') await d.getContainer(REGISTRY_FORWARDER_CONTAINER).remove({ force: true });
     if (action !== 'start') {
-      await ensureImage(docker, want.Image);
-      await d.createContainer(want);
+      // The spec label hashes the pinned ref, so running a loaded copy by id never re-creates it.
+      await d.createContainer({ ...want, Image: await ensureImage(docker, want.Image) });
     }
     try {
       await d.getContainer(REGISTRY_FORWARDER_CONTAINER).start();

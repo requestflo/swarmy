@@ -29,6 +29,7 @@ import type {
 import { sampleMeshControl } from './mesh-control';
 import { sampleMeshRelay } from './mesh-relay';
 import { resolveMeshClientImage, type MeshImageHint } from './mesh-image';
+import { loadImageFromController } from './controller-image';
 import { parseTailscaleStatus } from './mesh-tailscale';
 import { putSecretFile } from './secret-file';
 
@@ -91,8 +92,11 @@ async function joinNetbird(docker: DockerClient, rendered: RenderedMesh, hint?: 
     return { driver: rendered.driver, joined: true, meshIp: existing.meshIp, peerId: existing.peerId };
   }
 
-  // The cluster's copy when the controller hints one (M3), else upstream.
-  const image = await resolveMeshClientImage(docker, client.image ?? DEFAULT_NETBIRD_IMAGE, hint);
+  // The cluster's copy when the controller hints one (M3); on a first join
+  // (no hint, no swarm yet) the controller's verified archive; else upstream.
+  const image = await resolveMeshClientImage(docker, client.image ?? DEFAULT_NETBIRD_IMAGE, hint, (ref) =>
+    loadImageFromController(docker, ref, { log: (...a) => console.log('[swarmy-agent]', ...a) }),
+  );
   await d.getContainer(NETBIRD_CONTAINER).remove({ force: true }).catch(() => undefined);
 
   const env: string[] = [];

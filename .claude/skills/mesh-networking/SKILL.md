@@ -121,6 +121,7 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
 | "Servers on the mesh" check (refuses turning the mesh off under them) | `packages/trpc/src/services/mesh-onmesh.ts` |
 | Encrypt/decrypt service token, random keys | `packages/core/src/crypto.ts` |
 | Agent: sidecar apply, `meshState` sampler | `apps/agent/src/handlers/mesh.ts` (Headscale's relayed: `mesh-tailscale.ts`; interface MTU + overlays: `mesh-mtu.ts`) |
+| First mesh join without GHCR: the controller serves per-arch `docker load` archives of the pinned NetBird client (and the forwarder's Caddy) at `/install/images/<file>`; the agent verifies them against its own pin and runs the loaded copy by id (`mesh-image.ts` → `controller-image.ts`). A registry pull can't do this: the forwarder needs the swarm, which needs the mesh | `packages/core/src/{image-archive,tar}.ts`, `scripts/fetch-node-images.ts` (Dockerfile stage `nodeimages`), `apps/api/src/install/node-images.ts`, `apps/agent/src/handlers/controller-image.ts` |
 | Agent: executor cases + `SWARMY_ALLOW_MESH` gate + mesh-first join | `apps/agent/src/{executor,env,daemon,mesh-startup}.ts` |
 | Overlay MTU (option + check) and "Networks are too big for the mesh" | `packages/core/src/overlay-mtu{,-check}.ts`, `packages/trpc/src/services/mesh-mtu.service.ts` (`mesh.mtu`) |
 | Live peer map (no table) + `reconcileMeshPeer` | `packages/trpc/src/services/mesh-peers.ts` |

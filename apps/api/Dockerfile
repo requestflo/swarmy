@@ -108,6 +108,24 @@ RUN set -eu; mkdir -p /out; \
   if [ "$SWARMY_BUNDLE_NETBIRD_CLIENTS" = "0" ]; then printf '{"version":"","files":{}}\n' > /out/manifest.json; echo "netbird clients skipped"; exit 0; fi; \
   bun run scripts/fetch-netbird-clients.ts /out
 
+# ── Stage 1g: node bootstrap images (a new node's first mesh join) ──────────
+# The images a NEW node needs before it can reach the cluster's registry —
+# the NetBird client for its first mesh join (the swarm, and so the registry
+# forwarder, only come after the mesh) and the forwarder's Caddy — as
+# per-arch `docker load` archives at the BOM pins, served at
+# /install/images/<file> (apps/api/src/install/node-images.ts). The agent
+# checks every byte against its own pinned digest before loading. Adds about
+# 90 MB. BEST-EFFORT: no egress ships without them (nodes pull upstream, as
+# before); SWARMY_BUNDLE_NODE_IMAGES=0 opts out. Runs once on the build host.
+FROM --platform=$BUILDPLATFORM oven/bun:1.3.14-alpine AS nodeimages
+WORKDIR /app
+ARG SWARMY_BUNDLE_NODE_IMAGES=1
+COPY packages/core/src/system-images.ts packages/core/src/image-archive.ts packages/core/src/tar.ts packages/core/src/
+COPY scripts/fetch-node-images.ts scripts/
+RUN set -eu; mkdir -p /out; \
+  if [ "$SWARMY_BUNDLE_NODE_IMAGES" = "0" ]; then echo "node images skipped"; exit 0; fi; \
+  bun run scripts/fetch-node-images.ts /out
+
 # ── Stage 1d: Litestream for control.db replication (resilience P3) ─────────
 # controller-store/litestream.ts runs `litestream replicate` as a supervised
 # child while this controller holds the raft lease, and boot.ts runs
@@ -160,6 +178,10 @@ ENV SWARMY_CLI_BIN_DIR=/app/cli-binaries
 # NetBird desktop clients + manifest, served at /install/netbird/<file>.
 COPY --from=netbirdclients /out/ /app/netbird-clients/
 ENV SWARMY_NETBIRD_CLIENT_DIR=/app/netbird-clients
+
+# Node bootstrap images (NetBird client, forwarder Caddy), served at /install/images/<file>.
+COPY --from=nodeimages /out/ /app/node-images/
+ENV SWARMY_NODE_IMAGES_DIR=/app/node-images
 
 # Bake the build commit so `GET /version` reports it.
 ARG SWARMY_COMMIT=dev

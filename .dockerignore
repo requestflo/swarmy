@@ -20,6 +20,8 @@ coverage
 
 # A local NetBird client mirror (the image fetches its own in the netbirdclients stage)
 netbird-clients
+# Local node image archives (the image fetches its own in the nodeimages stage)
+node-images
 
 # Generated Prisma client (the controller image runs db:generate itself)
 packages/db/src/generated
