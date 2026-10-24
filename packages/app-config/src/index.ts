@@ -14,6 +14,7 @@ export * from './hash';
 export * from './environments';
 export * from './env-layers';
 export * from './clone-env';
+export * from './own-secrets';
 export * from './branches';
 export * from './desired';
 export * from './plan';

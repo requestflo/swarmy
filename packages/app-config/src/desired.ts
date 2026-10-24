@@ -92,6 +92,11 @@ export interface DesiredService {
   /** Every binding key the env uses (`db.url`, `services.api.url`). */
   bindings: string[];
   secrets: string[];
+  /**
+   * Secrets this environment reads from its OWN family (`<x>.<env>`) instead
+   * of the shared `<x>`, because that family exists (own-secrets.ts; part of the signature).
+   */
+  ownSecrets?: Record<string, string>;
   volumes: { name: string; volumeName: string; target: string }[];
   placement: { regions: string[]; labels: Record<string, string> };
   /** Resources + services this service's env references (apply ordering). */

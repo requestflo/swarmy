@@ -142,7 +142,9 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
     addressing bindings into env; every credential binding becomes an attach
     call (`injectConnection`, cache/search/vector/bucket/secret attach) so the
     Stack row and Release snapshot stay secret-free and attachment-carry keeps
-    the wiring across deploys.
+    the wiring across deploys. A named environment reads `<x>.<env>` instead
+    of the shared `<x>` whenever that family exists (`own-secrets.ts`), so a
+    cloned environment's secrets survive its adoption into swarmy.yaml.
 12. **Destructive plan steps never auto-apply.** `planApp` gates them
     `confirm`; confirming re-plans the same commit and is ABAC-checked per step
     by what it destroys (`data.destroy` / `service.remove`), audited.

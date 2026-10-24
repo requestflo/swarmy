@@ -61,8 +61,12 @@ export type Attachment =
   | { kind: 'search'; service: string; name: string }
   | { kind: 'vector'; service: string; name: string; envVar: string }
   | { kind: 'bucket'; service: string; resource: string }
-  /** Mounted at /run/secrets/<family>; with `envName`, exported as $envName by the secret-env shim. */
-  | { kind: 'secret'; service: string; family: string; envName?: string }
+  /**
+   * Mounted at /run/secrets/<family> (or <target>: an environment's own family
+   * read where the app reads the shared one); with `envName`, exported as
+   * $envName by the secret-env shim.
+   */
+  | { kind: 'secret'; service: string; family: string; envName?: string; target?: string }
   /** `ai:` — gateway base URLs + a per-service key (secret vars OPENAI_API_KEY / ANTHROPIC_API_KEY). */
   | { kind: 'ai'; service: string; models: string[]; dailyBudgetUsd: number | null; rpm: number | null }
   /** `email:` — SMTP_* / EMAIL_API_* (env name → field); credentials as secret variables. */
@@ -264,7 +268,7 @@ export function compileServices(
         // Env delivery through the secret-env shim: mounted at
         // /run/secrets/<KEY>, exported as $KEY at start — the value never
         // enters the compose or the service spec.
-        attachments.push({ kind: 'secret', service: s.name, family: ref.name, envName: key });
+        attachments.push({ kind: 'secret', service: s.name, family: s.ownSecrets?.[ref.name] ?? ref.name, envName: key });
         continue;
       }
       if (ref.ns !== 'resource') continue;
@@ -277,7 +281,10 @@ export function compileServices(
       )
         attachments.push(a);
     }
-    for (const family of s.secrets) attachments.push({ kind: 'secret', service: s.name, family });
+    for (const family of s.secrets) {
+      const own = s.ownSecrets?.[family];
+      attachments.push(own ? { kind: 'secret', service: s.name, family: own, target: family } : { kind: 'secret', service: s.name, family });
+    }
     if (s.ai) attachments.push({ kind: 'ai', service: s.name, ...s.ai });
     if (s.email) attachments.push({ kind: 'email', service: s.name, from: s.email.from, env: s.email.env });
 

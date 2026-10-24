@@ -74,6 +74,7 @@ import {
   type SecretSlotView,
 } from './apps/dashboard-envs';
 import { appliedCommits, staleCommitReason } from './apps/stale-commit';
+import { withExistingOwnSecrets } from './apps/own-secrets';
 import { reportCommitStatus, upsertPrComment } from './git-feedback.service';
 import { controllerPublicUrl } from './git-credentials';
 import { deployFromCompose } from './stack.service';
@@ -585,7 +586,7 @@ export function realOps(
           await attachSecretToService(ctx, {
             family: a.family,
             service: app.name,
-            ...(a.envName ? { envName: a.envName, delivery: 'env' as const } : {}),
+            ...(a.envName ? { envName: a.envName, delivery: 'env' as const } : a.target ? { target: a.target } : {}),
           });
           return;
         case 'ai':
@@ -1049,9 +1050,11 @@ export async function planCommit(
       return { planId: null, status: 'skipped', environment: null, stack: null, reason: `no environment named ${environment}` };
     dashboard = asClone(row);
   }
-  const desired = dashboard
-    ? dashboardDesired(cfg, dashboard)
-    : toDesired(cfg, preview ? { preview, environment: previewBase } : { environment });
+  // A named environment keeps reading its own secret families (`<x>.<env>`) — adoption never reverts them.
+  const desired = await withExistingOwnSecrets(
+    ctx,
+    dashboard ? dashboardDesired(cfg, dashboard) : toDesired(cfg, preview ? { preview, environment: previewBase } : { environment }),
+  );
   const prNumber = branchPr ?? input.prNumber ?? 0;
   return withAppLock(envKey(repo.id, environment, prNumber), async () => {
     // A dashboard environment removed while this plan waited for the lock stays removed.
