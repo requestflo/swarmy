@@ -189,7 +189,10 @@ async function main(): Promise<void> {
     console.log(`    ${minted}`);
     console.log('');
     console.log('  Onboard a REMOTE box with the same one-liner the dashboard mints:');
-    console.log(`    curl -fsSL http://localhost:3021/install.sh | SWARMY_JOIN_TOKEN=${minted} sh`);
+    console.log(
+      `    curl -fsSL http://localhost:3021/install/loader.sh | SWARMY_JOIN_TOKEN=${minted} sh -s -- --controller http://localhost:3021`,
+    );
+    console.log('  (The older `curl -fsSL http://localhost:3021/install.sh | SWARMY_JOIN_TOKEN=… sh` still works but is deprecated.)');
   } else {
     console.log('  Reusing the existing join token in .swarmy-dev-token (if present).');
   }

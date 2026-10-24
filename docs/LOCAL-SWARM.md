@@ -211,15 +211,22 @@ a teammate uses to add a server — is in the dashboard:
 3. Copy the one-liner and run it on a **fresh Linux box**:
 
    ```bash
-   curl -fsSL http://localhost:3021/install.sh | SWARMY_JOIN_TOKEN=<token> sh
+   curl -fsSL http://localhost:3021/install/loader.sh | SWARMY_JOIN_TOKEN=<token> sh -s -- --controller http://localhost:3021
    ```
 
-   It installs Docker if needed, starts the agent, and the node phones home —
-   the "Add a node" panel flips to a success link when it connects.
+   The loader checks the installer's sha256, then the installer installs
+   Docker if needed, starts the agent, and the node phones home — the "Add a
+   node" panel flips to a success link when it connects.
 
 `seed-dev` prints this same one-liner with the dev token so you can try it
-against a VM. For a box that isn't your laptop, replace `localhost:3021` with a
-URL the box can actually reach (`CONTROLLER_PUBLIC_URL`).
+against a VM. For a box that isn't your laptop, replace `localhost:3021` (both
+times) with a URL the box can actually reach (`CONTROLLER_PUBLIC_URL`).
+
+The older `curl -fsSL http://localhost:3021/install.sh | SWARMY_JOIN_TOKEN=<token> sh`
+still works but is **deprecated**: it prints a notice pointing at the loader
+line above. A re-run keeps the node's mesh settings, and the join token and mesh
+key go to the agent through `/etc/swarmy/agent.env` (root-only, 0600), never on
+its `docker run` command line, so run it as root.
 
 ---
 
