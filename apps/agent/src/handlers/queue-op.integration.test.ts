@@ -146,7 +146,7 @@ describe.skipIf(!available)('queueOp on a real valkey + bullmq', () => {
     await emails?.close();
     await reports?.close();
     if (containerId) await docker.docker.getContainer(containerId).remove({ force: true }).catch(() => undefined);
-  });
+  }, 60_000); // a real container start + job processing; slow under a full parallel run
 
   test('overview discovers every queue by key pattern and matches bullmq counts', async () => {
     const ov = await op<QueueOverviewReply>({ kind: 'overview' });
