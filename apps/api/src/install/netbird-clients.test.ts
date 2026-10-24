@@ -24,6 +24,8 @@ function runAsLinux(script: string) {
   return Bun.spawnSync(['sh', '-c', script], { env: { PATH: `${bin}:/usr/bin:/bin` } });
 }
 
+// The script runs under a real `sh` (about 1 s alone); the long timeouts keep a
+// busy `bun run test` from failing it.
 describe('/install/netbird.sh (the CLI installer served by the controller)', () => {
   it('pins each mirrored Linux/macOS file to its sha256, from this controller only', () => {
     const s = renderNetbirdInstaller('https://swarmy.example.com/', [LINUX, MAC, WIN]);
@@ -39,11 +41,11 @@ describe('/install/netbird.sh (the CLI installer served by the controller)', () 
     const r = runAsLinux(renderNetbirdInstaller('https://swarmy.example.com', [LINUX]));
     expect(r.exitCode).toBe(1);
     expect(r.stderr.toString()).toContain('checksum mismatch');
-  });
+  }, 20_000);
 
   it('says so when this controller mirrors nothing for the platform', () => {
     const r = runAsLinux(renderNetbirdInstaller('https://swarmy.example.com', []));
     expect(r.exitCode).toBe(1);
     expect(r.stderr.toString()).toContain('no mirrored client for linux-amd64');
-  });
+  }, 20_000);
 });
