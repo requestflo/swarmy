@@ -30,6 +30,7 @@ import {
   toConnectionView,
   type GitConnectionView,
 } from './git-connection-view';
+import { bindBrowser, notStartedHere } from './git-browser-bind';
 import { createGiteaConnection, registerGiteaHook, type GiteaConnectionInput } from './git-gitea.service';
 import {
   connectionCredentials,
@@ -177,6 +178,7 @@ export async function startGithubManifest(
     orgId: ctx.activeOrgId,
     userId: ctx.user.id,
     ref: webBase,
+    bind: bindBrowser(ctx),
   });
   const manifest = buildGithubManifest({ controllerUrl: controllerPublicUrl(), name: input.name });
   return {
@@ -188,14 +190,10 @@ export async function startGithubManifest(
 /** Step 2 (callback, no session): exchange the manifest code, vault the App. Returns where to send the browser next. */
 export async function completeGithubManifest(
   deps: Deps,
-  input: { code: string; state: string },
+  input: { code: string; state: string; browserNonce: string | null },
 ): Promise<{ installUrl: string }> {
-  const s = verifyState(stateKey(), input.state, 'github-manifest');
-  if (!s)
-    throw new TRPCError({
-      code: 'UNAUTHORIZED',
-      message: 'This GitHub link expired or was not started here — try again.',
-    });
+  const s = verifyState(stateKey(), input.state, 'github-manifest', input.browserNonce);
+  if (!s) throw notStartedHere('GitHub');
   const webBase = s.ref ?? GITHUB_WEB;
   const conv = await convertManifest(gitFetch, githubApiBase(webBase), input.code);
   const app = await deps.db.gitHubApp.create({
@@ -222,11 +220,13 @@ export async function completeGithubManifest(
     actorId: s.userId,
     metadata: { slug: app.slug, appId: app.appId, webBase },
   });
+  // Same browser, same binding: the install step that follows is checked against it too.
   const next = signState(stateKey(), {
     purpose: 'github-setup',
     orgId: s.orgId,
     userId: s.userId,
     ref: app.id,
+    bind: s.bind,
   });
   return { installUrl: githubInstallUrl(app.slug, next, webBase) };
 }
@@ -244,6 +244,7 @@ export async function githubInstallLink(
     orgId: ctx.activeOrgId,
     userId: ctx.user.id,
     ref: app.id,
+    bind: bindBrowser(ctx),
   });
   return { url: githubInstallUrl(app.slug, state, webBase) };
 }
@@ -255,14 +256,10 @@ export async function githubInstallLink(
  */
 export async function completeGithubSetup(
   deps: Deps,
-  input: { code: string; installationId: string; state: string },
+  input: { code: string; installationId: string; state: string; browserNonce: string | null },
 ): Promise<{ connectionId: string }> {
-  const s = verifyState(stateKey(), input.state, 'github-setup');
-  if (!s)
-    throw new TRPCError({
-      code: 'UNAUTHORIZED',
-      message: 'This GitHub link expired or was not started here — try again.',
-    });
+  const s = verifyState(stateKey(), input.state, 'github-setup', input.browserNonce);
+  if (!s) throw notStartedHere('GitHub');
   if (!/^\d+$/.test(input.installationId))
     throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid installation id' });
   const app = s.ref
@@ -357,6 +354,8 @@ export async function createConnection(
   if (!/^https?:\/\//.test(baseUrl))
     throw new TRPCError({ code: 'BAD_REQUEST', message: 'baseUrl must be http(s)' });
   let account: string | null = null;
+  // OAuth: bind the round-trip to this browser before anything is saved.
+  const bind = input.kind === 'gitlab' && input.mode === 'oauth' ? bindBrowser(ctx) : null;
 
   if (input.kind === 'gitlab' && input.mode === 'token') {
     const me = await requestJson<{ username: string }>(gitFetch, `${baseUrl}/api/v4/user`, {
@@ -407,12 +406,13 @@ export async function createConnection(
     },
   });
   let authorizeUrl: string | undefined;
-  if (input.kind === 'gitlab' && input.mode === 'oauth') {
+  if (input.kind === 'gitlab' && input.mode === 'oauth' && bind) {
     const state = signState(stateKey(), {
       purpose: 'gitlab-oauth',
       orgId: ctx.activeOrgId,
       userId: ctx.user.id,
       ref: row.id,
+      bind,
     });
     authorizeUrl = gitlabAuthorizeUrl({
       baseUrl,
@@ -427,14 +427,10 @@ export async function createConnection(
 /** GitLab OAuth callback (no session): store the grant's tokens on the pending connection. */
 export async function completeGitlabOAuth(
   deps: Deps,
-  input: { code: string; state: string },
+  input: { code: string; state: string; browserNonce: string | null },
 ): Promise<{ connectionId: string }> {
-  const s = verifyState(stateKey(), input.state, 'gitlab-oauth');
-  if (!s?.ref)
-    throw new TRPCError({
-      code: 'UNAUTHORIZED',
-      message: 'This GitLab link expired or was not started here — try again.',
-    });
+  const s = verifyState(stateKey(), input.state, 'gitlab-oauth', input.browserNonce);
+  if (!s?.ref) throw notStartedHere('GitLab');
   const conn = await deps.db.gitConnection.findFirst({
     where: { id: s.ref, orgId: s.orgId, kind: 'GITLAB' },
   });

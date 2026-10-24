@@ -17,7 +17,7 @@ import {
   setGitlabCommitStatus,
   upsertGitlabStickyNote,
 } from './gitlab';
-import { signState, verifyState } from './state';
+import { bindHash, signState, verifyState } from './state';
 import { GitProviderError, redactUrl, requestJson, type FetchLike } from './types';
 
 /** A scripted fake fetch: each call pops the next response and is recorded. */
@@ -45,18 +45,30 @@ function fakeFetch(responses: Array<{ status?: number; body?: unknown }>) {
 
 describe('state', () => {
   const key = 'k'.repeat(32);
+  const nonce = 'a'.repeat(64);
+  const bind = bindHash(nonce);
   it('round-trips and binds purpose + org', () => {
-    const t = signState(key, { purpose: 'github-setup', orgId: 'org1', userId: 'u1' }, 1000);
-    expect(verifyState(key, t, 'github-setup', 1001)).toMatchObject({
+    const t = signState(key, { purpose: 'github-setup', orgId: 'org1', userId: 'u1', bind }, 1000);
+    expect(verifyState(key, t, 'github-setup', nonce, 1001)).toMatchObject({
       orgId: 'org1',
       userId: 'u1',
       exp: 1600,
     });
-    expect(verifyState(key, t, 'gitlab-oauth', 1001)).toBeNull(); // wrong purpose
-    expect(verifyState(key, t, 'github-setup', 1601)).toBeNull(); // expired
-    expect(verifyState('x'.repeat(32), t, 'github-setup', 1001)).toBeNull(); // wrong key
+    expect(verifyState(key, t, 'gitlab-oauth', nonce, 1001)).toBeNull(); // wrong purpose
+    expect(verifyState(key, t, 'github-setup', nonce, 1601)).toBeNull(); // expired
+    expect(verifyState('x'.repeat(32), t, 'github-setup', nonce, 1001)).toBeNull(); // wrong key
     const [body] = t.split('.');
-    expect(verifyState(key, `${body}.AAAA`, 'github-setup', 1001)).toBeNull(); // tampered mac
+    expect(verifyState(key, `${body}.AAAA`, 'github-setup', nonce, 1001)).toBeNull(); // tampered mac
+  });
+
+  it('M6: only the browser that started the flow can finish it', () => {
+    const t = signState(key, { purpose: 'github-setup', orgId: 'org1', userId: 'u1', bind }, 1000);
+    expect(t).not.toContain(nonce); // the state carries the hash, never the cookie value
+    expect(verifyState(key, t, 'github-setup', null, 1001)).toBeNull(); // no cookie (victim's browser)
+    expect(verifyState(key, t, 'github-setup', 'b'.repeat(64), 1001)).toBeNull(); // someone else's cookie
+    // A state minted before binding existed (no `bind`) is refused outright.
+    const legacy = signState(key, { purpose: 'github-setup', orgId: 'o', userId: 'u' } as never, 1000);
+    expect(verifyState(key, legacy, 'github-setup', nonce, 1001)).toBeNull();
   });
 });
 

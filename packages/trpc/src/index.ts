@@ -133,6 +133,7 @@ export {
   updateRepo,
 } from './services/git-connections.service';
 export { completeGiteaOAuth } from './services/git-gitea.service';
+export { clearGitBindCookie, gitBindCookie, gitBindNonce } from './services/git-browser-bind';
 export type {
   CreateConnectionInput,
   GitConnectionKind,

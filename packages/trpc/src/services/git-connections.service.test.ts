@@ -5,15 +5,17 @@ import type { Auth } from '@swarmy/auth';
 import type { DB } from '@swarmy/db';
 import type { OrgContext } from '../context';
 import type { AgentHub } from '../hub/types';
+import { gitBindNonce } from './git-browser-bind';
 import {
   completeGithubSetup,
+  githubInstallLink,
   inspectCommit,
   linkRepo,
   startGithubManifest,
 } from './git-connections.service';
 import { connectionCredentials, repoCredentials, setGitFetchForTests } from './git-credentials';
 import { previewCommentBody, reportCommitStatus } from './git-feedback.service';
-import { signState, type FetchLike } from './git-providers';
+import { bindHash, signState, verifyState, type FetchLike } from './git-providers';
 
 const prevKey = process.env.SWARMY_SECRET_KEY;
 beforeAll(() => {
@@ -117,6 +119,7 @@ function orgCtx(db: DB, h = hub()): OrgContext {
     session: {} as never,
     user: { id: 'user-1' } as never,
     activeOrgId: 'org-a',
+    resHeaders: new Headers(), // the tRPC response a browser flow sets its nonce cookie on
   } as unknown as OrgContext;
 }
 
@@ -136,6 +139,10 @@ function seedApp(tables: ReturnType<typeof fakeDb>['tables']) {
     createdAt: new Date(),
   });
 }
+
+/** A browser nonce + the state hash it binds (what `bindBrowser` mints). */
+const NONCE = 'f'.repeat(64);
+const BIND = bindHash(NONCE);
 
 describe('GitHub App manifest + setup', () => {
   it('refuses a second App on the same controller', async () => {
@@ -157,8 +164,10 @@ describe('GitHub App manifest + setup', () => {
       orgId: 'org-a',
       userId: 'user-1',
       ref: 'app-1',
+      bind: BIND,
     });
     const deps = { db, hub: hub(), auth: {} as Auth };
+    const browserNonce = NONCE;
 
     setGitFetchForTests(
       fakeFetch({
@@ -167,7 +176,7 @@ describe('GitHub App manifest + setup', () => {
       }).fn,
     );
     await expect(
-      completeGithubSetup(deps, { code: 'c', installationId: '777', state }),
+      completeGithubSetup(deps, { code: 'c', installationId: '777', state, browserNonce }),
     ).rejects.toThrow('not visible to you');
     expect(tables.gitConnection).toHaveLength(0);
 
@@ -182,10 +191,18 @@ describe('GitHub App manifest + setup', () => {
         },
       }).fn,
     );
+    // M6: the same signed state finished in another browser (no / another cookie) binds nothing.
+    for (const other of [null, 'e'.repeat(64)]) {
+      await expect(
+        completeGithubSetup(deps, { code: 'c', installationId: '777', state, browserNonce: other }),
+      ).rejects.toThrow('not started in this browser');
+    }
+    expect(tables.gitConnection).toHaveLength(0);
     const { connectionId } = await completeGithubSetup(deps, {
       code: 'c',
       installationId: '777',
       state,
+      browserNonce,
     });
     expect(tables.gitConnection?.[0]).toMatchObject({
       id: connectionId,
@@ -220,24 +237,42 @@ describe('GitHub App manifest + setup', () => {
       orgId: 'org-a',
       userId: 'u',
       ref: 'app-1',
+      bind: BIND,
     });
     await expect(
       completeGithubSetup(
         { db, hub: hub(), auth: {} as Auth },
-        { code: 'c', installationId: '777', state },
+        { code: 'c', installationId: '777', state, browserNonce: NONCE },
       ),
     ).rejects.toThrow('already connected to another workspace');
   });
 
   it('rejects a forged or wrong-purpose state', async () => {
     const { db } = fakeDb();
-    const wrong = signState(stateKey(), { purpose: 'gitlab-oauth', orgId: 'org-a', userId: 'u' });
+    const wrong = signState(stateKey(), { purpose: 'gitlab-oauth', orgId: 'org-a', userId: 'u', bind: BIND });
     await expect(
       completeGithubSetup(
         { db, hub: hub(), auth: {} as Auth },
-        { code: 'c', installationId: '1', state: wrong },
+        { code: 'c', installationId: '1', state: wrong, browserNonce: NONCE },
       ),
-    ).rejects.toThrow('expired or was not started here');
+    ).rejects.toThrow('expired or was not started in this browser');
+  });
+
+  it('M6: starting a flow sets the __Host- nonce cookie the state is bound to', async () => {
+    const { db, tables } = fakeDb();
+    seedApp(tables);
+    const ctx = orgCtx(db);
+    const { url } = await githubInstallLink(ctx);
+    const [cookie] = ctx.resHeaders?.getSetCookie() ?? [];
+    expect(cookie).toMatch(/^__Host-swarmy-git-bind=[0-9a-f]{64}; Path=\/; Max-Age=600; HttpOnly; Secure; SameSite=Lax$/);
+    const nonce = gitBindNonce(cookie?.split(';')[0]);
+    const state = new URL(url).searchParams.get('state') ?? '';
+    expect(state).not.toContain(nonce ?? '-');
+    expect(verifyState(stateKey(), state, 'github-setup', nonce)).toMatchObject({ orgId: 'org-a', ref: 'app-1' });
+    // No HTTP response to carry the cookie (REST / API key): the flow can't start.
+    await expect(githubInstallLink({ ...orgCtx(db), resHeaders: undefined })).rejects.toThrow(
+      'has to start in the dashboard',
+    );
   });
 });
 

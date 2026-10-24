@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { encryptSecret } from '@swarmy/core/crypto';
 import type { DB } from '@swarmy/db';
 import type { OrgContext } from '../context';
+import { gitBindNonce } from './git-browser-bind';
 import { linkRepo } from './git-connections.service';
 import { connectionCredentials, setGitFetchForTests } from './git-credentials';
 import { reportCommitStatus, upsertPrComment } from './git-feedback.service';
@@ -57,7 +58,8 @@ function routes(map: Record<string, { status?: number; body: unknown }>) {
   return { fn, calls };
 }
 
-const ctx = (db: DB) => ({ db, user: { id: 'u1' }, activeOrgId: 'org-a' }) as unknown as OrgContext;
+const ctx = (db: DB) =>
+  ({ db, user: { id: 'u1' }, activeOrgId: 'org-a', resHeaders: new Headers() }) as unknown as OrgContext;
 const BASE = 'https://codeberg.example';
 const SERVER = {
   '/api/v1/version': { body: { version: '9.0.3+gitea-1.22.0' } },
@@ -86,8 +88,11 @@ describe('gitea connections', () => {
   it('OAuth: pending until the callback trades the code, then refreshes before expiry', async () => {
     const { db, t } = fakeDb();
     setGitFetchForTests(routes(SERVER).fn);
-    const r = await createGiteaConnection(ctx(db), { mode: 'oauth', baseUrl: BASE, clientId: 'cid', clientSecret: 'csec' });
+    const c = ctx(db);
+    const r = await createGiteaConnection(c, { mode: 'oauth', baseUrl: BASE, clientId: 'cid', clientSecret: 'csec' });
     expect(r.connection.status).toBe('pending');
+    const browserNonce = gitBindNonce(c.resHeaders?.getSetCookie()[0]?.split(';')[0]);
+    expect(browserNonce).toMatch(/^[0-9a-f]{64}$/);
     const url = new URL(r.authorizeUrl ?? '');
     expect(`${url.origin}${url.pathname}`).toBe(`${BASE}/login/oauth/authorize`);
     expect(url.searchParams.get('redirect_uri')).toBe('https://swarmy.test/git/gitea/callback');
@@ -96,10 +101,18 @@ describe('gitea connections', () => {
     const f = routes({ 'POST /login/oauth/access_token': { body: tokens }, ...SERVER });
     setGitFetchForTests(f.fn);
     const deps = { db, hub: {} as never, auth: {} as never };
-    await completeGiteaOAuth(deps, { code: 'c', state: url.searchParams.get('state') ?? '' });
+    const state = url.searchParams.get('state') ?? '';
+    // M6: the grant link finished in a browser without the starter's cookie is refused.
+    await expect(completeGiteaOAuth(deps, { code: 'c', state, browserNonce: null })).rejects.toThrow(
+      'not started in this browser',
+    );
+    expect(t.gitConnection?.[0]?.status).toBe('pending');
+    await completeGiteaOAuth(deps, { code: 'c', state, browserNonce });
     const row = t.gitConnection?.[0] ?? {};
     expect(row).toMatchObject({ status: 'active', account: 'dana' });
-    await expect(completeGiteaOAuth(deps, { code: 'c', state: 'forged.state' })).rejects.toThrow(/expired/);
+    await expect(completeGiteaOAuth(deps, { code: 'c', state: 'forged.state', browserNonce })).rejects.toThrow(
+      /expired/,
+    );
 
     row.tokenExpiresAt = new Date(Date.now() - 1000); // expired → refresh, store the rotated pair
     setGitFetchForTests(routes({ 'POST /login/oauth/access_token': { body: { ...tokens, access_token: 'gto_2', refresh_token: 'gtr_2' } } }).fn);

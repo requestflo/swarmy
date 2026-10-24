@@ -16,6 +16,7 @@ import { notFound } from '../errors';
 import type { AgentHub } from '../hub/types';
 import { writeAudit } from './audit.service';
 import { systemContext } from './cicd.service';
+import { bindBrowser, notStartedHere } from './git-browser-bind';
 import { stateKey, toConnectionView, type GitConnectionView } from './git-connection-view';
 import { connectionCredentials, controllerPublicUrl, gitFetch, type ConnectionRow } from './git-credentials';
 import {
@@ -69,6 +70,8 @@ export async function createGiteaConnection(
   const baseUrl = giteaBase(input.baseUrl);
   if (!/^https?:\/\//.test(baseUrl)) throw new TRPCError({ code: 'BAD_REQUEST', message: 'baseUrl must be http(s)' });
   const token = input.mode === 'oauth' ? undefined : input.token;
+  // OAuth: bind the round-trip to this browser before anything is saved.
+  const bind = input.mode === 'oauth' ? bindBrowser(ctx) : null;
   let probe: GiteaProbe | null = null;
   if (token) {
     probe = await probeGitea(gitFetch, baseUrl, token).catch((e: unknown) => {
@@ -98,8 +101,8 @@ export async function createGiteaConnection(
     targetId: row.id,
     metadata: { kind: 'gitea', flavor: probe?.flavor ?? null, baseUrl, mode },
   });
-  if (input.mode !== 'oauth') return { connection: toConnectionView(row) };
-  const state = signState(stateKey(), { purpose: 'gitea-oauth', orgId: ctx.activeOrgId, userId: ctx.user.id, ref: row.id });
+  if (input.mode !== 'oauth' || !bind) return { connection: toConnectionView(row) };
+  const state = signState(stateKey(), { purpose: 'gitea-oauth', orgId: ctx.activeOrgId, userId: ctx.user.id, ref: row.id, bind });
   const redirectUri = `${controllerPublicUrl()}${GITEA_CALLBACK_PATH}`;
   return {
     connection: toConnectionView(row),
@@ -110,10 +113,10 @@ export async function createGiteaConnection(
 /** OAuth callback (no session): trade the code for tokens on the pending connection. */
 export async function completeGiteaOAuth(
   deps: { db: DB; hub: AgentHub; auth: Auth },
-  input: { code: string; state: string },
+  input: { code: string; state: string; browserNonce: string | null },
 ): Promise<{ connectionId: string }> {
-  const s = verifyState(stateKey(), input.state, 'gitea-oauth');
-  if (!s?.ref) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'This Gitea link expired or was not started here — try again.' });
+  const s = verifyState(stateKey(), input.state, 'gitea-oauth', input.browserNonce);
+  if (!s?.ref) throw notStartedHere('Gitea');
   const conn = await deps.db.gitConnection.findFirst({ where: { id: s.ref, orgId: s.orgId, kind: 'GITEA' } });
   if (!conn?.clientId || !conn.clientSecretEnc) throw notFound('git connection', s.ref);
   const app = { baseUrl: conn.baseUrl, clientId: conn.clientId, clientSecret: decryptSecret(conn.clientSecretEnc) };
