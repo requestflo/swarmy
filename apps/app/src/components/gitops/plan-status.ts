@@ -28,6 +28,8 @@ export const ENV_LABEL: Record<string, string> = {
   production: 'Production',
   staging: 'Staging',
   preview: 'Preview',
+  qa: 'QA',
+  uat: 'UAT',
 };
 
 export const envLabel = (env: string): string =>

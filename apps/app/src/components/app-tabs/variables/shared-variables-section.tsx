@@ -34,7 +34,8 @@ export function SharedVariablesSection({ stack }: { stack: string }): React.JSX.
         <>
           <p className="text-[13.5px]">{sharedSentence(v.layers)}</p>
           {v.layers.rows.length ? (
-            <div className="overflow-x-auto">
+            // The table scrolls inside the card (relative: its sr-only notes stay inside too).
+            <div className="relative w-0 min-w-full overflow-x-auto">
               <table className="w-full min-w-[32rem] border-collapse text-left text-[12.5px]">
                 <thead>
                   <tr className="text-muted-foreground border-border border-b font-mono text-[11px] tracking-wide uppercase">

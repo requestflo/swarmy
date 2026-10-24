@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import type { AppEnvironment, GitApp } from '../gitops-types';
-import { cloneSteps, maskOption, nameProblem, slotReaders, slotsLeft, suggestName } from './clone-model';
+import { cloneSteps, maskOption, nameProblem, slotReaders, slotsLeft, slotsWords, suggestName } from './clone-model';
 
 const env = (environment: string, extra: Partial<AppEnvironment> = {}): AppEnvironment => ({
   environment, branch: environment === 'production' ? 'main' : environment, stack: environment === 'production' ? 'shop' : `shop-${environment}`, latest: null, keptVolumes: [], ...extra,
@@ -43,5 +43,8 @@ describe('clone model', () => {
     const slot = { family: 'stripe-key', envFamily: 'stripe-key.qa', consumers: [{ service: 'api' }, { service: 'web', envName: 'STRIPE_KEY' }], filled: false };
     expect(slotsLeft([slot, { ...slot, family: 'x', filled: true }])).toBe(1);
     expect(slotReaders(slot)).toBe('api reads /run/secrets/stripe-key · web reads $STRIPE_KEY');
+    expect([slotsWords(1, 1), slotsWords(0, 1), slotsWords(1, 3), slotsWords(0, 3)]).toEqual([
+      'Its secret is still empty', 'Its secret is set', '1 of 3 secrets still empty', 'All 3 secrets set',
+    ]);
   });
 });

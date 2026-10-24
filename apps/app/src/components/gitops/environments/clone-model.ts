@@ -60,6 +60,12 @@ export function slotsLeft(slots: readonly SecretSlot[] | undefined): number {
   return (slots ?? []).filter((s) => !s.filled).length;
 }
 
+/** "1 of 2 secrets still empty" / "Its secret is set" / "All 3 secrets set". */
+export function slotsWords(left: number, total: number): string {
+  if (left) return total === 1 ? 'Its secret is still empty' : `${left} of ${total} secrets still empty`;
+  return total === 1 ? 'Its secret is set' : `All ${total} secrets set`;
+}
+
 /** "api reads /run/secrets/stripe-key · web reads $STRIPE_KEY". */
 export function slotReaders(slot: SecretSlot): string {
   return slot.consumers.map((c) => (c.envName ? `${c.service} reads $${c.envName}` : `${c.service} reads /run/secrets/${slot.family}`)).join(' · ');

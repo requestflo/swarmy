@@ -89,7 +89,12 @@ jobs:
     run: npm run reindex -- --index products
     retries: 2
 
-previews: { enabled: true, ttl: 48h, base_domain: preview.northwind.dev }
+previews:
+  enabled: true
+  ttl: 48h
+  base_domain: preview.northwind.dev
+  branches: ["feature/*"]
+  data: { from: production, scrub: db/scrub.sql }
 
 environments:
   staging:
