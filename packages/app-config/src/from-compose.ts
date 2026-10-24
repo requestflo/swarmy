@@ -130,7 +130,7 @@ export function composeToAppConfig(composeText: string, opts: { app?: string } =
       const vname = (v.source ?? '').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30);
       if (gap) k.gap(gap);
       else if (UNIT_NAME_RE.test(vname)) vols[vname] = v.target;
-      else k.gap({ service: rawName, key: `volumes: ${v.raw}`, reason: `"${v.source}" can't be a swarmy volume name; rename it under volumes:` });
+      else k.gap({ service: rawName, key: `volumes: ${v.raw}`, reason: `"${v.source}" can't be a swarmy volume name; give it a lowercase name under volumes: in the file` });
     }
     if (Object.keys(vols).length) s.volumes = vols;
     k.gap(...portGaps(rawName, svc, port), ...keyGaps(rawName, svc));

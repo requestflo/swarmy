@@ -47,9 +47,9 @@ const NO_HOME: Record<string, string> = {
   stop_grace_period: STOP,
   stop_signal: STOP,
   env_file: "swarmy doesn't read env files; put the values under env:, and credentials in swarmy secrets",
-  healthcheck: 'write it as healthcheck: with a path: or a command:',
-  labels: 'swarmy sets its own labels; addresses go under domains:',
-  secrets: 'create each one as a swarmy secret, then list it under secrets:',
+  healthcheck: "swarmy.yaml's healthcheck: takes a path: or a command:, so write it again in those terms",
+  labels: 'swarmy sets its own labels, and addresses go under domains: instead',
+  secrets: 'create each one as a swarmy secret, then list it under secrets: in the file',
   configs: 'swarmy.yaml has no configs; bake the file into the image, or use env',
   mem_limit: 'set memory: (or size:) instead',
   cpus: 'set cpu: (or size:) instead',
@@ -67,7 +67,7 @@ const HANDLED: Record<string, string> = {
 };
 
 const DEPLOY_NO_HOME: Record<string, string> = {
-  mode: 'swarmy.yaml runs a set number of copies, not one per server; set replicas:',
+  mode: 'swarmy.yaml runs a set number of copies, not one per server; replicas: says how many',
   placement: 'pin it with regions: or placement.labels instead',
   resources: 'set cpu: and memory: (or size:) instead',
   endpoint_mode: 'swarmy.yaml has no endpoint mode',
@@ -103,7 +103,7 @@ export function portGaps(service: string, svc: ComposeService, kept: number | un
     const key = `ports: ${p.raw}`;
     if (p.target !== kept) return [{ service, key, reason: `a service has one port: in swarmy.yaml, and this one keeps ${kept}` }];
     if (!p.published) return [];
-    return [{ service, key, reason: `port ${p.published} isn't opened on every server any more: the app's own services still reach it, and the web gets an address under domains:` }];
+    return [{ service, key, reason: `port ${p.published} isn't opened on every server any more: the app's own services still reach it, and for the web, domains: gives it an address` }];
   });
 }
 
