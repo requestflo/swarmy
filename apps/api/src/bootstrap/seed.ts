@@ -30,6 +30,8 @@
  *                                             installer defaults it to swarmy.<ip-dashed>.sslip.io).
  *                                             Bound to the bootstrap org's ingress settings so its
  *                                             Caddy edge serves a `dashboard` controller vhost.
+ *   SWARMY_CLUSTER_ZONE                      — `--zone`: the org's cluster zone, created once
+ *                                             (bootstrap/cluster-zone.ts).
  */
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -39,6 +41,8 @@ import { buildMeshConfigRow, parseMeshTlsEnv } from '@swarmy/core/mesh-bootstrap
 import { prisma } from '@swarmy/db';
 import { ingressConfigRepo, meshConfigRepo, primeSwarmJoinMaterial } from '@swarmy/trpc';
 import { hub } from '../gateway';
+import { ensureClusterZoneFromEnv } from './cluster-zone';
+import { whenSwarmReady } from './when-swarm-ready';
 
 const ORG_NAME = process.env.SWARMY_ORG_NAME ?? 'swarmy';
 const ORG_SLUG = process.env.SWARMY_ORG_SLUG ?? 'swarmy';
@@ -69,6 +73,7 @@ export async function maybeBootstrapSeed(): Promise<void> {
   primeSwarmJoin(orgId);
   await ensureMeshConfig(orgId);
   await ensureDashboardDomain(orgId);
+  ensureClusterZoneFromEnv(orgId);
 
   log(`bootstrap complete — org "${ORG_NAME}", owner ${username ?? email}.`);
 }
@@ -263,25 +268,6 @@ function safeDecrypt(blob: string): string | null {
   } catch {
     return null;
   }
-}
-
-/**
- * Boot-time config that lives in the org's swarm (swarm-kv) can only be
- * written once a manager agent has dialled in. Retry until then (logged, not
- * silent); the writes are idempotent re-assertions of env.
- */
-function whenSwarmReady(what: string, fn: () => Promise<void>, everyMs = 5_000): void {
-  let warned = false;
-  const attempt = (): void => {
-    fn().catch((e: unknown) => {
-      if (!warned) {
-        log(`${what}: waiting for a manager agent (${e instanceof Error ? e.message : String(e)})`);
-        warned = true;
-      }
-      setTimeout(attempt, everyMs).unref?.();
-    });
-  };
-  attempt();
 }
 
 /**

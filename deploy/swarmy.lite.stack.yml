@@ -38,6 +38,10 @@ services:
       # the bootstrap seed binds it to the org edge, which serves a `dashboard`
       # controller vhost for it. Empty = no https vhost (behind NAT / --no-https).
       SWARMY_DASHBOARD_DOMAIN: ${SWARMY_DASHBOARD_DOMAIN:-}
+      # Installer --zone: the org's cluster zone, served by swarmy-dns (answers
+      # <a-b-c-d>.<zone> itself; apps get addresses under it, not sslip.io).
+      # Seeded once by the bootstrap; empty = none.
+      SWARMY_CLUSTER_ZONE: ${SWARMY_CLUSTER_ZONE:-}
       # The direct host-mode origin (http://<ip>:<port>). Stays a trusted auth
       # origin next to the https URL so the pre-cert first login still works.
       SWARMY_DIRECT_URL: ${SWARMY_DIRECT_URL:-}

@@ -28,6 +28,12 @@
 #                                gets a Let's Encrypt cert for it automatically.
 #   --no-https                   SWARMY_NO_HTTPS=1 — keep the dashboard on plain
 #                                http://<ip>:<port> only (--https re-enables it).
+#   --zone <name>                SWARMY_CLUSTER_ZONE — a cluster zone (e.g. apps.example.com)
+#                                swarmy-dns answers itself: apps get <app>.<ip-with-dashes>.<zone>
+#                                instead of sslip.io, which stays the fallback only when no
+#                                zone is set. Prints the NS + glue records to add at the
+#                                registrar (or the parent zone's DNS). The dashboard keeps its
+#                                first-boot name: it has to work before swarmy-dns can serve.
 #   --ingress none|caddy|cloudflare        SWARMY_INGRESS
 #   --mesh swarmy|none|netbird-cloud|netbird-external   SWARMY_MESH (default: swarmy —
 #                                NetBird runs inside swarmy, started here on this host's
@@ -118,6 +124,7 @@ ADMIN_EMAIL="${SWARMY_ADMIN_EMAIL:-}"
 ADMIN_PASSWORD="${SWARMY_ADMIN_PASSWORD:-}"
 DOMAIN="${SWARMY_DOMAIN:-}"
 NO_HTTPS="${SWARMY_NO_HTTPS:-0}"
+ZONE="${SWARMY_CLUSTER_ZONE:-}"
 DASHBOARD_DOMAIN=""
 INGRESS="${SWARMY_INGRESS:-none}"
 MESH="${SWARMY_MESH:-swarmy}"
@@ -142,7 +149,7 @@ ALLOW_INSECURE_INSTALL="${SWARMY_ALLOW_INSECURE_INSTALL:-}"
 # falls back to what the first install recorded in state.env — a re-run with
 # no flags must never silently switch image, port or sign-up policy.
 EXPLICIT=" "
-for v in ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP DOMAIN NO_HTTPS ALLOW_INSECURE_INSTALL RELEASE_PUBKEY PLATFORM_FEED_URL; do
+for v in ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP DOMAIN NO_HTTPS ZONE ALLOW_INSECURE_INSTALL RELEASE_PUBKEY PLATFORM_FEED_URL; do
   case "$v" in
     ALLOW_INSECURE_INSTALL) [ -n "${SWARMY_ALLOW_INSECURE_INSTALL:-}" ] && EXPLICIT="$EXPLICIT$v " ;;
     RELEASE_PUBKEY) [ -n "${SWARMY_RELEASE_PUBKEY:-}" ] && EXPLICIT="$EXPLICIT$v " ;;
@@ -154,6 +161,7 @@ for v in ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP DOMAIN NO_HTTPS
     ALLOW_SIGNUP) [ -n "${SWARMY_ALLOW_SIGNUP:-}" ] && EXPLICIT="$EXPLICIT$v " ;;
     DOMAIN) [ -n "${SWARMY_DOMAIN:-}" ] && EXPLICIT="$EXPLICIT$v " ;;
     NO_HTTPS) [ -n "${SWARMY_NO_HTTPS:-}" ] && EXPLICIT="$EXPLICIT$v " ;;
+    ZONE) [ -n "${SWARMY_CLUSTER_ZONE:-}" ] && EXPLICIT="$EXPLICIT$v " ;;
   esac
 done
 explicit() { case "$EXPLICIT" in *" $1 "*) return 0 ;; esac; return 1; }
@@ -169,6 +177,7 @@ while [ $# -gt 0 ]; do
     --domain) DOMAIN="${2:?}"; EXPLICIT="${EXPLICIT}DOMAIN "; shift ;;
     --no-https) NO_HTTPS=1 EXPLICIT="${EXPLICIT}NO_HTTPS " ;;
     --https) NO_HTTPS=0 EXPLICIT="${EXPLICIT}NO_HTTPS " ;;
+    --zone) ZONE="${2:?}"; EXPLICIT="${EXPLICIT}ZONE "; shift ;;
     --ingress) INGRESS="${2:?}"; shift ;;
     --mesh) MESH="${2:?}"; MESH_EXPLICIT=1; shift ;;
     --mesh-domain) MESH_DOMAIN="${2:?}"; shift ;;
@@ -210,6 +219,32 @@ if [ -n "$RELEASE_PUBKEY" ]; then
 fi
 platform_feed_url_ok "$PLATFORM_FEED_URL" \
   || die "--platform-feed-url / SWARMY_PLATFORM_FEED_URL must be an http(s):// URL (the base serving <channel>/platform.json)."
+
+# ── cluster zone (pure — unit-tested by sourcing this file) ──────────────────
+# cluster_zone_value ZONE → the zone lowercased without a trailing dot, or fails
+# when it isn't a DNS name with at least two labels. Empty stays empty.
+cluster_zone_value() {
+  local z
+  z="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/\.*$//')"
+  [ -n "$z" ] || return 0
+  printf '%s' "$z" | grep -qE '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$' || return 1
+  [ "${#z}" -le 253 ] || return 1
+  printf '%s' "$z"
+}
+# zone_glue ZONE IP → the records the registrar (or the parent zone's DNS) needs
+# so swarmy-dns answers ZONE: one NS per nameserver, plus its glue A. This box
+# is ns1; a second front door becomes ns2 once it's pinned in the dashboard.
+zone_glue() {
+  local zone="$1" ip="$2"
+  printf '%s.  NS  ns1.%s.\n' "$zone" "$zone"
+  printf '%s.  NS  ns2.%s.\n' "$zone" "$zone"
+  printf 'ns1.%s.  A  %s\n' "$zone" "${ip:-<public IPv4 of this server>}"
+  printf 'ns2.%s.  A  <public IPv4 of your second front door>\n' "$zone"
+}
+if [ -n "$ZONE" ]; then
+  ZONE="$(cluster_zone_value "$ZONE")" \
+    || die "--zone / SWARMY_CLUSTER_ZONE must be a DNS name you control, e.g. apps.example.com."
+fi
 
 # ── served addresses (pure — unit-tested by sourcing this file) ─────────────
 # host_addresses [PUBLIC_IP] → space-separated addresses this host answers on
@@ -278,12 +313,12 @@ remember_settings() {
   if [ -n "$saved" ] && [ "$saved" != lite ]; then
     die "this controller was installed with the '$saved' datastore tier (Postgres), which no longer exists. Take a fresh install; there is no migration path from a Postgres-era controller."
   fi
-  for v in ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP DOMAIN NO_HTTPS ALLOW_INSECURE_INSTALL RELEASE_PUBKEY PLATFORM_FEED_URL; do
+  for v in ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP DOMAIN NO_HTTPS ZONE ALLOW_INSECURE_INSTALL RELEASE_PUBKEY PLATFORM_FEED_URL; do
     eval "saved=\${CFG_$v:-}"
     [ -n "$saved" ] || continue
     explicit "$v" || eval "$v=\$saved"
   done
-  for v in ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP DOMAIN NO_HTTPS ALLOW_INSECURE_INSTALL RELEASE_PUBKEY PLATFORM_FEED_URL; do
+  for v in ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP DOMAIN NO_HTTPS ZONE ALLOW_INSECURE_INSTALL RELEASE_PUBKEY PLATFORM_FEED_URL; do
     eval "state_set CFG_$v \"\${$v}\""
   done
 }
@@ -1379,6 +1414,7 @@ deploy_stack() {
   SWARMY_IMAGE="$IMAGE" \
   SWARMY_PUBLIC_URL="$PUBLIC_URL" \
   SWARMY_DASHBOARD_DOMAIN="$DASHBOARD_DOMAIN" \
+  SWARMY_CLUSTER_ZONE="$ZONE" \
   SWARMY_DIRECT_URL="$LOGIN_URL" \
   SWARMY_DIRECT_HOSTS="$(host_addresses "${PUBLIC_IP:-}")" \
   SWARMY_TRUSTED_PROXIES="$trusted_proxies" \
@@ -1521,6 +1557,26 @@ configure_mesh() {
   ok "Mesh '${MESH}' is configured — new join tokens (dashboard → Add a node) auto-join NetBird before the swarm."
 }
 
+# configure_zone — the cluster zone's registrar hand-off (the bootstrap seed
+# created the zone and turned geo-DNS on; everything else derives).
+configure_zone() {
+  [ -n "$ZONE" ] || return 0
+  ok "Cluster zone ${ZONE}: swarmy-dns answers <app>.<ip-with-dashes>.${ZONE} itself — no sslip.io for app addresses."
+  say "Add these records at your registrar (for a sub-zone: in its parent zone's DNS):"
+  zone_glue "$ZONE" "${PUBLIC_IP:-}" | sed 's/^/    /'
+  say "Then in the dashboard → Network › Geo-DNS: make this server a front door (ingress + outlet, with a region),"
+  say "  pin it as ns1 and a second front door as ns2, open port 53 (udp + tcp), and Check delegation."
+  if [ -z "${PUBLIC_IP:-}" ]; then
+    warn "no public IPv4 detected: the zone's nameservers must be front doors with public addresses."
+    return 0
+  fi
+  # The dashboard keeps its public convenience name for first boot (it has to
+  # work before swarmy-dns serves anything); the zone can take it over later.
+  case "$DASHBOARD_DOMAIN" in *.sslip.io|*.nip.io)
+    say "  Once delegated, re-run with --domain swarmy.${PUBLIC_IP//./-}.${ZONE} to move the dashboard off its public convenience name too." ;;
+  esac
+}
+
 # ════════════════════════════════════════════════════════════════════════════
 # Phase 13 — finalize
 # ════════════════════════════════════════════════════════════════════════════
@@ -1647,6 +1703,7 @@ main() {
   enrol_node1
   configure_ingress
   configure_mesh
+  configure_zone
   wait_https
   finalize
 }
