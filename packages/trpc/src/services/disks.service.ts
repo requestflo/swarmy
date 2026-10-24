@@ -220,12 +220,15 @@ export function chooseDiskAwarePin(
   ctx: Pick<OrgContext, 'hub' | 'activeOrgId'> & Partial<Pick<OrgContext, 'db' | 'user'>>,
   pinnedCounts: ReadonlyMap<string, number>,
   fallback: string | undefined,
+  /** Prefer servers carrying this role label (`swarmy.node.database` for Postgres). */
+  preferLabel?: string,
 ): string | undefined {
   const r = explainPinNode({
     nodes: ctx.hub.nodeInventory(ctx.activeOrgId),
     pinnedCounts,
     ...(fallback ? { fallback } : {}),
     unmountedDefaultDisk: unmountedDefaultDiskNodes(ctx.hub, ctx.activeOrgId),
+    ...(preferLabel ? { preferLabel } : {}),
   });
   if (r.refusal) throw commandRejected(r.refusal);
   if (r.note) {

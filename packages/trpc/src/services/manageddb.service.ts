@@ -44,6 +44,12 @@ import {
   type DbWalShipperView,
   type InvService,
   type InvServiceStatus,
+  NODE_DATABASE_LABEL,
+  DB_ROLE_CONSTRAINT,
+  DB_ROLE_PLACED_LABEL,
+  dbFloatingPlacement,
+  dbRolePlacementLabels,
+  type DbPlacementNode,
 } from '@swarmy/core';
 import {
   DEFAULT_MANAGED_PG_IMAGE,
@@ -339,13 +345,19 @@ function isMultiNode(ctx: OrgContext): boolean {
 }
 
 /**
- * The swarm node a NEW primary is pinned to: a node with a mounted default
- * disk first, then the fewest pinned primaries (ready + active), ties to the
- * manager we dispatch through.
+ * The swarm node a NEW primary is pinned to: a database-role server
+ * (`swarmy.node.database`) first, then a node with a mounted default disk,
+ * then the fewest pinned primaries (ready + active), ties to the manager we
+ * dispatch through.
  */
 function choosePrimaryPin(ctx: OrgContext, managerNodeId: string): string | undefined {
   // Skips a node whose declared data disk is not attached (QA-075b); refuses only when none is left.
-  return chooseDiskAwarePin(ctx, pinnedPrimaryCounts(ctx.hub.liveInventory(ctx.activeOrgId).services), ctx.hub.swarmNodeIdFor(managerNodeId));
+  return chooseDiskAwarePin(
+    ctx,
+    pinnedPrimaryCounts(ctx.hub.liveInventory(ctx.activeOrgId).services),
+    ctx.hub.swarmNodeIdFor(managerNodeId),
+    NODE_DATABASE_LABEL,
+  );
 }
 
 /** Common labels stamped on every DB-role service (primary + replica). */
@@ -487,6 +499,8 @@ export interface ManagedPgSpecInput {
   multiNode: boolean;
   /** Live primary labels to carry forward (declared by later mutations). */
   carryLabels?: Record<string, string>;
+  /** Swarm nodes — replicas prefer database-role servers (`dbFloatingPlacement`). */
+  nodes?: readonly DbPlacementNode[];
 }
 
 /**
@@ -525,14 +539,13 @@ export function managedPgSpecs(input: ManagedPgSpecInput): {
     primaryLabels,
   );
 
-  const replicaLabels = {
+  const avoidNode = input.multiNode ? input.pinNode : undefined;
+  const placed = dbFloatingPlacement({ nodes: input.nodes ?? [], replicas: input.replicas, ...(avoidNode ? { avoidNode } : {}) });
+  const replicaLabels = dbRolePlacementLabels({
     ...dbLabels(stack, cluster, 'replica', input.replicas, topologyOf(primaryLabels)),
-    ...dbStorageLabels({
-      dataVolume: input.replicaVolume,
-      ...(input.multiNode ? { avoidNode: input.pinNode } : {}),
-    }),
+    ...dbStorageLabels({ dataVolume: input.replicaVolume, ...(avoidNode ? { avoidNode } : {}) }),
     ...credential,
-  };
+  }, placed);
   const replicaSpec: ServiceSpec = applyPgMember<ServiceSpec>(
     {
       name: replicaServiceName(stack, cluster),
@@ -541,6 +554,7 @@ export function managedPgSpecs(input: ManagedPgSpecInput): {
       labels: replicaLabels,
       env: pgReplicaEnv({ replicationUser: REPLICATION_USER, primaryHost: primary, primaryPort: PG_PORT }),
       networks: [network],
+      ...(placed.constraints.length > 0 ? { placement: { constraints: placed.constraints } } : {}),
     },
     replicaLabels,
   );
@@ -679,6 +693,7 @@ async function provisionDbCore(
     replicaVolume: existingReplica?.labels[DB_DATA_VOLUME_LABEL] ?? replicaDataVolumeName(stack, cluster),
     pinNode,
     multiNode: isMultiNode(ctx),
+    nodes: ctx.hub.nodeInventory(ctx.activeOrgId),
     // Carry declarations the primary accumulated (backup schedule, topology
     // inputs, …) — minus the PITR marker, whose mounts/conf this base spec does
     // not carry: dropping it makes the reconcile re-apply WAL archiving.
@@ -1606,6 +1621,9 @@ export function rebuildDbMemberSpec(
       labels,
       networks,
       ...((live.secrets ?? []).length > 0 ? { secrets: live.secrets.map((n) => ({ source: n })) } : {}),
+      // A member placed on database-role servers stays there (the live
+      // inventory carries no placement; the marker label is the declaration).
+      ...(labels[DB_ROLE_PLACED_LABEL] === 'true' ? { placement: { constraints: [DB_ROLE_CONSTRAINT] } } : {}),
     },
     labels,
   );

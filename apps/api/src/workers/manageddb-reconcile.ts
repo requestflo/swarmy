@@ -3,6 +3,7 @@ import { authRegistry } from '@swarmy/auth';
 import type { OrgContext } from '@swarmy/trpc';
 import { unmountedDefaultDiskNodes } from '@swarmy/trpc';
 import {
+  DB_AVOID_NODE_LABEL,
   DB_DATA_VOLUME_LABEL,
   DB_FAILOVER_CONFIRM_LABEL,
   DB_FAILOVER_PENDING_LABEL,
@@ -32,6 +33,10 @@ import {
   DB_PASSWORD_SECRET_LABEL,
   dbConsumerHasPlaintextUrl,
   pgNeedsCredentialMigration,
+  NODE_DATABASE_LABEL,
+  dbFloatingPlacement,
+  dbRolePlacementLabels,
+  type DbPlacementNode,
 } from '@swarmy/core';
 import { decryptSecret } from '@swarmy/core/crypto';
 import { pitrExtraConf } from '@swarmy/core/protocol';
@@ -45,6 +50,7 @@ import {
   parseLagOutput,
   pinnedRegionFit,
   planClusterStorage,
+  planReplicaScale,
   parseScheduleLite,
   pitrVersion,
   promotionDue,
@@ -280,26 +286,33 @@ function credentialLabel(primary: SwarmServiceInfo): Record<string, string> {
   return secret ? { [DB_PASSWORD_SECRET_LABEL]: secret } : {};
 }
 
-/** A region-pinned streaming read replica (geo). Mirrors region-reconcile placement. */
+/**
+ * A region-pinned streaming read replica (geo). Mirrors region-reconcile
+ * placement, preferring database-role servers in the region when there are
+ * enough of them (`dbFloatingPlacement`; no `nodes` ⇒ region only).
+ */
 export function regionReplicaSpec(
   c: Cluster,
   primary: SwarmServiceInfo,
   region: string,
   n: number,
   multiNode: boolean,
+  nodes: readonly DbPlacementNode[] = [],
 ): ServiceSpec {
   const env = envRecord(primary.env ?? []);
   const password = env[PG_ENV.password] ?? '';
   const pin = primary.labels[DB_PIN_NODE_LABEL];
-  const labels = memberLabels(c, 'replica', 'geo', {
+  const avoidNode = multiNode && pin ? pin : undefined;
+  const placed = dbFloatingPlacement({ nodes, region, replicas: n, ...(avoidNode ? { avoidNode } : {}) });
+  const labels = dbRolePlacementLabels(memberLabels(c, 'replica', 'geo', {
     ...credentialLabel(primary),
     [DB_REGION_LABEL]: region,
     [DB_REPLICAS_LABEL]: String(n),
     ...dbStorageLabels({
       dataVolume: regionReplicaDataVolumeName(c.base, region),
-      ...(multiNode && pin ? { avoidNode: pin } : {}),
+      ...(avoidNode ? { avoidNode } : {}),
     }),
-  });
+  }), placed);
   return applyPgMember<ServiceSpec>({
     name: `${c.base}-replica-${region}`,
     image: primary.image,
@@ -313,7 +326,7 @@ export function regionReplicaSpec(
     }),
     labels,
     networks: [clusterNet(c)],
-    placement: { constraints: [`node.labels.${REGION_NODE_LABEL}==${region}`] },
+    placement: { constraints: placed.constraints },
   }, labels);
 }
 
@@ -367,20 +380,34 @@ export function placePrimarySpec(primary: SwarmServiceInfo, region: string, net:
   }, labels);
 }
 
-/** Base read-replica rebuilt from live truth with its storage re-derived from `labels`. */
-function replicaStorageSpec(replica: SwarmServiceInfo, labels: Record<string, string>, net: string): ServiceSpec {
+/**
+ * Base read-replica rebuilt from live truth with its storage re-derived from
+ * `labels`, placed on database-role servers when enough of them can take
+ * `replicas` tasks (else anywhere, as before).
+ */
+function replicaStorageSpec(
+  replica: SwarmServiceInfo,
+  declared: Record<string, string>,
+  net: string,
+  nodes: readonly DbPlacementNode[],
+  replicas: number = replica.desiredReplicas ?? 0,
+): ServiceSpec {
   const networks = (replica.networks ?? []).map((n) => n.name).filter((n) => n.length > 0);
+  const avoidNode = declared[DB_AVOID_NODE_LABEL];
+  const placed = dbFloatingPlacement({ nodes, replicas, ...(avoidNode ? { avoidNode } : {}) });
+  const labels = dbRolePlacementLabels(declared, placed);
   return applyPgMember<ServiceSpec>(
     {
       name: replica.name,
       image: replica.image,
-      mode: { replicated: { replicas: replica.desiredReplicas ?? 0 } },
+      mode: { replicated: { replicas } },
       env: envRecord(replica.env ?? []),
       labels,
       networks: networks.length > 0 ? networks : [net],
       ...((replica.secrets ?? []).length > 0
         ? { secrets: (replica.secrets ?? []).map((n) => ({ source: n })) }
         : {}),
+      ...(placed.constraints.length > 0 ? { placement: { constraints: placed.constraints } } : {}),
     },
     labels,
   );
@@ -848,15 +875,29 @@ const confirmAlerted = new Set<string>();
  * WRITER data (the demoted ex-primary) moves it aside and re-clones — see
  * @swarmy/core manageddb-pg.
  */
-export function repointSpec(s: SwarmServiceInfo, promoted: string, net: string, epoch: string): ServiceSpec {
+export function repointSpec(
+  s: SwarmServiceInfo,
+  promoted: string,
+  net: string,
+  epoch: string,
+  nodes?: readonly DbPlacementNode[],
+): ServiceSpec {
   const env = envRecord(s.env ?? []);
   const networks = (s.networks ?? []).map((n) => n.name).filter((n) => n.length > 0);
   const region = s.labels[DB_REGION_LABEL];
-  const labels: Record<string, string> = {
+  // A free-floating member keeps preferring database-role servers; a pinned
+  // one (the demoted ex-primary) stays where its data is.
+  const floating = nodes && !s.labels[DB_PIN_NODE_LABEL];
+  const avoidNode = s.labels[DB_AVOID_NODE_LABEL];
+  const placed = floating
+    ? dbFloatingPlacement({ nodes, replicas: s.desiredReplicas ?? 1, ...(region ? { region } : {}), ...(avoidNode ? { avoidNode } : {}) })
+    : { constraints: region ? [`node.labels.${REGION_NODE_LABEL}==${region}`] : [], onRole: false };
+  const base: Record<string, string> = {
     ...s.labels,
     [DB_ROLE_LABEL]: 'replica',
     [DB_LEADER_LABEL]: promoted,
   };
+  const labels = floating ? dbRolePlacementLabels(base, placed) : base;
   // The failover wait/confirm handshake is over once a writer is promoted.
   delete labels[DB_FAILOVER_PENDING_LABEL];
   delete labels[DB_FAILOVER_CONFIRM_LABEL];
@@ -885,7 +926,7 @@ export function repointSpec(s: SwarmServiceInfo, promoted: string, net: string, 
     networks: networks.length > 0 ? networks : [net],
     ...((s.secrets ?? []).length > 0 ? { secrets: (s.secrets ?? []).map((n) => ({ source: n })) } : {}),
     ...((s.configs ?? []).length > 0 ? { configs: (s.configs ?? []).map((n) => ({ source: n })) } : {}),
-    ...(region ? { placement: { constraints: [`node.labels.${REGION_NODE_LABEL}==${region}`] } } : {}),
+    ...(placed.constraints.length > 0 ? { placement: { constraints: placed.constraints } } : {}),
   }, labels);
 }
 
@@ -1109,7 +1150,7 @@ async function maybePromote(
   for (const member of others) {
     if (member.labels[DB_ROLE_LABEL] === 'dcs') continue;
     await hub
-      .dispatch(node, 'service.deploy', { spec: repointSpec(member, target.name, net, epoch), pullPolicy: 'missing' })
+      .dispatch(node, 'service.deploy', { spec: repointSpec(member, target.name, net, epoch, hub.nodeInventory(orgId)), pullPolicy: 'missing' })
       .catch(() => undefined);
     repointed.push(member.name);
   }
@@ -1337,7 +1378,7 @@ async function reconcileOrg(orgId: string): Promise<void> {
           await deploy(stripPitrSpec(adopted, c));
         }
       } else if (action.kind === 'convergeReplica' && c.replica) {
-        await deploy(replicaStorageSpec(c.replica, action.labels, clusterNet(c)));
+        await deploy(replicaStorageSpec(c.replica, action.labels, clusterNet(c), nodes));
       }
     }
 
@@ -1349,9 +1390,20 @@ async function reconcileOrg(orgId: string): Promise<void> {
 
     // (1) Base read-replica count. geo carries reads on region siblings, and
     //     single has no replicas — both park the base replica at 0.
+    //     A replica placed on database-role servers that they can no longer
+    //     hold is rebuilt with the fallback placement instead of scaled.
     if (c.replica) {
       const target = topology === 'single' || topology === 'geo' ? 0 : declared;
-      if ((c.replica.desiredReplicas ?? 0) !== target) await scale(c.replica.name, target);
+      const avoidNode = c.replica.labels[DB_AVOID_NODE_LABEL];
+      const move = planReplicaScale({
+        labels: c.replica.labels,
+        desired: c.replica.desiredReplicas ?? 0,
+        target,
+        nodes,
+        ...(avoidNode ? { avoidNode } : {}),
+      });
+      if (move === 'scale') await scale(c.replica.name, target);
+      else if (move === 'rebuild') await deploy(replicaStorageSpec(c.replica, c.replica.labels, clusterNet(c), nodes, target));
     }
 
     // (2) failover — leader observation. (No etcd member: see dcsToRemove.)
@@ -1399,9 +1451,19 @@ async function reconcileOrg(orgId: string): Promise<void> {
           continue;
         }
         if (!sib) {
-          if (primary) await deploy(regionReplicaSpec(c, primary, region, n, multiNode));
-        } else if ((sib.desiredReplicas ?? 0) !== n) {
-          await scale(sib.name, n);
+          if (primary) await deploy(regionReplicaSpec(c, primary, region, n, multiNode, nodes));
+        } else {
+          const avoidNode = sib.labels[DB_AVOID_NODE_LABEL];
+          const move = planReplicaScale({
+            labels: sib.labels,
+            desired: sib.desiredReplicas ?? 0,
+            target: n,
+            nodes,
+            region,
+            ...(avoidNode ? { avoidNode } : {}),
+          });
+          if (move === 'scale') await scale(sib.name, n);
+          else if (move === 'rebuild' && primary) await deploy(regionReplicaSpec(c, primary, region, n, multiNode, nodes));
         }
       }
       // Remove region siblings no longer declared.
@@ -1429,6 +1491,8 @@ async function reconcileOrg(orgId: string): Promise<void> {
               fallback: hub.swarmNodeIdFor(node),
               // Never a node whose declared data disk is not attached (QA-075b).
               unmountedDefaultDisk: unmountedDefaultDiskNodes(hub, orgId),
+              // Database-role servers first (`swarmy.node.database`).
+              preferLabel: NODE_DATABASE_LABEL,
             });
             await deploy(extraPrimarySpec(c, primary, i, pin));
           }

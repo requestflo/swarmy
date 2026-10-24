@@ -232,6 +232,11 @@ export interface PinChoiceInput {
    * there would have nowhere safe to go, so these nodes are skipped.
    */
   unmountedDefaultDisk?: ReadonlySet<string>;
+  /**
+   * A node label (value `true`) whose servers are preferred above every other
+   * rule — managed Postgres passes `swarmy.node.database` (the database role).
+   */
+  preferLabel?: string;
 }
 
 export interface PinChoice {
@@ -245,7 +250,8 @@ export interface PinChoice {
 /**
  * Choose the node a NEW primary is pinned to, and say why when nodes were
  * skipped. Pure. Among schedulable (ready + active) nodes it prefers, in
- * order: a node with a default data disk (`swarmy.disk.default`, so the data
+ * order: a node carrying {@link PinChoiceInput.preferLabel} (the database
+ * role, for Postgres), a node with a default data disk (`swarmy.disk.default`, so the data
  * lands on the added disk and not the root disk — QA-076), the fewest existing
  * pinned primaries, `fallback` (the manager the controller dispatches
  * through), managers, then id order for determinism. A node whose declared
@@ -270,8 +276,10 @@ export function explainPinNode(input: PinChoiceInput): PinChoice {
   }
   const load = (id: string) => input.pinnedCounts.get(id) ?? 0;
   const disk = (n: PinCandidateNode) => Number(defaultDiskMount(n.labels) !== null);
+  const role = (n: PinCandidateNode) => Number(Boolean(input.preferLabel) && n.labels?.[input.preferLabel!] === 'true');
   const sorted = [...eligible].sort(
     (a, b) =>
+      role(b) - role(a) ||
       disk(b) - disk(a) ||
       load(a.swarmNodeId) - load(b.swarmNodeId) ||
       Number(b.swarmNodeId === input.fallback) - Number(a.swarmNodeId === input.fallback) ||

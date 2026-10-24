@@ -4,6 +4,8 @@ import {
   DB_DATA_VOLUME_LABEL,
   dbStorageLabels,
   dbStorageState,
+  rolePlacementOutgrown,
+  type DbPlacementNode,
   type DbStorageState,
   type ObservedMount,
 } from '@swarmy/core';
@@ -288,4 +290,32 @@ export function pinnedRegionFit(
   const node = nodes.find((n) => n.swarmNodeId === pin);
   if (!node) return 'unknown';
   return node.labels[regionLabel] === region ? 'ok' : 'mismatch';
+}
+
+// ── Database-role placement (swarmy.node.database) ────────────────────────────
+
+/**
+ * How to move a free-floating replica member to `target` tasks. Pure. A plain
+ * `service.scale` keeps its placement; a member placed on the database role
+ * (`swarmy.db.rolePlaced`) that the role servers can no longer hold is REBUILT
+ * with the fallback placement instead, or the extra tasks would stay pending.
+ * The rule itself (prefer the role within the region, fall back as today)
+ * lives in @swarmy/core `dbFloatingPlacement`, shared with provisioning.
+ */
+export function planReplicaScale(input: {
+  labels: Record<string, string>;
+  desired: number;
+  target: number;
+  nodes: readonly DbPlacementNode[];
+  region?: string;
+  avoidNode?: string;
+}): 'none' | 'scale' | 'rebuild' {
+  const outgrown = rolePlacementOutgrown(input.labels, {
+    nodes: input.nodes,
+    replicas: input.target,
+    ...(input.region ? { region: input.region } : {}),
+    ...(input.avoidNode ? { avoidNode: input.avoidNode } : {}),
+  });
+  if (outgrown) return 'rebuild';
+  return input.desired === input.target ? 'none' : 'scale';
 }

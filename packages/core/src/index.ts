@@ -12,6 +12,7 @@ export * from './controller-url';
 export * from './public-ip';
 export * from './manageddb-pg';
 export * from './manageddb-storage';
+export * from './manageddb-placement';
 export * from './manageddb-failover';
 export * from './data-pin';
 export * from './disk-forecast';

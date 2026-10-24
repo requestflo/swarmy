@@ -209,6 +209,38 @@ describe('managedPgSpecs — persistent storage layout golden', () => {
   });
 });
 
+describe('managedPgSpecs — replicas prefer database-role servers (swarmy.node.database)', () => {
+  const n = (id: string, labels: Record<string, string> = {}) => ({
+    swarmNodeId: id, hostname: id, role: 'worker' as const, availability: 'active' as const, status: 'ready' as const, leader: false, labels,
+  });
+  const base = {
+    stack: 'hello', cluster: 'main', image: 'pgvector/pgvector:pg17', passwordSecret: 'hello_main-pg-password__v1',
+    database: 'app', replicas: 1, dataVolume: 'p', replicaVolume: 'r', pinNode: 'n1', multiNode: true,
+  };
+  const DB = { 'swarmy.node.database': 'true' };
+
+  it('a role server off the primary node takes the replica: role constraint + marker', () => {
+    const { replicaSpec } = managedPgSpecs({ ...base, nodes: [n('n1', DB), n('n2', DB), n('n3')] });
+    expect(replicaSpec.placement?.constraints).toEqual(['node.labels.swarmy.node.database==true', 'node.id!=n1']);
+    expect(replicaSpec.labels?.['swarmy.db.rolePlaced']).toBe('true');
+  });
+
+  it('too few role servers (the primary\'s own does not count) ⇒ today\'s placement', () => {
+    const { replicaSpec } = managedPgSpecs({ ...base, replicas: 2, nodes: [n('n1', DB), n('n2', DB), n('n3')] });
+    expect(replicaSpec.placement?.constraints).toEqual(['node.id!=n1']);
+    expect(replicaSpec.labels?.['swarmy.db.rolePlaced']).toBeUndefined();
+  });
+
+  it('a rebuild keeps a role-placed member on the role', () => {
+    const live = {
+      id: 'x', name: 'hello_main-replica', image: 'i', mode: 'replicated' as const, runningReplicas: 1, createdAt: 0, updatedAt: 0,
+      labels: {}, networks: [], env: [], ports: [], secrets: [], configs: [],
+    };
+    const spec = rebuildDbMemberSpec(live, { 'swarmy.db.rolePlaced': 'true', 'swarmy.db.avoidNode': 'n1' }, 1);
+    expect(spec.placement?.constraints).toEqual(['node.labels.swarmy.node.database==true', 'node.id!=n1']);
+  });
+});
+
 describe('rebuildDbMemberSpec — never a bare spec', () => {
   it('re-derives mount + pin from the member labels', () => {
     const spec = rebuildDbMemberSpec(
