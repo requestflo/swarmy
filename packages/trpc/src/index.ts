@@ -439,6 +439,7 @@ export {
   type KvScope,
 } from './services/swarm-kv.service';
 export { reachableOrgIds } from './services/kv-repo';
+export { createKvWarmer, warmOrgKv, type KvWarmOutcome } from './services/swarm-kv-warm';
 export { ingressConfigRepo, ingressEnabledOrgIds } from './services/ingress-config.repo';
 export { meshConfigRepo } from './services/mesh-config.repo';
 export { reconcileMeshControl, getControlPlaneCard, managedOf, renderControlSpec } from './services/mesh-control.service';

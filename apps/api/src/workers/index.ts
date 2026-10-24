@@ -5,6 +5,7 @@ import { startImageGc } from './image-gc';
 import { startNodeHygiene } from './node-hygiene';
 import { startControllerBackupScheduler } from './controller-backup-scheduler';
 import { startSwarmKvRestore } from './swarm-kv-restore';
+import { startSwarmKvWarm } from './swarm-kv-warm';
 import { startBackupScheduler } from './backup-scheduler';
 import { startDrReconcile } from './dr-reconcile';
 import { startObservabilityReconcile } from './observability-reconcile';
@@ -46,6 +47,8 @@ export function startWorkers(): () => void {
   const stops = [
     // First: a restored bundle's swarm config goes back before reconcilers read it.
     startSwarmKvRestore(),
+    // Then load every org's swarm config as its manager connects (first read is a cache hit).
+    startSwarmKvWarm(),
     startMetricsSampler(),
     startEdgeTrafficRollups(),
     startRetention(),

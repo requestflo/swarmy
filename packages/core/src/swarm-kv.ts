@@ -33,8 +33,11 @@
  * are rejected; a document's update time is its latest config's Docker
  * `CreatedAt`, reported back as {@link KvDoc.updatedAt}.
  *
- * Reads are served from an in-memory cache loaded on first use and refreshed in
- * the background every `refreshMs`. The controller has no Docker socket, so
+ * Reads are served from an in-memory cache, loaded on first use (the controller
+ * warms it at boot, `swarm-kv-warm.ts` in `@swarmy/trpc`) and refreshed in
+ * the background every `refreshMs`. A load is all or nothing: a document that
+ * can't be opened fails it, naming every such document, because a missing
+ * document must never read as "not configured". The controller has no Docker socket, so
  * the {@link KvDriver} is injected: the controller's driver dispatches
  * `config.*` commands to a manager agent; tests inject an in-memory fake; the
  * integration test drives a real local swarm via `DockerClient`.
@@ -194,6 +197,26 @@ export interface KvDoc<T> {
   updatedAt: number;
 }
 
+/** One document's version metadata, as {@link SwarmKv.describe} reports it. */
+export interface KvDocMeta {
+  collection: string;
+  id: string;
+  /** Latest version. */
+  seq: number;
+  /** Docker CreatedAt of the latest version (ms epoch). */
+  updatedAt: number;
+  /** Stored (sealed, base64) size of the latest version — what the per-document limit measures. */
+  bytes: number;
+  /** Every retained version, newest first. */
+  versions: Array<{ seq: number; updatedAt: number; bytes: number }>;
+}
+
+export interface KvLimits {
+  maxDocBytes: number;
+  maxTotalBytes: number;
+  keepVersions: number;
+}
+
 interface VersionMeta {
   seq: number;
   bytes: number;
@@ -304,6 +327,8 @@ export class SwarmKv {
     const startGen = this.gen;
     const listed = await this.listMine();
     const next = new Map<string, Entry>();
+    /** Documents that can't be opened: every one is named, not just the first. */
+    const broken: string[] = [];
     for (const [k, versions] of listed) {
       const latest = versions[versions.length - 1]!;
       const cur = this.entries.get(k);
@@ -313,9 +338,16 @@ export class SwarmKv {
         continue;
       }
       const [collection, id] = k.split('\u0000') as [string, string];
-      const value = await this.readVersion(collection, id, latest.seq);
-      next.set(k, { versions, value });
+      try {
+        next.set(k, { versions, value: await this.readVersion(collection, id, latest.seq) });
+      } catch (e) {
+        if (!isKvError(e, 'INVALID')) throw e; // the swarm is unreachable: not a broken document
+        broken.push(e.message);
+      }
     }
+    // All or nothing: a missing document must never read as "not configured".
+    if (broken.length === 1) throw new KvError('INVALID', broken[0]!);
+    if (broken.length > 1) throw new KvError('INVALID', `${broken.length} swarm-kv documents can't be opened: ${broken.join('; ')}`);
     // A local write/delete that landed while we were listing wins over the listing.
     for (const [k, g] of this.touched) {
       if (g <= startGen) continue;
@@ -356,6 +388,25 @@ export class SwarmKv {
       if (d) out.push(d);
     }
     return out.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  }
+
+  /** The limits this store enforces (per document, whole footprint, versions kept). */
+  get limits(): KvLimits {
+    return { maxDocBytes: this.maxDocBytes, maxTotalBytes: this.maxTotalBytes, keepVersions: this.keep };
+  }
+
+  /** Every document's version metadata (no values), ordered by collection then id. */
+  async describe(): Promise<KvDocMeta[]> {
+    await this.ensureFresh();
+    const out: KvDocMeta[] = [];
+    for (const [k, e] of this.entries) {
+      const latest = e.versions[e.versions.length - 1];
+      if (!latest) continue;
+      const [collection, id] = k.split('\u0000') as [string, string];
+      const versions = e.versions.map((v) => ({ seq: v.seq, updatedAt: v.createdAt, bytes: v.bytes })).reverse();
+      out.push({ collection, id, seq: latest.seq, updatedAt: latest.createdAt, bytes: latest.bytes, versions });
+    }
+    return out.sort((a, b) => (a.collection === b.collection ? (a.id < b.id ? -1 : 1) : a.collection < b.collection ? -1 : 1));
   }
 
   /** Retained version numbers of one document, newest first (the "undo" list). */
