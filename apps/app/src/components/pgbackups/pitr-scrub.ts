@@ -28,6 +28,23 @@ export function pitSpan(w: { from: string; to: string } | null | undefined): Pit
   return { fromMs, toMs };
 }
 
+type Window = { from: string; to: string };
+export type PitWindowSource = 'agent' | 'estimate';
+
+/**
+ * The window the scrubber spans: the agent's read of the WAL repo
+ * (`dbBackups.pitrWindow`) when it has one, else the overview's (its last
+ * read, or the schedule's estimate). A read with no base backups is no window.
+ */
+export function pickPitrWindow(
+  read: { source: string; window: Window | null } | null | undefined,
+  row: { pitrWindow: Window | null; pitrWindowSource?: PitWindowSource } | null | undefined,
+): { window: Window | null; source: PitWindowSource | null } {
+  if (read?.source === 'agent') return { window: read.window, source: 'agent' };
+  if (row?.pitrWindow) return { window: row.pitrWindow, source: row.pitrWindowSource ?? 'estimate' };
+  return { window: null, source: null };
+}
+
 /** Round to the second and keep inside the span. */
 export function clampPit(ms: number, span: PitSpan): number {
   return Math.min(span.toMs, Math.max(span.fromMs, Math.round(ms / 1000) * 1000));

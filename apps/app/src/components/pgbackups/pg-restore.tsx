@@ -9,6 +9,7 @@ import { useTRPC } from '@/integrations/trpc';
 import { fmtBytes, isPhysical } from '@/components/stacks/db-backup-format';
 import { clampPit, formatPit, pitSpan, spanDays } from './pitr-scrub';
 import { PgScrubber } from './pg-scrubber';
+import { PgWindowNote } from './pg-window-note';
 import { PgRestoreTarget, type RestoreTarget } from './pg-restore-target';
 import { pointTime } from './retention-strip';
 import type { PgBackupsData } from './use-pg-backups';
@@ -33,8 +34,9 @@ export function PgRestore({ stack, cluster, b, selected, primary }: PgRestorePro
   const trpc = useTRPC();
   const qc = useQueryClient();
   const s = b.schedule;
-  const from = b.row?.pitrWindow?.from;
-  const to = b.row?.pitrWindow?.to;
+  // The agent's read of the WAL repo when there is one, else the estimate.
+  const from = b.pitrWindow?.from;
+  const to = b.pitrWindow?.to;
   const span = React.useMemo(() => (from && to ? pitSpan({ from, to }) : null), [from, to]);
   const pitr = span != null && s != null && isPhysical(s.engine);
   const [pit, setPit] = React.useState<number | null>(null);
@@ -80,6 +82,9 @@ export function PgRestore({ stack, cluster, b, selected, primary }: PgRestorePro
       count={pitr && span ? `any second in the last ${spanDays(span)} days` : point ? `from the save of ${pointTime(Date.parse(point.time))} UTC` : undefined}
     >
       {pitr && span && at != null ? <PgScrubber span={span} value={at} onChange={setPit} /> : null}
+      {pitr && span ? (
+        <PgWindowNote span={span} source={b.pitrWindowSource} checked={s?.engine === 'wal-g' && !b.pitrReadUnsupported} unsupported={b.pitrReadUnsupported} />
+      ) : null}
       {!pitr && s?.pitr ? (
         <p className="text-muted-foreground text-[13px]">Restoring to any second opens once the first base copy has saved.</p>
       ) : null}

@@ -42,6 +42,7 @@ import { cost } from './resolvers/cost';
 import { resilience } from './resolvers/resilience';
 import { resilienceLive } from './resolvers/resilience-live';
 import { dbRestoreCopy } from './resolvers/db-restore-copy';
+import { dbPitrWindow } from './resolvers/db-pitr-window';
 import { controllerstore } from './resolvers/controllerstore';
 import { platform } from './resolvers/platform';
 import { blueprints } from './resolvers/blueprints';
@@ -129,6 +130,7 @@ const MODULES: DomainResolvers[] = [
   resilience,
   resilienceLive,
   dbRestoreCopy,
+  dbPitrWindow,
   controllerstore,
   platform,
   blueprints,

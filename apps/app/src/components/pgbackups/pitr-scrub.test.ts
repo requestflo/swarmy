@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { clampPit, formatPit, nudgePit, parsePit, pitAxis, pitInput, pitSegments, pitSpan, segmentOf, spanDays } from './pitr-scrub';
+import { clampPit, formatPit, nudgePit, parsePit, pickPitrWindow, pitAxis, pitInput, pitSegments, pitSpan, segmentOf, spanDays } from './pitr-scrub';
 
 const from = '2026-09-17T00:00:00.400Z';
 const to = '2026-09-24T03:00:41.900Z';
@@ -74,5 +74,22 @@ describe('parsePit', () => {
     expect(parsePit('2026-02-31 03:00:00')).toBeNull();
     expect(parsePit('2026-09-21 25:00:00')).toBeNull();
     expect(parsePit('2026-09-21 03:02:07+02:00')).toBeNull();
+  });
+});
+
+describe('pickPitrWindow', () => {
+  const real = { from: '2026-09-20T03:00:00Z', to: '2026-09-24T03:00:00Z' };
+  const guess = { from: '2026-09-10T00:00:00Z', to: '2026-09-24T00:00:00Z' };
+  test("the agent's read of the WAL repo wins over the schedule's estimate", () => {
+    expect(pickPitrWindow({ source: 'agent', window: real }, { pitrWindow: guess, pitrWindowSource: 'estimate' })).toEqual({ window: real, source: 'agent' });
+  });
+  test('a read with no base backups is no window, whatever the estimate says', () => {
+    expect(pickPitrWindow({ source: 'agent', window: null }, { pitrWindow: guess })).toEqual({ window: null, source: 'agent' });
+  });
+  test("an older agent (or no read yet) keeps the overview's window and its source", () => {
+    expect(pickPitrWindow({ source: 'unsupported', window: null }, { pitrWindow: guess, pitrWindowSource: 'estimate' })).toEqual({ window: guess, source: 'estimate' });
+    expect(pickPitrWindow(undefined, { pitrWindow: real, pitrWindowSource: 'agent' })).toEqual({ window: real, source: 'agent' });
+    expect(pickPitrWindow(undefined, { pitrWindow: guess })).toEqual({ window: guess, source: 'estimate' });
+    expect(pickPitrWindow(null, null)).toEqual({ window: null, source: null });
   });
 });

@@ -14,7 +14,11 @@ interface PgAsideProps {
 /** The rendered `swarmy.db.backup.*` labels and the live schedule, at Code. */
 export function PgLabelsCode({ stack, cluster, b }: PgAsideProps): React.JSX.Element {
   const s = b.schedule;
-  const live = JSON.stringify({ schedule: s, pitrWindow: b.row?.pitrWindow ?? null, savedCopies: b.points.length }, null, 2);
+  const live = JSON.stringify(
+    { schedule: s, pitrWindow: b.pitrWindow ?? null, pitrWindowSource: b.pitrWindowSource, savedCopies: b.points.length },
+    null,
+    2,
+  );
   return (
     <CodeView
       title={`${cluster} backups as labels`}
