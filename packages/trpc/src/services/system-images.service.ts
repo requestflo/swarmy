@@ -245,7 +245,30 @@ export function rewriteSystemImages<P>(
     }
     return out === p ? payload : (out as P);
   }
+  // Mesh clients (M3 client mirror): only a `mirrorImage` HINT next to the
+  // untouched upstream ref, because the node must still join when the
+  // registry is unreachable (it rides the swarm, the swarm rides the mesh).
+  // A new agent tries the hint, then upstream; an old agent ignores it.
+  if (cmd === 'applyMesh' || cmd === 'mesh.accessRouter') {
+    if (p?.mirrorImage) return payload;
+    const ref = cmd === 'applyMesh' ? (p?.rendered as { client?: { image?: unknown } } | undefined)?.client?.image : p?.image;
+    const to = map(bareSystemRef(ref, images));
+    return to ? ({ ...p, mirrorImage: to } as P) : payload;
+  }
   return payload;
+}
+
+/**
+ * Mesh clients are dispatched pinned (`<ref>@<digest>`, `pinnedTaggedRef`):
+ * the bare BOM ref when that digest IS the BOM's pin, else null (another
+ * image, or a release that moved the pin, is never swapped for a copy). Pure.
+ */
+export function bareSystemRef(image: unknown, images: readonly SystemImage[] = SYSTEM_IMAGES): string | null {
+  if (typeof image !== 'string') return null;
+  const m = /^(.+)@(sha256:[a-f0-9]{64})$/.exec(image);
+  if (!m) return systemImageForRef(image, images) ? image : null;
+  const img = systemImageForRef(m[1]!, images);
+  return img?.digest === m[2] ? m[1]! : null;
 }
 
 /**

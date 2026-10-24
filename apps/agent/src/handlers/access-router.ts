@@ -16,6 +16,7 @@
 import { DockerClient, defaultContainerLogConfig } from '@swarmy/core/docker';
 import { pinnedTaggedRef } from '@swarmy/core/system-images';
 import type { ApplyAccessRouterPayload, ApplyAccessRouterResult } from '@swarmy/core/protocol';
+import { resolveMeshClientImage } from './mesh-image';
 import { putSecretFile } from './secret-file';
 
 /** The NetBird client the node sidecar runs, pinned in the SYSTEM_IMAGES BOM. */
@@ -94,8 +95,8 @@ export async function applyAccessRouter(docker: DockerClient, p: ApplyAccessRout
   const onNetwork = !!cur?.NetworkSettings?.Networks?.[p.network];
   if (p.action === 'up' && (!cur || !onNetwork)) {
     if (!p.setupKey && !cur) throw new Error('first router start needs a setup key');
-    const image = p.image ?? DEFAULT_IMAGE;
-    await docker.pullImage(image).catch(() => undefined);
+    // The cluster's copy when the controller hints one (M3 client mirror), else upstream.
+    const image = await resolveMeshClientImage(docker, p.image ?? DEFAULT_IMAGE, p);
     await d.getContainer(name).remove({ force: true }).catch(() => undefined);
     const env = ['NB_INTERFACE_NAME=wt0', `NB_HOSTNAME=${name}`];
     if (p.managementUrl) env.push(`NB_MANAGEMENT_URL=${p.managementUrl}`);

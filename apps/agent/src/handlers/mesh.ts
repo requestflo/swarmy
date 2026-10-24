@@ -27,6 +27,7 @@ import type {
   RenderedMesh,
 } from '@swarmy/core/protocol';
 import { sampleMeshControl } from './mesh-control';
+import { resolveMeshClientImage, type MeshImageHint } from './mesh-image';
 import { parseTailscaleStatus } from './mesh-tailscale';
 import { putSecretFile } from './secret-file';
 
@@ -76,10 +77,9 @@ function defaultDocker(): DockerClient {
 }
 
 /** Run / re-join the NetBird client container. */
-async function joinNetbird(docker: DockerClient, rendered: RenderedMesh): Promise<ApplyMeshResult> {
+async function joinNetbird(docker: DockerClient, rendered: RenderedMesh, hint?: MeshImageHint): Promise<ApplyMeshResult> {
   const client = rendered.client;
   if (!client) throw new Error('netbird render is missing the client block');
-  const image = client.image ?? DEFAULT_NETBIRD_IMAGE;
   const d = docker.docker;
 
   // Already joined (installer node #1, a mesh-first join, a re-enroll from the
@@ -90,7 +90,8 @@ async function joinNetbird(docker: DockerClient, rendered: RenderedMesh): Promis
     return { driver: rendered.driver, joined: true, meshIp: existing.meshIp, peerId: existing.peerId };
   }
 
-  await docker.pullImage(image).catch(() => undefined);
+  // The cluster's copy when the controller hints one (M3), else upstream.
+  const image = await resolveMeshClientImage(docker, client.image ?? DEFAULT_NETBIRD_IMAGE, hint);
   await d.getContainer(NETBIRD_CONTAINER).remove({ force: true }).catch(() => undefined);
 
   const env: string[] = [];
@@ -131,13 +132,12 @@ async function joinNetbird(docker: DockerClient, rendered: RenderedMesh): Promis
 }
 
 /** Run / re-join the tailscale client container for Headscale (--login-server). */
-async function joinTailscale(docker: DockerClient, rendered: RenderedMesh): Promise<ApplyMeshResult> {
+async function joinTailscale(docker: DockerClient, rendered: RenderedMesh, hint?: MeshImageHint): Promise<ApplyMeshResult> {
   const client = rendered.client;
   if (!client) throw new Error('tailscale render is missing the client block');
-  const image = client.image ?? DEFAULT_TAILSCALE_IMAGE;
   const d = docker.docker;
 
-  await docker.pullImage(image).catch(() => undefined);
+  const image = await resolveMeshClientImage(docker, client.image ?? DEFAULT_TAILSCALE_IMAGE, hint);
   await d.getContainer(TAILSCALE_CONTAINER).remove({ force: true }).catch(() => undefined);
 
   const env: string[] = ['TS_STATE_DIR=/var/lib/tailscale', 'TS_USERSPACE=false'];
@@ -173,8 +173,8 @@ async function leaveMesh(docker: DockerClient, rendered: RenderedMesh): Promise<
   return { driver: rendered.driver, joined: false };
 }
 
-/** Apply a rendered mesh membership on this node. */
-export async function applyMesh(docker: DockerClient, rendered: RenderedMesh): Promise<ApplyMeshResult> {
+/** Apply a rendered mesh membership on this node (`hint`: the controller's mirror copy, M3). */
+export async function applyMesh(docker: DockerClient, rendered: RenderedMesh, hint?: MeshImageHint): Promise<ApplyMeshResult> {
   if (rendered.driver === 'none') {
     return { driver: 'none', joined: false };
   }
@@ -183,8 +183,8 @@ export async function applyMesh(docker: DockerClient, rendered: RenderedMesh): P
   }
 
   const kind = rendered.client?.kind;
-  if (kind === 'tailscale') return joinTailscale(docker, rendered);
-  return joinNetbird(docker, rendered);
+  if (kind === 'tailscale') return joinTailscale(docker, rendered, hint);
+  return joinNetbird(docker, rendered, hint);
 }
 
 // ── meshState reporter (telemetry the agent pushes) ──────────────────────────

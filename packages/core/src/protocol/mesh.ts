@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { CommandId } from './primitives';
+import { RegistryAuth } from './commands';
 
 /**
  * Zero-trust mesh networking protocol (epic #6). Mirrors `ingress.ts`:
@@ -98,10 +99,24 @@ export const MeshStatus = z.object({
 });
 export type MeshStatus = z.infer<typeof MeshStatus>;
 
+/**
+ * The cluster's own copy of a mesh client image (M3 client mirror): the hub
+ * dispatch decorator sets it when the built-in registry holds a trusted copy
+ * of the pinned upstream ref. A new agent tries it first and falls back to
+ * the upstream image; an old agent drops the unknown keys and pulls upstream
+ * as before. The image the payload names is never rewritten.
+ */
+export const MeshImageHint = {
+  mirrorImage: z.string().optional(),
+  /** The in-swarm registry login for `mirrorImage` (attached by the same decorator). */
+  registryAuth: RegistryAuth.optional(),
+};
+
 export const ApplyMeshPayload = z.object({
   commandId: CommandId,
   timeoutMs: z.number().int().positive().optional(),
   rendered: RenderedMesh,
+  ...MeshImageHint,
 });
 export type ApplyMeshPayload = z.infer<typeof ApplyMeshPayload>;
 
@@ -297,6 +312,7 @@ export const ApplyAccessRouterPayload = z.object({
   resolve: z.array(z.string()).default([]),
   /** Extra CA (PEM) for a control plane behind a private CA. */
   caPem: z.string().optional(),
+  ...MeshImageHint,
 });
 export type ApplyAccessRouterPayload = z.infer<typeof ApplyAccessRouterPayload>;
 

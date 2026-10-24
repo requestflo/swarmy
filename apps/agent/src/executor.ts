@@ -178,7 +178,7 @@ export async function handleCommand(
       return run(conn, commandId, () => applyDns(envlp.payload));
     }
     case 'applyMesh': {
-      const { commandId, rendered } = envlp.payload;
+      const { commandId, rendered, mirrorImage, registryAuth } = envlp.payload;
       if (!env.ALLOW_MESH) {
         conn.send('commandResult', {
           commandId,
@@ -187,7 +187,7 @@ export async function handleCommand(
         });
         return;
       }
-      return run(conn, commandId, () => applyMesh(docker, rendered));
+      return run(conn, commandId, () => applyMesh(docker, rendered, { mirrorImage, registryAuth }));
     }
     case 'applyMeshControl':
     case 'applyAccessRouter': {
