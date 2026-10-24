@@ -9,6 +9,7 @@ import {
   normalizeHostname,
   applyIngress as applyIngressPkg,
   previewConfig as previewConfigPkg,
+  tunnelSideConfig,
   type ColdRoute,
   type ControllerVhost,
   type DriverDispatch,
@@ -598,6 +599,8 @@ async function loadOrgConfig(
       // Declared exposure (swarmy.expose): the renderers withhold private/mesh
       // routes and keep tunnel-only ones off the public edge.
       ...(expose ? { expose } : {}),
+      // Per-route driver override: `cloudflared` moves the route onto the tunnel side.
+      ...(route.driver ? { driver: route.driver } : {}),
     }));
   // Apex ↔ www toggles expand into plain routes + redirect sites, then the DNS
   // gate withholds every host whose DNS has not yet verifiably pointed at us —
@@ -1342,8 +1345,19 @@ async function applyAndRecord(ctx: OrgContext, config: OrgIngressConfig): Promis
   if (config.driver === 'caddy') await attachRoutedServicesToEdge(ctx).catch(() => []);
   try {
     const status = await applyIngressPkg(config, makeDispatch(ctx, config));
-    recordApply(ctx.activeOrgId, true, status.message ?? 'applied');
-    return status;
+    // Routes that opt into the tunnel (route driver `cloudflared` / declared
+    // tunnel) on a Caddy org: run the tunnel half too. Its outcome rides on the
+    // recorded message; it never fails the public edge's apply.
+    const side = tunnelSideConfig(config);
+    const tunnel = side
+      ? await applyIngressPkg(side, makeDispatch(ctx, side)).then(
+          (s) => `tunnel: ${s.message ?? 'applied'}`,
+          (e: unknown) => `tunnel failed: ${errMessage(e)}`,
+        )
+      : null;
+    const message = [status.message ?? 'applied', tunnel].filter(Boolean).join(' · ');
+    recordApply(ctx.activeOrgId, true, message);
+    return { ...status, message };
   } catch (e) {
     recordApply(ctx.activeOrgId, false, errMessage(e));
     throw e;

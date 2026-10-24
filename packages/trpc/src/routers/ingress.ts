@@ -152,9 +152,10 @@ export const ingressRouter = router({
         tls: TlsMode.default('auto'),
         pathPrefix: z.string().optional(),
         /**
-         * Per-domain driver override (ingress-strategy epic). `null`/absent =
-         * inherit the org default. Persisted in IngressConfig.settings until the
-         * Domain.ingressDriver column lands (see INTEGRATION).
+         * Per-domain driver override, saved as the route label's `driver`.
+         * `cloudflared` serves this host through the org's Cloudflare Tunnel
+         * instead of the public edge (a Caddy org runs both); `none` leaves the
+         * host to you; `caddy`/absent = the org's driver (see `routeChannel`).
          */
         ingressDriver: driverEnum.nullish(),
         /** Also serve / redirect the www companion (`acme.com` ↔ `www.acme.com`). */

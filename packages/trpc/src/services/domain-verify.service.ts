@@ -62,6 +62,8 @@ import {
   type ResolverSeen,
   type TlsProbe,
   type WwwMode,
+  routeChannel,
+  TUNNEL_DRIVER,
 } from '@swarmy/ingress';
 import {
   canonicalResolverId,
@@ -100,28 +102,42 @@ function driverIsTunnel(driver: string | undefined): boolean {
   return (driver ?? '').toUpperCase() === 'CLOUDFLARE_TUNNEL';
 }
 
+/** A route as the postures see it; `tunnel` = its service is declared tunnel-only. */
+type PostureRoute = { host: string; tls: RouteTls; www?: WwwMode; driver?: string; tunnel?: boolean };
+
+/** The route rides the tunnel whatever the org edge is (route driver / declared tunnel). */
+function viaTunnel(r: PostureRoute): boolean {
+  const ch = routeChannel({ ...(r.tunnel ? { expose: 'tunnel' as const } : {}), driver: r.driver }, 'org');
+  return 'driver' in ch && ch.driver === TUNNEL_DRIVER;
+}
+
 /** Every host the org's routes make swarmy answer for (companions included). */
-export function hostPostures(
-  routes: ReadonlyArray<{ host: string; tls: RouteTls; www?: WwwMode }>,
-  driver: string | undefined,
-): HostPosture[] {
+export function hostPostures(routes: ReadonlyArray<PostureRoute>, driver: string | undefined): HostPosture[] {
   const tlsByHost = new Map<string, RouteTls[]>();
-  const add = (h: string, tls: RouteTls) => {
+  const edgeHosts = new Set<string>();
+  const add = (h: string, r: PostureRoute) => {
     const host = normalizeHostname(h);
     const list = tlsByHost.get(host);
-    if (list) list.push(tls);
-    else tlsByHost.set(host, [tls]);
+    if (list) list.push(r.tls);
+    else tlsByHost.set(host, [r.tls]);
+    if (!viaTunnel(r)) edgeHosts.add(host);
   };
   for (const r of routes) {
-    add(r.host, r.tls);
+    add(r.host, r);
     if (r.www) {
       const c = companionHost(r.host);
-      if (c) add(c, r.tls);
+      if (c) add(c, r);
     }
   }
-  const tunnel = driverIsTunnel(driver);
+  const orgTunnel = driverIsTunnel(driver);
   return [...tlsByHost.entries()]
-    .map(([host, tlss]) => ({ host, tls: hostTls(tlss), private: isPrivateHost(host), tunnel }))
+    .map(([host, tlss]) => ({
+      host,
+      tls: hostTls(tlss),
+      private: isPrivateHost(host),
+      // A host only skips our ACME gate when NO route of it lands on our edge.
+      tunnel: orgTunnel || !edgeHosts.has(host),
+    }))
     .sort((a, b) => (a.host < b.host ? -1 : 1));
 }
 
@@ -132,7 +148,7 @@ async function orgDriver(ctx: OrgContext): Promise<string | undefined> {
 
 function orgPostures(ctx: OrgContext, driver: string | undefined): HostPosture[] {
   return hostPostures(
-    listRoutesForOrg(ctx).map((r) => r.route),
+    listRoutesForOrg(ctx).map((r) => ({ ...r.route, tunnel: r.expose === 'tunnel' })),
     driver,
   );
 }
@@ -212,13 +228,14 @@ export function kickDomainChecks(ctx: OrgContext, hosts: readonly string[]): voi
 // ───────────────────────────────────────────── expected target ──
 
 /** Where public DNS should point for this org right now (edges' public IPs / tunnel). */
-export async function expectedTarget(ctx: OrgContext): Promise<ExpectedTarget & { cnameTarget: string | null }> {
+export async function expectedTarget(ctx: OrgContext): Promise<OrgExpectedTarget> {
   const settings = await readIngressSettingsRaw(ctx);
   const driver = await orgDriver(ctx);
   const dashboard = typeof settings.dashboardDomain === 'string' ? settings.dashboardDomain : null;
+  const t = settings.tunnel as { tunnelId?: string } | undefined;
+  const tunnelCname = t?.tunnelId ? `${t.tunnelId}.cfargotunnel.com` : null;
   if (driverIsTunnel(driver)) {
-    const t = settings.tunnel as { tunnelId?: string } | undefined;
-    return { ips: [], tunnelCname: t?.tunnelId ? `${t.tunnelId}.cfargotunnel.com` : null, cnameTarget: null };
+    return { ips: [], tunnelCname, cnameTarget: null };
   }
   const ipOf = (id: string) => publicIpFromLabels(ctx.hub.nodeInfoFor(id)?.labels);
   const collect = (ids: string[]) => [...new Set(ids.map(ipOf).filter((ip): ip is string => Boolean(ip)))];
@@ -234,7 +251,20 @@ export async function expectedTarget(ctx: OrgContext): Promise<ExpectedTarget & 
   // The dashboard's own domain already resolves to this edge — a CNAME target
   // that follows IP changes (only meaningful when swarmy's Caddy serves it).
   const cnameTarget = (driver ?? 'CADDY').toUpperCase() === 'CADDY' && dashboard ? dashboard : null;
-  return { ips, tunnelCname: null, cnameTarget };
+  return { ips, tunnelCname: null, cnameTarget, tunnelSideCname: tunnelCname };
+}
+
+/** The org's target, plus the tunnel's CNAME for routes that ride it on a Caddy org. */
+export type OrgExpectedTarget = ExpectedTarget & { cnameTarget: string | null; tunnelSideCname?: string | null };
+
+/**
+ * What one host is checked against: a host served only through the tunnel
+ * (route driver `cloudflared` / declared tunnel) points at the tunnel even
+ * when the org's edge is Caddy.
+ */
+export function targetFor(expected: OrgExpectedTarget, p: HostPosture): OrgExpectedTarget {
+  if (!p.tunnel || expected.tunnelCname || !expected.tunnelSideCname) return expected;
+  return { ips: [], tunnelCname: expected.tunnelSideCname, cnameTarget: null };
 }
 
 /** The swarmy-served (swarmy-ns) zone that contains `host`, if any. */
@@ -593,8 +623,10 @@ export async function getDomainStatus(ctx: OrgContext, rawHost: string): Promise
         })
         .catch(() => null)
     : undefined;
-  const guidanceFor = (h: string, p: HostPosture) =>
-    dnsGuidance({ host: h, expected, cnameTarget: expected.cnameTarget, zone, private: p.private, dnsChallenge });
+  const guidanceFor = (h: string, p: HostPosture) => {
+    const target = targetFor(expected, p);
+    return dnsGuidance({ host: h, expected: target, cnameTarget: target.cnameTarget, zone, private: p.private, dnsChallenge });
+  };
   const route = listRoutesForOrg(ctx).find((r) => normalizeHostname(r.route.host) === host)?.route;
   const companion = route?.www ? companionHost(host) : null;
   const companionPosture = companion ? postures.find((p) => p.host === companion) : undefined;
@@ -677,7 +709,7 @@ async function checkHosts(
         const before = checks?.hosts[p.host] ?? created.get(p.host) ?? newDomainRecord(p, now);
         const zone = await zoneFor(ctx, p.host).catch(() => null);
         const swarmyDnsServers = (zone?.nameservers ?? []).map((n) => n.ip).filter(Boolean);
-        const after = await runCheck(before, p, expected, now, { swarmyDnsServers }).catch(() => null);
+        const after = await runCheck(before, p, targetFor(expected, p), now, { swarmyDnsServers }).catch(() => null);
         return { before, after };
       }),
     );

@@ -250,6 +250,13 @@ export const DomainRouteSchema = z.object({
    * (the org's driver serves it, byte-identical legacy output).
    */
   expose: z.enum(EXPOSE_MODES).optional(),
+  /**
+   * Per-route driver override (the route label's `driver`). Only the tunnel
+   * (`cloudflared`) and `none` move a route — see `routeChannel`; anything
+   * else (incl. the removed traefik/nginx/haproxy) falls back to the org's
+   * driver. Absent ⇒ the org's driver.
+   */
+  driver: z.string().optional(),
 });
 export type DomainRoute = z.infer<typeof DomainRouteSchema>;
 
@@ -427,6 +434,12 @@ export const IngressConfigSchema = z.object({
    * region-name ordering (correct, just unpreferenced).
    */
   localRegion: z.string().optional(),
+  /**
+   * The org's own driver, when this render runs AS another one (the tunnel
+   * side of a Caddy org whose routes opt into the tunnel — `tunnelSideConfig`).
+   * Routes without an override belong to it. Absent ⇒ `driver`.
+   */
+  defaultDriver: z.string().optional(),
   globalOptions: IngressGlobalOptionsSchema.default({}),
 });
 export type IngressConfig = z.infer<typeof IngressConfigSchema>;

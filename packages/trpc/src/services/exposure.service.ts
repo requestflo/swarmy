@@ -212,7 +212,7 @@ export function classifyServiceWithIntent(
   // The driver that really serves each route — the same channel the renderers
   // use, so a declared-tunnel route counts as the tunnel's, never the edge's.
   const routeDrivers = readRoutes(svc.labels).flatMap((r) => {
-    const ch = routeChannel({ ...(declared ? { expose: declared } : {}) }, r.driver ?? defaultDriver ?? 'none');
+    const ch = routeChannel({ ...(declared ? { expose: declared } : {}), driver: r.driver }, defaultDriver ?? 'none');
     return 'driver' in ch ? [ch.driver] : [];
   });
   const drift = computeExposureDrift({

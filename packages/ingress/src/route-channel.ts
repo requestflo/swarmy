@@ -9,24 +9,33 @@ import type { DomainRoute, IngressConfig, IngressValidationWarning } from './typ
  * automatic address — can widen what the service declared.
  *   - `private` / `mesh` → withheld: no driver renders a public route.
  *   - `tunnel` → only the Cloudflare Tunnel serves it; the public edge never does.
- *   - `public` / undeclared → the org's driver.
+ * Then the route's own `driver` override, which can only NARROW the path:
+ *   - `cloudflared` → through the tunnel instead of the public edge (a Caddy
+ *     org with a tunnel configured runs both — see {@link tunnelSideConfig});
+ *   - `none` → swarmy renders nothing for it (you route that host yourself).
+ * Anything else — `caddy`, or a driver that no longer exists (traefik, nginx,
+ * haproxy) — is the org's driver: the public edge is an org-wide choice.
  */
 
 /** The tunnel driver's registry name. */
 export const TUNNEL_DRIVER = 'cloudflared';
 
+/** Override values that move a route off the org's driver. */
+const OVERRIDES: ReadonlySet<string> = new Set([TUNNEL_DRIVER, 'none']);
+
 export type RouteChannel = { driver: string } | { withheld: 'private' | 'mesh' };
 
 /** The driver that serves `route`, or why no public route may exist. */
-export function routeChannel(route: Pick<DomainRoute, 'expose'>, defaultDriver: string): RouteChannel {
+export function routeChannel(route: Pick<DomainRoute, 'expose' | 'driver'>, defaultDriver: string): RouteChannel {
   if (route.expose === 'private' || route.expose === 'mesh') return { withheld: route.expose };
   if (route.expose === 'tunnel') return { driver: TUNNEL_DRIVER };
+  if (route.driver && OVERRIDES.has(route.driver)) return { driver: route.driver };
   return { driver: defaultDriver };
 }
 
 /** The driver routes fall back to: the org's own (a render may run as another). */
 function orgDriver(config: IngressConfig): string {
-  return config.driver;
+  return config.defaultDriver ?? config.driver;
 }
 
 /** True when `driver` is the one that renders `route` for this org. */
@@ -54,6 +63,19 @@ export function scopeToDriver(config: IngressConfig, driver: string): IngressCon
   };
 }
 
+/**
+ * The tunnel half of an org whose edge is NOT the tunnel but some of whose
+ * routes go through it (`driver: cloudflared` or `swarmy.expose=tunnel`):
+ * the same config rendered as cloudflared, routes still judged against the
+ * org's driver. Null when there is nothing to run (no such route, or no
+ * tunnel configured — validate() then says the routes are unreachable).
+ */
+export function tunnelSideConfig(config: IngressConfig): IngressConfig | null {
+  if (orgDriver(config) === TUNNEL_DRIVER || !config.globalOptions.tunnel) return null;
+  if (!config.domains.some((d) => servedBy(d, config, TUNNEL_DRIVER))) return null;
+  return { ...config, driver: TUNNEL_DRIVER, defaultDriver: orgDriver(config) };
+}
+
 function hostList(routes: readonly DomainRoute[]): string {
   return [...new Set(routes.map((d) => d.domain))].join(', ');
 }
@@ -79,8 +101,9 @@ export function channelWarnings(config: IngressConfig, driver: string): IngressV
       out.push({
         path: 'domains',
         message:
-          `${hostList(tunnelOnly)}: tunnel-only (swarmy.expose=tunnel), so the public edge never serves it` +
-          (config.globalOptions.tunnel ? '.' : ', and no Cloudflare Tunnel is set up, so it is unreachable.'),
+          `${hostList(tunnelOnly)}: goes through the Cloudflare Tunnel (swarmy.expose=tunnel or the route's driver), ` +
+          'so the public edge never serves it' +
+          (config.globalOptions.tunnel ? ' — the tunnel does.' : ', and no Cloudflare Tunnel is set up, so it is unreachable.'),
       });
     }
   }
