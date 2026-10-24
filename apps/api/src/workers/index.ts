@@ -32,6 +32,7 @@ import { startMeshPeopleReconcile } from './mesh-people-reconcile';
 import { startMeshGrantTtl } from './mesh-grant-ttl';
 import { startSwarmJoinRetry } from './swarm-join-retry';
 import { startSystemImageMirror } from './system-image-mirror';
+import { startBundleSeed } from './bundle-seed';
 import { startTrivyDbRefresh } from './trivy-db-refresh';
 import { startPlatformUpgradeWorker } from './platform-upgrade';
 import { startAppSecretGc } from './app-secret-gc';
@@ -81,6 +82,7 @@ export function startWorkers(): () => void {
     startMeshGrantTtl(),
     startSwarmJoinRetry(),
     startSystemImageMirror(),
+    startBundleSeed(),
     startTrivyDbRefresh(),
     startPlatformUpgradeWorker(),
     startAppSecretGc(),

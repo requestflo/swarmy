@@ -93,6 +93,12 @@
 #                                LAN, --no-https). INSECURE: anyone on the network path
 #                                can take over a node that joins. Default: the node
 #                                installer is served over HTTPS only (security review H17).
+#   --bundle <swarmy-<ver>.tar>  SWARMY_BUNDLE — air-gapped install from the release's offline
+#                                bundle (bundle.yml asset): verifies it with the release key,
+#                                loads every image into Docker (no pulls, no egress check) and
+#                                the controller seeds its built-in registry from it. Needs
+#                                Docker (with the containerd image store) already installed,
+#                                and this installer from the same release (or a checkout).
 # Cloudflare (when --ingress cloudflare): CF_API_TOKEN, CF_ACCOUNT_ID, CF_ZONE_ID
 # NetBird (when --mesh netbird-*):        NB_SERVICE_TOKEN, NB_MANAGEMENT_URL
 # (--mesh swarmy needs neither: this script starts NetBird and mints the token.)
@@ -206,6 +212,7 @@ ALLOW_SIGNUP="${SWARMY_ALLOW_SIGNUP:-}"
 RELEASE_PUBKEY="${SWARMY_RELEASE_PUBKEY:-}"
 PLATFORM_FEED_URL="${SWARMY_PLATFORM_FEED_URL:-}"
 ALLOW_INSECURE_INSTALL="${SWARMY_ALLOW_INSECURE_INSTALL:-}"
+BUNDLE="${SWARMY_BUNDLE:-}"   # --bundle: install from an offline bundle (no egress)
 
 # Which settings the operator gave THIS run (flag or env). Anything not given
 # falls back to what the first install recorded in state.env — a re-run with
@@ -257,6 +264,7 @@ while [ $# -gt 0 ]; do
     --release-pubkey) RELEASE_PUBKEY="${2:?}"; EXPLICIT="${EXPLICIT}RELEASE_PUBKEY "; shift ;;
     --platform-feed-url) PLATFORM_FEED_URL="${2:?}"; EXPLICIT="${EXPLICIT}PLATFORM_FEED_URL "; shift ;;
     --allow-insecure-install) ALLOW_INSECURE_INSTALL=1 EXPLICIT="${EXPLICIT}ALLOW_INSECURE_INSTALL " ;;
+    --bundle) BUNDLE="${2:?}"; shift ;;
     # The header comment only (a release build embeds a stack file whose YAML comments start with # too).
     -h|--help) awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"; exit 0 ;;
     *) die "unknown argument: $1 (try --help)" ;;
@@ -488,7 +496,8 @@ running_controller_version() {
 apply_release_pins() {
   local running
   if [ -z "$RELEASE_VERSION" ]; then
-    if ! explicit IMAGE || ! explicit AGENT_IMAGE || [ "$STACK_SOURCE_OVERRIDE" = 1 ]; then
+    # A bundle pins the images to its signed digests (bundle_pin_images).
+    if [ -z "$BUNDLE" ] && { ! explicit IMAGE || ! explicit AGENT_IMAGE || [ "$STACK_SOURCE_OVERRIDE" = 1 ]; }; then
       warn "this installer is not a release build: images not given with --image/--agent-image float on :latest, and the stack file comes from the checkout or ${SWARMY_RAW_BASE}. For a pinned install use a release's installer (${RELEASE_INSTALLER_URL})."
     fi
     return 0
@@ -672,6 +681,175 @@ discover() {
 }
 
 # ════════════════════════════════════════════════════════════════════════════
+# Offline bundle (--bundle swarmy-<ver>.tar): a fresh air-gapped install
+# ════════════════════════════════════════════════════════════════════════════
+# The bundle (scripts/platform-bundle.ts, the release's bundle.yml asset) holds
+# the signed platform.json + .sig and every image a node pulls as an OCI layout.
+# bundle_prepare unpacks it into the swarmy-bundle volume, verifies it with the
+# release key (as the controller does: packages/core/src/platform-verify.ts),
+# pins the controller/agent/mesh images to its digests and docker-loads every
+# image under the refs swarmy runs, so nothing below pulls. That needs Docker's
+# containerd image store: the classic store drops the digests on load, and
+# swarmy runs images by digest. The controller then copies the images into the
+# built-in registry from the same volume, stamps the mirror labels and removes
+# the volume (packages/trpc/src/services/system-images-bundle.service.ts).
+# Pure helpers are unit-tested by sourcing this file (installer-bundle.test.ts).
+BUNDLE_VOLUME="swarmy-bundle"
+BUNDLE_DIR=""
+BUNDLE_VERSION=""
+BUNDLE_HANDOFF=""   # the volume the controller seeds the registry from (empty once seeded)
+# >>> swarmy release key (keep in sync: packages/core/src/platform-verify.ts BUILT_IN_RELEASE_PUBKEY — unit-tested)
+BUILT_IN_RELEASE_PUBKEY='-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEnOuvVNftLXopiDMkF9ylopYyr3vS
+7iC4arphnIpM4tXgKCpCeIRVLSEEb98SP82hgfhOBKOzpzBpnjOBLkWsVA==
+-----END PUBLIC KEY-----'
+# <<< swarmy release key
+
+# pull_image REF — `docker pull`, except that a bundle install never pulls what it loaded.
+pull_image() {
+  if [ -n "$BUNDLE" ] && docker image inspect "$1" >/dev/null 2>&1; then return 0; fi
+  docker pull "$1" >/dev/null 2>&1
+}
+
+# bundle_components FILE → "<key> <ref> <image> <tag|-> <digest>" per signed component
+# with a digest. platform.json is canonical JSON (sorted keys, no whitespace), so
+# each component is one flat object.
+bundle_components() {
+  local json obj key ref image tag digest
+  json="$(cat "$1")"
+  json="${json#*\"components\":\{}"
+  json="${json%%\}\}*}}"
+  printf '%s\n' "$json" | grep -o '"[A-Za-z0-9_]*":{[^{}]*}' | while IFS= read -r obj; do
+    key="${obj%%\":\{*}"; key="${key#\"}"
+    digest="$(printf '%s' "$obj" | sed -n 's/.*"digest":"\(sha256:[a-f0-9]\{64\}\)".*/\1/p')"
+    ref="$(printf '%s' "$obj" | sed -n 's/.*"ref":"\([^"]*\)".*/\1/p')"
+    image="$(printf '%s' "$obj" | sed -n 's/.*"image":"\([^"]*\)".*/\1/p')"
+    tag="$(printf '%s' "$obj" | sed -n 's/.*"tag":"\([^"]*\)".*/\1/p')"
+    [ -n "$digest" ] && [ -n "$ref" ] && [ -n "$image" ] || continue
+    case "$ref $image $tag" in *[!A-Za-z0-9._:/@\ -]*) continue ;; esac
+    printf '%s %s %s %s %s\n' "$key" "$ref" "$image" "${tag:--}" "$digest"
+  done
+}
+
+# bundle_image_name REF → the fully-qualified name Docker stores (Hub shorthands → docker.io/library/…).
+bundle_image_name() {
+  local first="${1%%/*}"
+  if [ "$first" = "$1" ]; then printf 'docker.io/library/%s' "$1"; return; fi
+  case "$first" in *.*|*:*|localhost) printf '%s' "$1" ;; *) printf 'docker.io/%s' "$1" ;; esac
+}
+
+# bundle_media_type BLOB → the media type of a (signed) index or manifest blob.
+bundle_media_type() {
+  if grep -q '"manifests"' "$1"; then
+    if grep -q 'manifest\.list\.v2+json' "$1"; then echo application/vnd.docker.distribution.manifest.list.v2+json
+    else echo application/vnd.oci.image.index.v1+json; fi
+  elif grep -q 'vnd\.docker\.container\.image\.v1+json' "$1"; then echo application/vnd.docker.distribution.manifest.v2+json
+  else echo application/vnd.oci.image.manifest.v1+json; fi
+}
+
+# bundle_index DIR → the OCI index.json `docker load` names every signed image by
+# (its dispatch ref, and <image>:<tag> for swarmy's own builds). Fails on a
+# missing image or one whose index blob doesn't hash to its signed digest.
+bundle_index() {
+  local key ref image tag digest hex blob mt size n names entries=""
+  while read -r key ref image tag digest; do
+    hex="${digest#sha256:}"; blob="$1/oci/blobs/sha256/$hex"
+    [ -s "$blob" ] || { echo "the bundle has no $key ($digest)" >&2; return 1; }
+    [ "$(sha256sum "$blob" | cut -d' ' -f1)" = "$hex" ] || { echo "the bundle's $key does not match its signed digest" >&2; return 1; }
+    mt="$(bundle_media_type "$blob")"; size="$(wc -c < "$blob" | tr -d ' ')"
+    names="$(bundle_image_name "$ref")"
+    [ "$tag" = - ] || [ "$image:$tag" = "$names" ] || names="$names $image:$tag"
+    for n in $names; do
+      entries="$entries${entries:+,}{\"mediaType\":\"$mt\",\"digest\":\"$digest\",\"size\":$size,\"annotations\":{\"io.containerd.image.name\":\"$n\",\"org.opencontainers.image.ref.name\":\"${n##*:}\"}}"
+    done
+  done < <(bundle_components "$1/platform.json")
+  [ -n "$entries" ] || { echo "the bundle's platform.json names no images" >&2; return 1; }
+  printf '{"schemaVersion":2,"mediaType":"application/vnd.oci.image.index.v1+json","manifests":[%s]}\n' "$entries"
+}
+
+# bundle_verify DIR → 0 when DIR/platform.json carries the release key's signature.
+bundle_verify() {
+  local key der rc=1
+  key="$(mktemp)"; der="$(mktemp)"
+  printf '%s\n' "${RELEASE_PUBKEY:-$BUILT_IN_RELEASE_PUBKEY}" > "$key"
+  if tr -d ' \n\r\t' < "$1/platform.json.sig" | openssl base64 -d -A > "$der" 2>/dev/null && [ -s "$der" ]; then
+    if openssl pkey -pubin -in "$key" -noout -text 2>/dev/null | grep -qi 'ED25519'; then
+      openssl pkeyutl -verify -pubin -inkey "$key" -rawin -in "$1/platform.json" -sigfile "$der" >/dev/null 2>&1 && rc=0
+    else
+      openssl dgst -sha256 -verify "$key" -signature "$der" "$1/platform.json" >/dev/null 2>&1 && rc=0
+    fi
+  fi
+  rm -f "$key" "$der"
+  return "$rc"
+}
+
+# bundle_tar_safe FILE → 0 when every member is a plain file or directory under swarmy-bundle/.
+bundle_tar_safe() {
+  local list rc=0
+  list="$(mktemp)"
+  tar -tvf "$1" > "$list" 2>/dev/null && [ -s "$list" ] || rc=1
+  [ "$rc" = 1 ] || awk '{ t = substr($1, 1, 1); if (t != "-" && t != "d") bad = 1 } END { exit bad }' "$list" || rc=1
+  [ "$rc" = 1 ] || tar -tf "$1" > "$list" 2>/dev/null || rc=1
+  if [ "$rc" = 0 ] && { grep -qv '^swarmy-bundle/' "$list" || grep -qE '(^|/)\.\.(/|$)' "$list"; }; then rc=1; fi
+  rm -f "$list"
+  return "$rc"
+}
+
+# bundle_pin_images — run the bundle's controller, agent and mesh images, unless given explicitly.
+bundle_pin_images() {
+  local key ref image tag digest t
+  while read -r key ref image tag digest; do
+    t="${tag#-}"
+    case "$key" in
+      controller) explicit IMAGE || IMAGE="$image${t:+:$t}@$digest" ;;
+      agent) explicit AGENT_IMAGE || AGENT_IMAGE="$image${t:+:$t}@$digest" ;;
+      netbirdClient) [ -n "${SWARMY_NETBIRD_IMAGE:-}" ] || NETBIRD_IMAGE="$ref@$digest" ;;
+      netbirdServer) [ -n "${SWARMY_NETBIRD_SERVER_IMAGE:-}" ] || MESH_CONTROL_IMAGE="$ref@$digest" ;;
+    esac
+  done < <(bundle_components "$1")
+}
+
+bundle_prepare() {
+  local mp stage seeded
+  [ -f "$BUNDLE" ] && [ -r "$BUNDLE" ] || die "--bundle: cannot read $BUNDLE."
+  command -v openssl >/dev/null 2>&1 && command -v sha256sum >/dev/null 2>&1 || die "--bundle needs openssl and sha256sum."
+  docker info -f '{{json .DriverStatus}}' 2>/dev/null | grep -q 'io.containerd.snapshotter' \
+    || die "--bundle needs Docker's containerd image store (the classic store drops the image digests swarmy runs by). On a fresh Docker, add {\"features\": {\"containerd-snapshotter\": true}} to /etc/docker/daemon.json and restart Docker (Docker 29+ uses it by default), then re-run."
+  say "Checking the offline bundle ${BUNDLE}…"
+  bundle_tar_safe "$BUNDLE" || die "$BUNDLE is not a swarmy bundle (every member must be a plain file under swarmy-bundle/)."
+  docker volume create --label swarmy.managed=true "$BUNDLE_VOLUME" >/dev/null || die "could not create the $BUNDLE_VOLUME volume."
+  mp="$(docker volume inspect -f '{{.Mountpoint}}' "$BUNDLE_VOLUME")"
+  [ -d "$mp" ] || die "the $BUNDLE_VOLUME volume has no local mountpoint ($mp)."
+  BUNDLE_DIR="$mp/swarmy-bundle"
+  if ! { [ -s "$BUNDLE_DIR/platform.json" ] && tar -xOf "$BUNDLE" swarmy-bundle/platform.json | cmp -s - "$BUNDLE_DIR/platform.json"; }; then
+    say "Unpacking it into the $BUNDLE_VOLUME volume (this takes a while)…"
+    rm -rf "$BUNDLE_DIR"
+    tar -xf "$BUNDLE" -C "$mp" --no-same-owner || die "could not unpack $BUNDLE (disk full?)."
+  fi
+  bundle_verify "$BUNDLE_DIR" \
+    || die "The bundle's signature does NOT match the swarmy release key. Refusing to install: it may have been tampered with (a fork's bundle needs --release-pubkey)."
+  BUNDLE_VERSION="$(sed -n 's/.*"version":"\([^"]*\)"}$/\1/p' "$BUNDLE_DIR/platform.json")"
+  ok "Bundle swarmy ${BUNDLE_VERSION:-?} verified with the release key."
+  [ -z "$RELEASE_VERSION" ] || [ "$RELEASE_VERSION" = "$BUNDLE_VERSION" ] \
+    || die "this installer is release ${RELEASE_VERSION} and the bundle is ${BUNDLE_VERSION}: use the installer from the bundle's release."
+  bundle_pin_images "$BUNDLE_DIR/platform.json"
+  say "Loading the bundle's images into Docker (nothing is pulled)…"
+  stage="$(mktemp -d)"
+  ln -s "$BUNDLE_DIR/oci/blobs" "$stage/blobs"
+  printf '{"imageLayoutVersion":"1.0.0"}\n' > "$stage/oci-layout"
+  bundle_index "$BUNDLE_DIR" > "$stage/index.json" || die "the bundle is incomplete (see above)."
+  tar -C "$stage" -chf - oci-layout index.json blobs | docker load >/dev/null || die "docker load of the bundle failed."
+  rm -rf "$stage"
+  ok "Images loaded."
+  seeded="$(docker service inspect swarmy-registry -f '{{index .Spec.Labels "swarmy.mirror.bundle"}}' 2>/dev/null || true)"
+  if [ -n "$BUNDLE_VERSION" ] && [ "$seeded" = "$BUNDLE_VERSION" ]; then
+    docker volume rm "$BUNDLE_VOLUME" >/dev/null 2>&1 || true   # the registry already holds this release
+  else
+    BUNDLE_HANDOFF="$BUNDLE_VOLUME"
+  fi
+}
+
+# ════════════════════════════════════════════════════════════════════════════
 # Phase 2 — egress gate (mandatory; everything downstream pulls images)
 # ════════════════════════════════════════════════════════════════════════════
 egress_gate() {
@@ -717,6 +895,7 @@ ensure_docker() {
     ok "Docker present ($(docker version --format '{{.Server.Version}}' 2>/dev/null || echo '?'))."
     return
   fi
+  [ -z "$BUNDLE" ] || die "--bundle installs without internet, so it can't fetch Docker: install Docker (with the containerd image store) from your distro or a mirror, then re-run."
   say "Installing Docker via get.docker.com…"
   curl -fsSL https://get.docker.com | sh || die "Docker install failed."
   docker info >/dev/null 2>&1 || die "Docker installed but the daemon is not responding."
@@ -1232,7 +1411,7 @@ ensure_mesh_control() {
       ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE '(^|:)(80|443)$' && die "--mesh-tls letsencrypt needs TCP 80 and 443 free on this host (something is listening). Use --mesh-tls edge or free them."
     fi
     ss -lun 2>/dev/null | awk '{print $4}' | grep -qE '(^|:)3478$' && die "UDP 3478 (STUN) is in use on this host; the mesh control plane needs it."
-    docker pull "$MESH_CONTROL_IMAGE" >/dev/null 2>&1 || warn "could not pull $MESH_CONTROL_IMAGE; using a local copy if present."
+    pull_image "$MESH_CONTROL_IMAGE" || warn "could not pull $MESH_CONTROL_IMAGE; using a local copy if present."
     # Setup (owner + first token) is only possible while the store is empty.
     local pat_env=""; [ -n "${NB_SERVICE_TOKEN:-}" ] || pat_env="-e NB_SETUP_PAT_ENABLED=true"
     # shellcheck disable=SC2086
@@ -1334,7 +1513,7 @@ ensure_mesh_control() {
     ca_args=(-v "$STATE_DIR/mesh-ca.pem:/etc/swarmy/ca/mesh-ca.pem:ro" -e SSL_CERT_DIR=/etc/ssl/certs:/etc/swarmy/ca)
   fi
   key="$(nb_setup_key one-off 1 3600 "swarmy node #1 $(hostname)")"
-  docker pull "$NETBIRD_IMAGE" >/dev/null 2>&1 || warn "could not pull $NETBIRD_IMAGE; using local copy if present."
+  pull_image "$NETBIRD_IMAGE" || warn "could not pull $NETBIRD_IMAGE; using local copy if present."
   docker rm -f "$NETBIRD_CONTAINER" >/dev/null 2>&1 || true
   state_dir; printf '%s\n' "$key" > "$key_file"; chmod 600 "$key_file"
   docker run -d --name "$NETBIRD_CONTAINER" --restart unless-stopped --network host \
@@ -1429,7 +1608,7 @@ ensure_mesh_node1() {
   local api="${NB_MANAGEMENT_URL%/}" key i
   say "Joining the NetBird mesh before forming the swarm…"
   key="$(nb_setup_key one-off 1 3600 "swarmy node #1 $(hostname)")"
-  docker pull "$NETBIRD_IMAGE" >/dev/null 2>&1 || warn "could not pull $NETBIRD_IMAGE; using local copy if present."
+  pull_image "$NETBIRD_IMAGE" || warn "could not pull $NETBIRD_IMAGE; using local copy if present."
   docker rm -f "$NETBIRD_CONTAINER" >/dev/null 2>&1 || true
   # The setup key rides a root-only 0600 file mounted read-only and read by
   # `netbird up` via NB_SETUP_KEY_FILE (--setup-key-file) — never -e, which
@@ -1677,6 +1856,8 @@ deploy_stack() {
   SWARMY_RELEASE_PUBKEY="$RELEASE_PUBKEY" \
   SWARMY_PLATFORM_FEED_URL="$PLATFORM_FEED_URL" \
   SWARMY_ALLOW_INSECURE_INSTALL="$ALLOW_INSECURE_INSTALL" \
+  SWARMY_BUNDLE_VOLUME="$BUNDLE_HANDOFF" \
+  SWARMY_BUNDLE_HOSTNAME="${BUNDLE_HANDOFF:+${NODE_HOSTNAME:-}}" \
   SWARMY_NODE_HOSTNAME="$NODE_HOSTNAME" \
   SWARMY_CONTROLLER_PLACEMENT="$placement" \
   SWARMY_CONTROL_STORE_SECRET="$store_secret" \
@@ -1690,7 +1871,7 @@ deploy_stack() {
   SWARMY_MESH_RELAYS="$(mesh_relays_env "$MESH" "${MESH_TLS:-}" "${MESH_RELAYS:-}")" \
   SWARMY_MESH_CONTROL_HOSTNAME="${NODE_HOSTNAME:-}" \
   SWARMY_MESH_ADMIN_URL="$( [ "$MESH" = swarmy ] && [ "$MESH_TLS" = edge ] && printf 'http://%s' "${MESH_LISTEN:-}" )" \
-    docker stack deploy --with-registry-auth -c "$f" "$STACK_NAME" >/dev/null \
+    docker stack deploy --with-registry-auth ${BUNDLE:+--resolve-image never} -c "$f" "$STACK_NAME" >/dev/null \
     || die "docker stack deploy failed."
   say "Waiting for the controller to become healthy…"
   local i
@@ -1728,7 +1909,7 @@ enrol_node1() {
   # container. Its identity lives on the swarmy-agent volume, so it reconnects
   # on its stored session (no join token needed).
   if docker ps --format '{{.Names}}' | grep -qx "$AGENT_CONTAINER"; then
-    docker pull "$AGENT_IMAGE" >/dev/null 2>&1 || true
+    pull_image "$AGENT_IMAGE" || true
     local running want
     running="$(docker inspect "$AGENT_CONTAINER" --format '{{.Image}}' 2>/dev/null || true)"
     want="$(docker image inspect "$AGENT_IMAGE" --format '{{.Id}}' 2>/dev/null || true)"
@@ -1751,7 +1932,7 @@ enrol_node1() {
     return
   fi
   say "Enrolling this host as node #1…"
-  docker pull "$AGENT_IMAGE" >/dev/null 2>&1 || warn "could not pull $AGENT_IMAGE; using local copy if present."
+  pull_image "$AGENT_IMAGE" || warn "could not pull $AGENT_IMAGE; using local copy if present."
   # The join token rides a root-only 0600 env file mounted read-only at the
   # path the agent loads itself (apps/agent/src/env.ts) — never -e, which keeps
   # it in `docker inspect` for anyone on the socket. Mirrors installer.ts.
@@ -1916,6 +2097,11 @@ finalize() {
       ;;
   esac
   printf '\n'
+  if [ -n "$BUNDLE_HANDOFF" ]; then
+    printf '  Bundle:     %s\n' "swarmy ${BUNDLE_VERSION} is loaded on this server. The controller copies it into the built-in registry"
+    printf '              %s\n' "${c_dim}(a few minutes after it starts, so new nodes pull from the cluster), then removes the ${BUNDLE_VOLUME} volume.${c_reset}"
+    printf '\n'
+  fi
   warn "BACK UP $STATE_FILE (esp. SWARMY_SECRET_KEY). Lose it and every stored credential is unrecoverable."
   hr
 }
@@ -2017,6 +2203,7 @@ do_uninstall() {
   # …and the loopback registry forwarder it supervised (restart always: it would outlive the agent).
   docker rm -f swarmy-registry-forwarder >/dev/null 2>&1 || true
   docker volume rm swarmy-agent >/dev/null 2>&1 || true
+  docker volume rm "$BUNDLE_VOLUME" >/dev/null 2>&1 || true   # an unpacked offline bundle (--bundle)
   shred_rm "$AGENT_ENV_FILE"
   rmdir "$(dirname "$AGENT_ENV_FILE")" 2>/dev/null || true
   docker stack rm "$STACK_NAME" >/dev/null 2>&1 || true
@@ -2054,17 +2241,19 @@ main() {
   hr; say "swarmy self-host installer"
   case "$MODE" in
     uninstall) do_uninstall; exit 0 ;;
-    check) discover; egress_gate; ok "preflight complete (no changes made)."; exit 0 ;;
+    check) discover; [ -n "$BUNDLE" ] || egress_gate; ok "preflight complete (no changes made)."; exit 0 ;;
   esac
 
   need_root
   discover
-  marker_done egress   || { egress_gate;        marker_set egress; }
+  # An offline bundle brings every image: no egress needed.
+  [ -n "$BUNDLE" ] || marker_done egress || { egress_gate; marker_set egress; }
   ensure_swap
   marker_done docker   || { with_public_umask ensure_docker; marker_set docker; }
   with_public_umask ensure_docker_log_opts   # idempotent; 022 keeps daemon.json/journald drop-ins 0644
   with_public_umask ensure_docker_registry_mirror   # idempotent: Docker Hub via the swarm's pull-through cache
   remember_settings
+  [ -z "$BUNDLE" ] || bundle_prepare   # verify + docker load; pins the images to the bundle
   apply_release_pins   # M14: warn off-pin; never roll a newer platform back
   wizard
   ensure_secrets

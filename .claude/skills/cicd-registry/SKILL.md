@@ -247,6 +247,7 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
 | Trivy scan, cosign keygen/sign/verify, policy | `packages/trpc/src/services/registryPolicy.service.ts` |
 | Trivy DB cache (shared volume, stale fallback) + daily refresh | `packages/trpc/src/services/trivy-db{,.service}.ts`, worker `trivy-db-refresh` |
 | System-image BOM + mirror + Hub pull-through cache | `packages/core/src/system-images.ts`, `packages/trpc/src/services/system-images.service.ts`, worker `system-image-mirror`, `apps/api/src/install/docker-registry-mirror.ts` |
+| Offline bundle: BOM-driven image list, air-gapped install (`install-swarmy.sh --bundle`: verify, `docker load` by digest — needs the containerd image store), registry seed from the node's `swarmy-bundle` volume | `packages/core/src/platform-bundle-plan.ts`, `scripts/platform-bundle.ts`, `scripts/install-swarmy.sh` (`bundle_*`), `packages/core/src/system-images-bundle.ts`, `packages/trpc/src/services/system-images-bundle.service.ts`, worker `bundle-seed` |
 | Registry reachability (M16): loopback forwarder spec, agent supervisor, topology rule + migration reconcile | `packages/core/src/registry-forwarder.ts`, `apps/agent/src/handlers/registry-forwarder.ts`, `packages/trpc/src/services/registry-topology{,.service}.ts` (ticked by `system-image-mirror`) |
 | Image admission decision (pure + evaluator) | `packages/trpc/src/services/admission-images.ts` |
 | Previews (PR / branch / trial) | `packages/trpc/src/services/apps.service.ts` (`planCommit`, `createAppPreview`, `teardownAppPreview*`) |

@@ -62,6 +62,11 @@ services:
       # itself (multi-line is fine: the stack loader interpolates after YAML parsing).
       SWARMY_RELEASE_PUBKEY: ${SWARMY_RELEASE_PUBKEY:-}
       SWARMY_PLATFORM_FEED_URL: ${SWARMY_PLATFORM_FEED_URL:-}
+      # Air-gapped install (installer --bundle): the volume on node #1 holding the
+      # offline bundle; the controller seeds the built-in registry from it, then
+      # removes it. Empty = no bundle.
+      SWARMY_BUNDLE_VOLUME: ${SWARMY_BUNDLE_VOLUME:-}
+      SWARMY_BUNDLE_HOSTNAME: ${SWARMY_BUNDLE_HOSTNAME:-}
       # H17: node installs are HTTPS-only; "1" (installer --allow-insecure-install)
       # also serves them over plain HTTP when there is no HTTPS address.
       SWARMY_ALLOW_INSECURE_INSTALL: ${SWARMY_ALLOW_INSECURE_INSTALL:-}

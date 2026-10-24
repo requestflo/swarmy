@@ -68,6 +68,10 @@
     "./platform-verify": {
       "types": "./src/platform-verify.ts",
       "import": "./src/platform-verify.ts"
+    },
+    "./system-images-bundle": {
+      "types": "./src/system-images-bundle.ts",
+      "import": "./src/system-images-bundle.ts"
     }
   },
   "scripts": {
