@@ -20,6 +20,7 @@ import {
 } from '../services/platform-upgrade.service';
 import { abandonPlatformUpgrade, requestPlatformPause, resumePlatformUpgrade } from '../services/platform-upgrade-control.service';
 import { writeAudit } from '../services/audit.service';
+import { getPlatformDrift, repinSystemService } from '../services/platform-drift.service';
 import { platformBundleRouter } from './platform-bundle';
 
 const PLATFORM_ACTION = 'authconfig.write' as const;
@@ -27,6 +28,14 @@ const PLATFORM_ACTION = 'authconfig.write' as const;
 export const platformRouter = router({
   /** Current vs available release, policy, the latest run (live timeline) and run history. */
   status: orgProcedure.query(({ ctx }) => getPlatformStatus(ctx)),
+
+  /** Running system services that are off the current release (live inventory vs the manifest). */
+  drift: orgProcedure.query(({ ctx }) => getPlatformDrift(ctx)),
+
+  /** Re-pin one drifting system service to the release's image (health-gated, Swarm rolls it back on failure). */
+  repin: abacProcedure(PLATFORM_ACTION)
+    .input(z.object({ service: z.string().min(1).max(200) }))
+    .mutation(({ ctx, input }) => repinSystemService(ctx, input)),
 
   /** One run's full step timeline + log. */
   run: orgProcedure.input(z.object({ id: z.string().min(1) })).query(({ ctx, input }) => getPlatformRun(ctx, input.id)),

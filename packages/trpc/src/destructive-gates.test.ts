@@ -127,6 +127,8 @@ const GATES: Array<[string, unknown, string]> = [
   ['security.policy.set', { require2fa: 'admins' }, 'authconfig.write'],
   // Abandon puts a paused platform upgrade's agents + system services back.
   ['platform.abandon', { id: 'r1' }, 'authconfig.write'],
+  // Re-pin restarts a drifting system service on the release's image.
+  ['platform.repin', { service: 'swarmy-dns' }, 'authconfig.write'],
   ['security.resetMember', { memberId: 'm' }, 'member.write'],
   ['gitConnections.remove', { id: 'g1' }, 'cicd.remove'],
   ['registryCredentials.remove', { id: 'rc1' }, 'secret.delete'],

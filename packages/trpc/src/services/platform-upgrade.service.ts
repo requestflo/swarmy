@@ -212,7 +212,7 @@ export async function dockerCli(ctx: OrgContext, script: string, env: Record<str
 }
 
 /** Ref to roll a component to: the mirrored copy when trusted for the target digest, else upstream@digest. */
-async function refResolver(ctx: OrgContext, m: PlatformManifest) {
+export async function refResolver(ctx: OrgContext, m: PlatformManifest) {
   const images = manifestImages(m);
   const reg = await registryLogin(ctx);
   const state = mirrorStateFrom(ctx.hub.liveInventory(ctx.activeOrgId));

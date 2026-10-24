@@ -4,6 +4,7 @@ import { ErrorState, SkeletonBody } from '@/components/states';
 import { RowPage } from '@/components/rowpage/row-page';
 import { ClusterConfigCard } from './cluster-config-card';
 import { ControllerBackupCard } from './controller-backup-card';
+import { DriftSection } from './drift-section';
 import { ImportReleaseButton } from './import-release-button';
 import { platformTitle } from './platform-title';
 import { PolicyCard } from './policy-card';
@@ -48,6 +49,7 @@ export function PlatformPage(): React.JSX.Element {
         <>
           <UpdateCheck v={v} admin={admin} />
           <UpgradeNext v={v} admin={admin} />
+          <DriftSection admin={admin} />
           {av?.notes.length ? <ReleaseNotes av={av} /> : null}
           <Depth at="controls">
             {admin ? <ImportReleaseButton /> : null}
