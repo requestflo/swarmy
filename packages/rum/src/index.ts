@@ -5,3 +5,6 @@ export * from './ratelimit';
 export * from './clickhouse';
 export * from './blobs';
 export * from './geoip';
+export * from './funnels';
+export * from './funnel-query';
+export * from './funnel-math';

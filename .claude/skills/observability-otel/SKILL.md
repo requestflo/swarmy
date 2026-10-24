@@ -95,7 +95,11 @@ db→protocol→service→router→UI shape see `skill("add-feature-slice")`.
     from the verified app-auth cookie. `swarmy_rum_*` tables carry a per-row
     `retention_days` TTL; replay chunks live in Garage under day prefixes and
     the hourly `rum-retention` worker deletes expired days. Viewing a replay
-    and every GDPR delete are audited.
+    and every GDPR delete are audited. Funnels are the `swarmy.rum.funnels`
+    label (never reaches the edge); `rum.funnel` is one `windowFunnel` query
+    (visits in privacy mode, signed-in people only in identified mode). RUM
+    rows carry no release tag, so a visit's release is the stack `Release`
+    live when it began; "since vN" needs a significant fall (`funnel-math.ts`).
 
 ## Contracts between the layers
 
@@ -171,6 +175,7 @@ db→protocol→service→router→UI shape see `skill("add-feature-slice")`.
 | Error tracking: envelope parse, grouping, source maps, ingest, issue/release/artifact reads (the list and `errors.issue` share one 24 h trend loader, `errors/trend.ts`) | `packages/trpc/src/services/errors/*`, `routers/errors.ts`; ingest HTTP `apps/api/src/errors-ingest.ts`; spike worker `apps/api/src/workers/errors-alerts.ts`; UI `apps/app/src/components/errors/*` |
 | RUM: browser bundles, token, ingest parsing, ClickHouse DDL/reads, Garage SigV4 client, GeoIP | `packages/rum/src/*` (client in `src/client/`, built on demand by `src/build.ts`) |
 | RUM: edge render + injector module | `packages/ingress/src/rum.ts` (+ hooks in `render/caddyfile.ts`), `docker/caddy-swarmy/rum/*.go` (goldens in `testdata/`) |
+| RUM: funnels (label schema, `windowFunnel` SQL, drop/since math; opt-in real-ClickHouse test) | `packages/rum/src/funnel{s,-query,-math}.ts` (+ tests), `services/rum/rum-funnel{,s.service}.ts`; UI `components/rum/funnel-*` |
 | RUM: controller (settings label, public `/_rum` ingest, reads, GDPR, retention) | `packages/trpc/src/services/rum/*`, `routers/rum.ts`, `apps/api/src/rum.ts`, `apps/api/src/workers/rum-retention.ts` |
 | Trace UI: waterfall/map/metrics/logs panels | `apps/app/src/components/observability/*` |
 | Per-stack Observability tab + trace detail route | `apps/app/src/routes/_authed/stacks/$name.observability.tsx` (→ `components/observability/stack-observability-tab.tsx`), `routes/_authed/observability.$traceId.tsx` |

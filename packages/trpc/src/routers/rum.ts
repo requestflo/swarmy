@@ -1,10 +1,12 @@
 import { z } from 'zod';
-import { RUM_ROUTE_MODES, RumSettingsSchema } from '@swarmy/rum';
+import { FunnelsSchema, RUM_ROUTE_MODES, RumSettingsSchema } from '@swarmy/rum';
 import { adminProcedure, orgProcedure, router } from '../trpc';
 import { abacProcedure } from '../abac';
 import { resolveConfigRow } from '../abac-config';
 import { applyNow } from '../services/ingress.service';
 import { getRumSettings, setRumRoute, setRumSettings } from '../services/rum/rum-settings.service';
+import { getRumFunnels, setRumFunnels } from '../services/rum/rum-funnels.service';
+import { funnel } from '../services/rum/rum-funnel';
 import { analytics, deleteSession, deleteUser, footprint, getReplay, listReplays } from '../services/rum/rum-query';
 
 const stack = z.string().min(1).max(200);
@@ -37,6 +39,27 @@ export const rumRouter = router({
   analytics: orgProcedure
     .input(z.object({ stack, days: z.number().int().min(1).max(90).optional() }))
     .query(({ ctx, input }) => analytics(ctx, input)),
+
+  /** The app's conversion funnels (the `swarmy.rum.funnels` label). */
+  getFunnels: orgProcedure.input(z.object({ stack })).query(({ ctx, input }) => getRumFunnels(ctx, input.stack)),
+
+  /** Replace the app's funnels — gated like setSettings (owner/admin), audited. Nothing re-renders. */
+  setFunnels: adminProcedure
+    .input(z.object({ stack, funnels: FunnelsSchema }))
+    .mutation(({ ctx, input }) => setRumFunnels(ctx, input)),
+
+  /** One funnel: visitors per step, conversion, the biggest drop and the release since which it worsened. */
+  funnel: orgProcedure
+    .input(
+      z.object({
+        stack,
+        funnel: z.string().min(1).max(40),
+        days: z.number().int().min(1).max(90).optional(),
+        /** Signed-in people only — honoured in identified mode, ignored in privacy mode. */
+        signedIn: z.boolean().optional(),
+      }),
+    )
+    .query(({ ctx, input }) => funnel(ctx, input)),
 
   footprint: orgProcedure.input(z.object({ stack })).query(({ ctx, input }) => footprint(ctx, input.stack)),
 

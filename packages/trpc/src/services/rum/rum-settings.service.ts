@@ -31,7 +31,7 @@ export function rumSecret(): string {
   return s;
 }
 
-function stackServices(ctx: Pick<OrgContext, 'hub' | 'activeOrgId'>, stack: string): InvService[] {
+export function stackServices(ctx: Pick<OrgContext, 'hub' | 'activeOrgId'>, stack: string): InvService[] {
   const { services, containers } = ctx.hub.liveInventory(ctx.activeOrgId);
   return buildInventory(services, containers).services.filter((s) => s.stack === stack);
 }
