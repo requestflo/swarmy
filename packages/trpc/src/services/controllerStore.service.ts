@@ -19,7 +19,6 @@
 import { backupTargets, controllerBackupConfigRepo } from './backups.repo';
 import {
   CONTROLLER_STORE_SECRET_FAMILY,
-  type ControllerLeaseRecord,
   type ControllerServiceOp,
   type ControllerServiceResult,
 } from '@swarmy/core/protocol';
@@ -31,45 +30,16 @@ import { garageS3Endpoint } from './buckets.service';
 import { createBucket, createKey, grantKeyOnBucket, overview as bucketsOverview } from './buckets.service';
 import { loadTarget, toResticRepo } from './backups.service';
 import { resolveManagerNode } from './dispatch.service';
+import { toStoreView, type ControllerMoveTarget, type ControllerStoreRuntimeStatus, type ControllerStoreView } from './controllerStore.view';
+
+export { LAG_WARN_SECONDS, storeSummary, toStoreView } from './controllerStore.view';
+export type { ControllerMoveTarget, ControllerStoreRuntimeStatus, ControllerStoreView } from './controllerStore.view';
 
 /** The dedicated Garage bucket control.db replicates into. */
 export const CONTROL_BUCKET = 'swarmy-control';
 export const CONTROL_KEY_NAME = 'swarmy-control-litestream';
 
 // ── runtime registration ─────────────────────────────────────────────────────
-
-/** What the controller process reports (structurally = ControllerStoreStatus in apps/api). */
-export interface ControllerStoreRuntimeStatus {
-  role: 'standalone' | 'acquiring' | 'leader' | 'fenced' | 'stopping';
-  identity: { taskId: string; nodeId: string; hostname: string; service: string };
-  lease: ControllerLeaseRecord | null;
-  epoch: number | null;
-  leaseAgeMs: number | null;
-  waitingFor: string | null;
-  replica: null | {
-    kind: 'garage' | 'backup-target';
-    label: string;
-    targetId?: string;
-    endpoint: string;
-    bucket: string;
-    prefix: string;
-    /** The replica's S3 key id (not a secret) — lets the platform-key GC know it's in use. */
-    accessKeyId?: string;
-  };
-  replicating: boolean;
-  replicationBlocked: string | null;
-  litestream: null | {
-    running: boolean;
-    lastSyncAt: string | null;
-    txid: string | null;
-    pendingWalBytes: number;
-    error: string | null;
-    restarts: number;
-  };
-  bundleConfigured: boolean;
-  boot: null | { at: string; decision: { kind: string; reason: string }; outcome: string; durationMs: number };
-  dbPath: string;
-}
 
 export interface ControllerStoreRuntime {
   status(): Promise<ControllerStoreRuntimeStatus>;
@@ -99,78 +69,6 @@ export async function controllerReplicaKeyIds(): Promise<string[] | null> {
 }
 
 // ── status view ──────────────────────────────────────────────────────────────
-
-export interface ControllerMoveTarget {
-  swarmNodeId: string;
-  hostname: string;
-  status: string;
-  availability: string;
-  current: boolean;
-  /** Why this manager can't take the controller right now (null = eligible). */
-  blocked: string | null;
-}
-
-export interface ControllerStoreView {
-  role: ControllerStoreRuntimeStatus['role'];
-  hostname: string;
-  swarmNodeId: string;
-  epoch: number | null;
-  leaseRenewedAgoSec: number | null;
-  waitingFor: string | null;
-  mode: 'replicated' | 'local-only';
-  target: ControllerStoreRuntimeStatus['replica'];
-  replicating: boolean;
-  lastReplicatedAt: string | null;
-  /** Seconds of writes not yet in the replica (0 = caught up; null = unknown). */
-  lagSeconds: number | null;
-  pendingBytes: number;
-  problem: string | null;
-  bundleFallback: boolean;
-  boot: { at: string; kind: string; outcome: string; reason: string; durationMs: number } | null;
-  /** Expected loss window if this node died now. */
-  lossWindow: string;
-  managers: ControllerMoveTarget[];
-}
-
-/** Pure: turn the runtime status into what the dashboard shows. */
-export function toStoreView(s: ControllerStoreRuntimeStatus, managers: ControllerMoveTarget[], now = Date.now()): ControllerStoreView {
-  const ls = s.litestream;
-  const lastSync = ls?.lastSyncAt ? Date.parse(ls.lastSyncAt) : NaN;
-  let lagSeconds: number | null = null;
-  if (s.replicating && ls) {
-    if ((ls.pendingWalBytes ?? 0) === 0) lagSeconds = 0;
-    else if (Number.isFinite(lastSync)) lagSeconds = Math.max(0, Math.round((now - lastSync) / 1000));
-  }
-  const problem =
-    s.role === 'fenced'
-      ? 'this controller lost its lease and is shutting down'
-      : s.replica && !s.replicating
-        ? (s.replicationBlocked ?? (s.role === 'acquiring' ? `waiting for the lease: ${s.waitingFor ?? 'starting'}` : 'replication not running'))
-        : (ls?.error ?? null);
-  return {
-    role: s.role,
-    hostname: s.identity.hostname,
-    swarmNodeId: s.identity.nodeId,
-    epoch: s.epoch,
-    leaseRenewedAgoSec: s.leaseAgeMs != null ? Math.round(s.leaseAgeMs / 1000) : null,
-    waitingFor: s.waitingFor,
-    mode: s.replica ? 'replicated' : 'local-only',
-    target: s.replica,
-    replicating: s.replicating,
-    lastReplicatedAt: ls?.lastSyncAt ?? null,
-    lagSeconds,
-    pendingBytes: ls?.pendingWalBytes ?? 0,
-    problem,
-    bundleFallback: s.bundleConfigured,
-    boot: s.boot
-      ? { at: s.boot.at, kind: s.boot.decision.kind, outcome: s.boot.outcome, reason: s.boot.decision.reason, durationMs: s.boot.durationMs }
-      : null,
-    lossWindow: s.replica
-      ? 'about 1 second of writes (Litestream ships every second); none on a clean move'
-      : 'everything since the last controller backup (the store is on this node only)',
-    managers,
-  };
-}
 
 function moveTargets(ctx: OrgContext, current: { nodeId: string; hostname: string }): ControllerMoveTarget[] {
   return ctx.hub

@@ -17,6 +17,7 @@
 import { existsSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import type { Subprocess } from 'bun';
 import type { ReplicaTarget, StorePaths } from './config';
+import { LagMonitor, litestreamSources, socketJson } from './lag-monitor';
 import { clearSidecarFiles, litestreamPath } from './replica';
 
 export const LITESTREAM_VERSION = '0.5.17';
@@ -114,12 +115,18 @@ export async function restoreFromReplica(input: {
 export interface LitestreamStatus {
   running: boolean;
   pid: number | null;
-  /** Last successful upload to the replica (Litestream's own clock). */
+  /** Last successful upload to the replica (Litestream's own clock; it doesn't move while idle). */
   lastSyncAt: string | null;
-  /** Local TXID Litestream has seen. */
+  /** Local TXID Litestream has seen (hex). */
   txid: string | null;
-  /** WAL bytes written but not yet shipped (0 = caught up). */
-  pendingWalBytes: number;
+  /** Highest TXID in the replica at the last read (hex). */
+  replicaTxid: string | null;
+  /** Local transactions the replica didn't hold at the last read (null = unknown). */
+  behindTxns: number | null;
+  /** Age of the oldest write not yet in the replica: 0 = caught up, null = unknown (lag.ts). */
+  lagMs: number | null;
+  /** How long ago the replica was last read successfully (null = never). */
+  replicaCheckedAgoMs: number | null;
   error: string | null;
   restarts: number;
 }
@@ -134,6 +141,7 @@ export class LitestreamProcess {
   private restarts = 0;
   private lastError: string | null = null;
   private tail: string[] = [];
+  private lag: LagMonitor | null = null;
 
   constructor(
     private readonly bin: string,
@@ -147,6 +155,8 @@ export class LitestreamProcess {
     this.wanted = true;
     writeLitestreamConfig(this.paths, this.target);
     this.spawn();
+    this.lag = new LagMonitor(litestreamSources(this.paths.litestreamSocket, this.paths.db, this.target));
+    this.lag.start();
   }
 
   private spawn(): void {
@@ -191,6 +201,7 @@ export class LitestreamProcess {
   /** The fence: stop at once, NO final sync. */
   kill(): void {
     this.wanted = false;
+    this.lag?.stop();
     this.proc?.kill('SIGKILL');
     this.proc = null;
   }
@@ -198,6 +209,7 @@ export class LitestreamProcess {
   /** Clean shutdown: SIGTERM lets Litestream ship what is left. */
   async stop(timeoutMs = 25_000): Promise<void> {
     this.wanted = false;
+    this.lag?.stop();
     const proc = this.proc;
     if (!proc) return;
     proc.kill('SIGTERM');
@@ -207,34 +219,35 @@ export class LitestreamProcess {
   }
 
   async status(): Promise<LitestreamStatus> {
+    const hex = (v: bigint | null) => (v == null ? null : v.toString(16).padStart(16, '0'));
+    const lag = this.lag?.reading() ?? null;
     const base: LitestreamStatus = {
       running: !!this.proc,
       pid: this.proc?.pid ?? null,
       lastSyncAt: null,
-      txid: null,
-      pendingWalBytes: 0,
-      error: this.lastError,
+      txid: hex(lag?.localTxid ?? null),
+      replicaTxid: hex(lag?.replicaTxid ?? null),
+      behindTxns: lag?.behindTxns ?? null,
+      lagMs: lag?.lagMs ?? null,
+      replicaCheckedAgoMs: lag?.replicaCheckedAgoMs ?? null,
+      // What is wrong NOW: a past crash Litestream recovered from is not.
+      error: lag?.replicaError
+        ? `can't read the replica: ${lag.replicaError}`
+        : !this.proc
+          ? this.lastError
+          : lag?.localError
+            ? `Litestream isn't reporting its position: ${lag.localError}`
+            : null,
       restarts: this.restarts,
     };
     if (!this.proc) return base;
     try {
-      const sock = this.paths.litestreamSocket;
-      const list = (await (await fetch('http://litestream/list', { unix: sock } as RequestInit)).json()) as {
-        databases?: Array<{ path: string; last_sync_at?: string }>;
-      };
+      // Bounded: v0.5 holds this request open while the replica is unreachable.
+      const list = await socketJson<{ databases?: Array<{ path: string; last_sync_at?: string }> }>(this.paths.litestreamSocket, '/list');
       const mine = list.databases?.find((d) => d.path === this.paths.db) ?? list.databases?.[0];
       base.lastSyncAt = mine?.last_sync_at ?? null;
-      const diag = (await (
-        await fetch(`http://litestream/debug/sync-status?path=${encodeURIComponent(this.paths.db)}`, { unix: sock } as RequestInit)
-      ).json()) as { databases?: Array<{ txid?: number; wal_size?: number; last_synced_wal_offset?: number; error?: string }> };
-      const d = diag.databases?.[0];
-      if (d) {
-        base.txid = d.txid != null ? d.txid.toString(16).padStart(16, '0') : null;
-        base.pendingWalBytes = Math.max(0, (d.wal_size ?? 0) - (d.last_synced_wal_offset ?? 0));
-        if (d.error) base.error = d.error;
-      }
-    } catch (e) {
-      base.error = base.error ?? `status unavailable: ${e instanceof Error ? e.message : String(e)}`;
+    } catch {
+      // lastSyncAt stays unknown; the lag monitor carries the real signal
     }
     return base;
   }

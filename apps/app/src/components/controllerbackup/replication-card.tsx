@@ -46,8 +46,17 @@ export function ReplicationCard(): React.JSX.Element {
       <CardContent className="grid gap-5">
         <dl className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <Stat label="Target" value={s.target ? s.target.label : 'This node only'} sub={s.target ? `${s.target.bucket}/${s.target.prefix}` : undefined} />
-          <Stat label="Last replicated" value={s.lastReplicatedAt ? ago(s.lastReplicatedAt) : '—'} />
-          <Stat label="Lag" value={s.lagSeconds == null ? '—' : `${s.lagSeconds}s`} sub={s.pendingBytes ? `${fmtBytes(s.pendingBytes)} pending` : undefined} />
+          {/* Litestream only uploads when there is something new, so an idle store reads "hours ago" while caught up. */}
+          <Stat
+            label="Last replicated"
+            value={s.lastReplicatedAt ? ago(s.lastReplicatedAt) : '—'}
+            sub={s.lagSeconds === 0 ? 'nothing waiting to ship' : undefined}
+          />
+          <Stat
+            label="Lag"
+            value={s.lagSeconds == null ? 'unknown' : `${s.lagSeconds}s`}
+            sub={s.behindTxns ? `${s.behindTxns} transaction${s.behindTxns === 1 ? '' : 's'} to ship` : undefined}
+          />
           <Stat label="Runs on" value={s.hostname} sub={s.epoch != null ? `lease epoch ${s.epoch}` : s.role} />
         </dl>
         {s.problem ? <p className="text-tone-warn text-sm">{s.problem}</p> : null}
@@ -79,10 +88,4 @@ function ago(iso: string): string {
   if (s < 60) return `${s}s ago`;
   if (s < 3600) return `${Math.round(s / 60)}m ago`;
   return `${Math.round(s / 3600)}h ago`;
-}
-
-function fmtBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 ** 2) return `${(n / 1024).toFixed(1)} KiB`;
-  return `${(n / 1024 ** 2).toFixed(1)} MiB`;
 }

@@ -72,6 +72,6 @@ const cs = new ControllerStore({
 cs.start();
 setInterval(async () => {
   const s = await cs.status();
-  if (s.replicating) out(`STATUS replicating lastSync=${s.litestream?.lastSyncAt ?? '-'} pending=${s.litestream?.pendingWalBytes ?? '-'}`);
+  if (s.replicating) out(`STATUS replicating lastSync=${s.litestream?.lastSyncAt ?? '-'} lagMs=${s.litestream?.lagMs ?? '-'} behind=${s.litestream?.behindTxns ?? '-'} err=${s.litestream?.error ?? '-'}`);
 }, 2_000);
 process.on('SIGTERM', () => void cs.shutdown(0));

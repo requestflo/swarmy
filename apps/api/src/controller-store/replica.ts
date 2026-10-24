@@ -52,17 +52,22 @@ export interface ReplicaState {
   error?: string;
 }
 
+/** The replica's head TXID (0n = no data), from one listing of its LTX files. Throws when unreachable. */
+export async function readReplicaHead(t: ReplicaTarget, s3 = client(t)): Promise<bigint> {
+  const keys: string[] = [];
+  let token: string | undefined;
+  do {
+    const page = await s3.list({ prefix: `${litestreamPath(t)}/`, maxKeys: 1000, ...(token ? { continuationToken: token } : {}) });
+    for (const c of page.contents ?? []) keys.push(c.key);
+    token = page.isTruncated ? page.nextContinuationToken : undefined;
+  } while (token);
+  return headTxidFromKeys(keys);
+}
+
 export async function readReplicaState(t: ReplicaTarget): Promise<ReplicaState> {
   const s3 = client(t);
   try {
-    const keys: string[] = [];
-    let token: string | undefined;
-    do {
-      const page = await s3.list({ prefix: `${litestreamPath(t)}/`, maxKeys: 1000, ...(token ? { continuationToken: token } : {}) });
-      for (const c of page.contents ?? []) keys.push(c.key);
-      token = page.isTruncated ? page.nextContinuationToken : undefined;
-    } while (token);
-    const headTxid = headTxidFromKeys(keys);
+    const headTxid = await readReplicaHead(t, s3);
     let marker: WriterMarker | null = null;
     const f = s3.file(markerKey(t));
     if (await f.exists()) marker = parseMarker(await f.text());
