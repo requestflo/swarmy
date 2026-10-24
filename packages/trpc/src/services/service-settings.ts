@@ -1,15 +1,16 @@
-import type { UpdateServiceInput } from '@swarmy/core';
+import { applyHealthcheckEdit, HealthcheckEditError, type UpdateServiceInput } from '@swarmy/core';
 import type { ServiceSpec } from '@swarmy/core/protocol';
+import { badRequest } from '../errors';
 
 /**
  * The service settings knobs (board ServiceSheet): resources, "if it crashes",
- * "during a deploy". PURE — applied inside `updateService`'s patch transform
+ * "during a deploy", the health check (board AppRollout). PURE — applied inside `updateService`'s patch transform
  * over the FULL live spec, so every field the input doesn't name is carried.
  * Docker is the truth: these are service spec fields, never DB rows.
  */
 export function applyServiceSettings(
   live: ServiceSpec,
-  input: Pick<UpdateServiceInput, 'resources' | 'restartPolicy' | 'updateOrder'>,
+  input: Pick<UpdateServiceInput, 'resources' | 'restartPolicy' | 'updateOrder' | 'healthcheck'>,
 ): ServiceSpec {
   const out: ServiceSpec = { ...live };
 
@@ -44,6 +45,17 @@ export function applyServiceSettings(
 
   if (input.updateOrder) {
     out.updateConfig = { ...(live.updateConfig ?? {}), order: input.updateOrder };
+  }
+
+  if (input.healthcheck !== undefined) {
+    let hc: ServiceSpec['healthcheck'];
+    try {
+      hc = applyHealthcheckEdit(live.healthcheck, input.healthcheck);
+    } catch (e) {
+      throw e instanceof HealthcheckEditError ? badRequest(e.message) : e;
+    }
+    if (hc) out.healthcheck = hc;
+    else delete out.healthcheck;
   }
   return out;
 }

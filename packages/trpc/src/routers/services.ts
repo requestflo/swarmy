@@ -34,6 +34,7 @@ import {
 } from '../services/app-secrets.service';
 import { resolveServiceLogTarget } from '../services/live-resolve';
 import { serviceUsage } from '../services/service-usage';
+import { serviceHealthProbes, testServiceHealthcheck } from '../services/service-health.service';
 
 export const servicesRouter = router({
   list: orgProcedure
@@ -69,6 +70,14 @@ export const servicesRouter = router({
 
   /** What the copies use right now (per copy, across servers); null until one reports. */
   usage: orgProcedure.input(z.object({ id: z.string() })).query(({ ctx, input }) => serviceUsage(ctx, input.id)),
+
+  /** Docker's last health probes per running copy (≤5 each, off the agents' snapshots). */
+  healthProbes: orgProcedure.input(z.object({ id: z.string() })).query(({ ctx, input }) => serviceHealthProbes(ctx, input.id)),
+
+  /** Run the health check once in the newest running copy (container exec on its node; audited). */
+  testHealthcheck: abacProcedure('service.configure', resolveService)
+    .input(z.object({ id: z.string() }))
+    .mutation(({ ctx, input }) => testServiceHealthcheck(ctx, input.id)),
 
   create: abacProcedure('service.deploy', resolveNewService).input(CreateServiceInput).mutation(({ ctx, input }) => createService(ctx, input)),
 

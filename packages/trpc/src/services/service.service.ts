@@ -433,6 +433,7 @@ export async function updateService(
       ...(input.resources ? { resources: input.resources } : {}),
       ...(input.restartPolicy ? { restartPolicy: input.restartPolicy } : {}),
       ...(input.updateOrder ? { updateOrder: input.updateOrder } : {}),
+      ...(input.healthcheck !== undefined ? { healthcheck: input.healthcheck } : {}),
       ...(edits.removeLabels.length || Object.keys(edits.setLabels).length
         ? { labels: { set: Object.keys(edits.setLabels), removed: edits.removeLabels } }
         : {}),

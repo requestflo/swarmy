@@ -53,6 +53,30 @@ describe('applyServiceSettings', () => {
   });
 });
 
+describe('applyServiceSettings — health check', () => {
+  const withHc: ServiceSpec = { ...live, healthcheck: { test: ['CMD', 'true'], intervalNs: 30e9, retries: 3 } };
+
+  test('an edit merges over the live check; everything else is carried', () => {
+    const out = applyServiceSettings(withHc, { healthcheck: { http: { path: '/health', port: 8080 }, intervalSeconds: 10 } });
+    expect(out.healthcheck).toEqual({
+      test: ['CMD-SHELL', "curl -fsS -o /dev/null 'http://localhost:8080/health' || wget -q -O /dev/null 'http://localhost:8080/health'"],
+      intervalNs: 10e9,
+      retries: 3,
+    });
+    expect({ ...out, healthcheck: undefined }).toEqual({ ...withHc, healthcheck: undefined });
+  });
+
+  test('null drops the service’s own check; disable switches it off', () => {
+    expect(applyServiceSettings(withHc, { healthcheck: null }).healthcheck).toBeUndefined();
+    expect('healthcheck' in applyServiceSettings(withHc, { healthcheck: null })).toBe(false);
+    expect(applyServiceSettings(withHc, { healthcheck: { disable: true } }).healthcheck).toEqual({ disable: true });
+  });
+
+  test('an edit with nothing to ask is a 400, not a broken spec', () => {
+    expect(() => applyServiceSettings(live, { healthcheck: { retries: 2 } })).toThrow(expect.objectContaining({ code: 'BAD_REQUEST' }));
+  });
+});
+
 describe('labelEdits', () => {
   test('protected labels are never removed', () => {
     expect(labelEdits({ removeLabels: ['swarmy.managed', 'team', 'com.docker.stack.namespace'] })).toEqual({
