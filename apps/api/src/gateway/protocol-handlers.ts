@@ -11,6 +11,7 @@ import { SESSION_TOKEN_PREFIX, observedPublicIpv4, parseNodeProfile, type NodePr
 import type { LogLine } from '@swarmy/core/views';
 import { prisma } from '@swarmy/db';
 import {
+  buildStageBus,
   deployEventBus,
   enrollMeshNode,
   foreignSwarmOf,
@@ -220,6 +221,13 @@ export async function handleAgentMessage(ws: AgentSocket, raw: string, deps: Dep
       const nodeId = ws.data.nodeId;
       const orgId = nodeId ? deps.store.nodeOrg.get(nodeId) : undefined;
       if (orgId) deployEventBus.push(orgId, env.payload);
+      return;
+    }
+    case 'buildStage': {
+      // The builder entered clone/build/push. The build that dispatched this
+      // commandId keeps it only when it came from the node it chose.
+      const nodeId = ws.data.nodeId;
+      if (nodeId) buildStageBus.emit(env.payload.commandId, { nodeId, stage: env.payload.stage, at: new Date() });
       return;
     }
     case 'ingressNodeStatus': {

@@ -33,6 +33,8 @@ import { resolveManagerNode } from './dispatch.service';
 import { writeAudit } from './audit.service';
 import { fireEvent } from './alerts-fire';
 import { buildLogBus } from './build-log-bus';
+import { toStageViews, type BuildStageView, type StageRow } from './build-stages';
+import { followBuilderStages } from './build-stages.service';
 import { persistBuildLog, readStoredBuildLog } from './build-log-store';
 import { controllerPublicUrl, repoCredentials } from './git-credentials';
 import { SHA_RE, reportCommitStatus } from './git-feedback.service';
@@ -96,6 +98,10 @@ export interface BuildView {
   detected: RailpackBuildInfo | null;
   /** BuildKit steps served from the registry cache. */
   cachedSteps: number | null;
+  /** Clone → rollout as swarmy timed them (only the stages that ran). */
+  stages: BuildStageView[];
+  /** The Release the deploy that followed this build recorded (git apps). */
+  releaseId: string | null;
 }
 
 export interface RegistryConfigView {
@@ -156,7 +162,7 @@ export async function removeRepo(ctx: OrgContext, id: string): Promise<{ id: str
 export async function listBuilds(ctx: OrgContext, repoId?: string): Promise<BuildView[]> {
   const rows = await ctx.db.build.findMany({
     where: { orgId: ctx.activeOrgId, ...(repoId ? { repoId } : {}) },
-    include: { repo: { select: { url: true } } },
+    include: { repo: { select: { url: true } }, stages: true },
     orderBy: { startedAt: 'desc' },
     take: 100,
   });
@@ -339,6 +345,8 @@ async function runBuild(
   feedback('running', `Building ${imageName} on a swarmy builder`);
 
   const strategy = buildStrategyPayload({ host, imageName, ref, defaultBranch: repo.branch, build: opts.build });
+  // clone → build → push, timed as the builder reports them (newer agents).
+  const stages = followBuilderStages(ctx.db, { buildId: build.id, commandId, nodeId: node.id });
 
   try {
     const result = await ctx.hub.dispatch<{
@@ -368,6 +376,7 @@ async function runBuild(
         builder: strategy.builder,
         ...(strategy.railpack ? { railpack: strategy.railpack } : {}),
         cache: strategy.cache,
+        reportStages: true,
         pushPolicy: 'always',
         // resolveBuilderNode only returns builder-capable nodes — assert it so
         // the agent's gate (buildGateAllows) lets the build through.
@@ -380,6 +389,7 @@ async function runBuild(
     );
     buildLogBus.finish(commandId);
     void persistBuildLog(ctx, commandId).catch(() => undefined);
+    await stages.settle('ok');
     const digested = result?.digest ? `${host}/${imageName}@${result.digest}` : imageRef;
     const finished = await ctx.db.build.update({
       where: { id: build.id },
@@ -392,7 +402,7 @@ async function runBuild(
         cacheRef: strategy.cache.exportRef,
         cachedSteps: result?.cachedSteps ?? 0,
       },
-      include: { repo: { select: { url: true } } },
+      include: { repo: { select: { url: true } }, stages: true },
     });
     // A green build clears the repo's open build-failed alert (default rule).
     void fireEvent(ctx, {
@@ -411,12 +421,14 @@ async function runBuild(
       imageRef,
       digest: result?.digest ?? null,
       nodeId: node.id,
+      buildId: build.id,
     }).catch(() => undefined);
 
     return toBuildView(finished, repo.url);
   } catch (e) {
     buildLogBus.finish(commandId);
     void persistBuildLog(ctx, commandId).catch(() => undefined);
+    await stages.settle('failed', e);
     await ctx.db.build.update({
       where: { id: build.id },
       data: { status: 'FAILED', finishedAt: new Date() },
@@ -464,7 +476,7 @@ export function buildFailureError(e: unknown, lines: Array<{ message: string }>)
   return new TRPCError({ code: mapped.code, message: `${mapped.message}\n${tail.join('\n')}`, cause: mapped.cause });
 }
 
-function toBuildView(
+export function toBuildView(
   r: {
     id: string;
     repoId: string;
@@ -477,6 +489,8 @@ function toBuildView(
     builder?: string | null;
     detectJson?: string | null;
     cachedSteps?: number | null;
+    releaseId?: string | null;
+    stages?: StageRow[];
     repo?: { url: string } | null;
   },
   fallbackUrl: string,
@@ -500,6 +514,8 @@ function toBuildView(
     builder: r.builder ?? null,
     detected,
     cachedSteps: r.cachedSteps ?? null,
+    stages: toStageViews(r.stages),
+    releaseId: r.releaseId ?? null,
   };
 }
 

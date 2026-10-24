@@ -16,6 +16,7 @@ import {
   triggerBuild,
 } from '../services/cicd.service';
 import { runCacheGcForOrg, runImageGcForOrg } from '../services/image-gc.service';
+import { getBuild } from '../services/build-detail.service';
 
 export const cicdRouter = router({
   // ── Repos ──
@@ -28,6 +29,10 @@ export const cicdRouter = router({
   listBuilds: orgProcedure
     .input(z.object({ repoId: z.string().optional() }).optional())
     .query(({ ctx, input }) => listBuilds(ctx, input?.repoId)),
+  /** One build for its page: stages (clone → rollout) and what each usually takes. */
+  getBuild: orgProcedure
+    .input(z.object({ buildId: z.string() }))
+    .query(({ ctx, input }) => getBuild(ctx, input.buildId)),
   triggerBuild: adminProcedure
     .input(z.object({ repoId: z.string(), ref: z.string().optional() }))
     .mutation(({ ctx, input }) => triggerBuild(ctx, input)),

@@ -26,6 +26,8 @@ import { mapDispatchError, notFound } from '../errors';
 import { resolveManagerNode } from './dispatch.service';
 import { writeAudit } from './audit.service';
 import { scanUsedStaleDb, trivyScanRunOnce } from './trivy-db';
+import { scanStage } from './build-stages';
+import { timeStage } from './build-stages.service';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -621,17 +623,19 @@ export async function verifyImageSignature(
  */
 export async function onImageBuilt(
   ctx: OrgContext,
-  input: { imageRef: string; digest: string | null; nodeId: string },
+  input: { imageRef: string; digest: string | null; nodeId: string; buildId?: string },
 ): Promise<void> {
   try {
-    await runScan(ctx, input.nodeId, input.imageRef, input.digest);
+    // Timed as the build's scan stage (its outcome reads the verdict).
+    await timeStage(ctx.db, input.buildId, 'scan', () => runScan(ctx, input.nodeId, input.imageRef, input.digest), scanStage);
   } catch {
     // runScan already persists an ERROR row on failure; never break the build.
   }
   try {
     const cfg = await ensurePolicyConfig(ctx);
     if (cfg.cosignPublicKey && input.digest) {
-      await signImage(ctx, input.nodeId, cfg, input.imageRef, input.digest);
+      const digest = input.digest;
+      await timeStage(ctx.db, input.buildId, 'sign', () => signImage(ctx, input.nodeId, cfg, input.imageRef, digest));
     }
   } catch (e) {
     await writeAudit(ctx, {

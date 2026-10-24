@@ -59,6 +59,7 @@ import { evaluateAccess } from '../abac';
 import { writeAudit } from './audit.service';
 import { fireEvent } from './alerts-fire';
 import { buildForApp, systemContext } from './cicd.service';
+import { rollOutBuilds } from './build-rollout.service';
 import { resolveManagerNode } from './dispatch.service';
 import { inspectCommit, listProviderBranches } from './git-connections.service';
 import { reportCommitStatus, upsertPrComment } from './git-feedback.service';
@@ -351,6 +352,8 @@ export function realOps(
 ): AppOps {
   const stack = d.stack;
   const svcName = (s: string) => `${stack}_${s}`;
+  // This apply's builds: the deploy that follows is their rollout stage.
+  const built: Array<{ id: string; image: string }> = [];
   return {
     async createResource(r) {
       switch (r.type) {
@@ -508,11 +511,14 @@ export function realOps(
       });
       if (!b.image || !b.image.includes('@sha256:'))
         throw commandRejected('the build produced no pinned digest');
+      built.push({ id: b.id, image: b.image });
       return { image: b.image };
     },
     async deploy(composeSource) {
       // git is the decision: warns pass (recorded), only a `block` refuses.
-      await deployFromCompose(ctx, { name: stack, composeSource, admissionMode: 'automation' });
+      await rollOutBuilds(ctx, { stack, builds: built, composeSource }, () =>
+        deployFromCompose(ctx, { name: stack, composeSource, admissionMode: 'automation' }),
+      );
     },
     async attach(a: Attachment, ledger) {
       const app = await waitForService(ctx, svcName(a.service));
