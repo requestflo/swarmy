@@ -10,6 +10,9 @@ import { MapCanvas } from './map-canvas';
 import { MapList } from './map-list';
 import { RewindBar } from './rewind-bar';
 import { RightNowCard } from './right-now-card';
+import { movableServices } from './focus-words';
+import { ServerFocus } from './server-focus';
+import { ThemeFlip } from './theme-flip';
 import { useEstateMap } from './use-estate-map';
 import { useSize } from './use-media';
 
@@ -18,7 +21,8 @@ const CARD_W = 360;
 /**
  * The Apps page's Map view (boards 6 and 22): your servers in soft region
  * blobs placed by rough geography, visitor flows into each region, the
- * Right-now card and Rewind. A view of Apps (List | Map), never a nav row.
+ * Right-now card and Rewind. Click a server and the card gives way to its
+ * focus panel; Light/Dark flips the app theme. A view of Apps (List | Map), never a nav row.
  * Phones get the same map as a list of regions.
  */
 export function EstateMapView({ b, say, servers, channels }: { b: AppsBoard; say: SayParts; servers: { online: number; total: number }; channels: number }): React.JSX.Element {
@@ -32,10 +36,20 @@ export function EstateMapView({ b, say, servers, channels }: { b: AppsBoard; say
   const needsYou = b.rows.find((r) => r.env === 'production' && r.status === 'attn' && r.fix);
   const visits = b.traffic ? (b.traffic.totals.state === 'no-data' ? null : b.traffic.totals.requestsPerMin) : undefined;
   const regions = new Set((m.groups ?? []).map((g) => g.region).filter(Boolean)).size;
+  const [focus, setFocus] = React.useState<string | null>(null);
+  const focused = focus ? m.groups?.flatMap((g) => g.servers).find((s) => s.node.id === focus) : undefined;
+  const movable = React.useMemo(() => {
+    if (!focus) return [];
+    const stackOf = new Map((b.inventory?.services ?? []).map((s) => [s.id, s.stack]));
+    return movableServices(b.servicesByNode?.get(focus) ?? [], new Set(b.apps.map((a) => a.name)), stackOf);
+  }, [focus, b.inventory, b.servicesByNode, b.apps]);
 
-  const card = (className?: string) => (
-    <RightNowCard say={say} needsYou={needsYou} visits={visits} monthlyUsd={m.monthlyUsd} servers={servers} channels={channels} className={className} />
-  );
+  const card = (className?: string) =>
+    focused ? (
+      <ServerFocus s={focused} services={movable} onClose={() => setFocus(null)} className={className} />
+    ) : (
+      <RightNowCard say={say} needsYou={needsYou} visits={visits} monthlyUsd={m.monthlyUsd} servers={servers} channels={channels} className={className} />
+    );
 
   return (
     <div className="flex flex-col gap-4">
@@ -47,6 +61,7 @@ export function EstateMapView({ b, say, servers, channels }: { b: AppsBoard; say
           </p>
           <div className="flex-1" />
           <LensControl lens={lens} onChange={setLens} />
+          <ThemeFlip />
         </div>
         {!m.groups ? (
           <div className="p-4">
@@ -59,6 +74,8 @@ export function EstateMapView({ b, say, servers, channels }: { b: AppsBoard; say
             traffic={m.traffic}
             links={m.links}
             clear={float && cardSize.h ? { w: CARD_W + 16, h: cardSize.h + 28 } : { w: 0, h: 0 }}
+            focus={focus}
+            onFocus={(id) => setFocus((cur) => (cur === id ? null : id))}
           />
         ) : (
           <div className="p-3">

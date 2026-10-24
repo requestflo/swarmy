@@ -43,18 +43,32 @@ function techLine(s: ServerView, lens: Lens): string {
 /**
  * One server: the ring (the busier of CPU and memory), its name and roles,
  * the lens line, a reachability note, and your apps on it as small rows.
+ * With `onSelect` the name focuses the server (the map's focus panel);
+ * without, it links to the server.
  */
-export function ServerCard({ s, lens, style, className }: { s: ServerView; lens: Lens; style?: React.CSSProperties; className?: string }): React.JSX.Element {
+export function ServerCard({ s, lens, style, className, selected, onSelect }: { s: ServerView; lens: Lens; style?: React.CSSProperties; className?: string; selected?: boolean; onSelect?: () => void }): React.JSX.Element {
   const st = serverTone(s.node);
+  const name = (
+    <>
+      <span aria-hidden className={cn('size-2 shrink-0 rounded-full', TONE_DOT[st.tone])} />
+      <span className="truncate">{s.node.name}</span>
+    </>
+  );
+  const nameCls = 'text-foreground flex max-w-full items-center gap-1.5 text-sm font-semibold hover:underline pointer-coarse:min-h-11';
   return (
-    <article aria-label={`Server ${s.node.name}`} style={style} className={cn('bg-card border-border flex flex-col gap-1.5 overflow-hidden rounded-xl border p-3 shadow-sm', className)}>
+    <article aria-label={`Server ${s.node.name}`} style={style} className={cn('bg-card border-border flex flex-col gap-1.5 overflow-hidden rounded-xl border p-3 shadow-sm', selected && 'border-foreground/50 ring-foreground/10 ring-2', className)}>
       <div className="flex items-center gap-2.5">
         <RingGauge busy={s.busy} />
         <div className="min-w-0 flex-1">
-          <Link to="/nodes/$nodeId" params={{ nodeId: s.node.id }} className="text-foreground flex items-center gap-1.5 text-sm font-semibold hover:underline pointer-coarse:min-h-11">
-            <span aria-hidden className={cn('size-2 shrink-0 rounded-full', TONE_DOT[st.tone])} />
-            <span className="truncate">{s.node.name}</span>
-          </Link>
+          {onSelect ? (
+            <button type="button" aria-pressed={selected} onClick={onSelect} className={nameCls}>
+              {name}
+            </button>
+          ) : (
+            <Link to="/nodes/$nodeId" params={{ nodeId: s.node.id }} className={nameCls}>
+              {name}
+            </Link>
+          )}
           <p className="text-muted-foreground truncate font-mono text-[12px]">
             {s.roles}
             {st.tone !== 'ok' ? <span className={TONE_TEXT[st.tone]}> · {st.word.toLowerCase()}</span> : null}

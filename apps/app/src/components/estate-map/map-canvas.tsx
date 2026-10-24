@@ -16,6 +16,9 @@ interface Props {
   links: { a: string; b: string; ok: boolean }[];
   /** A top-right area to keep clear (the floating Right-now card), 0 × 0 for none. */
   clear: { w: number; h: number };
+  /** The focused server (its card is ringed) and how a click focuses one. */
+  focus: string | null;
+  onFocus: (nodeId: string) => void;
 }
 
 /**
@@ -23,7 +26,7 @@ interface Props {
  * server cards inside them, visitor flows (Traffic) or private-network links
  * (Mesh) drawn under the cards. Text is never scaled; the canvas grows instead.
  */
-export function MapCanvas({ groups, lens, traffic, links, clear }: Props): React.JSX.Element {
+export function MapCanvas({ groups, lens, traffic, links, clear, focus, onFocus }: Props): React.JSX.Element {
   const [ref, size] = useSize<HTMLDivElement>();
   const measured = size.w;
   const still = useMedia('(prefers-reduced-motion: reduce)');
@@ -77,7 +80,9 @@ export function MapCanvas({ groups, lens, traffic, links, clear }: Props): React
           })}
           {[...cards.values()].map((c) => {
             const s = byId.get(c.id);
-            return s ? <ServerCard key={c.id} s={s} lens={lens} className="absolute" style={{ left: c.x, top: c.y, width: c.w, height: c.h }} /> : null;
+            return s ? (
+              <ServerCard key={c.id} s={s} lens={lens} selected={focus === c.id} onSelect={() => onFocus(c.id)} className="absolute" style={{ left: c.x, top: c.y, width: c.w, height: c.h }} />
+            ) : null;
           })}
           <span className="sr-only">
             {flows.map((f) => `${regionArea(f.region) ?? 'Unlabelled'} visitors: ${Math.round(f.rate)} a minute.`).join(' ')}
