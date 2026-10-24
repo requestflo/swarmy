@@ -23,6 +23,7 @@ import { join } from 'node:path';
 import { tmpdir, arch, platform } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import type { Subprocess } from 'bun';
+import { LEASE_TTL_MS } from '../../../apps/api/src/controller-store/lease';
 
 const ROOT = mkdtempSync(join(process.env.E2E_DIR ?? tmpdir(), 'swarmy-cs-e2e-'));
 const GARAGE_IMAGE = process.env.GARAGE_IMAGE ?? 'dxflrs/garage:v2.4.1';
@@ -30,6 +31,7 @@ const LS_VERSION = '0.5.17';
 const NAME = `swarmy-cs-e2e-garage-${randomBytes(3).toString('hex')}`;
 const log = (m: string) => console.log(`[e2e] ${m}`);
 const results: Array<{ scenario: string; ok: boolean; detail: string }> = [];
+const sims: Subprocess[] = [];
 
 async function sh(cmd: string[], opts: { allowFail?: boolean } = {}): Promise<string> {
   const p = Bun.spawn(cmd, { stdout: 'pipe', stderr: 'pipe' });
@@ -123,6 +125,7 @@ function startSim(name: string, dataDir: string, node: string, env: Record<strin
     stdout: 'pipe',
     stderr: 'inherit',
   });
+  sims.push(proc);
   const sim: Sim = {
     name,
     proc,
@@ -188,7 +191,31 @@ async function main(): Promise<void> {
   const a = startSim('ctl-a', volA, 'node-a', env);
   await a.waitFor(/^LOG controller store: replicating/, 60_000);
   await Bun.sleep(4_000);
+
+  // 0. the lag figure is measured (controller-store/lag.ts): about 0 while
+  // healthy, growing while Garage is frozen, back down once it thaws.
+  const lagOf = (s: Sim) => {
+    const line = s.lines.findLast((l) => l.startsWith('STATUS')) ?? '';
+    const m = /lagMs=(\d+)/.exec(line);
+    return { lag: m ? Number(m[1]) : null, line };
+  };
+  const healthy = lagOf(a);
+  await sh(['docker', 'pause', NAME]);
+  await Bun.sleep(15_000);
+  const frozen = lagOf(a);
+  await sh(['docker', 'unpause', NAME]);
+  await Bun.sleep(15_000);
+  const thawed = lagOf(a);
+  record(
+    'replication lag is measured (healthy → Garage frozen 15 s → thawed)',
+    healthy.lag != null && healthy.lag <= 3_000 && frozen.lag != null && frozen.lag >= 8_000 && thawed.lag != null && thawed.lag <= 3_000,
+    `lag ${healthy.lag} ms → ${frozen.lag} ms → ${thawed.lag} ms (frozen: ${frozen.line})`,
+  );
+
+  // A container crash kills every process in it. Killing only the sim would
+  // leave its Litestream child shipping, and b would rightly restart (exit 75).
   a.proc.kill('SIGKILL');
+  await sh(['pkill', '-9', '-f', join(volA, 'litestream.yml')], { allowFail: true });
   await a.proc.exited;
   const killedAt = a.lastCommitted;
   log(`ctl-a SIGKILLed after committing id ${killedAt}`);
@@ -197,7 +224,8 @@ async function main(): Promise<void> {
   const lostRows = killedAt - (b.booted ?? 0);
   record('crash → restore on an empty volume', (b.booted ?? 0) > 0 && lostRows >= 0 && lostRows * 50 <= 2_000, `restored up to id ${b.booted} of ${killedAt}: lost ${lostRows} rows ≈ ${lostRows * 50} ms of writes`);
   const t0 = Date.now();
-  await b.waitFor(/^LEADER /, 60_000);
+  // The dead holder's lease must sit unchanged for a full TTL before b may take it.
+  await b.waitFor(/^LEADER /, LEASE_TTL_MS + 30_000);
   log(`ctl-b took the lease ${Math.round((Date.now() - t0) / 1000)}s after boot (the dead holder's TTL)`);
   await b.waitFor(/^LOG controller store: replicating/, 30_000);
   await Bun.sleep(3_000);
@@ -246,6 +274,9 @@ try {
   console.error(`[e2e] error: ${e instanceof Error ? e.stack : String(e)}`);
   process.exitCode = 1;
 } finally {
+  // A failed scenario must not leave a sim (and its Litestream) running.
+  for (const p of sims) if (p.exitCode === null) p.kill('SIGKILL');
+  await sh(['pkill', '-9', '-f', ROOT], { allowFail: true }); // their Litestream children
   if (process.env.KEEP !== '1') await sh(['docker', 'rm', '-f', NAME], { allowFail: true });
   log(`artifacts in ${ROOT}`);
 }
