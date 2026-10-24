@@ -154,13 +154,37 @@ model Build {
   cacheRef   String?
   /// BuildKit steps served from cache (warm-build signal).
   cachedSteps Int?
+  /// The Release the deploy that followed this build recorded (git apps) — history, not "what runs".
+  releaseId  String?
 
-  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  repo GitRepo      @relation(fields: [repoId], references: [id], onDelete: Cascade)
+  org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  repo   GitRepo      @relation(fields: [repoId], references: [id], onDelete: Cascade)
+  stages BuildStage[]
 
   @@index([orgId, startedAt])
   @@index([repoId, startedAt])
+  @@index([releaseId])
   @@map("build")
+}
+
+/// One timed stage of a build: clone · build · push (the builder reports them
+/// as it goes) · scan · sign · rollout (the controller's own). History for the
+/// build page's stage rail and the "usually" medians — never "what runs now".
+model BuildStage {
+  id         String    @id @default(cuid())
+  buildId    String
+  stage      String
+  startedAt  DateTime
+  finishedAt DateTime?
+  /// running | ok | warn | failed
+  outcome    String    @default("running")
+  /// Display-safe facts the stage produced (scan counts, rollout health, a failure line).
+  factsJson  Json?
+
+  build Build @relation(fields: [buildId], references: [id], onDelete: Cascade)
+
+  @@unique([buildId, stage])
+  @@map("build_stage")
 }
 
 enum ImageScanStatus {
