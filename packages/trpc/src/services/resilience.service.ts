@@ -68,6 +68,7 @@ import { getStoreStatus } from './controllerStore.service';
 import { controllerStoreProblems, controllerStoreSignal, type ControllerStoreSignal } from './resilience.controller-store';
 import { getConfig as getStorageConfig } from './replicatedStore.service';
 import { drillProgressBus, type DrillProgress } from './drill-progress';
+import { meshControlProblems, meshControlSignal, type MeshControlSignal } from './resilience-mesh';
 
 // ── Read-only label mirrors (A3/E4 schemes; canonical copies live with owners) ─
 const CACHE_ROLE_LABEL = 'swarmy.cache.role';
@@ -130,6 +131,8 @@ export interface ResilienceSnapshot {
   /** Swarm manager census (Docker-truth via the hub's node inventory).
    *  `reachable` = managers the cluster currently reports `ready`. */
   managers: { total: number; reachable: number };
+  /** The private network's own control plane, when it runs in swarmy (optional: older fixtures). */
+  meshControl?: MeshControlSignal;
 }
 
 // ── Pure helpers ───────────────────────────────────────────────────────────────
@@ -374,6 +377,8 @@ export function runChecks(snap: ResilienceSnapshot): ResilienceProblemView[] {
 
   // 9b. The controller store itself: local only, or replicated but behind.
   out.push(...controllerStoreProblems(snap.controllerStore, snap.managers.total));
+  // 9c. The private network's control plane (backed up, movable, relays).
+  out.push(...meshControlProblems(snap.meshControl));
 
   // 10–12. Swarm manager quorum (WS2). The check ids are additive to
   // ResilienceCheckId; the views.ts union is owned by another workstream this
@@ -597,6 +602,7 @@ export async function buildSnapshot(ctx: OrgContext, stack?: string): Promise<Re
   const offsite = await offsiteSnapshot(ctx, stack).catch(() => null);
   // No store runtime in this process (tests, tools) → no signal, not "local only".
   const controllerStore = await getStoreStatus(ctx).then(controllerStoreSignal).catch(() => null);
+  const meshControl = await meshControlSignal(ctx).catch(() => undefined);
 
   const lastRestore = drills.find((d) => d.kind === 'restore' && d.status === 'passed');
 
@@ -630,6 +636,7 @@ export async function buildSnapshot(ctx: OrgContext, stack?: string): Promise<Re
       total: managerNodes.length,
       reachable: managerNodes.filter((n) => n.status === 'ready').length,
     },
+    ...(meshControl ? { meshControl } : {}),
   };
 }
 

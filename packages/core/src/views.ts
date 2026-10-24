@@ -2244,7 +2244,8 @@ export type ResilienceCheckId =
   | 'ingress-single'
   | 'geodns-single-region'
   | 'controller-backup'
-  | 'controller-store';
+  | 'controller-store'
+  | 'mesh-control';
 
 /** One posture problem with a severity and a link to the page that fixes it. */
 export interface ResilienceProblemView {
