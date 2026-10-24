@@ -3,7 +3,7 @@ import { TRPCError } from '@trpc/server';
 import { router, orgProcedure, adminProcedure } from '../trpc';
 import { notFound } from '../errors';
 import { writeAudit } from '../services/audit.service';
-import { abacProcedure, resolveService, type ResolveResource } from '../abac';
+import { abacProcedure, resolveNode, resolveService, type ResolveResource } from '../abac';
 import type { OrgContext } from '../context';
 import {
   getTerminalPolicy,
@@ -59,18 +59,13 @@ const resolveExecService: ResolveResource = (ctx, input) => {
   return resolveService(ctx, { id: serviceId });
 };
 
-/** Resolve a Node from `{ nodeId }` for node-shell. */
-const resolveNodeFromNodeId: ResolveResource = async (ctx, input) => {
+/**
+ * Resolve a Node from `{ nodeId }` for node-shell, by `resolveNode`'s rules: an
+ * unknown id is NOT_FOUND, and an offline node with no known labels is production.
+ */
+const resolveNodeFromNodeId: ResolveResource = (ctx, input) => {
   const nodeId = (input as { nodeId?: string })?.nodeId;
-  if (!nodeId) return null;
-  // Node identity stays in the DB; swarm labels are Docker truth (hub).
-  const node = await ctx.db.node.findFirst({
-    where: { id: nodeId, orgId: ctx.activeOrgId },
-    select: { id: true, orgId: true },
-  });
-  if (!node) return null;
-  const labels = ctx.hub.nodeInfoFor(node.id)?.labels ?? {};
-  return { type: 'node', id: node.id, orgId: node.orgId, labels };
+  return nodeId ? resolveNode(ctx, { id: nodeId }) : null;
 };
 
 /** Refuse early (before minting a ticket) when the node won't accept this terminal. */

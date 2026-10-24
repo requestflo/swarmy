@@ -412,14 +412,27 @@ export const resolveNode: ResolveResource = async (ctx, input) => {
   if (!id) return null;
   const row = await ctx.db.node.findFirst({
     where: { id, orgId: ctx.activeOrgId },
-    select: { id: true, orgId: true },
+    select: { id: true, orgId: true, hostname: true },
   });
   // An id that doesn't resolve in THIS org is not "no resource" (which would
   // authorize against the org, i.e. as non-production) — it's not found.
   if (!row) throw new TRPCError({ code: 'NOT_FOUND', message: `node ${id} not found` });
-  const labels = ctx.hub.nodeInfoFor(row.id)?.labels ?? {};
-  return { type: 'node', id: row.id, orgId: row.orgId, labels };
+  return { type: 'node', id: row.id, orgId: row.orgId, labels: nodeLabels(ctx, row) };
 };
+
+/**
+ * A node's Docker labels: its live (or last-known) report, else what a
+ * connected manager lists for its hostname (`docker node ls` covers down
+ * nodes). When nothing knows the node (offline since the controller started)
+ * its environment is unknown and it is judged as production: an offline
+ * node must never look non-production.
+ */
+function nodeLabels(ctx: OrgContext, row: { id: string; orgId: string; hostname?: string | null }): Record<string, string> {
+  const info =
+    ctx.hub.nodeInfoFor(row.id) ??
+    (row.hostname ? ctx.hub.nodeInventory(row.orgId, true).find((n) => n.hostname === row.hostname) : undefined);
+  return info ? info.labels : { [ENV_LABEL]: PRODUCTION };
+}
 
 /**
  * Resolve a Service from `{ id }` input (Docker id or service name). There is no

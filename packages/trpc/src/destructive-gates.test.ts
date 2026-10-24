@@ -57,7 +57,9 @@ function ctxFor(role: Role, audit: string[]) {
         }],
         containers: [],
       }),
-      nodeInfoFor: () => undefined,
+      // n1 is online and unlabelled (non-production). An offline node nobody
+      // knows is judged as production (abac-node.test.ts).
+      nodeInfoFor: (id: string) => (id === 'n1' ? { hostname: 'n1', status: 'ready', labels: {} } : undefined),
     },
     { get: (t, k: string) => (k in t ? (t as Record<string, unknown>)[k] : () => { throw new Error(`unmocked hub.${k}`); }) },
   );
