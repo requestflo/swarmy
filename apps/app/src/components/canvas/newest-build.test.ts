@@ -37,6 +37,22 @@ describe('newestBuild', () => {
     expect(newestBuild('shop', services, repos, [build({ status: 'failed' })], [])?.chips).toEqual([{ label: 'build failed', tone: 'bad' }]);
   });
 
+  test('timed stages: the build stage’s own time, and "signed" once signing passed', () => {
+    const stages = [
+      { key: 'clone', startedAt: at(0), finishedAt: at(2), outcome: 'ok' },
+      { key: 'build', startedAt: at(2), finishedAt: at(40), outcome: 'ok' },
+      { key: 'sign', startedAt: at(50), finishedAt: at(51), outcome: 'ok' },
+    ];
+    const b = newestBuild('shop', services, repos, [build({ finishedAt: at(43), stages })], []);
+    expect(b?.chips).toEqual([
+      { label: 'build ✓ 38 s', tone: 'ok' },
+      { label: 'signed', tone: 'ok' },
+      { label: 'running on api', tone: 'ok' },
+    ]);
+    const unsigned = newestBuild('shop', services, repos, [build({ stages: [{ ...stages[2]!, outcome: 'failed' }] })], []);
+    expect(unsigned?.chips.map((c) => c.label)).not.toContain('signed');
+  });
+
   test('seconds', () => {
     expect(seconds(38)).toBe('38 s');
     expect(seconds(185)).toBe('3 min');

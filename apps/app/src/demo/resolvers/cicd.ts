@@ -1,5 +1,6 @@
 import type { DemoStore, DomainResolvers } from '../types';
 import { DEMO_SCANNED_DIGESTS, makeBuildLog } from './cicd-build-log';
+import { demoStages, demoUsualMs, type DemoStageView } from './cicd-build-stages';
 
 /**
  * Demo resolvers for the CI/CD + registry surfaces (router `cicd`) and the Docker
@@ -49,7 +50,13 @@ interface BuildView {
     startCommand?: string;
   } | null;
   cachedSteps: number | null;
+  /** Filled per read from the build's times (see ./cicd-build-stages). */
+  stages?: DemoStageView[];
+  releaseId?: string | null;
 }
+
+/** A seeded build with its stages as of now (a running one keeps moving). */
+const withStages = (b: BuildView): BuildView => ({ ...b, stages: demoStages(b), releaseId: null });
 
 interface RegistryConfigView {
   enabled: boolean;
@@ -348,8 +355,16 @@ export const cicd: DomainResolvers = {
     // ── Builds ──
     'cicd.listBuilds': (i, s): BuildView[] => {
       const repoId = (i as { repoId?: string } | undefined)?.repoId;
-      const builds = state(s).builds;
+      const builds = state(s).builds.map(withStages);
       return repoId ? builds.filter((b) => b.repoId === repoId) : builds;
+    },
+
+    'cicd.getBuild': (i, s): BuildView & { usualMs: ReturnType<typeof demoUsualMs> } => {
+      const { buildId } = i as { buildId: string };
+      const builds = state(s).builds;
+      const b = builds.find((x) => x.id === buildId);
+      if (!b) throw new Error(`build "${buildId}" not found`);
+      return { ...withStages(b), usualMs: demoUsualMs(builds, buildId) };
     },
 
     'cicd.triggerBuild': (i, s): BuildView => {

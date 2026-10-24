@@ -8,18 +8,27 @@ import { BuildImageCard } from './build-image-card';
 import { BuildLayers } from './build-layers';
 import { parseBuildLayers, toLogLines } from './build-log-parse';
 import { BuildLogViewer } from './build-log-viewer';
+import { BuildOutcome } from './build-outcome';
+import { outcomeLine } from './build-stage-model';
+import { BuildStagesRail } from './build-stages-rail';
 import { BUILD_TONE, BUILD_WORD, repoName } from './builds-list';
 import { buildStrategyLabel } from './build-strategy';
 import { useBuildLog } from './use-build-log';
 
 const RUNNING = new Set(['queued', 'building', 'pushing']);
 
-/** One build: what it is, how it went, and the log (live while it runs). */
+/** One build: what it is, how each stage went, and the log (live while it runs). */
 export function BuildDetailPage({ buildId }: { buildId: string }): React.JSX.Element {
   const trpc = useTRPC();
-  // The build row comes from the (refetching) list; cheap and avoids a new query.
-  const builds = useQuery({ ...trpc.cicd.listBuilds.queryOptions({}), refetchInterval: 4000 });
-  const build = builds.data?.find((b) => b.id === buildId);
+  const q = useQuery({
+    ...trpc.cicd.getBuild.queryOptions({ buildId }),
+    // Poll while anything is still moving: the build itself, then scan/sign/rollout after it.
+    refetchInterval: (query) => {
+      const b = query.state.data;
+      return !b || RUNNING.has(b.status) || b.stages.some((s) => s.outcome === 'running') ? 3000 : false;
+    },
+  });
+  const build = q.data;
   const status = build?.status ?? 'building';
   const live = RUNNING.has(status);
   const repo = build ? repoName(build.repoUrl) : buildId;
@@ -27,6 +36,7 @@ export function BuildDetailPage({ buildId }: { buildId: string }): React.JSX.Ele
   const { chunks } = useBuildLog(buildId, live);
   const lines = React.useMemo(() => toLogLines(chunks), [chunks]);
   const layers = React.useMemo(() => parseBuildLayers(lines.map((l) => l.text).join('\n')), [lines]);
+  const outcome = build ? outcomeLine(build) : null;
 
   return (
     <CalmPage
@@ -41,7 +51,7 @@ export function BuildDetailPage({ buildId }: { buildId: string }): React.JSX.Ele
         ) : undefined
       }
     >
-      {builds.isLoading ? (
+      {q.isLoading ? (
         <SkeletonBody variant="list" />
       ) : (
         <>
@@ -56,9 +66,11 @@ export function BuildDetailPage({ buildId }: { buildId: string }): React.JSX.Ele
             lede={build ? `${build.commit ? `Commit ${build.commit.slice(0, 7)}` : 'No commit'}${build.startedAt ? `, started ${relTime(build.startedAt)}` : ''}.${build.image ? ' Pushed as an image your apps can run.' : ''}` : 'This build is no longer in the recent list.'}
           />
           {build ? <Tech>{`${build.image ?? '—'} · ${repo}${buildStrategyLabel(build) ? ` · ${buildStrategyLabel(build)}` : ''}`}</Tech> : null}
+          {build ? <BuildStagesRail build={build} /> : null}
           <Section title="Log" hint={live ? 'streaming live' : undefined} action={<StatusWord tone={tone} word={BUILD_WORD[status] ?? status} pulse={live} />}>
             <BuildLogViewer lines={lines} live={live} />
           </Section>
+          {outcome ? <BuildOutcome outcome={outcome} /> : null}
         </>
       )}
     </CalmPage>

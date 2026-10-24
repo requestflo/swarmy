@@ -24,6 +24,8 @@ interface BuildLike {
   commit: string | null;
   startedAt: string | null;
   finishedAt: string | null;
+  /** Timed stages (newer controllers); the build stage's own time beats start → finish. */
+  stages?: ReadonlyArray<{ key: string; startedAt: string; finishedAt: string | null; outcome: string }>;
 }
 
 interface ScanLike {
@@ -48,7 +50,7 @@ function scanChip(s: ScanLike): BuildChip {
  * The newest build of any repo that deploys to one of this app's parts
  * (`cicd.listRepos` serviceId), with only the stages swarmy records: the
  * build and its time, the CVE scan of that exact digest, and whether a part
- * runs that digest now. No row, no chip — signing keeps no per-image record.
+ * runs that digest now, plus "signed" once the build's sign stage passed. No row, no chip.
  */
 export function newestBuild(
   stack: string,
@@ -67,8 +69,11 @@ export function newestBuild(
     .filter((x) => repoPart.has(x.repoId) && x.startedAt)
     .sort((a, z) => Date.parse(z.startedAt!) - Date.parse(a.startedAt!))[0];
   if (!b) return null;
-  const started = Date.parse(b.startedAt!);
-  const took = ((b.finishedAt ? Date.parse(b.finishedAt) : now) - started) / 1000;
+  const stage = (key: string) => b.stages?.find((s) => s.key === key);
+  const timed = stage('build');
+  const started = Date.parse(timed?.startedAt ?? b.startedAt!);
+  const ended = timed ? timed.finishedAt : b.finishedAt;
+  const took = ((ended ? Date.parse(ended) : now) - started) / 1000;
   const chips: BuildChip[] = [
     b.status === 'succeeded'
       ? { label: `build ✓ ${seconds(took)}`, tone: 'ok' }
@@ -81,6 +86,7 @@ export function newestBuild(
   if (b.status === 'succeeded' && digest) {
     const scan = scans.find((s) => s.digest === digest);
     if (scan) chips.push(scanChip(scan));
+    if (stage('sign')?.outcome === 'ok') chips.push({ label: 'signed', tone: 'ok' });
     const runs = services.find((s) => s.image.includes(digest));
     if (runs) chips.push({ label: `running on ${shortOf(stack, runs.name)}`, tone: 'ok' });
   }
