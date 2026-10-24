@@ -73,9 +73,13 @@ state belongs see `skill("docker-native-storage")`.
     the worker re-checks that the accepted window still covers the gap. The
     rule applies to `primary-replica`, `failover` and `geo`; `single` and
     `active-active` never promote. Never add a promotion path that skips
-    `decideFailover`, and never use seconds-lag as proof. The watermark maps are
-    module-level (a controller restart ⇒ unknown ⇒ hold) — that is the safe
-    default, not a bug. Promotion is `SELECT pg_promote()`; the repoint
+    `decideFailover`, and never use seconds-lag as proof. Watermark samples
+    are also kept in the controller store (`OperationRun`
+    `db.failoverWatermark`, `manageddb-watermark.ts`); after a restart a
+    stored sample counts ONLY when taken within the in-memory envelope
+    (≤ freshness gap + one tick before this process's first unhealthy
+    sighting, same primary) — anything else is unknown ⇒ hold, the safe
+    default. Never widen that window. Promotion is `SELECT pg_promote()`; the repoint
     redeploys every other member under a fresh `SWARMY_PG_REJOIN` epoch, and
     the boot layer moves a demoted ex-writer's PGDATA ASIDE
     (`pgdata.diverged-<utc>`) before re-cloning — never deletes it.

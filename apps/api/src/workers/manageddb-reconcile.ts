@@ -56,6 +56,8 @@ import {
   promotionDue,
   renderWalCredsEnv,
 } from './manageddb-reconcile.core';
+import { restoreWatermark } from './manageddb-watermark.core';
+import { createWatermarkStore } from './manageddb-watermark';
 import {
   DB_PITR_ARCHIVE_CMD_LABEL,
   PITR_ARCHIVE_COMMAND_HASH,
@@ -121,7 +123,9 @@ import {
  *   `PROMOTION_GRACE_TICKS` consecutive ticks (module-level map, no DB) goes
  *   through `decideFailover` (@swarmy/core manageddb-failover): a replica is
  *   auto-promoted ONLY when its replay LSN reached the primary's last known
- *   flushed LSN (the watermark sampled on the last healthy tick). Otherwise the
+ *   flushed LSN (the watermark sampled on the last healthy tick; also kept in
+ *   the controller store so a restart mid-outage can still use a sample taken
+ *   within the same envelope — manageddb-watermark.core). Otherwise the
  *   worker stamps the data-loss window as `swarmy.db.failover.pending`, raises a
  *   critical alert + incident, and waits for an admin confirmation
  *   (`swarmy.db.failover.confirm`, written by `manageddb.confirmFailover`).
@@ -866,6 +870,14 @@ const unhealthyTicks = new Map<string, number>();
 const watermarks = new Map<string, PrimaryWatermark>();
 /** `${orgId}/${stack}/${cluster}` → epoch ms the primary was last observed healthy. */
 const lastHealthyAt = new Map<string, number>();
+/** `${orgId}/${stack}/${cluster}` → epoch ms this process first saw the primary unhealthy (this episode). */
+const firstUnhealthyAt = new Map<string, number>();
+/**
+ * The watermark samples, persisted in the controller store so a restart
+ * mid-outage can still prove a replica caught up — only within the same
+ * envelope the in-memory path accepts (manageddb-watermark.core).
+ */
+const watermarkStore = createWatermarkStore(prisma);
 /** Clusters whose "failover needs confirmation" alert fired this episode. */
 const confirmAlerted = new Set<string>();
 
@@ -960,6 +972,7 @@ async function maybePromote(
   const { ctx, seams } = contract;
   const measured = lag.members;
   const key = `${orgId}/${c.stack}/${c.cluster}`;
+  const clusterRef = `${c.stack}/${c.cluster}`;
   const resource = `db:${c.stack}/${c.cluster}`;
   const groupKey = `db:${c.stack}/${c.cluster}`;
   const now = Date.now();
@@ -989,13 +1002,18 @@ async function maybePromote(
   // single has nothing to promote; active-active already has other writers.
   if (topology === 'single' || topology === 'active-active') {
     unhealthyTicks.delete(key);
+    firstUnhealthyAt.delete(key);
     if (handshakeHolders.length > 0) await clearHandshake();
     return;
   }
 
   if (healthy) {
     lastHealthyAt.set(key, now);
-    if (lag.primaryLsn) watermarks.set(key, { lsn: lag.primaryLsn, sampledAt: now });
+    firstUnhealthyAt.delete(key);
+    if (lag.primaryLsn) {
+      watermarks.set(key, { lsn: lag.primaryLsn, sampledAt: now });
+      watermarkStore.record(orgId, clusterRef, { primary: primary!.name, lsn: lag.primaryLsn, sampledAt: now });
+    }
     if (handshakeHolders.length > 0) await clearHandshake();
     if (confirmAlerted.delete(key)) {
       await seams.fireEvent(ctx, {
@@ -1026,6 +1044,7 @@ async function maybePromote(
 
   const ticks = (unhealthyTicks.get(key) ?? 0) + 1;
   unhealthyTicks.set(key, ticks);
+  if (!firstUnhealthyAt.has(key)) firstUnhealthyAt.set(key, now);
   // A PLANNED switchover (the mover stopped a read-only primary on purpose):
   // no grace window and no "unhealthy" alarm — but the promotion below still
   // goes through decideFailover, so a replica that is not provably caught up
@@ -1058,11 +1077,26 @@ async function maybePromote(
     replayLsn: measured[s.name]?.replayLsn ?? null,
     lagSeconds: measured[s.name]?.lagSeconds ?? null,
   }));
+  // This process never saw the primary healthy (it restarted mid-outage): a
+  // stored sample may stand in, only if taken within the in-memory envelope
+  // of this process's first unhealthy observation. Otherwise unknown ⇒ hold.
+  let watermark = watermarks.get(key) ?? null;
+  let healthyAt = lastHealthyAt.get(key) ?? null;
+  if (!watermark && healthyAt === null) {
+    const restored = restoreWatermark(watermarkStore.get(orgId, clusterRef), {
+      primary: primary?.name,
+      firstUnhealthyAt: firstUnhealthyAt.get(key) ?? now,
+    });
+    if (restored) {
+      watermark = restored.watermark;
+      healthyAt = restored.lastHealthyAt;
+    }
+  }
   const decision = decideFailover({
     topology,
     candidates,
-    watermark: watermarks.get(key) ?? null,
-    lastHealthyAt: lastHealthyAt.get(key) ?? null,
+    watermark,
+    lastHealthyAt: healthyAt,
     confirmation,
   });
   if (decision.kind === 'never' || decision.kind === 'wait') return; // keep counting, retry next tick
@@ -1158,6 +1192,8 @@ async function maybePromote(
   unhealthyTicks.delete(key);
   watermarks.delete(key);
   lastHealthyAt.delete(key);
+  firstUnhealthyAt.delete(key);
+  watermarkStore.forget(orgId, clusterRef);
   confirmAlerted.delete(key);
   // The ex-primary was redeployed without the handshake labels; clear any other holder.
   await clearHandshake();
@@ -1225,6 +1261,8 @@ async function runDueBackupsSweep(now: Date): Promise<void> {
 async function reconcileOrg(orgId: string): Promise<void> {
   const node = hub.managerNode(orgId);
   if (!node) return;
+  // Stored failover watermarks (first tick after boot; cached afterwards).
+  await watermarkStore.load(orgId);
 
   const { services } = hub.liveInventory(orgId);
 
@@ -1536,6 +1574,8 @@ async function reconcileOrg(orgId: string): Promise<void> {
       await maybePromote(contract, orgId, node, c, topology, measured).catch(() => undefined);
     }
   }
+  // One controller-store write per tick when a watermark moved.
+  await watermarkStore.flush(orgId);
 }
 
 let lastBackupSweep = 0;
