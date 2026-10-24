@@ -4,8 +4,8 @@ Scope: the ~110 commits since `origin/main`: auth, ABAC, secret variables,
 the registry, agent commands, git apps, DNS-01, ingest endpoints and the installer.
 Every finding was verified by reading the working tree. **Status** gives the fix
 commit, or explains why the finding is still open. Updated 2026-10-24: every
-finding is fixed except **M13** (a product decision) and **M16** (the registry
-still rides the unencrypted routing mesh).
+finding is fixed except **M13** (a product decision). M16 needs a real
+multi-node swarm to verify.
 
 ## Critical
 
@@ -59,7 +59,7 @@ still rides the unencrypted routing mesh).
 | M13 | `terminal.open` gets past `secrets.read` for services that mount secrets; recordings capture the values | shim + `terminal.ts` | **OPEN** (product decision) |
 | M14 | NetBird PAT on curl argv; `--admin-password` flag; `:latest` agent image and `main` stack file are not pinned | `install-swarmy.sh:114,557,664`, `agent env.ts:21` | PAT on curl argv: `22542fe`; `--admin-password-file`/stdin: `248bfe32`; release-pinned images and stack file: `1b1444f4` (2026-10-24) |
 | M15 | Uninstall leaves `agent.json`, the mesh sidecar and `state.env`, and doesn't rotate join tokens | `installer.ts:152`, `install-swarmy.sh:916` | `a8744540` (2026-10-24): removes agent state, the mesh sidecar and `state.env`; rotates join tokens |
-| M16 | Basic-auth registry creds cross the unencrypted `ingress` overlay between nodes | routing mesh | **OPEN**: move the registry off the routing mesh onto a loopback forwarder on the encrypted `swarmy` overlay |
+| M16 | Basic-auth registry creds cross the unencrypted `ingress` overlay between nodes | routing mesh | `3b363741`, `6ece5c4c` (2026-10-24): a per-node loopback forwarder on the encrypted `swarmy` overlay; a cluster moves once every node's agent forwards. Verify on a real multi-node swarm. |
 
 ## Low
 

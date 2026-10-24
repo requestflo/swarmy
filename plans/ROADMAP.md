@@ -128,8 +128,14 @@ server and the BuildKit registry cache. What is left (none launch-blocking):
   mid-write; confirm the Data-tab window, then promote). The LSN watermark now
   survives a short controller restart; a long outage or a moved controller
   still holds.
-- A refused PITR still takes the safety backup and a brief restart before the
-  agent refuses (moving the check earlier needs a new agent command).
+- Done 2026-10-24: the PITR window is read before anything changes (new
+  `db.pitrWindow` agent command, sent only to agents that advertise it), also
+  for restore-as-a-copy. Decide whether it sits behind `SWARMY_ALLOW_EXEC`.
+- Controller store (docker-native P3): replication lag is measured now (it read
+  0 even with Garage down) and a Resilience check warns. The drain and
+  partition drills are scripted in the cluster e2e, unrun. Decide: the fence is
+  52 s (QA-022 doubled the lease) vs the plan's 30 s; and whether enabling
+  Garage also turns on replication (today a separate click).
 - Done 2026-10-24: database-role placement, cache eviction/persistence
   settings, bucket CORS + lifecycle, the public S3 endpoint for presigned
   links, registry-side GC (keep-last-N mode), restore-as-a-copy creating its
@@ -137,8 +143,13 @@ server and the BuildKit registry cache. What is left (none launch-blocking):
 
 ## Mesh
 
-- `managed-by-swarmy` is a mode value only — swarmy doesn't stand up its own
-  NetBird server yet (designed in `epic-self-hosted-mesh-and-fleets.md`).
+- Self-hosted NetBird (M1/M2) is built; M3 landed 2026-10-24 (relays on edges,
+  peer login expiry from the org setting — the bootstrap had reset it to 12 h
+  every 5 min — and a client download mirror). Still open: the move drill, a
+  raft-backed lease for the control plane (a returning old node runs up to one
+  30 s tick), a brand-new node's first client pull from GHCR, and the 1 GB
+  re-measure on DO. Decide whether the ~117 MB client mirror ships by default
+  (`SWARMY_BUNDLE_NETBIRD_CLIENTS=0` turns it off).
 - MTU: swarmy checks and explains; it can't safely recreate existing networks,
   so the fix is a manual step shown on Mesh settings.
 
@@ -167,6 +178,15 @@ server and the BuildKit registry cache. What is left (none launch-blocking):
   every "Open PR" / "Commit" on the boards.
 
 ## CI & release
+
+- The nightly **E2E cluster** (dind, 3 nodes) has failed every night on `main`
+  since at least 2026-09-25: everything that crosses nodes (templates, short-name
+  DNS, pg_dump to another node, reschedule, controller move) fails while
+  install/login/servers pass. Being investigated.
+- Offline upgrade bundles shipped 2026-10-24 (upload on Settings › Platform,
+  manual `bundle.yml`); `install-swarmy.sh --bundle` for a fresh air-gapped
+  install is not built. The M16 forwarder pulls Caddy on every node, so an
+  air-gapped install must preload it.
 
 - The Release workflow is manual until launch; restore `push: branches: [main]`
   afterwards.
