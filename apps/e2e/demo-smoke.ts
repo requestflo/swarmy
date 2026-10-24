@@ -137,6 +137,9 @@ const routes: Array<[string, RegExp?]> = [
   ['/stacks/storefront/config/previews', /New preview from a branch/],
   ['/stacks/storefront/config/email', /sends mail as app-storefront/],
   ['/stacks/storefront/source'],
+  // Convert to swarmy.yaml: a compose app's spec as the file, what didn't translate, the next step.
+  ['/stacks/data/source', /Convert to swarmy\.yaml/],
+  ['/stacks/data/source?convert=1', /valid · v1[\s\S]*What didn’t translate[\s\S]*privileged/],
   ['/stacks/storefront/access', /Request to/],
   ['/stacks/storefront/analytics'],
   ['/stacks/storefront/errors'],
@@ -224,6 +227,21 @@ try {
     else console.log('✓ git wizard: Link & scan → what we found, unticking rewrites the swarmy.yaml');
   } catch (e) {
     fail(`git scan board: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`);
+  }
+
+  // Convert to swarmy.yaml: Source tab → the generated file, checked, with Connect a repo as the next step.
+  try {
+    const before = pageErrors.length;
+    await page.goto(`${BASE}/stacks/data/source`, { waitUntil: 'networkidle' });
+    await page.getByRole('link', { name: 'Convert to swarmy.yaml' }).first().click();
+    await page.getByText('valid · v1').first().waitFor({ timeout: 10_000 });
+    await page.getByText('What didn’t translate').first().waitFor({ timeout: 5_000 });
+    const next = await page.getByRole('link', { name: 'Connect a repo' }).first().getAttribute('href');
+    if (next !== '/deploy?source=git') fail(`convert: Connect a repo goes to ${next}`);
+    else if (pageErrors.length > before) fail(`convert: ${pageErrors.slice(before).join(' | ')}`);
+    else console.log('✓ convert: compose app → swarmy.yaml (valid · v1), what didn’t translate, Connect a repo');
+  } catch (e) {
+    fail(`convert: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`);
   }
 
   // The banner links back out.

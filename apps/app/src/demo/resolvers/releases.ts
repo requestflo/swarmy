@@ -100,7 +100,8 @@ const storefrontCompose = (webTag: string, apiTag: string, workerReplicas: numbe
     `      replicas: ${workerReplicas}`,
   ].join('\n');
 
-const platformCompose = (tag: string, withCache: boolean): string =>
+/** Exported for the Convert to swarmy.yaml demo (apps-convert.ts), which converts the newest one. */
+export const platformCompose = (tag: string, withCache: boolean): string =>
   [
     'services:',
     '  gateway:',
@@ -112,19 +113,43 @@ const platformCompose = (tag: string, withCache: boolean): string =>
     `    image: ghcr.io/northwind/platform-auth:${tag}`,
   ].join('\n');
 
-const dataCompose = (workerTag: string, natsReplicas: number): string =>
+/** A compose app with the usual rough edges (a password, a host folder, privileged) — what Convert to swarmy.yaml is for. */
+export const dataCompose = (workerTag: string, natsReplicas: number): string =>
   [
     'services:',
     '  postgres:',
     '    image: postgres:16-alpine',
+    '    environment:',
+    '      POSTGRES_USER: northwind',
+    '      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}',
+    '    volumes:',
+    '      - pgdata:/var/lib/postgresql/data',
     '  redis:',
     '    image: redis:7-alpine',
     '  nats:',
     '    image: nats:2.10-alpine',
+    '    command: ["-js", "-sd", "/data"]',
+    '    ports:',
+    '      - "4222:4222"',
+    '    volumes:',
+    '      - nats:/data',
     '    deploy:',
     `      replicas: ${natsReplicas}`,
     '  worker:',
     `    image: ghcr.io/northwind/worker:${workerTag}`,
+    '    environment:',
+    '      DATABASE_URL: postgres://northwind:${POSTGRES_PASSWORD}@postgres:5432/northwind',
+    '      REDIS_URL: redis://redis:6379',
+    '      NATS_URL: nats://nats:4222',
+    '      MAILER_API_KEY: mk_demo_4f9a1c2e7b',
+    '    volumes:',
+    '      - ./exports:/app/exports',
+    '    privileged: true',
+    '    restart: unless-stopped',
+    '    depends_on: [postgres, redis, nats]',
+    'volumes:',
+    '  pgdata: {}',
+    '  nats: {}',
   ].join('\n');
 
 function toView(r: ReleaseSeed): ReleaseView {
