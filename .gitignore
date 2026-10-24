@@ -60,3 +60,7 @@ packages/db/prisma/src/generated/
 
 # terminal session recordings written by a locally-run controller
 .swarmy/
+
+# Python bytecode (the SDK tests write it)
+__pycache__/
+*.pyc
