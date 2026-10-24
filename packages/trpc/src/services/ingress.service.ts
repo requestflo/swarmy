@@ -19,7 +19,7 @@ import {
   type TunnelOptions,
   type WwwMode,
   appAuthVerifyPath,
-  redactBcryptHashes,
+  redactRenderedSecrets,
 } from '@swarmy/ingress';
 import type { IngressStatus, RenderedConfig } from '@swarmy/core/protocol';
 import { meshControlVhosts } from './mesh-control.service';
@@ -1356,8 +1356,9 @@ export async function previewConfig(
 ): Promise<RenderedConfig> {
   const config = await loadOrgConfig(ctx);
   const rendered = previewConfigPkg({ ...config, driver: driver ?? config.driver, enabled: true });
-  // Members read the preview: route-password hashes stay sealed in it.
-  return JSON.parse(redactBcryptHashes(JSON.stringify(rendered))) as RenderedConfig;
+  // Members read the preview: tunnel tokens, credentials files and route-password
+  // hashes stay sealed in it (the dispatched render is the only one that carries them).
+  return redactRenderedSecrets(rendered);
 }
 
 /**

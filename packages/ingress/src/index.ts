@@ -13,6 +13,7 @@ export * from './rum';
 export * from './route-channel';
 export * from './edge-geoip';
 export * from './basic-auth';
+export * from './redact';
 export {
   CaddyDriver,
   caddyAdminLoadUrl,
