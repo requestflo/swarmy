@@ -180,9 +180,9 @@ describe('ssoProfileMapper', () => {
       groupMap: { eng: 'developers' },
     });
     const out = map({ sub: 'abc', display_name: 'Ann', roles: ['eng', 'other'] });
-    expect(out).toEqual({ name: 'Ann', email: 'abc@kc.sso.swarmy.invalid' });
-    expect(takeSsoGroups('kc', 'abc@kc.sso.swarmy.invalid')).toEqual(['developers']);
-    expect(takeSsoGroups('kc', 'abc@kc.sso.swarmy.invalid')).toBeNull();
+    expect(out).toEqual({ name: 'Ann', email: '74b74652d1a891acce992ebab542d6c7@kc.idp.swarmy.invalid' });
+    expect(takeSsoGroups('kc', '74b74652d1a891acce992ebab542d6c7@kc.idp.swarmy.invalid')).toEqual(['developers']);
+    expect(takeSsoGroups('kc', '74b74652d1a891acce992ebab542d6c7@kc.idp.swarmy.invalid')).toBeNull();
   });
   it('keeps a real email untouched', () => {
     const map = ssoProfileMapper({ providerId: 'kc', protocol: 'oidc', orgId: 'org' });

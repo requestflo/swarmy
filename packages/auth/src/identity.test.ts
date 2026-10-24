@@ -14,8 +14,23 @@ import {
 describe('placeholder emails (email is optional)', () => {
   it('builds stable, reserved-TLD addresses', () => {
     expect(usernamePlaceholderEmail('Alice')).toBe('alice@user.swarmy.invalid');
-    expect(idpPlaceholderEmail('keycloak', 'f:1234|x')).toBe('f-1234-x@keycloak.sso.swarmy.invalid');
+    expect(idpPlaceholderEmail('keycloak', 'f:1234|x')).toBe('c5fa10be4b205805e7e4d56993ae6071@keycloak.idp.swarmy.invalid');
+    expect(idpPlaceholderEmail('keycloak', 'f:1234|x')).toBe(idpPlaceholderEmail('keycloak', 'f:1234|x'));
     expect(invitePlaceholderEmail('AbC123')).toBe('invite-abc123@invite.swarmy.invalid');
+  });
+  it('IdP placeholders never collide where sanitising the inputs would', () => {
+    const addrs = [
+      idpPlaceholderEmail('acme.corp', 'u1'),
+      idpPlaceholderEmail('acme_corp', 'u1'),
+      idpPlaceholderEmail('kc', 'a:1'),
+      idpPlaceholderEmail('kc', 'a-1'),
+      idpPlaceholderEmail('kc', 'A-1'),
+      // The JSON pair keeps the provider/subject boundary unambiguous.
+      idpPlaceholderEmail('a', 'b","c'),
+      idpPlaceholderEmail('a","b', 'c'),
+    ];
+    expect(new Set(addrs).size).toBe(addrs.length);
+    for (const a of addrs) expect(isPlaceholderEmail(a)).toBe(true);
   });
   it('recognises placeholders and hides them from people', () => {
     expect(isPlaceholderEmail('alice@user.swarmy.invalid')).toBe(true);
