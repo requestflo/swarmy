@@ -32,12 +32,13 @@ import {
 } from '@swarmy/trpc';
 import { authRegistry } from '@swarmy/auth';
 import { hub } from './gateway';
+import { DurableDeliveryDeduper } from './webhook-dedupe';
 import {
-  DeliveryDeduper,
   githubSignature,
   isForkPullRequest,
   parseCommitSha,
   parsePrWebhookEvent,
+  parsePushBefore,
   parsePushRef,
   pushChangedPaths,
   safeEqual,
@@ -63,7 +64,8 @@ webhooksApp.use(
   bodyLimit({ maxSize: WEBHOOK_MAX_BODY_BYTES, onError: (c) => c.json({ error: 'payload too large' }, 413) }),
 );
 
-const deliveries = new DeliveryDeduper();
+/** Delivery ids + signed-body hashes, persisted in control.db (M8: survives restarts). */
+const deliveries = new DurableDeliveryDeduper(() => prisma);
 const deps = () => ({ db: prisma, hub, auth: authRegistry.getAuth() });
 
 const REPO_SELECT = {
@@ -135,6 +137,7 @@ function kickPush(
   ref: string,
   sha: string | null,
   changedPaths: string[] | undefined,
+  before: string | null,
 ): void {
   if (!isAppBinding(r)) return kickBuild(r, ref, sha);
   void planCommitForRepo(deps(), r.orgId, {
@@ -142,6 +145,8 @@ function kickPush(
     ref,
     sha,
     trigger: 'push',
+    // The plan refuses an older commit unless the branch moved back from the live one (M8).
+    before,
     ...(changedPaths ? { changedPaths } : {}),
   })
     .then((res) => {
@@ -216,8 +221,8 @@ webhooksApp.post('/github', async (c) => {
   );
   if (!app) return c.json({ error: 'invalid signature' }, 401);
 
-  if (!deliveries.firstSeen(c.req.header('x-github-delivery')))
-    return c.json({ ok: true, ignored: 'duplicate' });
+  const delivery = { scope: `app:${app.id}`, deliveryId: c.req.header('x-github-delivery'), rawBody };
+  if (!(await deliveries.firstSeen(delivery))) return c.json({ ok: true, ignored: 'duplicate' });
   const event = c.req.header('x-github-event') ?? '';
   if (event === 'ping') return c.json({ ok: true, ignored: 'ping' });
 
@@ -269,7 +274,7 @@ webhooksApp.post('/github', async (c) => {
     if (deleted) return c.json({ ok: true, ignored: 'branch deleted' });
     const matched = repos.filter((r) => deploysFrom(r, ref));
     const changed = pushChangedPaths(body);
-    for (const r of matched) kickPush(r, ref, sha, changed);
+    for (const r of matched) kickPush(r, ref, sha, changed, parsePushBefore(body));
     return c.json(
       { ok: true, accepted: matched.map((r) => r.id), ref },
       matched.length ? 202 : 200,
@@ -341,11 +346,12 @@ webhooksApp.post('/git/:repoId', async (c) => {
           });
   if (!ok) return c.json({ error: 'invalid signature' }, 401);
 
-  const delivery =
+  const deliveryId =
     c.req.header('x-github-delivery') ??
     c.req.header('x-gitea-delivery') ??
     c.req.header('x-gitlab-event-uuid');
-  if (!deliveries.firstSeen(delivery)) return c.json({ ok: true, ignored: 'duplicate' });
+  if (!(await deliveries.firstSeen({ scope: `repo:${repo.id}`, deliveryId, rawBody })))
+    return c.json({ ok: true, ignored: 'duplicate' });
 
   const event =
     c.req.header('x-github-event') ??
@@ -399,6 +405,6 @@ webhooksApp.post('/git/:repoId', async (c) => {
   // A deleted deploy branch has no commit to plan; the app keeps running as it is.
   if (ref && isBranchDelete(body)) return c.json({ ok: true, ignored: 'branch deleted', ref });
   const buildRef = ref ?? repo.branch;
-  kickPush(repo, buildRef, parseCommitSha(dialect, body), pushChangedPaths(body));
+  kickPush(repo, buildRef, parseCommitSha(dialect, body), pushChangedPaths(body), parsePushBefore(body));
   return c.json({ ok: true, accepted: true, ref: buildRef }, 202);
 });

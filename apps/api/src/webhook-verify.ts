@@ -114,24 +114,14 @@ export function pushChangedPaths(body: unknown): string[] | undefined {
   return [...out].sort();
 }
 
-/** Bounded, TTL'd set of provider delivery ids — a redelivered webhook is acknowledged, not re-run. */
-export class DeliveryDeduper {
-  private seen = new Map<string, number>();
-  constructor(
-    private readonly ttlMs = 10 * 60 * 1000,
-    private readonly max = 5000,
-  ) {}
-  /** True the FIRST time an id is seen (within the TTL); false for a duplicate. */
-  firstSeen(id: string | null | undefined, now = Date.now()): boolean {
-    if (!id) return true; // providers without delivery ids can't be deduped
-    for (const [k, t] of this.seen) {
-      if (now - t < this.ttlMs && this.seen.size <= this.max) break;
-      this.seen.delete(k);
-    }
-    if (this.seen.has(id)) return false;
-    this.seen.set(id, now);
-    return true;
-  }
+/**
+ * The sha a push moved the branch FROM (GitHub / GitLab / Gitea `before`), or
+ * null for a new branch (all zeros) or an unknown shape. The plan uses it to
+ * tell an explicit revert from a replayed old push (M8).
+ */
+export function parsePushBefore(body: unknown): string | null {
+  const b = (body as { before?: unknown })?.before;
+  return typeof b === 'string' && /^[0-9a-f]{40,64}$/.test(b) && !/^0+$/.test(b) ? b : null;
 }
 
 // ── Pull / merge request events ───────────────────────────────────────────────

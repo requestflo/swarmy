@@ -72,6 +72,7 @@ import {
   dashboardEnvView,
   type SecretSlotView,
 } from './apps/dashboard-envs';
+import { appliedCommits, staleCommitReason } from './apps/stale-commit';
 import { reportCommitStatus, upsertPrComment } from './git-feedback.service';
 import { controllerPublicUrl } from './git-credentials';
 import { deployFromCompose } from './stack.service';
@@ -811,6 +812,8 @@ export interface PlanCommitInput {
   /** PR base branch (previews deploy the production app definition). */
   baseRef?: string;
   changedPaths?: string[];
+  /** Push only: the sha the branch moved FROM (the payload's `before`) — tells a revert from a replay. */
+  before?: string | null;
   /** Plan only — never apply (drift detection, dry runs). */
   dryRun?: boolean;
   /**
@@ -1045,6 +1048,20 @@ export async function planCommit(
     : toDesired(cfg, preview ? { preview, environment: previewBase } : { environment });
   const prNumber = branchPr ?? input.prNumber ?? 0;
   return withAppLock(envKey(repo.id, environment, prNumber), async () => {
+    // M8: a (replayed) push of a commit this environment already moved past never rolls it back.
+    if (input.trigger === 'push' && environment !== 'preview' && !input.retry && !input.dryRun) {
+      const applied = await appliedCommits(ctx.db, { repoId: repo.id, environment, prNumber });
+      const stale = staleCommitReason({ sha, before: input.before, applied });
+      if (stale) {
+        await writeAudit(ctx, {
+          action: 'app.plan.stale',
+          targetType: 'gitRepo',
+          targetId: repo.id,
+          metadata: { sha, live: applied[0]?.sha ?? null, before: input.before ?? null, environment },
+        });
+        return { planId: null, status: 'stale', environment, stack: desired.stack, reason: stale };
+      }
+    }
     const ledger = await latestLedger(ctx.db, repo.id, environment, prNumber);
     const live = await liveFor(ctx, desired, ledger);
     const plan = planApp(desired, live, {

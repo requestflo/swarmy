@@ -283,3 +283,18 @@ model AppPlan {
   @@index([repoId, environment, createdAt])
   @@map("app_plan")
 }
+
+// Git webhook deliveries already acted on — the replay / redelivery guard
+// (security review M8). One row per provider delivery id (X-GitHub-Delivery,
+// X-Gitea-Delivery, X-Gitlab-Event-UUID) and one per sha256 of the signed
+// body (a delivery id header isn't covered by the signature), scoped to the
+// receiving endpoint. Queryable history, not swarm state; rows older than the
+// TTL are swept by the receiver.
+model GitWebhookDelivery {
+  // `<scope>|id|<delivery id>` or `<scope>|body|<sha256>`; scope = `app:<id>` | `repo:<id>`
+  key        String   @id
+  receivedAt DateTime @default(now())
+
+  @@index([receivedAt])
+  @@map("git_webhook_delivery")
+}

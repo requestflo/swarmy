@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'bun:test';
 import {
-  DeliveryDeduper,
   githubSignature,
   isForkPullRequest,
   parseCommitSha,
   parsePrWebhookEvent,
+  parsePushBefore,
   parsePushRef,
   pushChangedPaths,
   verifyGiteaSignature,
@@ -121,12 +121,12 @@ describe('git-apps webhook helpers', () => {
     expect(pushChangedPaths({ commits: Array.from({ length: 20 }, () => ({ added: ['x'] })) })).toBeUndefined();
   });
 
-  it('dedupes redelivered webhooks within the TTL', () => {
-    const d = new DeliveryDeduper(1000, 3);
-    expect(d.firstSeen('a', 0)).toBe(true);
-    expect(d.firstSeen('a', 10)).toBe(false);
-    expect(d.firstSeen('a', 2000)).toBe(true); // expired → fresh
-    expect(d.firstSeen(null)).toBe(true);
+  it('reads where a push moved the branch from (never a new-branch zero sha)', () => {
+    const a = 'a'.repeat(40);
+    expect(parsePushBefore({ before: a, after: 'b'.repeat(40) })).toBe(a);
+    expect(parsePushBefore({ before: '0'.repeat(40) })).toBeNull();
+    expect(parsePushBefore({ before: 'main' })).toBeNull();
+    expect(parsePushBefore(null)).toBeNull();
   });
 });
 
