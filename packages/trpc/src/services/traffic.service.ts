@@ -1,18 +1,13 @@
 import {
   EdgeTrafficRing,
   MINUTE_MS,
-  TRAFFIC_ROLLUP_MS,
   TRAFFIC_ROLLUP_RETENTION_MS,
-  TRAFFIC_WINDOWS,
   aggregateTrafficNow,
-  bucketTrafficSeries,
+  encodeLatency,
   makeHostAppResolver,
   rollupRing,
   type TrafficEdgeInfo,
   type TrafficNowView,
-  type TrafficSeriesInput,
-  type TrafficSeriesRow,
-  type TrafficSeriesView,
 } from '@swarmy/core';
 import type { TelemetryDB } from '@swarmy/db';
 import { telemetryOf, type OrgContext } from '../context';
@@ -28,11 +23,13 @@ import { ingressTaskNodes } from './ingress-controller';
  * Region = the edge node's `swarmy.region` label; app = the stack whose
  * route owns the host (`swarmy.ingress.routes`, Docker truth). Hosts that
  * are no app's route land in the `app: null` "other" bucket — never dropped.
+ * Latency (p50/p95) and blocked answers (403/429) ride the same cells and
+ * rows. The series read lives in traffic-series.ts.
  */
 
 const EMPTY_RING = new EdgeTrafficRing();
 
-function ringOf(ctx: OrgContext): EdgeTrafficRing {
+export function ringOf(ctx: OrgContext): EdgeTrafficRing {
   return ctx.hub.edgeTraffic?.() ?? EMPTY_RING;
 }
 
@@ -43,7 +40,7 @@ export function trafficAppResolver(ctx: OrgContext): (host: string) => string | 
   );
 }
 
-function regionOf(ctx: OrgContext, nodeId: string): string | null {
+export function regionOf(ctx: OrgContext, nodeId: string): string | null {
   return ctx.hub.nodeInfoFor(nodeId)?.labels?.['swarmy.region'] || null;
 }
 
@@ -69,7 +66,7 @@ async function trafficEdges(ctx: OrgContext, reported: Iterable<string>): Promis
   }));
 }
 
-/** traffic.now — per region, per app and totals over the last 5 complete minutes. */
+/** traffic.now — per region, per app, per host and totals over the last 5 complete minutes. */
 export async function trafficNow(ctx: OrgContext, now = Date.now()): Promise<TrafficNowView> {
   const ring = ringOf(ctx);
   const orgId = ctx.activeOrgId;
@@ -83,76 +80,6 @@ export async function trafficNow(ctx: OrgContext, now = Date.now()): Promise<Tra
     appOf: trafficAppResolver(ctx),
     now,
   });
-}
-
-/**
- * traffic.series — sparkline buckets. Persisted 5-minute rollups for the
- * span, topped up from the in-memory ring for the minutes not flushed yet
- * (and for everything after a controller restart until rollups catch up).
- */
-export async function trafficSeries(
-  ctx: OrgContext,
-  input: TrafficSeriesInput,
-  now = Date.now(),
-): Promise<TrafficSeriesView> {
-  const orgId = ctx.activeOrgId;
-  const { spanMs, bucketMs } = TRAFFIC_WINDOWS[input.window];
-  const start = Math.floor(now / bucketMs) * bucketMs - spanMs;
-  const tdb = telemetryOf(ctx);
-  const regionWhere = input.region ? { region: input.region } : {};
-  const appWhere = input.app !== undefined ? { app: input.app } : {};
-
-  const [dataRows, coverRows] = await Promise.all([
-    tdb.edgeTrafficRollup
-      .groupBy({
-        by: ['bucketStart'],
-        where: { orgId, bucketStart: { gte: new Date(start) }, host: { not: '' }, ...regionWhere, ...appWhere },
-        _sum: { requests: true, errors5xx: true },
-      })
-      .catch(() => []),
-    tdb.edgeTrafficRollup
-      .groupBy({
-        by: ['bucketStart'],
-        where: { orgId, bucketStart: { gte: new Date(start) }, host: '', ...regionWhere },
-      })
-      .catch(() => []),
-  ]);
-
-  const rows: TrafficSeriesRow[] = dataRows.map((r) => ({
-    t: r.bucketStart.getTime(),
-    nodeId: '',
-    host: '*',
-    requests: r._sum.requests ?? 0,
-    errors5xx: r._sum.errors5xx ?? 0,
-  }));
-  const coveredAt: number[] = coverRows.map((r) => r.bucketStart.getTime());
-
-  // Ring tail: everything newer than the last flushed rollup.
-  const lastFlushed = coveredAt.length ? Math.max(...coveredAt) + TRAFFIC_ROLLUP_MS : start;
-  const tailFrom = Math.max(start, lastFlushed);
-  const ring = ringOf(ctx);
-  const appOf = trafficAppResolver(ctx);
-  const inRegion = (nodeId: string) => !input.region || regionOf(ctx, nodeId) === input.region;
-  for (const c of ring.cells(orgId, tailFrom, now)) {
-    if (!inRegion(c.nodeId)) continue;
-    if (input.app !== undefined && appOf(c.host) !== input.app) continue;
-    rows.push(c);
-  }
-  for (const [m, nodes] of ring.coverage(orgId, tailFrom, now)) {
-    if ([...nodes.keys()].some(inRegion)) coveredAt.push(m);
-  }
-
-  const reports = [...ring.reports(orgId).values()];
-  const series = bucketTrafficSeries({ rows, coveredAt, window: input.window, now });
-  return {
-    window: input.window,
-    bucketSec: series.bucketSec,
-    unit: 'requests/min',
-    ...(input.app !== undefined ? { app: input.app } : {}),
-    ...(input.region ? { region: input.region } : {}),
-    sampledAt: reports.length ? Math.max(...reports.map((r) => r.lastAt)) : null,
-    points: series.points,
-  };
 }
 
 /**
@@ -176,6 +103,9 @@ export async function flushTrafficRollups(
         app: r.host === '' ? null : appOf(r.host),
         requests: r.requests,
         errors5xx: r.errors5xx,
+        status403: r.status403 ?? null,
+        status429: r.status429 ?? null,
+        durationBuckets: r.latency ? encodeLatency(r.latency) : null,
       };
       const bucketStart = new Date(r.bucketStart);
       return tdb.edgeTrafficRollup.upsert({

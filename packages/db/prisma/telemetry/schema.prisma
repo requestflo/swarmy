@@ -57,6 +57,14 @@ model EdgeTrafficRollup {
   bucketStart DateTime
   requests    Int
   errors5xx   Int
+  // 403 / 429 answers ("blocked" = their sum; a protection's or the app's own,
+  // Caddy's code label can't tell). Null = the edge didn't report status codes.
+  status403   Int?
+  status429   Int?
+  // Request-duration buckets, `{"b":[bounds s],"c":[per-bucket counts, last = +Inf]}`
+  // (@swarmy/core encodeLatency). On the coverage row (host '') it is the whole
+  // edge merged, so an edge-wide latency series never reads the host rows.
+  durationBuckets String?
 
   @@unique([orgId, nodeId, host, bucketStart])
   @@index([orgId, bucketStart])

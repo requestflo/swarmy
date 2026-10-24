@@ -3,7 +3,8 @@ import type { SwarmServiceInfo } from '@swarmy/core/protocol';
 import { EdgeTrafficRing, MINUTE_MS } from '@swarmy/core';
 import { createTestDb, type TestDb } from '@swarmy/db';
 import type { OrgContext } from '../context';
-import { flushTrafficRollups, pruneTrafficRollups, trafficNow, trafficSeries } from './traffic.service';
+import { flushTrafficRollups, pruneTrafficRollups, trafficNow } from './traffic.service';
+import { trafficSeries } from './traffic-series';
 
 const M0 = Date.UTC(2026, 0, 1, 12, 0, 0);
 
