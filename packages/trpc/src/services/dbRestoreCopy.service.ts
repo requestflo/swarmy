@@ -23,7 +23,7 @@ import { isPhysicalEngine, type DbBackupEngine } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import { commandRejected, notFound } from '../errors';
 import { writeAudit } from './audit.service';
-import { listDbBackups, restoreDb, type DbRestoreRunView } from './dbBackup.service';
+import { listDbBackups, preflightPitrFromSource, restoreDb, type DbRestoreRunView } from './dbBackup.service';
 import { copyPinNode } from './dbRestoreCopy.placement';
 import { latestRestorable } from './dbRestoreSafety.service';
 import { resolveManagerNode } from './dispatch.service';
@@ -91,6 +91,11 @@ export async function restoreDbAsCopy(
     const saves = await listDbBackups(ctx, { targetId: input.targetId, stack, cluster });
     snapshotId = latestRestorable(saves, engine) ?? undefined;
     if (!snapshotId) throw commandRejected(`there is no ${engine} backup of ${stack}/${cluster} to restore yet`);
+  }
+
+  // A point in time outside the source's window is refused before the copy exists.
+  if (mode === 'pitr') {
+    await preflightPitrFromSource(ctx, { stack, cluster, engine, targetId: input.targetId, targetTime: input.targetTime, snapshotId });
   }
 
   const ref = `${stack}/${name}`;

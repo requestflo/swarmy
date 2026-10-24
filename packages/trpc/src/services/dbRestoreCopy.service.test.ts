@@ -15,7 +15,7 @@ process.env.SWARMY_SECRET_KEY ??= 'test-secret-key-for-db-restore-copy';
 const OCT_24 = new Date('2026-10-24T12:00:00Z');
 type Payload = Record<string, unknown>;
 
-function world(opts: { restoreFails?: string; saves?: string[]; existing?: string[] } = {}) {
+function world(opts: { restoreFails?: string; saves?: string[]; existing?: string[]; pitrFrom?: string } = {}) {
   const calls: Array<{ cmd: string; payload: Payload }> = [];
   const audits: Array<{ action: string; targetId?: string; metadata: Payload }> = [];
   const svc = (name: string, labels: Record<string, string>, image = 'pgvector/pgvector:pg16@sha256:abc', env: string[] = []) => ({
@@ -36,6 +36,7 @@ function world(opts: { restoreFails?: string; saves?: string[]; existing?: strin
     swarmNodeIdFor: () => 'sw-a', nodeInfoFor: () => nodes[0],
     latestContainers: () => containers,
     liveInventory: () => ({ services, containers }),
+    agentBuildFor: () => ({ version: '1.5.0', ...(opts.pitrFrom ? { capabilities: ['dbPitrWindow'] } : {}) }),
     dispatch: async (_n: string, cmd: string, payload: Payload) => {
       calls.push({ cmd, payload });
       if (cmd === 'service.deploy') {
@@ -43,6 +44,10 @@ function world(opts: { restoreFails?: string; saves?: string[]; existing?: strin
         const s = svc(spec.name, spec.labels, spec.image, Object.entries(spec.env ?? {}).map(([k, v]) => `${k}=${v}`));
         services.push(s);
         containers.push({ id: `c-${spec.name}`, name: spec.name, image: spec.image, state: 'running', status: 'Up', createdAt: 1, ports: [], labels: {}, serviceId: s.id });
+      }
+      if (cmd === 'db.pitrWindow') {
+        const from = opts.pitrFrom ?? '2026-10-20T03:00:00.000Z';
+        return { backups: [{ name: 'base_1', finishTime: from }], window: { from, to: '2026-10-24T09:00:00.000Z' }, latestWalAt: '2026-10-24T09:00:00.000Z', checkedAt: '2026-10-24T09:05:00.000Z' };
       }
       if (cmd === 'exec') return { exitCode: 0, output: (payload.cmd as string[]).includes('cat') ? 'pw' : 'accepting connections' };
       if (cmd === 'backup.list') return { snapshots: (opts.saves ?? []).map((id, i) => ({ id, time: `2026-10-2${i}T03:00:00Z`, tags: ['engine:pg_dump'], paths: [] })) };
@@ -114,5 +119,14 @@ describe('restoreDbAsCopy — the copy restore makes its own database', () => {
     expect(removed).toEqual(['shop_main-restore-1024-primary', 'shop_main-restore-1024-replica']);
     expect(w.cmds()).not.toContain('volume.remove');
     expect(w.audits.find((a) => a.action === 'db.restore.copy')?.metadata).toMatchObject({ status: 'failed', removed });
+  });
+
+  it('a point in time outside the source window is refused before the copy is created', async () => {
+    const w = world({ pitrFrom: '2026-10-20T03:00:00.000Z' });
+    await expect(
+      restoreDbAsCopy(w.ctx, { stack: 'shop', cluster: 'main', engine: 'wal-g', targetId: 'tgt-1', targetTime: '2026-10-19T12:00:00.000Z' }, OCT_24),
+    ).rejects.toThrow();
+    expect(w.cmds()).toContain('db.pitrWindow');
+    expect(w.cmds()).not.toContain('service.deploy');
   });
 });

@@ -782,6 +782,33 @@ export interface DbRestoreRunView {
   safetySnapshotId: string | null;
 }
 
+/**
+ * The PITR window check against the SOURCE cluster, for a restore whose
+ * target doesn't exist yet ("restore as a copy"): refuse a target outside the
+ * window before the copy is created. Same rules and skips as restoreDb's own
+ * preflight (an engine or agent that can't read the window is a logged skip).
+ */
+export async function preflightPitrFromSource(
+  ctx: OrgContext,
+  input: { stack: string; cluster: string; engine: DbBackupEngine; targetId?: string; targetTime?: string; snapshotId?: string },
+): Promise<void> {
+  const { primary } = findCluster(ctx, input.stack, input.cluster);
+  if (!primary) throw notFound('db cluster primary', `${input.stack}/${input.cluster}`);
+  const schedule = parseScheduleLabel(primary.labels[DB_BACKUP_SCHEDULE_LABEL]);
+  const target = await loadTarget(ctx, await resolveTargetId(ctx, input.targetId, schedule));
+  const node = await physicalNode(ctx, primary.labels);
+  await pitrPreflight(ctx, {
+    ref: `${input.stack}/${input.cluster}`,
+    engine: input.engine,
+    targetTime: input.targetTime,
+    snapshotId: input.snapshotId ?? 'latest',
+    nodeId: node.id,
+    repo: toResticRepo(target),
+    network: clusterNetworkName(input.stack, input.cluster),
+    resticNetwork: resticNetworkFor(target.endpoint),
+  });
+}
+
 export async function restoreDb(ctx: OrgContext, input: RestoreDbInput): Promise<DbRestoreRunView> {
   const destStack = input.targetStack ?? input.stack;
   const destCluster = input.targetCluster ?? input.cluster;
