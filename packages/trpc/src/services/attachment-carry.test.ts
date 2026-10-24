@@ -182,6 +182,18 @@ describe('carryManagedAttachments', () => {
     expect(out.env?.QDRANT_API_KEY_FILE).toBe('/run/secrets/swarmy-vector-shop_emb-key');
   });
 
+  it('carries a rotated search key version at the stable family path', () => {
+    const src = live({
+      name: 'shop_web',
+      labels: { 'com.docker.stack.namespace': 'shop', 'swarmy.search.inject': 'find', 'swarmy.search.inject.var': 'MEILI_HOST' },
+      env: ['MEILI_HOST=http://shop_find-search:7700', 'MEILI_MASTER_KEY_FILE=/run/secrets/swarmy-search-shop_find-key'],
+      secrets: ['swarmy-search-shop_find-key__v3'],
+    });
+    const out = carryManagedAttachments(composeWeb(), src);
+    expect(out.secrets).toEqual([{ source: 'swarmy-search-shop_find-key__v3', target: 'swarmy-search-shop_find-key' }]);
+    expect(out.env?.MEILI_MASTER_KEY_FILE).toBe('/run/secrets/swarmy-search-shop_find-key');
+  });
+
   it('skips a secret the live service does not actually mount (would fail the deploy)', () => {
     const src = live({
       name: 'shop_web',

@@ -38,7 +38,7 @@ import {
 } from './cache.service';
 import { GARAGE_NETWORK } from './garage-render';
 import { clusterNetworkName, DB_INJECT_LABEL, DB_INJECT_VAR_LABEL, roVarName } from './manageddb.service';
-import { SEARCH_INJECT_LABEL, SEARCH_INJECT_VAR_LABEL, searchKeySecretName, searchNetworkName } from './search.service';
+import { SEARCH_INJECT_LABEL, SEARCH_INJECT_VAR_LABEL, isKeySecretOf, searchKeySecretName, searchNetworkName } from './search.service';
 import { VECTOR_INJECT_LABEL, VECTOR_INJECT_VAR_LABEL, vectorKeySecretName, vectorNetworkName } from './vector.service';
 
 type SecretRef = NonNullable<ServiceSpec['secrets']>[number];
@@ -86,7 +86,7 @@ function searchEnvKeys(injectVar: string): { env: string[]; fileVar: string } {
 }
 
 /** Every domain attached to the live service, per its marker labels. Pure. */
-export function attachedDomains(source: Pick<SwarmServiceInfo, 'name' | 'labels'>): DomainCarry[] {
+export function attachedDomains(source: Pick<SwarmServiceInfo, 'name' | 'labels'> & { secrets?: readonly string[] }): DomainCarry[] {
   const l = source.labels;
   const stack = l[STACK_LABEL];
   const out: DomainCarry[] = [];
@@ -130,7 +130,11 @@ export function attachedDomains(source: Pick<SwarmServiceInfo, 'name' | 'labels'
       ...(stack
         ? {
             network: searchNetworkName(stack, search),
-            secret: { source: searchKeySecretName(stack, search), fileVar: keys.fileVar },
+            // The key version the app mounts now (search.rotateKey mints `…-key__v<n>`).
+            secret: {
+              source: (source.secrets ?? []).find(isKeySecretOf(stack, search)) ?? searchKeySecretName(stack, search),
+              fileVar: keys.fileVar,
+            },
           }
         : {}),
     });
