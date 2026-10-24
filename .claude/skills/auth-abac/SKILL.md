@@ -143,8 +143,16 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
   social/passkey/magic-link are instance-wide; only SSO rows are per-org.
   Provider/SSO secrets are write-only: encrypted via `@swarmy/core/crypto`
   (`SWARMY_SECRET_KEY`), decrypted only in `loadAuthConfig`, never returned by
-  any read (the UI shows "set"/"rotate"). SAML rows are stored but skipped at
-  build time (no SAML plugin in this Better Auth version). Changing the active
+  any read (the UI shows "set"/"rotate"). SAML rows (`issuer` = IdP entity
+  id, `metadata.entryPoint` + `metadata.cert`) go to `@better-auth/sso` as
+  `defaultSSO` (`saml.ts`, `saml-plugin.ts`); incomplete rows are skipped.
+  A guard 404s every `/sso/*` route but SP metadata and the ACS, and only
+  for configured ids, so the plugin's own provider table and CRUD are never
+  reached; the plugin's org assignment is off (swarmy provisions). The
+  plugin can't match InResponseTo (it reads a key samlify 2.15 never sets),
+  so `saml-request.ts` consumes the answered AuthnRequest before the ACS
+  runs: SP-initiated only. `saml-flow.test.ts` drives it end to end with a
+  generated IdP key (`@swarmy/auth/testing`). Changing the active
   org goes through `setActiveOrg` (`services/active-org.ts`), never a bare
   `auth.api.setActiveOrganization`: it asks Better Auth for `returnHeaders`
   and forwards the re-issued session cookies onto the tRPC response
@@ -154,7 +162,9 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
   invite acceptance and invite-link acceptance all use it.
 - **Email is optional; SSO is first.** Social: microsoft/google/github/gitlab
   (`AuthProviderConfig.settings`: Entra `tenantId`, GitLab `issuer`). Generic
-  OIDC = org `SsoProvider` rows via genericOAuth (PKCE). The `username` plugin
+  OIDC = org `SsoProvider` rows via genericOAuth (PKCE); SAML = the same rows
+  via `@better-auth/sso`, the ACS (`/sso/saml2/sp/acs/:id`) counting as an
+  SSO callback for admission, provisioning, groups and the MFA exemption. The `username` plugin
   is static; accounts without email carry `*.swarmy.invalid` placeholders —
   check `isPlaceholderEmail`/`displayEmail` (`packages/auth/src/identity.ts`)
   before mailing, showing or matching on an address. Sign-up admission

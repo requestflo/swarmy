@@ -160,8 +160,10 @@ Four ideas, one story:
   evaluator does the real verify. One check, one owner.
 - **Sign-in comes from your identity provider; email is optional.** (Owner
   decision 2026-09-24.) The login page leads with SSO/social buttons: any OIDC
-  IdP (Keycloak, Authentik, Zitadel, Entra ID… via the org SSO rows, so a
-  swarmy never depends on an external cloud to sign in), then Microsoft,
+  or SAML IdP (Keycloak, Authentik, Zitadel, Entra ID, Okta, ADFS… via the
+  org SSO rows, so a swarmy never depends on an external cloud to sign in;
+  SAML sign-in is SP-initiated only and every assertion must be signed by the
+  IdP certificate the admin stored), then Microsoft,
   Google, GitHub, GitLab (self-hosted URL supported). Username + password is
   always on; email is never required — an account without one carries a
   reserved `*.swarmy.invalid` placeholder that is never mailed or shown.
