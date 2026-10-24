@@ -185,8 +185,10 @@ address), point `dev:vms` at a [NetBird Cloud](https://netbird.io) account:
    installer's wizard writes) before minting a join token, so the token mint
    embeds a fresh, single-use NetBird setup key. `enroll_node` passes it to
    the installer as `SWARMY_MESH_SETUP_KEY`/`SWARMY_MESH_MANAGEMENT_URL`/
-   `SWARMY_MESH_DRIVER`, alongside `SWARMY_ALLOW_MESH=true` (also required —
-   it's the agent's own capability gate).
+   `SWARMY_MESH_DRIVER`, alongside `SWARMY_ALLOW_MESH=true` (the agent's own
+   capability gate; set automatically when the token carries a key, and an
+   explicit `SWARMY_ALLOW_MESH=false` is warned about). The token and key are
+   single-use, so each VM gets its own.
 
 4. Watch a VM's agent log (`bun run dev:vms logs 1`) — you should see it join
    NetBird and confirm connectivity *before* the WS `register` call. Once

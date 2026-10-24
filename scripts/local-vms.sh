@@ -38,7 +38,8 @@
 #                                 VM is 192.168.5.15 and multi-node needs the mesh.
 #                                 Applies when a VM is created.
 #   SWARMY_VM_BRIDGE=            one more Lima network, e.g. "lima:shared"
-#   SWARMY_ALLOW_MESH=false      agent capability flags
+#   SWARMY_ALLOW_MESH=           the agent's mesh gate. Unset: true when the minted
+#                                 token carries a mesh key, else false.
 #   SWARMY_MESH_DRIVER=          e.g. "netbird" — enables mesh for the dev org (see
 #                                 docs/LOCAL-SWARM.md). Unset (default): no mesh, VMs
 #                                 enroll exactly as before, over LAN.
@@ -61,7 +62,7 @@ JOURNALD_MAX="${SWARMY_VM_JOURNALD_MAX:-100M}"
 RELEASE="${SWARMY_VM_RELEASE:-24.04}"
 CONTROLLER_PORT="${SWARMY_CONTROLLER_PORT:-3021}"
 BACKEND="${SWARMY_BACKEND:-systemd}"
-ALLOW_MESH="${SWARMY_ALLOW_MESH:-false}"
+ALLOW_MESH_SET="${SWARMY_ALLOW_MESH:-}"
 MESH_DRIVER="${SWARMY_MESH_DRIVER:-}"
 NB_MANAGEMENT_URL="${SWARMY_NB_MANAGEMENT_URL:-}"
 NB_SERVICE_TOKEN="${SWARMY_NB_SERVICE_TOKEN:-}"
@@ -161,7 +162,7 @@ resolve_token() {
   MESH_MANAGEMENT_URL=""
   MESH_DRIVER_OUT=""
   if [ -n "${SWARMY_JOIN_TOKEN:-}" ]; then
-    TOKEN="$SWARMY_JOIN_TOKEN"; return
+    TOKEN="$SWARMY_JOIN_TOKEN"; resolve_allow_mesh; return
   fi
   say "Minting a fresh join token…"
   local out
@@ -172,14 +173,44 @@ resolve_token() {
   MESH_DRIVER_OUT="$(printf '%s\n' "$out" | sed -n 's/^MESH_DRIVER=//p' | tr -d '[:space:]')"
   [ -n "$TOKEN" ] || die "Could not mint a join token. Run 'bun run dev:up' first (seeds the dev org)."
   [ -z "$MESH_SETUP_KEY" ] || ok "Join token embeds a NetBird setup key (${MESH_DRIVER_OUT}) — single-use."
+  resolve_allow_mesh
+}
+
+# The agent ignores a mesh key unless SWARMY_ALLOW_MESH=true. Defaulting it to
+# false while handing out a key left nodes with no mesh client and no error
+# (issues/manual-recovery-required-not-magical.md item 5): unset now follows
+# the key; an explicit false still wins, loudly.
+resolve_allow_mesh() {
+  if [ -n "$ALLOW_MESH_SET" ]; then
+    ALLOW_MESH="$ALLOW_MESH_SET"
+    if [ -n "$MESH_SETUP_KEY" ] && [ "$ALLOW_MESH" != true ]; then
+      warn "SWARMY_ALLOW_MESH=${ALLOW_MESH}: the agents will ignore the minted mesh key (no mesh client)."
+    fi
+  elif [ -n "$MESH_SETUP_KEY" ]; then
+    ALLOW_MESH=true
+  else
+    ALLOW_MESH=false
+  fi
+}
+
+# A token that carries a mesh key is single-use (maxUses=1, and so is the
+# NetBird key), so every VM after the first needs its own. A token passed in
+# with SWARMY_JOIN_TOKEN is used as given.
+token_for_next_node() {
+  if [ -n "${TOKEN_SPENT:-}" ] && [ -n "$MESH_SETUP_KEY" ] && [ -z "${SWARMY_JOIN_TOKEN:-}" ]; then
+    resolve_token
+  fi
+  TOKEN_SPENT=1
 }
 
 # Run a command with a hard wall-clock cap (macOS has no `timeout`).
-# Turns an indefinite hang into a recoverable failure.
+# Turns an indefinite hang into a recoverable failure. The watchdog's stdio is
+# /dev/null: its `sleep` outlives the kill below, and while it held the
+# terminal's stdout, `local-vms.sh up | tee log` waited out every timeout.
 guarded() {
   local secs="$1"; shift
   ( "$@" & local p=$!
-    ( sleep "$secs"; kill -9 "$p" 2>/dev/null ) & local k=$!
+    ( sleep "$secs"; kill -9 "$p" 2>/dev/null ) </dev/null >/dev/null 2>&1 & local k=$!
     wait "$p"; local rc=$?; kill "$k" 2>/dev/null; return "$rc" )
 }
 
@@ -249,8 +280,6 @@ fi
 SWARMY_PREPARE_EOF
 }
 
-# Not captured with $(…): guarded's sleeper would hold the pipe open until its
-# timeout.
 prepare_vm() {
   local name="$1"
   say "[$name] VM hygiene: journald ≤ ${JOURNALD_MAX}, no apt cache, no kernel headers"
@@ -322,6 +351,7 @@ up() {
         "template:ubuntu-${RELEASE}"
     fi
     prepare_vm "$name"
+    token_for_next_node
     say "[$name] installing agent (${BACKEND}) ← ${CONTROLLER_URL}"
     if enroll_node "$name"; then
       ok "[$name] agent installed — should reach ONLINE shortly."
@@ -344,6 +374,7 @@ reenroll() {
     vm_exists "$name" || continue
     check_vm_disk "$name"
     prepare_vm "$name"
+    token_for_next_node
     say "[$name] re-enrolling ← ${CONTROLLER_URL}"
     enroll_node "$name" && ok "[$name] re-enrolled." || warn "[$name] failed."
   done
