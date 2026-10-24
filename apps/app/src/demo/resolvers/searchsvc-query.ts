@@ -19,8 +19,11 @@ export function demoQuery(ix: DemoIndex, q: string): { hits: SearchHitView[]; es
       const fields = fieldsOf(ix, doc);
       let score = words.length === 0 ? 0.5 : 0;
       for (const w of words) {
-        const at = fields.findIndex((f) => expand(w).some((x) => String(doc[f] ?? '').toLowerCase().includes(x)));
-        if (at >= 0) score += (1 - at * 0.12) / words.length;
+        const has = (f: string, xs: string[]): boolean => xs.some((x) => String(doc[f] ?? '').toLowerCase().includes(x));
+        const direct = fields.findIndex((f) => has(f, [w]));
+        const viaSynonym = fields.findIndex((f) => has(f, expand(w)));
+        if (direct >= 0) score += (1 - direct * 0.12) / words.length;
+        else if (viaSynonym >= 0) score += (0.85 - viaSynonym * 0.12) / words.length;
       }
       return { doc, score: Math.min(1, Math.round(score * 100) / 100) };
     })

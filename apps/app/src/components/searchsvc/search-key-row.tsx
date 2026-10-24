@@ -70,7 +70,9 @@ export function SearchKeyRow({ v }: { v: SearchInstanceView }): React.JSX.Elemen
           description={
             <>
               Save it now — it lives only in the Docker secret <code className="mono-data">{result.keySecret}</code>.{' '}
-              {result.redeployed.length > 1 ? `${result.redeployed.slice(1).map(short).join(', ')} already use it.` : ''}
+              {result.redeployed.length > 1
+                ? `${result.redeployed.slice(1).map(short).join(', ')} already ${result.redeployed.length === 2 ? 'uses' : 'use'} it.`
+                : ''}
             </>
           }
           secret={result.masterKey}

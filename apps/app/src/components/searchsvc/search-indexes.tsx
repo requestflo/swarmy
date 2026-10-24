@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { SearchInstanceView } from '@swarmy/core';
 import { Button, cn } from '@swarmy/ui';
 import { Tech } from '@/components/calm';
@@ -16,6 +16,7 @@ import { indexLine } from './search-words';
  */
 export function SearchIndexes({ v }: { v: SearchInstanceView }): React.JSX.Element {
   const trpc = useTRPC();
+  const qc = useQueryClient();
   const live = v.engine === 'meilisearch' && v.running > 0;
   const q = useQuery({
     ...trpc.search.indexes.queryOptions({ stack: v.stack, name: v.name }),
@@ -78,7 +79,15 @@ export function SearchIndexes({ v }: { v: SearchInstanceView }): React.JSX.Eleme
         k={current.uid}
         tech={`GET /indexes · GET /stats — Meilisearch API, called inside ${v.service}${q.data.truncated ? ` · first ${list.length} of ${q.data.total}` : ''}`}
         action={
-          <Button size="sm" variant="ghost" disabled={q.isFetching} onClick={() => void q.refetch()}>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={q.isFetching}
+            onClick={() => {
+              void q.refetch();
+              void qc.invalidateQueries({ queryKey: trpc.search.index.queryKey() });
+            }}
+          >
             Refresh
           </Button>
         }
