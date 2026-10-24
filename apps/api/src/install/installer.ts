@@ -28,6 +28,7 @@ import { DOCKER_LOG_OPTS_SH, DOCKER_RUN_LOG_FLAGS } from './docker-log-opts';
 import { DOCKER_REGISTRY_MIRROR_SH } from './docker-registry-mirror';
 import { assertSafeInstallVersion } from './version-guard';
 import { RELEASE_VERIFY_SH } from './release-verify-sh';
+import { REPAIR_ENV_SH } from './repair-env-sh';
 
 export interface RenderInstallerOptions {
   controllerUrl: string;
@@ -89,12 +90,14 @@ BACKEND="\${SWARMY_BACKEND:-auto}"
 AGENT_IMAGE="\${SWARMY_AGENT_IMAGE:-${agentImage}}"
 BINARY_BASE_URL="\${SWARMY_BINARY_BASE_URL:-${binaryBaseUrl}}"
 STATE_VOLUME="\${SWARMY_STATE_VOLUME:-swarmy-agent}"
-ALLOW_MESH="\${SWARMY_ALLOW_MESH:-true}"
+# ALLOW_MESH / MESH_DRIVER default after the repair salvage below (true /
+# netbird), so a re-run keeps what the node already had.
+ALLOW_MESH="\${SWARMY_ALLOW_MESH:-}"
 # Explicit build override only (unset = the dashboard's Builder role decides).
 ALLOW_BUILD="\${SWARMY_ALLOW_BUILD:-}"
 MESH_SETUP_KEY="\${SWARMY_MESH_SETUP_KEY:-}"
 MESH_MANAGEMENT_URL="\${SWARMY_MESH_MANAGEMENT_URL:-}"
-MESH_DRIVER="\${SWARMY_MESH_DRIVER:-netbird}"
+MESH_DRIVER="\${SWARMY_MESH_DRIVER:-}"
 MESH_CA_B64="\${SWARMY_MESH_CA_B64:-}"
 # Plain-HTTP downloads are refused unless this is 1 (the controller operator's
 # opt-in, exported by the loader) — see the download-integrity block below.
@@ -242,16 +245,13 @@ if [ -f "$ENV_FILE" ] || [ -f "$STATE_DIR/agent.json" ] || { have docker && dock
   say "Existing swarmy installation detected — running in REPAIR mode (identity is preserved)."
 fi
 
+${REPAIR_ENV_SH}
 # On repair, values not supplied with the one-liner are salvaged from the
-# existing env file so a bare re-run never LOSES configuration.
+# existing env file so a bare re-run never LOSES configuration. The mesh
+# settings move as one unit (see salvage_install_env).
 if [ -n "$REPAIR" ] && [ -f "$ENV_FILE" ]; then
-  OLD_JOIN_TOKEN="$(sed -n 's/^SWARMY_JOIN_TOKEN=//p' "$ENV_FILE" | head -1)"
-  [ -n "$JOIN_TOKEN" ]         || JOIN_TOKEN="$OLD_JOIN_TOKEN"
-  [ -n "$MESH_SETUP_KEY" ]     || MESH_SETUP_KEY="$(sed -n 's/^SWARMY_MESH_SETUP_KEY=//p' "$ENV_FILE" | head -1)"
-  [ -n "$MESH_MANAGEMENT_URL" ] || MESH_MANAGEMENT_URL="$(sed -n 's/^SWARMY_MESH_MANAGEMENT_URL=//p' "$ENV_FILE" | head -1)"
-  [ -n "$MESH_CA_B64" ]        || MESH_CA_B64="$(sed -n 's/^SWARMY_MESH_CA_B64=//p' "$ENV_FILE" | head -1)"
-  [ -n "$NODE_LABELS" ]        || NODE_LABELS="$(sed -n 's/^SWARMY_NODE_LABELS=//p' "$ENV_FILE" | head -1)"
-  [ -n "$ALLOW_BUILD" ]        || ALLOW_BUILD="$(sed -n 's/^SWARMY_ALLOW_BUILD=//p' "$ENV_FILE" | head -1)"
+  OLD_JOIN_TOKEN="$(env_value "$ENV_FILE" SWARMY_JOIN_TOKEN)"
+  salvage_install_env "$ENV_FILE"
 
   # A NEW, explicit join token (different from what's on disk) means the operator
   # wants this box to (re-)enroll under a possibly different org/controller — not
@@ -267,6 +267,12 @@ if [ -n "$REPAIR" ] && [ -f "$ENV_FILE" ]; then
       rm -f "$STATE_DIR/agent.json"
     fi
   fi
+fi
+[ -n "$ALLOW_MESH" ] || ALLOW_MESH=true
+[ -n "$MESH_DRIVER" ] || MESH_DRIVER=netbird
+# A key the agent will ignore must not vanish silently.
+if [ -n "$MESH_SETUP_KEY" ] && [ "$ALLOW_MESH" != true ]; then
+  warn "SWARMY_ALLOW_MESH=$ALLOW_MESH on this node: the mesh setup key is kept but NOT used (no mesh client starts). Re-run with SWARMY_ALLOW_MESH=true to join the mesh."
 fi
 
 # --- derive WS URL ------------------------------------------------------------
@@ -314,25 +320,6 @@ ${DOCKER_LOG_OPTS_SH}ensure_docker_log_opts
 
 # --- Docker Hub pulls via the swarm's pull-through cache (daemon.json registry-mirrors; merges, never clobbers)
 ${DOCKER_REGISTRY_MIRROR_SH}ensure_docker_registry_mirror
-
-write_env() {
-  mkdir -p "$(dirname "$ENV_FILE")"
-  umask 077
-  {
-    echo "AGENT_WS_URL=$WS_URL"
-    echo "SWARMY_AGENT_STATE=$STATE_DIR/agent.json"
-    echo "SWARMY_JOIN_TOKEN=$JOIN_TOKEN"
-    echo "SWARMY_ALLOW_MESH=$ALLOW_MESH"
-    [ -z "$ALLOW_BUILD" ] || echo "SWARMY_ALLOW_BUILD=$ALLOW_BUILD"
-    [ -z "$NODE_LABELS" ] || echo "SWARMY_NODE_LABELS=$NODE_LABELS"
-    [ -z "$MESH_SETUP_KEY" ] || echo "SWARMY_MESH_SETUP_KEY=$MESH_SETUP_KEY"
-    [ -z "$MESH_MANAGEMENT_URL" ] || echo "SWARMY_MESH_MANAGEMENT_URL=$MESH_MANAGEMENT_URL"
-    echo "SWARMY_MESH_DRIVER=$MESH_DRIVER"
-    [ -z "$MESH_CA_B64" ] || echo "SWARMY_MESH_CA_B64=$MESH_CA_B64"
-  } > "$ENV_FILE"
-  # A repair rewrites an existing file, which keeps its old mode: force 0600.
-  chmod 600 "$ENV_FILE"
-}
 
 install_systemd() {
   say "Installing the native systemd backend…"
@@ -419,7 +406,7 @@ else
 fi
 
 [ -z "$NODE_LABELS" ] || ok "Node labels: $NODE_LABELS"
-[ -z "$MESH_SETUP_KEY" ] || ok "Mesh: joining \${MESH_DRIVER} before swarm formation."
+[ -z "$MESH_SETUP_KEY" ] || [ "$ALLOW_MESH" != true ] || ok "Mesh: joining \${MESH_DRIVER} before swarm formation."
 ok "Done. This node should appear ONLINE in your dashboard within a few seconds."
 `;
 }
