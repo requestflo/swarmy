@@ -109,6 +109,8 @@ UNIT_NAME="${SYSTEMD_UNIT_NAME}"
 SNAPSHOT_UNIT="${SNAPSHOT_UNIT_NAME}"
 
 UNINSTALL=""
+KEEP_DATA=""
+ASSUME_YES=""
 _want=""
 for arg in "$@"; do
   case "$_want" in
@@ -118,6 +120,8 @@ for arg in "$@"; do
   esac
   case "$arg" in
     --uninstall) UNINSTALL=1 ;;
+    --keep-data) KEEP_DATA=1 ;;
+    --yes) ASSUME_YES=1 ;;
     # Normally consumed by the loader (which exports SWARMY_CONTROLLER_URL);
     # accepted here too for a direct \`install.sh\` run.
     --controller) _want=controller ;;
@@ -170,7 +174,27 @@ use_systemd() {
 }
 
 # --- uninstall ----------------------------------------------------------------
+# Security review M15: nothing that can act as this node is left behind. Gone:
+# the agent (unit or container, binary), its join-token env file, its saved
+# session (agent.json, the state volume) and local socket/state files, the
+# mesh client sidecar with its WireGuard identity, and the mesh pin. Swarm
+# membership is left alone, and the swarm join tokens are NOT rotated here:
+# a node never stores one (the controller hands it to swarm.join in memory),
+# a worker cannot rotate them (manager-only), and rotating from one manager's
+# uninstall would revoke the tokens the live controller joins every other
+# node with. If they may have leaked, rotate them from the dashboard, and
+# revoke this node's swarmy join token there too.
+# The only data here is the mesh control plane's store, on the node that runs
+# it: --keep-data keeps it (and the control plane running), --yes deletes it,
+# and with neither the uninstall stops before removing anything.
 if [ -n "$UNINSTALL" ]; then
+  MESH_CONTROL_HERE=""
+  if have docker && { docker container inspect swarmy-mesh-control >/dev/null 2>&1 || docker volume inspect swarmy-mesh-control >/dev/null 2>&1; }; then
+    MESH_CONTROL_HERE=1
+  fi
+  if [ -n "$MESH_CONTROL_HERE" ] && [ -z "$KEEP_DATA" ] && [ -z "$ASSUME_YES" ]; then
+    die "This node runs the cluster's mesh control plane (swarmy-mesh-control); its store is the mesh's data. Move it to another node in the dashboard first, or re-run with --keep-data to keep it, or --yes to delete it. Nothing was removed."
+  fi
   say "Removing the swarmy agent…"
   if have systemctl && systemctl list-unit-files 2>/dev/null | grep -q "$UNIT_NAME"; then
     systemctl disable --now "$UNIT_NAME" >/dev/null 2>&1 || true
@@ -178,12 +202,31 @@ if [ -n "$UNINSTALL" ]; then
     systemctl daemon-reload >/dev/null 2>&1 || true
   fi
   if have docker; then
-    docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
-    docker volume rm "$STATE_VOLUME" >/dev/null 2>&1 || true
+    docker rm -f "$CONTAINER_NAME" swarmy-netbird swarmy-tailscale swarmy-mesh-front >/dev/null 2>&1 || true
+    for _v in "$STATE_VOLUME" swarmy-netbird; do docker volume rm "$_v" >/dev/null 2>&1 || true; done
+    if [ -n "$MESH_CONTROL_HERE" ] && [ -z "$KEEP_DATA" ]; then
+      docker rm -f swarmy-mesh-control swarmy-mesh-litestream >/dev/null 2>&1 || true
+      for _v in swarmy-mesh-control swarmy-mesh-control-conf; do docker volume rm "$_v" >/dev/null 2>&1 || true; done
+    fi
   fi
+  # The mesh pin (the agent installs it on mesh nodes: apps/agent/src/handlers/mesh-pin.ts).
+  if have systemctl && [ -e /etc/systemd/system/swarmy-mesh-pin.service ]; then
+    systemctl disable swarmy-mesh-pin.service >/dev/null 2>&1 || true
+  fi
+  rm -f /etc/systemd/system/swarmy-mesh-pin.service /etc/systemd/system/docker.service.d/10-swarmy-mesh-pin.conf \\
+    /etc/swarmy/mesh-pin.env /usr/local/lib/swarmy/mesh-pin.sh 2>/dev/null || true
+  rmdir /usr/local/lib/swarmy 2>/dev/null || true
+  if have systemctl; then systemctl daemon-reload >/dev/null 2>&1 || true; fi
+  if have ip; then ip link del swarmy-mesh0 >/dev/null 2>&1 || true; fi
+  # The systemd backend's saved session + local state (the container backend's live on its volume).
+  rm -f "$STATE_DIR/agent.json" "$STATE_DIR/agent.sock" "$STATE_DIR/mesh-pin-restart.json" "$STATE_DIR/overlay-heal.json" "$STATE_DIR/last-failure.json"
+  if [ -z "$MESH_CONTROL_HERE" ] || [ -z "$KEEP_DATA" ]; then rm -rf "$STATE_DIR/mesh-control"; fi
+  rmdir "$STATE_DIR" 2>/dev/null || true
   [ -f "$BIN_PATH" ] && rm -f "$BIN_PATH" || true
   [ -f "$ENV_FILE" ] && { command -v shred >/dev/null 2>&1 && shred -u "$ENV_FILE" || rm -f "$ENV_FILE"; }
-  ok "swarmy agent removed. Docker and any swarm membership were left untouched."
+  rmdir "$(dirname "$ENV_FILE")" 2>/dev/null || true
+  [ -z "$MESH_CONTROL_HERE" ] || [ -z "$KEEP_DATA" ] || ok "Kept the mesh control plane and its store (--keep-data)."
+  ok "swarmy agent removed. Docker and swarm membership were left alone: on a mesh node, swarm traffic rode the mesh, so take the node out with 'docker swarm leave' and remove it in the dashboard."
   exit 0
 fi
 

@@ -19,7 +19,16 @@
 # Flags / env (flags win; env is the non-interactive path):
 #   --non-interactive            never prompt; use flags/env/defaults
 #   --check                      preflight only — detect + report, mutate nothing
-#   --uninstall                  remove the swarmy stack, secrets, and node #1 agent
+#   --uninstall                  remove swarmy from this host: the stack, its Docker secrets,
+#                                node #1's agent (agent.json, /etc/swarmy/agent.env), the mesh
+#                                sidecar, its identity and pin, and rotate the swarm join tokens.
+#                                Also DELETES the data: the controller's store (swarmy_swarmy-data),
+#                                state.env (its key) and the mesh control plane's store, after a
+#                                typed confirmation (--yes with --non-interactive). The swarm and
+#                                your apps' volumes are left alone.
+#   --keep-data                  with --uninstall: keep the data, state.env and the mesh (control
+#                                plane, client, pin) for a later re-install on this host
+#   --yes                        with --uninstall --non-interactive: confirm deleting the data
 #   --admin-email <e>            SWARMY_ADMIN_EMAIL (a value without "@" is a username login)
 #   --admin-password-file <f>    SWARMY_ADMIN_PASSWORD_FILE — read the owner password from the
 #                                first line of a file (keep it 0600). The safe way to set it.
@@ -133,6 +142,8 @@ hr()   { printf '%s\n' "${c_dim}────────────────
 # ── config (env defaults; flags override below) ─────────────────────────────
 NON_INTERACTIVE="${SWARMY_NON_INTERACTIVE:-0}"
 MODE="install"
+KEEP_DATA=0      # --uninstall --keep-data
+ASSUME_YES=0     # --uninstall --yes
 # The one control-plane stack (embedded SQLite store; no database service).
 STACK_FILE="swarmy.lite.stack.yml"
 ADMIN_EMAIL="${SWARMY_ADMIN_EMAIL:-}"
@@ -188,6 +199,8 @@ while [ $# -gt 0 ]; do
     --non-interactive) NON_INTERACTIVE=1 ;;
     --check) MODE="check" ;;
     --uninstall) MODE="uninstall" ;;
+    --keep-data) KEEP_DATA=1 ;;
+    --yes) ASSUME_YES=1 ;;
     --standard) die "--standard was removed: the controller always runs its embedded SQLite store (no Postgres service)." ;;
     --admin-email) ADMIN_EMAIL="${2:?}"; EXPLICIT="${EXPLICIT}ADMIN_EMAIL "; shift ;;
     --admin-password) ADMIN_PASSWORD_ARG="${2:?}"; ADMIN_PASSWORD_ARG_SET=1; shift ;;
@@ -1341,9 +1354,18 @@ ensure_swarm() {
   fi
   state_set SWARM_ID "$(docker info -f '{{.Swarm.Cluster.ID}}' 2>/dev/null)"
   state_set SWARM_MANAGER_ADDR "${adv}:2377"
-  state_set SWARM_WORKER_TOKEN "$(docker swarm join-token -q worker)"
-  state_set SWARM_MANAGER_TOKEN "$(docker swarm join-token -q manager)"
+  record_swarm_tokens
   state_set NODE_HOSTNAME "$(docker node inspect self --format '{{.Description.Hostname}}')"
+}
+
+# record_swarm_tokens — the swarm's CURRENT join tokens into state.env, every run:
+# they are rotated by --uninstall (and from the dashboard), and a re-install
+# must hand the controller live tokens, not the ones recorded at `swarm init`.
+record_swarm_tokens() {
+  local w m
+  w="$(docker swarm join-token -q worker 2>/dev/null)" && [ -n "$w" ] && state_set SWARM_WORKER_TOKEN "$w"
+  m="$(docker swarm join-token -q manager 2>/dev/null)" && [ -n "$m" ] && state_set SWARM_MANAGER_TOKEN "$m"
+  return 0
 }
 
 secret_put() {  # secret_put NAME VALUE — create iff missing (external secrets are immutable)
@@ -1754,17 +1776,130 @@ finalize() {
 }
 
 # ── uninstall ───────────────────────────────────────────────────────────────
+# Security review M15: an uninstall leaves no live credential on the host.
+# Always removed: the stack and swarmy's Docker secrets; node #1's agent (its
+# container, the swarmy-agent volume holding agent.json, /etc/swarmy/agent.env);
+# the saved one-liner, generated-password and setup-key files. The swarm's join
+# tokens are rotated: the old ones sat in state.env, Docker secrets, controller
+# backups and install logs, and only the controller (gone now) used them;
+# nodes already joined are unaffected.
+# Data goes too, after a typed confirmation (or --yes with --non-interactive):
+# the controller's store, state.env (SWARMY_SECRET_KEY is the only key to that
+# store), and the mesh: control plane and its store, the client sidecar and its
+# WireGuard identity, the pin. --keep-data keeps all of that for a re-install
+# (the swarm was born on the mesh address, so the mesh stays up with it).
+CONTROLLER_DATA_VOLUME="${STACK_NAME}_swarmy-data"
+MESH_CONTROL_VOLUMES="swarmy-mesh-control swarmy-mesh-control-conf"
+
+# uninstall_data_present → what a full uninstall deletes, one item per line.
+uninstall_data_present() {
+  local v
+  for v in "$CONTROLLER_DATA_VOLUME" $MESH_CONTROL_VOLUMES; do
+    if docker volume inspect "$v" >/dev/null 2>&1; then printf 'volume %s\n' "$v"; fi
+  done
+  if [ -e "$STATE_FILE" ]; then printf '%s (holds SWARMY_SECRET_KEY)\n' "$STATE_FILE"; fi
+  return 0
+}
+
+# confirm_data_delete → 0 to go ahead. --yes goes ahead; otherwise a person
+# on a TTY must type the phrase. No TTY (or --non-interactive) without --yes → no.
+confirm_data_delete() {
+  local a=""
+  [ "$ASSUME_YES" = 1 ] && return 0
+  [ "$NON_INTERACTIVE" != 1 ] || return 1
+  { : </dev/tty; } 2>/dev/null || return 1
+  read -r -p "Type 'delete swarmy data' to delete it (anything else stops, nothing removed): " a </dev/tty || true
+  [ "$a" = "delete swarmy data" ]
+}
+
+# shred_rm FILE… — overwrite (when shred exists) and remove; missing files are fine.
+shred_rm() {
+  local f
+  for f in "$@"; do
+    [ -e "$f" ] || continue
+    if command -v shred >/dev/null 2>&1; then shred -u "$f" 2>/dev/null || rm -f "$f"; else rm -f "$f"; fi
+  done
+}
+
+# remove_mesh_pin — undo ensure_mesh_pin (and the agent's copy of it).
+remove_mesh_pin() {
+  if command -v systemctl >/dev/null 2>&1 && [ -e /etc/systemd/system/swarmy-mesh-pin.service ]; then
+    systemctl disable swarmy-mesh-pin.service >/dev/null 2>&1 || true
+  fi
+  rm -f /etc/systemd/system/swarmy-mesh-pin.service /etc/systemd/system/docker.service.d/10-swarmy-mesh-pin.conf \
+    /etc/swarmy/mesh-pin.env /usr/local/lib/swarmy/mesh-pin.sh 2>/dev/null || true
+  rmdir /usr/local/lib/swarmy 2>/dev/null || true
+  if command -v systemctl >/dev/null 2>&1; then systemctl daemon-reload >/dev/null 2>&1 || true; fi
+  ip link del swarmy-mesh0 >/dev/null 2>&1 || true
+}
+
+# rotate_swarm_tokens — revoke both join tokens (manager-only; joined nodes keep working).
+rotate_swarm_tokens() {
+  if [ "$(docker info --format '{{.Swarm.ControlAvailable}}' 2>/dev/null)" = true ]; then
+    if docker swarm join-token --rotate -q worker >/dev/null 2>&1 && docker swarm join-token --rotate -q manager >/dev/null 2>&1; then
+      ok "rotated the swarm join tokens: copies of the old ones (state.env, backups, logs) no longer join anything."
+    else
+      warn "could not rotate the swarm join tokens; run: docker swarm join-token --rotate worker && docker swarm join-token --rotate manager"
+    fi
+  elif [ "$(docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null)" = active ]; then
+    warn "this host is not a swarm manager: rotate the join tokens on one (docker swarm join-token --rotate worker|manager)."
+  fi
+}
+
+# wait_stack_gone — `docker stack rm` is asynchronous; volumes can only go once its containers have.
+wait_stack_gone() {
+  local i
+  for i in $(seq 1 30); do
+    [ -z "$(docker ps -aq --filter "label=com.docker.stack.namespace=${STACK_NAME}" 2>/dev/null)" ] && return 0
+    sleep 2
+  done
+  return 1
+}
+
 do_uninstall() {
   need_root
-  warn "Removing the swarmy stack, node #1 agent, and secrets (the swarm itself is left intact)."
+  local data s v
+  data="$(uninstall_data_present)"
+  if [ "$KEEP_DATA" != 1 ] && [ -n "$data" ]; then
+    warn "--uninstall deletes swarmy's data on this host and takes it off the mesh (pass --keep-data to keep both for a re-install):"
+    printf '%s\n' "$data" | sed 's/^/    /' >&2
+    confirm_data_delete \
+      || die "nothing removed. Pass --keep-data to keep the data, or confirm deleting it (--yes with --non-interactive)."
+  fi
+  warn "Removing swarmy from this host (the swarm itself and your apps' volumes are left alone)…"
+  # node #1's agent: container, identity (agent.json on its volume), join-token env file.
   docker rm -f "$AGENT_CONTAINER" >/dev/null 2>&1 || true
+  docker volume rm swarmy-agent >/dev/null 2>&1 || true
+  shred_rm "$AGENT_ENV_FILE"
+  rmdir "$(dirname "$AGENT_ENV_FILE")" 2>/dev/null || true
   docker stack rm "$STACK_NAME" >/dev/null 2>&1 || true
-  sleep 3
+  wait_stack_gone || warn "the ${STACK_NAME} stack's containers are still stopping; its volume may need removing by hand."
   for s in swarmy_secret_key better_auth_secret admin_password bootstrap_join_token swarm_worker_token swarm_manager_token mesh_service_token mesh_control \
     $(docker secret ls --format '{{.Name}}' 2>/dev/null | grep '^swarmy_control_store\.' || true); do
     docker secret rm "$s" >/dev/null 2>&1 || true
   done
-  ok "removed. The swarmy-data volume (the controller store) and $STATE_FILE are preserved; delete them manually to wipe state."
+  rotate_swarm_tokens
+  shred_rm "$ADD_NODE_OUT" "$ADMIN_PASSWORD_OUT" "$STATE_DIR/netbird-setup-key"
+  if [ "$KEEP_DATA" = 1 ]; then
+    ok "removed. Kept for a re-install on this host (--keep-data):"
+    [ -z "$data" ] || printf '%s\n' "$data" | sed 's/^/    /'
+    printf '    %s\n' "the mesh (control plane, client sidecar, pin), which the swarm's addresses ride on"
+    return 0
+  fi
+  # The mesh: control plane + its store, the client sidecar + its WireGuard identity, the pin.
+  docker rm -f "$MESH_CONTROL_CONTAINER" swarmy-mesh-litestream swarmy-mesh-front "$NETBIRD_CONTAINER" swarmy-tailscale >/dev/null 2>&1 || true
+  for v in "$NETBIRD_CONTAINER" $MESH_CONTROL_VOLUMES "$CONTROLLER_DATA_VOLUME"; do
+    docker volume rm "$v" >/dev/null 2>&1 || true
+  done
+  remove_mesh_pin
+  rmdir "$(dirname "$AGENT_ENV_FILE")" 2>/dev/null || true
+  if docker volume inspect "$CONTROLLER_DATA_VOLUME" >/dev/null 2>&1; then
+    warn "could not remove the ${CONTROLLER_DATA_VOLUME} volume yet (still in use?): docker volume rm ${CONTROLLER_DATA_VOLUME}"
+  fi
+  shred_rm "$STATE_FILE"
+  rm -rf "$STATE_DIR"
+  ok "removed, data included. The swarm is left as it is; on its last node, 'docker swarm leave --force' removes it too."
+  say "  A controller that floated to another manager keeps its own ${CONTROLLER_DATA_VOLUME} volume there."
 }
 
 # ── main ────────────────────────────────────────────────────────────────────
@@ -1789,6 +1924,7 @@ main() {
   # Every run (first install and upgrades): the swarm must survive a reboot on the mesh.
   [ -z "${MESH_IP:-}" ] || ensure_mesh_pin "$MESH_IP" "$(ip -4 -o addr show dev "$NB_INTERFACE" 2>/dev/null | awk '{print $4}' | cut -d/ -f2 | head -n1)"
   marker_done swarm    || { ensure_swarm;        marker_set swarm; }
+  record_swarm_tokens   # live tokens (an uninstall rotates them) before the Docker secrets
   ensure_docker_secrets
   deploy_stack
   enrol_node1

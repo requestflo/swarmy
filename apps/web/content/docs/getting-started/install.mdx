@@ -81,7 +81,9 @@ non-interactive path.
 |---|---|---|
 | `--non-interactive` | | Never prompt. Use flags, environment and defaults. |
 | `--check` | | Run the preflight only (network, egress). Changes nothing. |
-| `--uninstall` | | Remove the swarmy stack, its secrets and the node #1 agent. |
+| `--uninstall` | | Remove swarmy from the server: the stack and its secrets, and the node #1 agent with its stored session and `agent.env`. Also rotates the swarm join tokens, and **deletes the data**: the controller's database, `state.env` and the mesh. It asks you to confirm first. See [Uninstall](/docs/getting-started/upgrading#uninstall). |
+| `--keep-data` | | With `--uninstall`: keep the database, `state.env` and the mesh for a later reinstall. |
+| `--yes` | | With `--uninstall --non-interactive`: confirm that the data should be deleted. |
 | `--admin-email <e>` | `SWARMY_ADMIN_EMAIL` | Owner login. A value without `@` becomes a username login. |
 | `--admin-password-file <f>` | `SWARMY_ADMIN_PASSWORD_FILE` | Read the owner password from the first line of a file (keep it `0600`). The safe way to set it. |
 | `--admin-password -` | | Read the owner password from stdin: `sudo bash install-swarmy.sh --admin-password - < pw.txt`. Not with `curl \| bash`, where stdin is the script. |

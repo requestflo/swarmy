@@ -65,7 +65,7 @@ in a checkout lists every flag and env var):
 | `--port <n>` | Dashboard/API port (default `3021`) |
 | `--image <ref>` / `--agent-image <ref>` | Controller / agent image (default `ghcr.io/requestflo/swarmy-{controller,agent}:latest`) |
 | `--check` | Preflight only — detect and report, change nothing |
-| `--uninstall` | Remove the stack, secrets and node #1 agent (volumes and `state.env` are kept) |
+| `--uninstall` | Remove the stack, secrets, node #1 agent and its session, rotate the swarm join tokens, and delete the data (store, `state.env`, mesh) after a confirmation; `--keep-data` keeps the data for a re-install |
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/requestflo/swarmy/main/scripts/install-swarmy.sh \
