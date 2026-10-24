@@ -75,6 +75,7 @@ export function freshenSeeds(s: DemoStore): void {
   empty(s, 'apps', { apps: [], plans: [] });
   empty(s, 'data', { snapshots: [], restores: [], dbClusters: [], dbSnapshots: [], dbTopologies: [] });
   empty(s, 'searchsvc', { instances: [], backups: {} });
+  s.extra['searchidx'] = {};
   empty(s, 'vector', { instances: [], pgvector: [] });
   empty(s, 'queues', { queues: [], dlq: {} });
   empty(s, 'jobs', { jobs: [], runs: [] });

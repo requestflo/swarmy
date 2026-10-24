@@ -9,6 +9,8 @@ import { bytes } from '@/lib/format';
 import { DestroySearchDialog } from './destroy-search-dialog';
 import { SearchAttachSection } from './search-attach-section';
 import { SearchBackupsSection } from './search-backups-section';
+import { SearchIndexes } from './search-indexes';
+import { Kv } from './search-kv';
 
 const ENGINE = { meilisearch: { label: 'Meilisearch', env: 'MEILI_HOST' }, typesense: { label: 'Typesense', env: 'TYPESENSE_HOST' } } as const;
 const short = (svc: string): string => svc.replace(/^[^_]*_/, '');
@@ -19,23 +21,12 @@ function tone(v: SearchInstanceView): Tone {
   return v.status === 'running' && v.running >= v.desired ? 'ok' : 'warn';
 }
 
-function Kv({ k, children, tech }: { k: string; children: React.ReactNode; tech?: React.ReactNode }): React.JSX.Element {
-  return (
-    <div className="border-border flex flex-col gap-1 border-t py-2.5 sm:flex-row sm:items-start sm:gap-4">
-      <span className="text-muted-foreground w-28 shrink-0 text-[13px]">{k}</span>
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
-        {children}
-        {tech ? <Tech>{tech}</Tech> : null}
-      </div>
-    </div>
-  );
-}
-
 /**
  * One managed search instance as the DataStores board lays it out (board
  * 41): the engine and its variable, where its one copy runs, what it holds
  * (documents, indexes, size from the stats stamp), the master key and the
- * engine. Controls adds the address and the existing attach/saves/remove.
+ * engine, then its indexes and their settings read from the engine itself.
+ * Controls adds the address and the existing attach/saves/remove.
  */
 export function SearchBlock({ v }: { v: SearchInstanceView }): React.JSX.Element {
   const servers = useMemberServers(v.service).byService?.get(v.service);
@@ -77,6 +68,7 @@ export function SearchBlock({ v }: { v: SearchInstanceView }): React.JSX.Element
         </span>
         {s ? <Tech>{v.engine === 'typesense' ? 'memory' : 'database size'} from swarmy.search.stats · sampled {new Date(s.at).toLocaleTimeString()}</Tech> : null}
       </div>
+      <SearchIndexes v={v} />
       <div className="flex flex-col">
         <Kv k="Master key" tech={`Docker secret ${v.keySecret} · mounted as a file for attached apps`}>
           <span className="text-[13px]">
