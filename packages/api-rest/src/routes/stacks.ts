@@ -4,6 +4,7 @@ import { deployComposeTraced } from '@swarmy/trpc/devx';
 import type { RestEnv } from '../middleware';
 import { requireAction, requireScope } from '../middleware';
 import {
+  admissionRefusedRes,
   DeployStackBody,
   DeploymentRefDto,
   ProblemDto,
@@ -74,6 +75,8 @@ export function registerStackRoutes(app: OpenAPIHono<RestEnv>): void {
       responses: {
         202: { content: { 'application/json': { schema: DeploymentRefDto } }, description: 'Accepted' },
         400: problemRes,
+        403: problemRes,
+        412: admissionRefusedRes,
       },
     }),
     (c) =>

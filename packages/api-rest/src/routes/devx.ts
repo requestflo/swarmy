@@ -17,7 +17,7 @@ import {
 } from '@swarmy/trpc/devx';
 import type { RestEnv } from '../middleware';
 import { requireAction, requireAdmin, requireScope } from '../middleware';
-import { ProblemDto, listEnvelope } from '../dto';
+import { ProblemDto, admissionRefusedRes, listEnvelope } from '../dto';
 import { PROBLEM_CONTENT_TYPE, trpcErrorToProblem } from '../problem';
 import { run } from '../respond';
 
@@ -264,6 +264,7 @@ export function registerDevxRoutes(app: OpenAPIHono<RestEnv>): void {
         400: problemRes,
         403: problemRes,
         404: problemRes,
+        412: admissionRefusedRes,
       },
     }),
     (c) =>

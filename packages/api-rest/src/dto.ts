@@ -17,6 +17,32 @@ export const ProblemDto = z
   })
   .openapi('Problem');
 
+export const AdmissionViolationDto = z
+  .object({
+    rule: z.string().openapi({
+      description: 'The rule that refused it: a guardrail (`no-latest-tag-in-prod`), an exposure or image-policy rule, or the platform wall (`network.control-plane`, `label.system`). Open set.',
+    }),
+    severity: z.enum(['block', 'warn']).openapi({
+      description: '`block` needs an admin/owner override in the dashboard; `warn` needs a confirmation there. The API never overrides.',
+    }),
+    message: z.string(),
+    resource: z.string().optional().openapi({ description: 'The service (or cluster) it is about.' }),
+  })
+  .openapi('AdmissionViolation');
+
+/** 412 from a deploy-shaped route: admission (guardrails / exposure / images / the network wall) refused it. */
+export const GuardrailProblemDto = ProblemDto.extend({
+  swarmy_code: z.string().optional().openapi({ description: '`POLICY_DENIED` when admission refused the deploy.' }),
+  violations: z.array(AdmissionViolationDto).openapi({ description: 'Every rule the deploy broke.' }),
+}).openapi('GuardrailProblem');
+
+/** The 412 every route that runs the admission pipeline documents. */
+export const admissionRefusedRes = {
+  content: { 'application/problem+json': { schema: GuardrailProblemDto } },
+  description:
+    'Admission refused the deploy — guardrails, exposure, image policy or the platform network wall. `violations` lists every rule it broke; over the API any violation refuses (`warn` included), since confirming a warning or overriding a block happens in the dashboard.',
+};
+
 export const NodeDto = z
   .object({
     id: z.string(),

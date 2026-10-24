@@ -12,6 +12,7 @@ import {
 import type { RestEnv } from '../middleware';
 import { requireAction, requireScope } from '../middleware';
 import {
+  admissionRefusedRes,
   CreateServiceBody,
   DeploymentRefDto,
   ProblemDto,
@@ -87,6 +88,7 @@ export function registerServiceRoutes(app: OpenAPIHono<RestEnv>): void {
         },
         400: problemRes,
         403: problemRes,
+        412: admissionRefusedRes,
       },
     }),
     (c) =>

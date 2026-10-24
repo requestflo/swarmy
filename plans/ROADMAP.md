@@ -157,8 +157,7 @@ server and the BuildKit registry cache. What is left (none launch-blocking):
 
 - Switching org can show the previous org for up to 60 s (Better Auth
   `cookieCache` isn't refreshed by `switchOrg`).
-- `/services/new` has no admin override for guardrail blocks, and the REST
-  `POST /services` 412 isn't in the OpenAPI spec.
+- `/services/new` has no admin override for guardrail blocks.
 
 ## CI & release
 

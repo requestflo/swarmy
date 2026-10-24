@@ -13,7 +13,8 @@ interface TRPCErrorLike {
   name: 'TRPCError';
   code: string;
   message: string;
-  cause?: { swarmyCode?: string };
+  /** `violations`: the admission refusal's list (`admissionDenied` in @swarmy/trpc). */
+  cause?: { swarmyCode?: string; violations?: unknown };
 }
 
 function isTrpcError(e: unknown): e is TRPCErrorLike {
@@ -26,6 +27,14 @@ function isTrpcError(e: unknown): e is TRPCErrorLike {
   );
 }
 
+/** One admission-policy violation (guardrails, exposure, image policy, the network wall). */
+export interface ProblemViolation {
+  rule: string;
+  severity: 'block' | 'warn';
+  message: string;
+  resource?: string;
+}
+
 export interface Problem {
   type: string;
   title: string;
@@ -33,6 +42,24 @@ export interface Problem {
   detail?: string;
   instance?: string;
   swarmy_code?: string;
+  /** Present when admission refused a deploy (412): every rule it broke. */
+  violations?: ProblemViolation[];
+}
+
+/** The public fields of each violation — never whatever else rides on `cause`. */
+function violationsOf(raw: unknown): ProblemViolation[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: ProblemViolation[] = [];
+  for (const v of raw as Record<string, unknown>[]) {
+    if (!v || typeof v.rule !== 'string' || typeof v.message !== 'string') continue;
+    out.push({
+      rule: v.rule,
+      severity: v.severity === 'warn' ? 'warn' : 'block',
+      message: v.message,
+      ...(typeof v.resource === 'string' ? { resource: v.resource } : {}),
+    });
+  }
+  return out;
 }
 
 const TRPC_TO_HTTP: Record<string, number> = {
@@ -70,6 +97,7 @@ const TITLES: Record<number, string> = {
 export function trpcErrorToProblem(e: unknown, instance?: string): Problem {
   if (isTrpcError(e)) {
     const status = TRPC_TO_HTTP[e.code] ?? 500;
+    const violations = violationsOf(e.cause?.violations);
     return {
       type: `https://swarmy.dev/problems/${e.code.toLowerCase()}`,
       title: TITLES[status] ?? 'Error',
@@ -77,6 +105,7 @@ export function trpcErrorToProblem(e: unknown, instance?: string): Problem {
       detail: e.message,
       instance,
       swarmy_code: e.cause?.swarmyCode,
+      ...(violations ? { violations } : {}),
     };
   }
   return {
