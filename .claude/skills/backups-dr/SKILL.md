@@ -68,7 +68,10 @@ and where everything lives. Backups are dispatched to the agent as commands — 
    restic tags `appdb:<stack>/<service>`, their history `appdb.backup`/
    `appdb.restore` audit rows; credentials ride as a RECIPE (env/`_FILE`
    names) the agent resolves in-task — no value crosses the WS; an in-place
-   restore always takes a `reason:pre-restore` dump first.
+   restore always takes a `reason:pre-restore` dump first. A password never
+   reaches argv: Mongo tools get a 0600 tmpfs `--config`, else their own
+   password prompt fed on stdin (`printf`), and the scripts' tests use stub
+   tools that record argv/stdin (`protocol/appDbScripts.ts`).
 6. **The controller bundle is zero-knowledge and re-adopts the swarm.** The bundle
    = `manifest.json` (`dbDriver: 'sqlite'`) + `control.db` (a `VACUUM INTO` hot
    snapshot of the controller's SQLite store) + `secrets.json` (`SWARMY_SECRET_KEY`,
@@ -77,7 +80,8 @@ and where everything lives. Backups are dispatched to the agent as commands — 
    (`Node.sessionSecretHash`/`sessionVersion`) inside the snapshot — restoring the DB
    lets agents dial back out and re-adopt. Never hot-swap `SWARMY_SECRET_KEY` in a
    running process; a key mismatch is a surfaced warning, not a silent overwrite.
-   `telemetry.db` (`MetricSample`) is never in the bundle. Two restore paths,
+   `telemetry.db` (history only: metric samples, edge traffic, data and query
+   history) is never in the bundle. Two restore paths,
    both in `controllerBackup.snapshot.ts`: disaster restore (`bun run restore`,
    controller STOPPED) uses `installSnapshotFile()` — the snapshot becomes
    `control.db`, the old file is kept as `control.db.pre-restore-<ts>` (its
@@ -94,7 +98,11 @@ and where everything lives. Backups are dispatched to the agent as commands — 
    restore drill only ever touches a throwaway `drill-<ts>` cluster and cleans up
    on success AND failure; backup-verify (`restic check`) is read-only. Both are
    `adminProcedure`. Preconditions THROW (nothing touched → not a drill outcome);
-   only post-mutation failures record a `failed` drill.
+   only post-mutation failures record a `failed` drill. Live steps are run
+   state, never stored: `stepRecorder` publishes each step's start/end to the
+   in-memory relay (`drill-progress.ts`), and `resilience.drillProgress`
+   replays the org's runs in flight, then tails them (each event is the whole
+   run so far; a finished run lingers a minute).
 8. **A drill outcome is one audit row, not a model.** Each run writes a single
    `resilience.drill` (`DRILL_AUDIT_ACTION`) audit row whose metadata IS the
    `ResilienceDrillResultView`; "last tested" reads those rows back, plus a small
@@ -150,6 +158,16 @@ and where everything lives. Backups are dispatched to the agent as commands — 
     result carries `safetySnapshotId`, and restoring that snapshot undoes the
     restore. The logic lives in `dbRestoreSafety.service.ts`. Never add a
     restore-over-live-data path that skips `ensureSafetyCopy`.
+14. **Restore as a copy creates its own cluster.** `dbBackups.restoreAsCopy`
+    (`dbRestoreCopy.service.ts`; `data.restore` + `stack.deploy`, audited
+    `db.restore.copy`) provisions `<cluster>-restore-<mmdd>` beside the source
+    (same image and database, one copy, `single`, the source's region by the
+    usual pin rules; the name rule is `@swarmy/core` `db-restore-copy.ts`, so
+    the dashboard shows it up front), waits for Postgres, then runs the
+    ordinary `restoreDb` into it. Nothing is wired into an app. Preconditions
+    (no source, name taken, nothing to restore) throw before anything exists;
+    a later failure removes the copy's services and keeps its volume. A copy
+    is a different cluster, so it takes no safety backup.
 
 ## Contracts between the layers
 
@@ -176,6 +194,13 @@ and where everything lives. Backups are dispatched to the agent as commands — 
   command (`execInService` → `resolveExecTarget`) and dispatch `container.runOnce`
   for `restic check`; `psqlScript` runs psql against localhost in a managed PG
   member (official image, `$POSTGRES_PASSWORD`).
+- **runOnce binds are allowlisted on the agent** (`@swarmy/core/protocol`
+  `run-once-binds.ts`, refused with `E_BIND_REFUSED` before any pull): a named
+  volume at a safe container path, the Docker socket identity-mapped for the
+  docker-CLI system image only, or a node restic repo identity-mapped for the
+  restic image only and never under a system path. A new one-shot that needs
+  another bind shape changes that rule (and its controller contract test),
+  never the payload.
 
 ## File map
 
@@ -191,6 +216,9 @@ and where everything lives. Backups are dispatched to the agent as commands — 
 | DB backups: engines, `swarmy.db.backup.*` labels, schedule, PITR, restore | `packages/trpc/src/services/dbBackup.service.ts` (+ `routers/dbBackup.ts`) |
 | Pre-restore safety copy (`overwritesSource`, `safetyBackupPlan`, `latestRestorable`, `ensureSafetyCopy`) | `packages/trpc/src/services/dbRestoreSafety.service.ts` (+ `.test.ts`) |
 | PITR window check before a restore (preflight, last read per cluster, the dashboard's `dbBackups.pitrWindow`) | `packages/trpc/src/services/dbPitrWindow.{service,judge}.ts`, wire `packages/core/src/protocol/pitrWindow.ts`, agent `apps/agent/src/handlers/pitr-window.ts` |
+| Restore as a copy (name rule, placement, into-copy restore) | `packages/core/src/db-restore-copy.ts`, `packages/trpc/src/services/dbRestoreCopy{.service,.into,.placement}.ts` |
+| Live drill steps (relay + `resilience.drillProgress`) | `packages/trpc/src/services/drill-progress.ts`; UI `components/backups/{dr-drill-card,drill-steps}.tsx` |
+| runOnce bind allowlist (agent-enforced, pure) | `packages/core/src/protocol/run-once-binds.ts` |
 | PITR orchestration (stop, aside + fetch, start, promote) + base-backup pick | `packages/trpc/src/services/dbPitrRestore.service.ts`, agent `apps/agent/src/handlers/pitr-restore.ts` (`pickBaseBackup`) |
 | Controller brain: config, passphrase, bundle build/restore, re-adopt | `packages/trpc/src/services/controllerBackup.{service,bundle,snapshot}.ts` (+ `routers/controllerBackup.ts`) |
 | Standalone disaster-restore entrypoint (dashboard is down) | `apps/api/src/restore.ts` |
@@ -204,7 +232,7 @@ and where everything lives. Backups are dispatched to the agent as commands — 
 | Controller datastore (embedded SQLite: `control.db` + `telemetry.db`, bun:sqlite adapter, `ensureSchema`) | `packages/db/src/{client,bun-sqlite-adapter,ensure-schema}.ts` |
 | Workers: scheduled backups / restore-on-recovery / controller schedule | `apps/api/src/workers/{backup-scheduler,dr-reconcile,controller-backup-scheduler}.ts` |
 | UI: one Backups page — destinations, the restore-point grid, the DR drill, Verify all, "swarmy itself" (controller replica + bundle) | `apps/app/src/routes/_authed/backups.tsx` → `components/backups/backups-page.tsx` (+ `restore-grid-{card,model,lanes}`, `restore-point-detail`, `dr-drill-card`, `drill-steps`, `verify-all`, `controller-line`), `components/controllerbackup/*` |
-| UI: per-stack Backups tab (schedules, what isn't protected yet, drills) | `routes/_authed/stacks/$name.backups.tsx` → `components/backups/{stack-backups,stack-schedules-card,…}.tsx`, `components/resilience/*`; overview card `components/overview/resilience-card.tsx` |
+| UI: per-stack Backups tab (schedules, what isn't protected yet, drills) | `routes/_authed/stacks/$name.backups.tsx` → `components/backups/{stack-backups,stack-schedules-card,…}.tsx`, `components/resilience/*` |
 | UI: Postgres backups on that tab (schedule, retention preview, point-in-time scrubber, restore) | `components/pgbackups/*` (`pitr-scrub.ts`, `retention-preview.ts` pure + tested) |
 | UI: Time travel — an app's week of releases, incidents and saves; a read-only replay; restore to the nearest save | `routes/_authed/stacks/$name_.time-travel.tsx` → `components/time-travel/*` (`time-travel-model.ts`, `time-travel-replay.ts` pure + tested) |
 | Crypto: `encryptSecret`/`decryptSecret`, `generateRestorePassphrase` + fingerprint | `packages/core/src/crypto.ts` |

@@ -133,6 +133,17 @@ Four ideas, one story:
   starts from the newest base backup that finished at or before the target. A
   target earlier than every base backup is refused, and the message names the
   recoverable window.
+- **Restore as a copy makes its own database.** Time travel's "Restore as a
+  copy", the Postgres backups page's "Into a new cluster" and the restore
+  dialog's clone mode need no second database declared first:
+  `dbBackups.restoreAsCopy` creates `<cluster>-restore-<mmdd>` beside the source
+  (same image and database, one copy, kept in the source's region), waits for
+  Postgres to answer, then runs the ordinary restore into it. Nothing is wired
+  into an app until you switch it, and "Remove the copy" deletes it with its
+  data. Preconditions (no source, name taken, nothing to restore) fail before
+  anything is created; a later failure removes the copy's services and keeps
+  its volume. It needs `data.restore` and `stack.deploy`, audited
+  `db.restore.copy`.
 - **A restore over live data saves that data first.** A managed-Postgres
   restore that writes over the cluster it came from (in-place, single-database,
   point-in-time, or a clone pointed back at itself) first takes a fresh logical
@@ -145,7 +156,8 @@ Four ideas, one story:
   copy exists, so it never puts back the data it was meant to replace. A
   restore into a different cluster is a copy and needs no safety backup.
 - **The controller's store is two embedded SQLite files.** `control.db` holds
-  every control-plane model; `telemetry.db` holds only `MetricSample` (no foreign
+  every control-plane model; `telemetry.db` holds only history (metric samples,
+  edge traffic rollups, data and query history; no foreign
   keys into `control.db`). Both live in `SWARMY_DATA_DIR`
   (`/var/lib/swarmy/data` on the `swarmy-data` volume in prod). There is no
   database service, port or password. The controller migrates both files on boot
@@ -216,7 +228,10 @@ Four ideas, one story:
 - **Drills are safe by construction and gated.** The restore drill only ever
   touches a throwaway `drill-<ts>` cluster and cleans it up on success *or*
   failure; backup-verify is read-only. All are admin-only, confirmed in the UI, and
-  audited.
+  audited. A running drill streams its steps as they start and end
+  (`resilience.drillProgress`, in memory): the DR drill card on Backups shows
+  "Running · `<step>`" to anyone in the org, whoever started it. The audit row
+  stays the drill's record.
 - **Database backups are on by default** (and, since 2026-09, every named volume — below). Once a
   destination exists, databases get a nightly backup with zero clicks
   (`autoBackup.ts`, 7-day retention): managed Postgres a logical `pg_dump`
@@ -233,7 +248,9 @@ Four ideas, one story:
   volumes, and it covers a DB whose credentials swarmy can't resolve — the
   Backups tab says "volume snapshot only" and why). Credentials are read the
   way a human would, inside the running task (env, `_FILE` secrets, redis
-  `--requirepass`), and never leave the node. An existing user schedule is never overridden,
+  `--requirepass`), and never leave the node or reach a process's argv
+  (`mongodump`/`mongorestore` read a 0600 tmpfs config file, or their own
+  password prompt from stdin). An existing user schedule is never overridden,
   and removing an auto schedule leaves an opt-out marker so it is never
   re-created. No controller backups until you set a passphrase; no drills run
   themselves.
@@ -328,11 +345,11 @@ backups.prisma` (targets, snapshots, controller backup, schedules, restore ops),
 `apps/agent/src/handlers/backup.ts` (the restic + DB-engine sidecars),
 `packages/trpc/src/services/backups.service.ts` and `dbBackup.service.ts` (volume
 and DB backup/restore; `dbRestoreSafety.service.ts` is the pre-restore safety
-copy), `packages/trpc/src/services/controllerBackup.service.ts`
+copy, `dbRestoreCopy.service.ts` restore as a copy), `packages/trpc/src/services/controllerBackup.service.ts`
 (the controller brain bundle; `controllerBackup.snapshot.ts` takes and loads the
 `control.db` snapshot) with `apps/api/src/restore.ts` (the standalone
 disaster-restore entrypoint), `packages/trpc/src/services/resilience.service.ts`
-(the checks and the two drills), `autoBackup{,.service}.ts`
+(the checks and the two drills; live steps in `drill-progress.ts`), `autoBackup{,.service}.ts`
 (default-on DB backups), the controller store (`apps/api/src/controller-store/*`:
 boot restore, lease, Litestream supervisor; the agent's
 `handlers/controller-service.ts`; `controllerStore.service.ts` for status /
