@@ -160,6 +160,18 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
   and org-SSO auto-provision; `provisioning.ts` redeems invites on any
   sign-in, JIT-adds SSO members and writes `attributes.ssoGroups` (audited via
   the host-injected `authRegistry.configure({ audit })` → `writeAudit`).
+  An IdP placeholder is a hash of `providerId`+`sub` (never sanitised
+  inputs, which collide). An SSO provider id owns its `account` rows: delete
+  removes them, rename moves them, and the old id is retired to the org
+  (`SsoProviderRetired`, `services/sso-identities.ts`).
+- **Ending a session ends its tokens.** The `session.delete` hook (and the
+  2FA reset, which deletes sessions directly, so it calls `revokeUserTokens`
+  itself) stamps `User.tokensRevokedAt` (the API token verifier refuses any
+  JWT with `iat` at or before it), deletes the OAuth grants minted from that
+  session (all of them on `/revoke-sessions`), and marks the user so
+  forward-auth's decision cache drops their permits
+  (`packages/auth/src/token-revocation.ts`). A new path that deletes
+  sessions outside Better Auth must call `revokeUserTokens` too.
   2FA is opt-in everywhere: social/SSO sessions are exempt, terminal step-up
   defaults off. swarmy is also an OIDC provider (`oidc-provider.ts`,
   `oidc-clients.ts` → `ensureNetbirdOidcClient`).
