@@ -63,8 +63,11 @@ export async function deleteManifests(
 }
 
 /** Put the registry back to read-write (retries; an interrupted window is also healed next tick). */
-export async function endMaintenance(hub: AgentHub, t: Pick<RegistryTarget, 'live' | 'swarmNodeId' | 'manager'>): Promise<boolean> {
-  const spec = registryMaintenanceSpec(t.live, t.swarmNodeId, false);
+export async function endMaintenance(
+  hub: AgentHub,
+  t: Pick<RegistryTarget, 'live' | 'swarmNodeId' | 'manager' | 'topology'>,
+): Promise<boolean> {
+  const spec = registryMaintenanceSpec(t.live, t.swarmNodeId, false, t.topology);
   if (!spec) return false;
   for (let i = 0; i < 3; i++) {
     const ok = await hub.dispatch(t.manager, 'service.deploy', { spec, pullPolicy: 'missing' }).then(() => true, () => false);
@@ -92,7 +95,7 @@ export async function sweepRegistry(
   sleep: (ms: number) => Promise<void>,
 ): Promise<SweepResult> {
   const fail = (error: string): SweepResult => ({ ok: false, error, stats: null, reclaimedBytes: null });
-  const ro = registryMaintenanceSpec(t.live, t.swarmNodeId, true);
+  const ro = registryMaintenanceSpec(t.live, t.swarmNodeId, true, t.topology);
   if (!ro) return fail('the registry has no login to redeploy with yet');
   try {
     await hub.dispatch(t.manager, 'service.deploy', { spec: ro, pullPolicy: 'missing' });

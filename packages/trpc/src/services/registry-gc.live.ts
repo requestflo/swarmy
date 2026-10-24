@@ -10,6 +10,7 @@ import { bareDigest } from './cicd.service';
 import { computePinnedDigests } from './image-gc.service';
 import { REGISTRY_SERVICE_NAME } from './registry-auth';
 import { registryDataVolume } from './registry-gc.spec';
+import { registryTopologyFor, type RegistryTopology } from './registry-topology';
 
 export interface RegistryTarget {
   live: SwarmServiceInfo;
@@ -20,6 +21,8 @@ export interface RegistryTarget {
   volume: string;
   /** A connected manager for service updates. */
   manager: string;
+  /** The topology every redeploy of the registry must keep (M16; registry-topology.ts). */
+  topology?: RegistryTopology;
 }
 
 /** Find the org's registry task, or say why GC can't run this tick. */
@@ -36,7 +39,8 @@ export function locateRegistry(hub: AgentHub, orgId: string): RegistryTarget | s
     const c = hub.latestContainers(nodeId).find((x) => orgContainers.has(x.id) && isTaskOf(x, live) && x.state === 'running');
     if (!c) continue;
     const swarmNodeId = c.labels[SWARM_NODE_ID_LABEL] ?? hub.swarmNodeIdFor(nodeId);
-    return swarmNodeId ? { live, nodeId, containerId: c.id, swarmNodeId, volume, manager } : 'registry node unknown';
+    const topology = registryTopologyFor(hub, orgId);
+    return swarmNodeId ? { live, nodeId, containerId: c.id, swarmNodeId, volume, manager, topology } : 'registry node unknown';
   }
   return 'registry task not found';
 }

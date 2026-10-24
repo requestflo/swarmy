@@ -1,8 +1,10 @@
 /**
  * In-swarm registry authentication (auto-generated login).
  *
- * The `registry:2` service is published on the routing mesh at :5000 on every
- * node, so without auth anyone who reaches a node's :5000 can push/pull.
+ * Every node reaches the `registry:2` service at `localhost:5000` (through its
+ * loopback forwarder on the encrypted `swarmy` overlay, or, on a cluster not
+ * yet moved, the routing mesh — registry-topology.ts), and so does anything
+ * else that gets onto that overlay, so it never runs open.
  * Enabling the registry therefore auto-generates a login (`swarmy` + a strong
  * random password, encrypted at rest in `RegistryConfig.credentialsEnc`), renders
  * a bcrypt htpasswd delivered as a Docker SECRET (content-addressed name, so a
@@ -29,8 +31,10 @@ import { buildPullAuths, matchCredential, toRegistryAuth, type ResolvedCredentia
 import { loadOrgRegistryCredentials } from './registry-credentials.service';
 import { mirrorStateFrom, pinSystemImages, rewriteSystemImages } from './system-images.service';
 import { effectiveImagesFor } from './platform-images';
+import { REGISTRY_FORWARDER_NETWORK, REGISTRY_SERVICE } from '@swarmy/core/registry-forwarder';
+import type { RegistryTopology } from './registry-topology';
 
-export const REGISTRY_SERVICE_NAME = 'swarmy-registry';
+export const REGISTRY_SERVICE_NAME = REGISTRY_SERVICE;
 export const REGISTRY_IMAGE = 'registry:2';
 export const REGISTRY_PORT = 5000;
 export const REGISTRY_AUTH_USERNAME = 'swarmy';
@@ -81,8 +85,18 @@ export function htpasswdSecretName(creds: RegistryCreds): string {
   return `${REGISTRY_HTPASSWD_SECRET_PREFIX}${h}`;
 }
 
-/** The registry:2 swarm service spec, with htpasswd auth enforced. */
-export function registryServiceSpec(secretName: string, extraLabels: Record<string, string> = {}): ServiceSpec {
+/**
+ * The registry:2 swarm service spec, with htpasswd auth enforced. `topology`
+ * (registry-topology.ts) decides how nodes reach it: `mesh` publishes :5000 on
+ * the routing mesh (the old, default shape); `loopback` publishes nothing
+ * (explicit `ports: []`, so an update drops the mesh port) and every node
+ * pulls through its forwarder over the encrypted `swarmy` overlay.
+ */
+export function registryServiceSpec(
+  secretName: string,
+  extraLabels: Record<string, string> = {},
+  topology: RegistryTopology = 'mesh',
+): ServiceSpec {
   return {
     name: REGISTRY_SERVICE_NAME,
     image: REGISTRY_IMAGE,
@@ -98,8 +112,8 @@ export function registryServiceSpec(secretName: string, extraLabels: Record<stri
       REGISTRY_STORAGE_DELETE_ENABLED: 'true',
     },
     secrets: [{ source: secretName, target: REGISTRY_HTPASSWD_TARGET, mode: 0o444 }],
-    ports: [{ target: REGISTRY_PORT, published: REGISTRY_PORT, protocol: 'tcp', mode: 'ingress' }],
-    networks: ['swarmy'],
+    ports: topology === 'mesh' ? [{ target: REGISTRY_PORT, published: REGISTRY_PORT, protocol: 'tcp', mode: 'ingress' }] : [],
+    networks: [REGISTRY_FORWARDER_NETWORK],
     mounts: [{ type: 'volume', source: 'swarmy-registry-data', target: '/var/lib/registry' }],
   };
 }

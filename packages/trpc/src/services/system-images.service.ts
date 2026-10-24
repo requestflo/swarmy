@@ -14,9 +14,10 @@
  *  - {@link mirrorSystemImagesAllOrgs}: the `system-image-mirror` worker tick.
  *    For every org whose built-in registry is enabled it makes sure the
  *    registry is deployed, deploys the Docker Hub pull-through cache, copies the
- *    BOM into the registry with a `regctl` one-shot (host network → the routing
- *    mesh's `localhost:5000`, like trivy/cosign; the controller itself never
- *    talks to a registry), and stamps the result as registry service labels.
+ *    BOM into the registry with a `regctl` one-shot (host network →
+ *    `localhost:5000`, the node's loopback forwarder or, before M16's move,
+ *    the routing mesh, like trivy/cosign; the controller itself never talks
+ *    to a registry), and stamps the result as registry service labels.
  *
  * Node dockerd uses the cache through `registry-mirrors` in daemon.json, which
  * the installers merge (`apps/api/src/install/docker-registry-mirror.ts`).
@@ -50,10 +51,12 @@ import { writeAudit } from './audit.service';
 import { canonicalRegistryHost } from './registryPolicy.service';
 import { REGISTRY_IMAGE, REGISTRY_MANAGED_LABEL, REGISTRY_SERVICE_NAME, decodeRegistryCreds } from './registry-auth';
 import { effectiveImagesFor } from './platform-images';
+import { REGISTRY_CACHE_SERVICE, REGISTRY_FORWARDER_NETWORK } from '@swarmy/core/registry-forwarder';
+import { liveRegistryTopology, registryTopologyFor, type RegistryTopology } from './registry-topology';
 
 // ── Pull-through cache (Docker Hub) ──────────────────────────────────────────
 
-export const REGISTRY_CACHE_SERVICE_NAME = 'swarmy-registry-cache';
+export const REGISTRY_CACHE_SERVICE_NAME = REGISTRY_CACHE_SERVICE;
 export const REGISTRY_CACHE_PORT = 5001;
 export const REGISTRY_CACHE_LABEL = 'swarmy.registry.cache';
 const DEFAULT_CACHE_UPSTREAM = 'https://registry-1.docker.io';
@@ -85,11 +88,13 @@ export function registryCacheAuthSignature(auth: RegistryCacheHubAuth | null | u
 /**
  * The pull-through cache: a second `registry:2` in proxy mode (a proxy
  * registry is read-only, so it can't share the push registry). Unauthenticated
- * on purpose — dockerd's `registry-mirrors` sends no creds — so, like :5000,
- * port 5001 is kept loopback-only by the agent's registry firewall floor
- * (apps/agent/src/handlers/registry-firewall.ts, DOCKER-USER). Cached blobs expire
- * after `REGISTRY_PROXY_TTL`. `SWARMY_REGISTRY_CACHE_UPSTREAM` points it at
- * another upstream (an estate mirror) for air-gapped installs.
+ * on purpose — dockerd's `registry-mirrors` sends no creds. `topology`
+ * (registry-topology.ts): `mesh` publishes :5001 on the routing mesh, kept
+ * off public addresses by the agent's firewall floor (the old, default
+ * shape); `loopback` publishes nothing and joins the encrypted `swarmy`
+ * overlay, and each node reaches it through its forwarder's 127.0.0.1:5001.
+ * Cached blobs expire after `REGISTRY_PROXY_TTL`. `SWARMY_REGISTRY_CACHE_UPSTREAM`
+ * points it at another upstream (an estate mirror) for air-gapped installs.
  *
  * `hubAuth` logs the cache in to Docker Hub (`REGISTRY_PROXY_USERNAME` /
  * `REGISTRY_PROXY_PASSWORD`), lifting the anonymous per-IP pull limit that
@@ -100,6 +105,7 @@ export function registryCacheAuthSignature(auth: RegistryCacheHubAuth | null | u
 export function registryCacheServiceSpec(
   upstream = process.env.SWARMY_REGISTRY_CACHE_UPSTREAM || DEFAULT_CACHE_UPSTREAM,
   hubAuth?: RegistryCacheHubAuth | null,
+  topology: RegistryTopology = 'mesh',
 ): ServiceSpec {
   return {
     name: REGISTRY_CACHE_SERVICE_NAME,
@@ -123,7 +129,9 @@ export function registryCacheServiceSpec(
           secretEnv: [CACHE_PASSWORD_ENV],
         }
       : {}),
-    ports: [{ target: 5000, published: REGISTRY_CACHE_PORT, protocol: 'tcp', mode: 'ingress' }],
+    ...(topology === 'mesh'
+      ? { ports: [{ target: 5000, published: REGISTRY_CACHE_PORT, protocol: 'tcp' as const, mode: 'ingress' as const }] }
+      : { ports: [], networks: [REGISTRY_FORWARDER_NETWORK] }),
     mounts: [{ type: 'volume', source: 'swarmy-registry-cache-data', target: '/var/lib/registry' }],
   };
 }
@@ -270,7 +278,11 @@ type Deps = { db: DB; hub: AgentHub; auth: Auth };
 /** Seam so the worker can make sure an enabled registry is actually deployed (cicd.service). */
 export type EnsureRegistry = (deps: Deps, orgId: string) => Promise<unknown>;
 
-/** Deploy the cache when missing, or redeploy it when its Hub login drifted from the config. */
+/**
+ * Deploy the cache when missing, or redeploy it when its Hub login drifted
+ * from the config or it isn't on the org's registry topology yet (M16: the
+ * topology reconcile moves it off the routing mesh through here).
+ */
 export async function ensureCache(
   deps: Pick<Deps, 'hub'>,
   orgId: string,
@@ -278,8 +290,10 @@ export async function ensureCache(
   hubAuth: RegistryCacheHubAuth | null,
 ): Promise<'noop' | 'deployed'> {
   const live = deps.hub.liveInventory(orgId).services.find((s) => s.name === REGISTRY_CACHE_SERVICE_NAME);
-  if (live && registryCacheConverged(live, hubAuth)) return 'noop';
-  await deps.hub.dispatch(nodeId, 'service.deploy', { spec: registryCacheServiceSpec(undefined, hubAuth), pullPolicy: 'missing' });
+  const topology = registryTopologyFor(deps.hub, orgId);
+  if (live && registryCacheConverged(live, hubAuth) && liveRegistryTopology(live) === topology) return 'noop';
+  const spec = registryCacheServiceSpec(undefined, hubAuth, topology);
+  await deps.hub.dispatch(nodeId, 'service.deploy', { spec, pullPolicy: 'missing' });
   return 'deployed';
 }
 

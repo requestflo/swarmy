@@ -92,6 +92,8 @@ export class GatewayStore {
     execOverride?: 'allow' | 'deny';
     /** Local SWARMY_ALLOW_NODE_SHELL override from register facts (absent = unset). */
     shellOverride?: 'allow' | 'deny';
+    /** Loopback registry forwarder from register facts (M16; absent = an older agent). */
+    registryForwarder?: 'on' | 'off';
     /** Version skew against this controller, judged on register (`agentSkew`). */
     skew?: AgentSkew;
     /** Optional commands the agent advertised in its register facts (`agentSupports`). */

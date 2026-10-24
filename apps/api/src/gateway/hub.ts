@@ -281,6 +281,8 @@ export class AgentHubImpl implements AgentHub {
     execOverride?: 'allow' | 'deny';
     /** Local SWARMY_ALLOW_NODE_SHELL override from register facts (absent = unset). */
     shellOverride?: 'allow' | 'deny';
+    /** Loopback registry forwarder from register facts (M16; absent = an older agent). */
+    registryForwarder?: 'on' | 'off';
     /** Version skew against this controller, judged on register. */
     skew?: AgentSkew;
     /** Optional commands the agent advertised in its register facts. */

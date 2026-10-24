@@ -17,6 +17,7 @@
 import type { ServiceSpec, SwarmServiceInfo } from '@swarmy/core/protocol';
 import { mirrorLabelsOf } from '@swarmy/core/system-images';
 import { REGISTRY_AUTH_LABEL, registryServiceSpec } from './registry-auth';
+import { liveRegistryTopology, type LiveNetworking, type RegistryTopology } from './registry-topology';
 
 export const REGISTRY_READONLY_ENV = 'REGISTRY_STORAGE_MAINTENANCE_READONLY';
 export const REGISTRY_READONLY_VALUE = '{"enabled":true}';
@@ -50,20 +51,34 @@ export function registryDataVolume(live: LiveRegistry): string | null {
  * label, both sides pin to `swarmNodeId` and stop the old task before the new
  * one starts. Null when the live registry carries no htpasswd login (the auth
  * converge must run first) or the node id isn't a swarm id.
+ *
+ * `topology` (M16) is the org's desired one (`registryTopologyFor`, carried on
+ * the GC target); the default keeps whatever the live registry runs, so a
+ * window never moves it on or off the routing mesh by accident. The topology
+ * reconcile uses this same pinned, stop-first spec to move the registry.
  */
 export function registryMaintenanceSpec(
-  live: Pick<SwarmServiceInfo, 'labels'>,
+  live: Pick<SwarmServiceInfo, 'labels'> & LiveNetworking,
   swarmNodeId: string,
   readOnly: boolean,
+  topology: RegistryTopology = liveRegistryTopology(live),
 ): ServiceSpec | null {
   const secret = live.labels[REGISTRY_AUTH_LABEL];
   if (!secret || !/^[a-z0-9]+$/i.test(swarmNodeId)) return null;
-  const base = registryServiceSpec(secret, mirrorLabelsOf(live.labels));
+  const base = registryServiceSpec(secret, mirrorLabelsOf(live.labels), topology);
   return {
-    ...base,
+    ...pinRegistryToNode(base, swarmNodeId),
     env: readOnly ? { ...base.env, [REGISTRY_READONLY_ENV]: REGISTRY_READONLY_VALUE } : base.env,
     labels: readOnly ? { ...base.labels, [REGISTRY_MAINTENANCE_LABEL]: 'gc' } : base.labels,
-    placement: { constraints: [`node.id==${swarmNodeId}`] },
-    updateConfig: { order: 'stop-first' },
   };
+}
+
+/**
+ * Pin a registry spec to the swarm node holding its volume, stopping the old
+ * task first (the node-local volume can't be shared by two tasks on two
+ * nodes). Unchanged when the node isn't known or isn't a swarm id.
+ */
+export function pinRegistryToNode(spec: ServiceSpec, swarmNodeId: string | null | undefined): ServiceSpec {
+  if (!swarmNodeId || !/^[a-z0-9]+$/i.test(swarmNodeId)) return spec;
+  return { ...spec, placement: { constraints: [`node.id==${swarmNodeId}`] }, updateConfig: { order: 'stop-first' } };
 }

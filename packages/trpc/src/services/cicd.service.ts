@@ -55,7 +55,9 @@ import {
   renderHtpasswd,
   type RegistryCreds,
 } from './registry-auth';
-import { registryIsReadOnly } from './registry-gc.spec';
+import { pinRegistryToNode, registryIsReadOnly } from './registry-gc.spec';
+import { registryTopologyFor } from './registry-topology';
+import { mirrorStateFrom } from './system-images.service';
 
 // ── Views (secrets never included) ──────────────────────────────────────────
 
@@ -711,10 +713,14 @@ async function deployAuthedRegistry(ctx: OrgContext, creds: RegistryCreds): Prom
     // Same name ⇒ same login (content-addressed): an existing secret is fine.
     if (!/already exists|conflict/i.test(e instanceof Error ? e.message : String(e))) throw e;
   }
-  // Carry the system-image mirror index (`swarmy.mirror.*` labels) across the redeploy.
+  // Carry the system-image mirror index (`swarmy.mirror.*` labels) across the
+  // redeploy, keep the org's registry topology (M16), and keep a running
+  // registry on the node that holds its volume (as the GC window does).
   const mirrorLabels = mirrorLabelsOf(liveRegistryService(ctx)?.labels ?? {});
+  const spec = registryServiceSpec(secretName, mirrorLabels, registryTopologyFor(ctx.hub, ctx.activeOrgId));
+  const pin = mirrorStateFrom(ctx.hub.liveInventory(ctx.activeOrgId)).registryNodeId;
   await ctx.hub.dispatch(node.id, 'service.deploy', {
-    spec: registryServiceSpec(secretName, mirrorLabels),
+    spec: pinRegistryToNode(spec, pin),
     pullPolicy: 'missing',
   });
   try {

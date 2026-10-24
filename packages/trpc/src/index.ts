@@ -184,6 +184,9 @@ export type { RegistryGcResult, RegistryGcState } from './services/registry-gc.s
 // Self-reliance B3/B4/B6: system-image mirror + Hub pull-through cache, Trivy DB cache refresh.
 export { mirrorSystemImagesAllOrgs } from './services/system-images.service';
 export type { MirrorTickResult } from './services/system-images.service';
+// Security review M16: move the registry + cache off the routing mesh onto the loopback forwarders.
+export { convergeRegistryTopologyAllOrgs } from './services/registry-topology.service';
+export type { RegistryTopologyResult } from './services/registry-topology.service';
 export { ensureRegistryDeployed } from './services/cicd.service';
 export { refreshTrivyDbAllOrgs } from './services/trivy-db.service';
 // In-swarm registry auth: the hub dispatch decorator attaching pull creds to

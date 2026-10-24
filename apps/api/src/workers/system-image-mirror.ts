@@ -11,15 +11,29 @@
  * bootstrap org gets the built-in registry enabled when it has NO registry
  * config yet — an operator who disabled it keeps that choice.
  * `SWARMY_BUILTIN_REGISTRY=0` opts out.
+ *
+ * Registry topology (security review M16), every minute: once every ready
+ * node's agent forwards localhost:5000/:5001, move the registry and the cache
+ * off the routing mesh onto the encrypted `swarmy` overlay
+ * (`convergeRegistryTopologyAllOrgs`). Signature-gated per org, so a steady
+ * state sends nothing; every 10th tick re-checks regardless.
  */
 import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
-import { ensureRegistryDeployed, mirrorSystemImagesAllOrgs, registryConfigs, systemContext } from '@swarmy/trpc';
+import {
+  convergeRegistryTopologyAllOrgs,
+  ensureRegistryDeployed,
+  mirrorSystemImagesAllOrgs,
+  registryConfigs,
+  systemContext,
+} from '@swarmy/trpc';
 import { hub } from '../gateway';
 
 const MIRROR_INTERVAL_MS = 6 * 60 * 60 * 1000;
 /** Nodes reconnect + the hub warms up before the first copy. */
 const FIRST_RUN_DELAY_MS = 2 * 60 * 1000;
+const TOPOLOGY_INTERVAL_MS = 60 * 1000;
+const TOPOLOGY_FORCE_EVERY = 10;
 
 async function enableBuiltinRegistryAtInstall(): Promise<void> {
   if (process.env.SWARMY_BOOTSTRAP !== '1' || process.env.SWARMY_BUILTIN_REGISTRY === '0') return;
@@ -62,8 +76,31 @@ export function startSystemImageMirror(): () => void {
   };
   const kickoff = setTimeout(run, FIRST_RUN_DELAY_MS);
   const timer = setInterval(run, MIRROR_INTERVAL_MS);
+
+  // The first topology tick lands after a minute: the hub needs every node's
+  // register facts before it can tell that they all forward.
+  const topoState = new Map<string, string>();
+  let topoTick = 0;
+  let topoRunning = false;
+  const topology = async () => {
+    if (topoRunning) return;
+    topoRunning = true;
+    try {
+      const force = ++topoTick % TOPOLOGY_FORCE_EVERY === 0;
+      for (const r of await convergeRegistryTopologyAllOrgs(deps(), topoState, { force })) {
+        // eslint-disable-next-line no-console
+        if (r.moved.length) console.log(`[system-image-mirror] org ${r.orgId}: moved ${r.moved.join(' + ')} off the routing mesh (M16)`);
+      }
+    } catch {
+      // Never let the reconcile take the controller down; the mesh topology still works.
+    } finally {
+      topoRunning = false;
+    }
+  };
+  const topoTimer = setInterval(topology, TOPOLOGY_INTERVAL_MS);
   return () => {
     clearTimeout(kickoff);
     clearInterval(timer);
+    clearInterval(topoTimer);
   };
 }

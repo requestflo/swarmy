@@ -336,6 +336,7 @@ async function handleRegister(ws: AgentSocket, payload: RegisterPayload, deps: D
     buildOverride: facts.buildOverride,
     execOverride: facts.execOverride,
     shellOverride: facts.shellOverride,
+    registryForwarder: facts.registryForwarder,
     skew: judgeAgentSkew(nodeId, facts),
     capabilities: facts.capabilities,
   });
