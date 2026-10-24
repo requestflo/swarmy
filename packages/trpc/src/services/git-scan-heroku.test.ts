@@ -59,7 +59,7 @@ describe('scanFromInspect: "Looks like a Heroku app"', () => {
   it('carries what did not come across and the data + config steps', () => {
     expect(h.untranslated.filter((g) => !g.handled).map((g) => g.key)).toEqual(['env.SECRET_KEY_BASE']);
     expect(h.untranslated.find((g) => g.key === 'addons: papertrail')).toMatchObject({ handled: true });
-    expect(h.steps.data.map((s) => s.title)).toEqual(['Back up DATABASE on Heroku and download it', "Add it to db's backups", 'Restore it into db']);
+    expect(h.steps.data.map((s) => s.title)).toEqual(['Back up the Heroku database and download it', "Add it to db's backups", 'Restore it into db']);
     expect(h.steps.config[0]!.lines.at(-1)).toBe(`heroku config --shell --app "$HEROKU_APP" | grep -v -E '^(DATABASE_URL|REDIS_URL|REDIS_TLS_URL)=' > heroku.env`);
     // The generic detections stay, for when the Heroku import is unticked.
     expect(v.detections.map((d) => d.id)).toEqual(['web', 'worker:worker', 'postgres', 'queue']);

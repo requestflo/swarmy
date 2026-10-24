@@ -6,6 +6,7 @@
  * YAML is laid out the way `generateAppConfig` lays it out.
  */
 import type { AppGraph, AppScan, BuildOptions, Detection, Draft } from '@/components/ci/git-scan-types';
+import { demoHerokuScan } from './gitscan-heroku';
 
 const D = 'services/orders';
 const ev = (file: string, line: number, text: string) => ({ file: `${D}/${file}`, line, text });
@@ -21,6 +22,8 @@ const ORDERS: Detection[] = [
 
 /** The scan for a linked folder, when the demo has one. */
 export function demoScan(fullName: string, configPath: string): AppScan | undefined {
+  // A Heroku app at the root: "Looks like a Heroku app", drafted by the importer.
+  if (fullName.endsWith('/shop-classic') && configPath === 'swarmy.yaml') return demoHerokuScan();
   if (!fullName.endsWith('/platform') || configPath !== `${D}/swarmy.yaml`) return undefined;
   return {
     dir: D,

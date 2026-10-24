@@ -15,7 +15,7 @@ describe('herokuMigrationSteps: data through swarmy restore, config through Past
 
   it('backs up on Heroku and downloads the dump where swarmy pg_dump backups keep theirs', () => {
     expect(steps.data.map((s) => [s.where, s.title])).toEqual([
-      ['terminal', 'Back up DATABASE on Heroku and download it'],
+      ['terminal', 'Back up the Heroku database and download it'],
       ['terminal', "Add it to db's backups"],
       ['dashboard', 'Restore it into db'],
     ]);

@@ -47,6 +47,34 @@ export interface AppScan {
   ms: number;
   detections: Detection[];
   build: BuildFacts;
+  /** A Procfile beside a Heroku app.json (packages/trpc/src/services/git-scan-heroku.ts). */
+  heroku?: HerokuScan;
+}
+
+/** Mirrors `HerokuGap` (packages/app-config/src/from-heroku-addons.ts). */
+export interface HerokuGap {
+  key: string;
+  reason: string;
+  handled?: true;
+}
+
+/** Mirrors `MigrationStep` (packages/app-config/src/from-heroku-steps.ts). */
+export interface MigrationStep {
+  title: string;
+  where: 'terminal' | 'dashboard';
+  lines: string[];
+  note?: string;
+}
+
+/** "Looks like a Heroku app": the importer's draft, what didn't come across, and the data + config steps. */
+export interface HerokuScan {
+  label: string;
+  why: string;
+  evidence: Evidence[];
+  draft: Draft;
+  changes: string[];
+  untranslated: HerokuGap[];
+  steps: { data: MigrationStep[]; config: MigrationStep[] };
 }
 
 /** The swarmy.yaml `build:` keys the advanced form edits. */

@@ -121,6 +121,7 @@ function buildSeed(): GitState {
         gh('northwind/storefront'),
         gh('northwind/docs', 'main', false),
         gh('northwind/legacy-billing', 'master'),
+        gh('northwind/shop-classic'),
       ],
       'gc-github-dana': [gh('dana-ops/status-bot'), gh('dana-ops/blog', 'main', false)],
       'gc-gitlab': [
@@ -198,7 +199,7 @@ function mirrorIntoCicd(
   ];
 }
 
-/** A believable repo tree by name: `…/platform` is a monorepo, `…/legacy-billing` predates swarmy. */
+/** A believable repo tree by name: `…/platform` is a monorepo, `…/legacy-billing` predates swarmy, `…/shop-classic` came from Heroku. */
 function fakeInspect(name: string, configPath: string, scan = false) {
   // Only the notable files git.inspect lists (NOTABLE_FILE_RE).
   const monorepo = name.endsWith('/platform');
@@ -216,14 +217,19 @@ function fakeInspect(name: string, configPath: string, scan = false) {
       ]
     : name.endsWith('/legacy-billing')
       ? ['Dockerfile', 'docker-compose.yml', 'Gemfile']
-      : ['swarmy.yaml', 'package.json'];
+      : name.endsWith('/shop-classic')
+        ? ['Gemfile', 'package.json']
+        : ['swarmy.yaml', 'package.json'];
   const configPaths = tree.filter((p) => /(^|\/)swarmy\.ya?ml$/.test(p));
   const files: Record<string, string | null> = {
     [configPath]: configPaths.includes(configPath) ? 'version: 1\n' : null,
   };
   // Mirrors git-providers/detect-build.ts, run next to the swarmy.yaml (the root for inspectSource).
   const dir = configPath.includes('/') ? configPath.slice(0, configPath.lastIndexOf('/')) : '';
-  const detected = tree.includes(dir ? `${dir}/Dockerfile` : 'Dockerfile')
+  const rails = { builder: 'railpack' as const, provider: 'ruby', language: 'Ruby', framework: 'Rails', runtime: 'Ruby 3.3', summary: 'Rails · Ruby 3.3' };
+  const detected = name.endsWith('/shop-classic')
+    ? rails
+    : tree.includes(dir ? `${dir}/Dockerfile` : 'Dockerfile')
     ? { builder: 'dockerfile' as const, summary: 'Dockerfile found — swarmy builds it as-is' }
     : monorepo && !dir
       ? {

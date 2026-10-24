@@ -4,7 +4,7 @@
  * Build · advanced text fields ↔ the schema's `build:` keys.
  */
 import type { GitChipTone } from './git-chip';
-import type { AppGraph, BuildOptions, Detection, DetectionKind } from './git-scan-types';
+import type { AppGraph, BuildOptions, Detection, DetectionKind, Evidence } from './git-scan-types';
 
 /** "scanned 9 files · 1.8 s" — the real count and the real time of the read. */
 export function scannedLabel(files: number, ms: number): string {
@@ -39,6 +39,11 @@ const KIND: Record<DetectionKind, { word: string; tone: GitChipTone }> = {
 
 export function kindChip(d: Detection): { word: string; tone: GitChipTone } {
   return d.kind === 'cron' && d.via === 'in-process' ? { word: 'schedule', tone: 'mesh' } : KIND[d.kind];
+}
+
+/** `services/orders/src/queue.ts:3` → `src/queue.ts:3` (the eyebrow already names the folder). */
+export function evidenceAt(dir: string, e: Evidence): string {
+  return `${dir && e.file.startsWith(`${dir}/`) ? e.file.slice(dir.length + 1) : e.file}:${e.line}`;
 }
 
 export function toggleId(selected: readonly string[], id: string): string[] {

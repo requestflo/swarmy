@@ -49,7 +49,7 @@ export function herokuMigrationSteps(
     const attachment = db.envVar.replace(/_URL$/, '');
     data.push(
       {
-        title: `Back up ${attachment} on Heroku and download it`,
+        title: attachment === 'DATABASE' ? 'Back up the Heroku database and download it' : `Back up ${attachment} on Heroku and download it`,
         where: 'terminal',
         lines: [
           ...(i === 0 ? [herokuApp] : []),
@@ -68,7 +68,7 @@ export function herokuMigrationSteps(
           'docker run --rm -v "$PWD/backup:/backup:ro" -e RESTIC_REPOSITORY -e RESTIC_PASSWORD -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY \\',
           `  ${HEROKU_IMPORT_RESTIC_IMAGE} backup /backup --tag db:${conv.app}/${db.resource} --tag engine:pg_dump --tag reason:${HEROKU_IMPORT_REASON}`,
         ],
-        note: `Heroku's file is a pg_dump -Fc dump, the same kind swarmy's own backups of ${db.resource} store, so it lands where theirs do and the Backups tab lists it.`,
+        note: `Heroku's file is a pg_dump -Fc dump, the same kind swarmy's own backups of ${db.resource} store, so it lands where theirs do and the Backups tab lists it. Run it anywhere that reaches the destination.`,
       },
       {
         title: `Restore it into ${db.resource}`,

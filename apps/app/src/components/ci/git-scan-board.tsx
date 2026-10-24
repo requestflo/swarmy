@@ -4,6 +4,8 @@ import { Depth } from '@/components/calm';
 import { ErrorState, TextSkeleton } from '@/components/states';
 import { download } from '@/components/studio/studio-export';
 import { GitChip } from './git-chip';
+import { GitHerokuGaps } from './git-heroku-gaps';
+import { GitHerokuSteps } from './git-heroku-steps';
 import { GitScanBuild } from './git-scan-build';
 import { GitScanDetections } from './git-scan-detections';
 import { GitScanGraph } from './git-scan-graph';
@@ -26,7 +28,9 @@ interface GitScanBoardProps {
  * swarmy.yaml shows what its code needs — each with the line that says so —
  * the swarmy.yaml that follows from what's ticked (checked by the
  * controller's parser), and the app it would create. Copy or download it,
- * commit it, push: that push deploys it.
+ * commit it, push: that push deploys it. A Heroku app (Procfile + app.json)
+ * starts on the importer's swarmy.yaml, with what didn't come across and the
+ * steps that bring its data and config over.
  */
 export function GitScanBoard({ found, repo, branch, configPath }: GitScanBoardProps): React.JSX.Element {
   const s = useScanDraft(found);
@@ -58,7 +62,15 @@ export function GitScanBoard({ found, repo, branch, configPath }: GitScanBoardPr
       </header>
 
       <div className="grid gap-5 @3xl:grid-cols-2">
-        <GitScanDetections dir={found.dir} detections={found.detections} selected={s.selected} onToggle={s.toggle} />
+        <GitScanDetections
+          dir={found.dir}
+          detections={found.detections}
+          selected={s.selected}
+          onToggle={s.toggle}
+          heroku={found.heroku}
+          herokuOn={s.heroku}
+          onToggleHeroku={s.toggleHeroku}
+        />
         {draft || !s.isError ? <GitScanGraph graph={draft?.graph ?? null} stale={s.isFetching} /> : null}
       </div>
 
@@ -70,9 +82,16 @@ export function GitScanBoard({ found, repo, branch, configPath }: GitScanBoardPr
         <TextSkeleton className="h-64 w-full rounded-xl" />
       )}
 
-      <Depth at="controls">
-        <GitScanBuild dir={found.dir} facts={found.build} form={s.form} onChange={s.setField} />
-      </Depth>
+      {found.heroku && s.heroku ? (
+        <div className="grid gap-5 @3xl:grid-cols-2">
+          <GitHerokuGaps untranslated={found.heroku.untranslated} changes={found.heroku.changes} />
+          <GitHerokuSteps data={found.heroku.steps.data} config={found.heroku.steps.config} />
+        </div>
+      ) : (
+        <Depth at="controls">
+          <GitScanBuild dir={found.dir} facts={found.build} form={s.form} onChange={s.setField} />
+        </Depth>
+      )}
 
       <div className="flex flex-wrap items-center gap-3 border-t pt-4">
         <Button size="lg" onClick={copy} disabled={!draft} className="pointer-coarse:min-h-11">
