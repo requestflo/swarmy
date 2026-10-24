@@ -69,7 +69,13 @@ export function DnsCard({ geo, dnsServers, lit }: { geo: boolean; dnsServers: nu
   );
 }
 
-export function EdgeCard({ e, lit }: { e: MapEdge; lit: Lit }): React.JSX.Element {
+/** The lit address's own visits a minute on this card (null = none lit, or no number for it). */
+function ForAddress({ perMin }: { perMin: number | null | undefined }): React.JSX.Element | null {
+  if (perMin === null || perMin === undefined) return null;
+  return <span className="text-foreground font-mono text-[11.5px]">{perMinText(perMin)}/min for this address</span>;
+}
+
+export function EdgeCard({ e, lit, forAddress }: { e: MapEdge; lit: Lit; forAddress?: number | null }): React.JSX.Element {
   const line = e.perMin !== null ? `${perMinText(e.perMin)} a minute` : e.healthy ? 'No visits counted yet' : 'Not taking visits';
   return (
     <Card flow={`edge:${e.id}`} lit={lit}>
@@ -79,6 +85,7 @@ export function EdgeCard({ e, lit }: { e: MapEdge; lit: Lit }): React.JSX.Elemen
         {e.region ? <span className="border-border text-muted-foreground ml-auto shrink-0 rounded-md border px-1.5 font-mono text-[10.5px] font-medium">{e.region}</span> : null}
       </span>
       <span className="text-muted-foreground text-[12.5px]">{line}</span>
+      <ForAddress perMin={forAddress} />
       <Tech>{`${e.ip ?? 'no public IP'} · Caddy :443`}</Tech>
     </Card>
   );
@@ -90,7 +97,7 @@ function whereText(where: string[] | undefined): string {
   return where.length > 3 ? `Runs on ${where.length} servers` : `Runs on ${where.join(', ')}`;
 }
 
-export function AppCard({ a, lit }: { a: MapApp; lit: Lit }): React.JSX.Element {
+export function AppCard({ a, lit, forAddress }: { a: MapApp; lit: Lit; forAddress?: number | null }): React.JSX.Element {
   return (
     <Card flow={`app:${a.id}`} lit={lit}>
       <span className="flex min-w-0 items-center gap-2 text-[14px] font-semibold">
@@ -100,6 +107,7 @@ export function AppCard({ a, lit }: { a: MapApp; lit: Lit }): React.JSX.Element 
         </span>
       </span>
       <span className="text-muted-foreground text-[12.5px]">{whereText(a.where)}</span>
+      <ForAddress perMin={forAddress} />
       <span className="text-muted-foreground truncate font-mono text-[11px]">{a.hosts.join(' · ')}</span>
     </Card>
   );

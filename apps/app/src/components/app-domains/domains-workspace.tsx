@@ -16,7 +16,7 @@ import { useRouteProtection } from './use-route-protection';
 export function DomainsWorkspace({ stack, rows, selected }: { stack: string; rows: StackDomain[]; selected?: string }): React.JSX.Element {
   const navigate = useNavigate();
   const d = rows.find((r) => r.host === selected) ?? rows.find((r) => !r.auto) ?? rows[0]!;
-  const info = useDomainDetail(d.host, stack);
+  const info = useDomainDetail(d.host, d.ingressDriver);
   const protection = useRouteProtection(d);
   return (
     <>

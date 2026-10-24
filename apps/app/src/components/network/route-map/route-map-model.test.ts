@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import type { NodeSummary, ServiceSummary, TrafficNowView } from '@swarmy/core';
 import type { HubDomain } from '../use-network';
-import { buildRouteMap, litPath, perMinText, shortService } from './route-map-model';
+import { buildRouteMap, litPath, litSay, perMinText, shortService } from './route-map-model';
 
 const node = (id: string, status: NodeSummary['status'], publicIp: string | null): NodeSummary =>
   ({ id, name: id, status, publicIp }) as unknown as NodeSummary;
@@ -67,6 +67,27 @@ describe('route map', () => {
     const gated = litPath(m, dom('new.example.com', 'web', { status: { state: 'waiting_dns', reason: '', gated: true, certificate: null } }))!;
     expect([gated.edges.size, gated.served, gated.app]).toEqual([0, false, 'web']);
     expect(litPath(m, null)).toBeNull();
+  });
+
+  it('a lit address carries its own rate, split by edge, and says it', () => {
+    const m = buildRouteMap({ domains: [], traffic: TRAFFIC, nodes: NODES, servicesByNode: PLACED });
+    const shop = dom('shop.example.com', 'web');
+    const visits = { perMin: 348, errors5xxPerMin: 0, windowMinutes: 5, edges: [{ nodeId: 'a', requestsPerMin: 210 }, { nodeId: 'b', requestsPerMin: 138 }] };
+    const lit = litPath(m, shop, visits)!;
+    expect([lit.perMin, [...lit.byEdge]]).toEqual([348, [['a', 210], ['b', 138]]]);
+    expect(litSay(m, shop, lit)).toBe('shop.example.com opens shop / web: 348 visits a minute, 210 through a and 138 through b.');
+    const one = litPath(m, shop, { ...visits, perMin: 12, edges: [{ nodeId: 'a', requestsPerMin: 12 }] })!;
+    expect(litSay(m, shop, one)).toBe('shop.example.com opens shop / web: 12 visits a minute, all through a.');
+    expect(litSay(m, shop, litPath(m, shop, { ...visits, perMin: 0, edges: [] }))).toBe(
+      'shop.example.com opens shop / web. No visits in the last 5 minutes; any of your 2 healthy edges can take one.',
+    );
+    // No number for it (nothing reported, or a tunnel route): the plain sentence, no rate.
+    const none = litPath(m, shop, null)!;
+    expect([none.perMin, none.byEdge.size]).toEqual([null, 0]);
+    expect(litSay(m, shop, none)).toBe('shop.example.com opens shop / web. Any of your 2 healthy edges can take the visit.');
+    // A withheld address never shows a rate.
+    const gated = dom('new.example.com', 'web', { status: { state: 'waiting_dns', reason: '', gated: true, certificate: null } });
+    expect(litPath(m, gated, visits)!.perMin).toBeNull();
   });
 
   it('shortens names and rates', () => {

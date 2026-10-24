@@ -48,7 +48,7 @@ export function DomainDetailPanel({ stack, domain: d, info, protection }: {
         <StatusWord tone={w.tone} word={w.word} />
         {d.companionHost ? <span className="text-muted-foreground font-mono text-[11.5px]">+ {d.companionHost}</span> : null}
       </div>
-      <DomainFlow stack={stack} visitsPerMin={info.visitsPerMin} windowMinutes={info.windowMinutes} rulesOn={rulesOn(p)} target={target} />
+      <DomainFlow host={d.host} visitsPerMin={info.visitsPerMin} windowMinutes={info.windowMinutes} rulesOn={rulesOn(p)} target={target} />
       <div className="grid gap-5 xl:grid-cols-[340px_minmax(0,1fr)]">
         <CertCard host={d.host} tls={d.tls} detail={info.detail} nameOf={info.nameOf} stored={info.stored} storeTech={info.storeTech} />
         <ProtectionsSection host={d.host} service={service} protection={p} saving={protection.saving} save={protection.save} />

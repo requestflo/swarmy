@@ -45,6 +45,8 @@ export interface StackDomain {
   companionHost?: string | null;
   /** swarmy's automatic sslip.io address. */
   auto?: boolean;
+  /** The route's own front-door driver (null = the org's). */
+  ingressDriver?: string | null;
   /** DNS + certificate lifecycle (null while unknown). */
   status?: DomainStatus | null;
 }

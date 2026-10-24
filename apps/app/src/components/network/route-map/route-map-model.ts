@@ -1,5 +1,6 @@
-import type { NodeSummary, ServiceSummary, TrafficNowView } from '@swarmy/core';
+import { TRAFFIC_NOW_WINDOW_MINUTES, type NodeSummary, type ServiceSummary, type TrafficNowView } from '@swarmy/core';
 import type { Tone } from '@/components/calm';
+import type { HostVisits } from '@/lib/host-visits';
 import { domainSay, type HubDomain } from '../use-network';
 
 /** One edge on the map: a server running (or marked for) the front door. */
@@ -79,11 +80,50 @@ export function isServed(d: HubDomain): boolean {
   return d.serving && !d.status?.gated;
 }
 
-/** The path one address takes: the healthy edges (every edge carries every address) and its app. */
-export function litPath(map: RouteMap, d: HubDomain | null): { edges: Set<string>; app: string | null; served: boolean } | null {
+export interface LitPath {
+  edges: Set<string>;
+  app: string | null;
+  served: boolean;
+  /** The address's own visits a minute (`traffic.now.hosts`); null = no number for it. */
+  perMin: number | null;
+  /** Its visits a minute on each edge that carried them. */
+  byEdge: Map<string, number>;
+}
+
+/**
+ * The path one address takes: the healthy edges (every edge carries every
+ * address), its app, and — when the edge counted it — its own rate, split by edge.
+ */
+export function litPath(map: RouteMap, d: HubDomain | null, visits: HostVisits | null = null): LitPath | null {
   if (!d) return null;
   const served = isServed(d);
-  return { edges: new Set(served ? map.edges.filter((e) => e.healthy).map((e) => e.id) : []), app: d.serviceId, served };
+  return {
+    edges: new Set(served ? map.edges.filter((e) => e.healthy).map((e) => e.id) : []),
+    app: d.serviceId,
+    served,
+    perMin: served && visits ? visits.perMin : null,
+    byEdge: new Map(served && visits ? visits.edges.map((e) => [e.nodeId, e.requestsPerMin] as const) : []),
+  };
+}
+
+/** The sentence under the map for the lit address. */
+export function litSay(map: RouteMap, d: HubDomain | null, lit: LitPath | null): string {
+  if (!d || !lit) return 'Pick an address to light up the way a visit takes.';
+  if (!lit.served) return `${d.host} isn't on your edges yet: ${d.serving ? 'it waits for its address record' : 'the front door is off'}.`;
+  const opens = `${d.host} opens ${d.stack} / ${shortService(d.stack, d.serviceName)}`;
+  const n = lit.edges.size;
+  const any = `any of your ${n} healthy edge${n === 1 ? '' : 's'}`;
+  if (lit.perMin === null) return `${opens}. ${any[0]!.toUpperCase()}${any.slice(1)} can take the visit.`;
+  if (lit.perMin === 0) return `${opens}. No visits in the last ${TRAFFIC_NOW_WINDOW_MINUTES} minutes; ${any} can take one.`;
+  const name = (id: string): string => map.edges.find((e) => e.id === id)?.name ?? id;
+  const parts = [...lit.byEdge.entries()].map(([id, v]) => `${perMinText(v)} through ${name(id)}`);
+  const via =
+    parts.length === 1
+      ? `all through ${name([...lit.byEdge.keys()][0]!)}`
+      : parts.length <= 3
+        ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}`
+        : `over ${parts.length} edges`;
+  return `${opens}: ${perMinText(lit.perMin)} visits a minute, ${via}.`;
 }
 
 /** "434" / "1.2k" — a rate as a short mono number. */

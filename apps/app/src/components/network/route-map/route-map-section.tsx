@@ -4,13 +4,15 @@ import { cn } from '@swarmy/ui';
 import { Section, SectionLink } from '@/components/calm';
 import { CardSkeleton, ErrorState } from '@/components/states';
 import type { HubDomain } from '../use-network';
+import { useAddressVisits } from '../use-address-visits';
 import { RouteMapCanvas } from './route-map-canvas';
-import { litPath, shortService } from './route-map-model';
+import { litPath, litSay } from './route-map-model';
 import { useRouteMap } from './use-route-map';
 
 /**
  * Board 13's routing picture: visitor → DNS → each edge → the app it opens.
- * Pick an address to light its path (the same pick drives the Caddyfile at Code).
+ * Pick an address to light its path and its own visits a minute, split by
+ * edge (the same pick drives the Caddyfile at Code).
  */
 export function RouteMapSection({
   domains,
@@ -26,8 +28,9 @@ export function RouteMapSection({
   dnsServers: number;
 }): React.JSX.Element {
   const r = useRouteMap(domains);
+  const visitsOf = useAddressVisits();
   const pick = domains.find((d) => d.host === selected) ?? null;
-  const lit = r.map ? litPath(r.map, pick) : null;
+  const lit = r.map ? litPath(r.map, pick, pick ? visitsOf(pick) : null) : null;
   const healthy = r.map?.edges.filter((e) => e.healthy).length;
   return (
     <Section
@@ -66,11 +69,7 @@ export function RouteMapSection({
             ))}
           </div>
           <p className="text-muted-foreground text-[13px]" aria-live="polite">
-            {!pick || !lit
-              ? 'Pick an address to light up the way a visit takes.'
-              : lit.served
-                ? `${pick.host} opens ${pick.stack} / ${shortService(pick.stack, pick.serviceName)}. Any of your ${lit.edges.size} healthy edge${lit.edges.size === 1 ? '' : 's'} can take the visit.`
-                : `${pick.host} isn't on your edges yet: ${pick.serving ? 'it waits for its address record' : 'the front door is off'}.`}
+            {r.map ? litSay(r.map, pick, lit) : 'Pick an address to light up the way a visit takes.'}
           </p>
         </div>
       ) : null}

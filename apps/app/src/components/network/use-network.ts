@@ -14,6 +14,8 @@ export interface HubDomain {
   pathPrefix: string | null;
   serving: boolean;
   auto?: boolean;
+  /** The route's own front-door driver (null = the org's). */
+  ingressDriver?: string | null;
   status?: {
     state: string;
     reason: string;
