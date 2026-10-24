@@ -1,4 +1,4 @@
-import type { ContainerInfo, SwarmServiceInfo, SwarmNodeInfo, SwarmState, TermTarget } from '@swarmy/core/protocol';
+import type { AgentSkew, ContainerInfo, SwarmServiceInfo, SwarmNodeInfo, SwarmState, TermTarget } from '@swarmy/core/protocol';
 import type { EdgeTrafficRing } from '@swarmy/core';
 import type {
   ClusterStatsFrame,
@@ -209,6 +209,8 @@ export interface AgentHub {
     execOverride?: 'allow' | 'deny';
     /** Local SWARMY_ALLOW_NODE_SHELL override from register facts (absent = unset). */
     shellOverride?: 'allow' | 'deny';
+    /** Version skew against this controller, judged on register (`agentSkew`). */
+    skew?: AgentSkew;
   } | undefined;
 
   /**

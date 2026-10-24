@@ -1,4 +1,4 @@
-import type { ContainerInfo, SwarmNodeInfo, SwarmServiceInfo, SwarmState } from '@swarmy/core/protocol';
+import type { AgentSkew, ContainerInfo, SwarmNodeInfo, SwarmServiceInfo, SwarmState } from '@swarmy/core/protocol';
 import { EdgeTrafficRing } from '@swarmy/core';
 import type {
   ContainerStatsSnapshot,
@@ -92,6 +92,8 @@ export class GatewayStore {
     execOverride?: 'allow' | 'deny';
     /** Local SWARMY_ALLOW_NODE_SHELL override from register facts (absent = unset). */
     shellOverride?: 'allow' | 'deny';
+    /** Version skew against this controller, judged on register (`agentSkew`). */
+    skew?: AgentSkew;
   }
   >();
   /** Last heartbeat/snapshot time per node (replaces DB Node.lastSeenAt). */

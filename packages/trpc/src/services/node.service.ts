@@ -188,6 +188,7 @@ function toSummary(ctx: OrgContext, n: NodeRow): NodeSummary {
     agentVersion: ctx.hub.agentBuildFor?.(n.id)?.version ?? null,
     agentCommit: ctx.hub.agentBuildFor?.(n.id)?.commit ?? null,
     agentUpdateAvailable: agentUpdateAvailable(ctx.hub.agentBuildFor?.(n.id)),
+    agentSkew: ctx.hub.agentBuildFor?.(n.id)?.skew ?? null,
     lastSeenAt: lastSeen != null ? new Date(lastSeen).toISOString() : null,
     live,
   };

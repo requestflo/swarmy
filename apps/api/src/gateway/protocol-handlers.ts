@@ -23,6 +23,7 @@ import {
 } from '@swarmy/trpc';
 import { authRegistry } from '@swarmy/auth';
 import { decideJoinAuth } from './join-auth';
+import { judgeAgentSkew } from './agent-skew';
 import type { AgentHubImpl } from './hub';
 import type { GatewayStore } from './store';
 import type { AgentSocket, ConnectionRegistry } from './registry';
@@ -324,6 +325,7 @@ async function handleRegister(ws: AgentSocket, payload: RegisterPayload, deps: D
     buildOverride: facts.buildOverride,
     execOverride: facts.execOverride,
     shellOverride: facts.shellOverride,
+    skew: judgeAgentSkew(nodeId, facts),
   });
   const previous = deps.registry.add(nodeId, ws);
   previous?.close(CloseCode.DUPLICATE_SESSION, 'newer session');

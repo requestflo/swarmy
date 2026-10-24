@@ -3,6 +3,7 @@ import {
   PROGRESS_IDLE_TIMEOUT_MS,
   PROGRESS_MAX_TIMEOUT_MS,
   PROTOCOL_VERSION,
+  type AgentSkew,
   type CommandProgress,
   type ContainerInfo,
   type SwarmServiceInfo,
@@ -280,6 +281,8 @@ export class AgentHubImpl implements AgentHub {
     execOverride?: 'allow' | 'deny';
     /** Local SWARMY_ALLOW_NODE_SHELL override from register facts (absent = unset). */
     shellOverride?: 'allow' | 'deny';
+    /** Version skew against this controller, judged on register. */
+    skew?: AgentSkew;
   } | undefined {
     return this.store.agentBuild.get(controllerNodeId);
   }
