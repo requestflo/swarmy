@@ -17,6 +17,7 @@ export * from './messages';
 export * from './backup';
 export * from './dbBackup';
 export * from './swarmres';
+export * from './run-once-binds';
 export * from './mesh';
 export * from './dns';
 export * from './terminal';

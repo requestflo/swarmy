@@ -31,7 +31,7 @@ import type {
   SecretRemovePayload,
   SecretRemoveResult,
 } from '@swarmy/core/protocol';
-import { RUN_ONCE_OUTPUT_TAIL_BYTES } from '@swarmy/core/protocol';
+import { RUN_ONCE_OUTPUT_TAIL_BYTES, runOnceBindsRefusal } from '@swarmy/core/protocol';
 import { presentOrFallback, pullWithFallback } from './pull-fallback';
 import { putSecretFiles } from './secret-file';
 
@@ -137,6 +137,11 @@ export async function configInspect(
  * output is the combined stdout+stderr tail, capped at 64KB.
  */
 export async function runOnce(docker: DockerClient, p: RunOncePayload): Promise<RunOnceResult> {
+  // Binds are allowlisted HERE, before any pull or create: only the shapes
+  // swarmy's own one-shots use (see run-once-binds.ts). Anything else is a
+  // host-root foothold, refused whatever the controller asked for.
+  const refused = runOnceBindsRefusal(p.binds, [p.image, p.fallbackImage]);
+  if (refused) throw Object.assign(new Error(`refusing runOnce bind: ${refused}`), { code: 'E_BIND_REFUSED' });
   const d = docker.docker;
   const started = Date.now();
   // A mirrored system image falls back to its upstream ref when the in-swarm registry can't serve it.
