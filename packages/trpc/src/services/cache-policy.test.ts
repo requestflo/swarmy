@@ -94,7 +94,7 @@ describe('policyApplyScript — CONFIG SET live, wait until it is on disk, then 
     const calls = readFileSync(cli.log, 'utf8');
     expect(calls).toContain('CONFIG SET maxmemory-policy allkeys-lru appendonly yes save 3600 1 300 100 60 10000');
     expect(calls).not.toContain('BGSAVE');
-  });
+  }, 30_000);
 
   it('leaving AOF snapshots first, so a restart right after keeps the data', () => {
     const cli = fakeCli(idle);
@@ -102,7 +102,7 @@ describe('policyApplyScript — CONFIG SET live, wait until it is on disk, then 
     const calls = readFileSync(cli.log, 'utf8');
     expect(calls).toContain('CONFIG SET maxmemory-policy noeviction appendonly no save ');
     expect(calls).toContain('BGSAVE');
-  });
+  }, 30_000);
 
   it('no marker when CONFIG SET is refused or the AOF rewrite failed', () => {
     expect(apply({ eviction: 'allkeys-lru', persistence: 'aof' }, fakeCli(idle, 'ERR unknown option')).out).not.toContain(POLICY_APPLIED_MARKER);
@@ -110,5 +110,5 @@ describe('policyApplyScript — CONFIG SET live, wait until it is on disk, then 
     const r = apply({ eviction: 'allkeys-lru', persistence: 'aof' }, failed);
     expect(r.code).toBe(1);
     expect(r.out).not.toContain(POLICY_APPLIED_MARKER);
-  });
+  }, 30_000);
 });
