@@ -35,6 +35,7 @@ function Box({
 export function TelemetryPipeline({ pipeline }: { pipeline: TelemetryPipelineView | undefined }): React.JSX.Element {
   const c = pipeline?.collector;
   const s = pipeline?.store;
+  const a = pipeline?.logAgents;
   const rate = c?.spansPerSecond;
   return (
     <Section title="Pipeline" hint="one collector, one store, both part of swarmy">
@@ -53,6 +54,16 @@ export function TelemetryPipeline({ pipeline }: { pipeline: TelemetryPipelineVie
           say={s?.node ? `on ${s.node}${s.bytesUsed != null ? ` · ${gb(s.bytesUsed)} used` : ''}` : 'no server yet'}
           tech={`ClickHouse · ${s?.reachable ? 'reachable' : 'not reachable'}`}
         />
+        {a?.collecting ? (
+          <div className="sm:col-span-2">
+            <Box
+              title="Log readers"
+              status={a.status}
+              say={`on ${a.running} of ${a.servers} ${a.servers === 1 ? 'server' : 'servers'} · reading what apps print`}
+              tech="OTel Collector · filelog · global · → collector over OTLP"
+            />
+          </div>
+        ) : null}
       </div>
       <div aria-hidden className="relative mt-1 h-3">
         <div className="border-muted-foreground/40 absolute inset-x-1 top-1/2 border-t border-dashed" />

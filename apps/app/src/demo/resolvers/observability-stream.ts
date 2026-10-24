@@ -54,8 +54,13 @@ const stamp = (ms: number): string => new Date(ms).toISOString().replace('T', ' 
 const SEV = { DEBUG: 5, INFO: 9, WARN: 13, ERROR: 17 } as const;
 type Sev = keyof typeof SEV;
 
+/** cdn-edge is a plain nginx that sends no telemetry: its lines are what it prints (container output). */
+export const demoLogSource = (part: string): 'stdout' | 'otlp' => (part === 'cdn-edge' ? 'stdout' : 'otlp');
+
 function line(part: string, atMs: number, sev: Sev, body: string, traceId = '', spanId = '', attrs: Record<string, string> = {}): LogRowView {
-  return { timestamp: stamp(atMs), ts_nano: nano(atMs), trace_id: traceId, span_id: spanId || hexId(16), severity_text: sev, severity_number: SEV[sev], service_name: part, body, attributes: attrs };
+  const source = demoLogSource(part);
+  const extra = source === 'stdout' ? { 'log.iostream': 'stdout', ...attrs } : attrs;
+  return { timestamp: stamp(atMs), ts_nano: nano(atMs), trace_id: traceId, span_id: source === 'stdout' ? '' : spanId || hexId(16), severity_text: sev, severity_number: SEV[sev], service_name: part, body, attributes: extra, source };
 }
 
 /** One checkout request: web → api → checkout → Stripe. `stripeMs` 10000 = the timeout. */

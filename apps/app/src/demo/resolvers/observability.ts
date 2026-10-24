@@ -1,5 +1,5 @@
 import type { DemoStore, DomainResolvers } from '../types';
-import { STREAM_T0, STREAM_TRACES, STREAM_WINDOW_MS, streamSeedRows, tickStream } from './observability-stream';
+import { demoLogSource, STREAM_T0, STREAM_TRACES, STREAM_WINDOW_MS, streamSeedRows, tickStream } from './observability-stream';
 
 /**
  * Demo resolvers for the Observability / Mission Control surface (router
@@ -624,7 +624,20 @@ function makeLogRow(service: string, atMs: number, tpl: LogTemplate, tid: string
     service_name: service,
     body: tpl.body,
     attributes: tpl.attrs ?? {},
+    source: demoLogSource(service),
   };
+}
+
+/**
+ * `observability.logs` `source`, as the real builder does it: `auto` drops a
+ * part's container output when that part sent OTLP lines in the same window.
+ */
+function bySource(rows: LogRowView[], source: string | undefined): LogRowView[] {
+  if (source === 'all') return rows;
+  if (source === 'stdout') return rows.filter((r) => r.source === 'stdout');
+  if (source === 'otlp') return rows.filter((r) => r.source !== 'stdout');
+  const sendsOtlp = new Set(rows.filter((r) => r.source !== 'stdout').map((r) => r.service_name));
+  return rows.filter((r) => r.source !== 'stdout' || !sendsOtlp.has(r.service_name));
 }
 
 /** Seed ~200 rows: ~2 per seeded trace (correlated) + background noise over 24h. */
@@ -685,6 +698,7 @@ observability.handlers!['observability.logs'] = (i, s): ObservabilityLogsPage =>
       severityMin?: number;
       search?: string;
       traceId?: string;
+      source?: string;
       limit?: number;
       cursor?: string;
     }) ?? { from: 0, to: Date.now() };
@@ -695,10 +709,13 @@ observability.handlers!['observability.logs'] = (i, s): ObservabilityLogsPage =>
 
   const fromNano = Math.max(0, Math.floor(q.from)) * 1_000_000;
   const toNano = Math.max(0, Math.floor(q.to)) * 1_000_000;
-  let rows = all.filter((r) => {
-    const ts = Number(r.ts_nano);
-    return ts >= fromNano && ts <= toNano;
-  });
+  let rows = bySource(
+    all.filter((r) => {
+      const ts = Number(r.ts_nano);
+      return ts >= fromNano && ts <= toNano;
+    }),
+    q.source,
+  );
   if (q.stack) rows = rows.filter((r) => inStack(q.stack, r.service_name));
   if (q.serviceName) rows = rows.filter((r) => r.service_name === q.serviceName);
   if (q.severityMin !== undefined) rows = rows.filter((r) => r.severity_number >= (q.severityMin as number));

@@ -29,3 +29,15 @@ export const LEVEL_DOT = {
   info: 'bg-status-progress',
   debug: 'bg-status-idle',
 } as const;
+
+/**
+ * Which lines (`observability.logs` `source`): `auto` shows a part's container
+ * output only when it sends no OTLP logs, so a line never shows twice.
+ */
+export const LOG_SOURCE_OPTIONS = [
+  { value: 'auto', label: 'One copy of each line' },
+  { value: 'all', label: 'Both sources' },
+  { value: 'stdout', label: 'Container output' },
+  { value: 'otlp', label: 'Sent by the app' },
+] as const;
+export type LogSourceFilter = (typeof LOG_SOURCE_OPTIONS)[number]['value'];

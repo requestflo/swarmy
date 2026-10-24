@@ -2,13 +2,15 @@ import * as React from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import type { LogRowView, ObservabilityLogsPage } from '@swarmy/core';
 import { useTRPC } from '@/integrations/trpc';
-import { LOGS_LIVE_POLL_MS, LOGS_ROW_CAP, rangePreset, type LogRangePreset } from './logs-shared';
+import { LOGS_LIVE_POLL_MS, LOGS_ROW_CAP, rangePreset, type LogRangePreset, type LogSourceFilter } from './logs-shared';
 import { splitAtCutoff } from './stream-model';
 
 export interface LogStreamQuery {
   stack: string;
   range: LogRangePreset;
   part?: string;
+  /** Which source (default `auto`: one copy of each line). */
+  source?: LogSourceFilter;
   search: string;
   enabled: boolean;
   paused: boolean;
@@ -39,7 +41,7 @@ export function useLogStream(q: LogStreamQuery): LogStream {
     if (!q.enabled) return;
     const t = setInterval(() => setAnchor(Date.now()), LOGS_LIVE_POLL_MS);
     return () => clearInterval(t);
-  }, [q.enabled, q.range, q.part, q.search]);
+  }, [q.enabled, q.range, q.part, q.source, q.search]);
 
   const search = q.search.trim();
   const input = {
@@ -47,6 +49,7 @@ export function useLogStream(q: LogStreamQuery): LogStream {
     to: anchor,
     stack: q.stack,
     ...(q.part ? { serviceName: q.part } : {}),
+    ...(q.source && q.source !== 'auto' ? { source: q.source } : {}),
     ...(search ? { search } : {}),
     limit: LOGS_ROW_CAP,
   };

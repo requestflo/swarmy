@@ -1,4 +1,5 @@
 import {
+  containerLogsOn,
   defaultTelemetrySettings,
   SetTelemetrySettingsInput,
   type TelemetryForecastView,
@@ -31,6 +32,8 @@ function state(s: DemoStore): TelemetryDemoState {
       sampling: { keepErrors: true, slowTraceMs: 1000, restPercent: 25 },
       retention: { tracesDays: 14, logsDays: 14, metricsDays: 30 },
       redaction: defaultTelemetrySettings().redaction,
+      // cdn-edge (plain nginx) sends no telemetry: its lines come from what it prints.
+      containerLogs: { enabled: true },
     },
     appliedAt: new Date(Date.now() - 50 * HOUR).toISOString(),
   };
@@ -82,6 +85,8 @@ export const telemetryHandlers: Record<string, DemoHandler> = {
 
   'observability.pipeline': (_i, s): TelemetryPipelineView => {
     const on = suiteOn(s);
+    const collecting = on && containerLogsOn(state(s).settings);
+    const servers = s.nodes.filter((n) => n.status === 'online').length;
     return {
       enabled: on,
       collector: {
@@ -91,6 +96,7 @@ export const telemetryHandlers: Record<string, DemoHandler> = {
         spansPerSecond: on ? 1900 : null,
       },
       store: { status: on ? 'RUNNING' : 'OFFLINE', node: on ? 'wkr-1' : null, bytesUsed: on ? 38.2 * GB : null, reachable: on },
+      logAgents: { collecting, status: collecting ? 'RUNNING' : 'OFFLINE', running: collecting ? servers : 0, servers },
     };
   },
 };

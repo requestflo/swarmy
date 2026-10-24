@@ -6,6 +6,7 @@ import { LEVEL_TEXT } from './logs-shared';
 import type { NavAction } from './stream-keys';
 import { levelOf, lineTime } from './stream-model';
 import { TraceWaterfall } from './trace-waterfall';
+import { SourceBadge, sourceWords } from './source-badge';
 
 const shortTrace = (id: string): string => `${id.slice(0, 4)}…${id.slice(-4)}`;
 
@@ -44,7 +45,10 @@ export const StreamLine = React.memo(function StreamLine({ row, lineKey, active,
           <span className="text-muted-foreground tabular-nums">{lineTime(row.ts_nano)}</span>
           <span className="truncate">{row.service_name}</span>
           <span className={cn('text-[11px] font-bold uppercase', LEVEL_TEXT[level])}>{level}</span>
-          <span className="col-span-full min-w-0 break-words whitespace-pre-wrap sm:col-span-1">{row.body}</span>
+          <span className="col-span-full min-w-0 break-words whitespace-pre-wrap sm:col-span-1">
+            <SourceBadge source={row.source} />
+            {row.body}
+          </span>
         </button>
         {row.trace_id ? (
           <Link
@@ -62,7 +66,7 @@ export const StreamLine = React.memo(function StreamLine({ row, lineKey, active,
         <div id={detailId} className="flex min-w-0 flex-col gap-3 px-3 pt-1 pb-4 sm:pl-6">
           {row.trace_id ? <TraceWaterfall traceId={row.trace_id} /> : null}
           <dl className="grid gap-x-6 gap-y-1 font-mono text-[11.5px] sm:grid-cols-2">
-            {[['part', row.service_name], ['severity', `${row.severity_text || level} (${row.severity_number})`], ['time', `${row.timestamp} UTC`], ...attrs].map(([k, v]) => (
+            {[['part', row.service_name], ['source', sourceWords(row.source)], ['severity', `${row.severity_text || level} (${row.severity_number})`], ['time', `${row.timestamp} UTC`], ...attrs].map(([k, v]) => (
               <div key={k} className="flex min-w-0 gap-2">
                 <dt className="text-muted-foreground shrink-0">{k}</dt>
                 <dd className="min-w-0 break-all">{v}</dd>

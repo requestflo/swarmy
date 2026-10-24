@@ -2,7 +2,7 @@ import * as React from 'react';
 import { PauseIcon, PlayIcon, SearchIcon, XIcon } from 'lucide-react';
 import { Button, cn } from '@swarmy/ui';
 import { Depth } from '@/components/calm';
-import { LEVEL_DOT, LOG_RANGE_PRESETS, type LogRangePreset } from './logs-shared';
+import { LEVEL_DOT, LOG_RANGE_PRESETS, LOG_SOURCE_OPTIONS, type LogRangePreset, type LogSourceFilter } from './logs-shared';
 import type { LevelCounts, LevelFilter } from './stream-model';
 
 const CHIPS: Array<{ level: LevelFilter; label: string }> = [
@@ -22,6 +22,8 @@ export interface StreamToolbarProps {
   parts: string[];
   part: string;
   onPart: (p: string) => void;
+  source: LogSourceFilter;
+  onSource: (s: LogSourceFilter) => void;
   search: string;
   onSearch: (s: string) => void;
   searchRef: React.RefObject<HTMLInputElement | null>;
@@ -48,6 +50,11 @@ export function StreamToolbar(p: StreamToolbarProps): React.JSX.Element {
           <option value="">Every part</option>
           {p.parts.map((x) => (
             <option key={x} value={x}>{x}</option>
+          ))}
+        </select>
+        <select aria-label="Source" value={p.source} onChange={(e) => p.onSource(e.target.value as LogSourceFilter)} className="border-border bg-background h-9 rounded-[10px] border px-2.5 text-[13px] pointer-coarse:min-h-11">
+          {LOG_SOURCE_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </select>
         <div role="group" aria-label="Time range" className="border-border inline-flex rounded-[10px] border p-0.5">

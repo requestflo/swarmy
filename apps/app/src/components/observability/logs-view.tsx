@@ -2,7 +2,7 @@ import * as React from 'react';
 import { AlreadyOn, Depth, SayHeader } from '@/components/calm';
 import { useDebouncedValue } from '@/components/ci/use-debounced-value';
 import { GroupedErrors } from './grouped-errors';
-import { rangePreset, type LogRangePreset } from './logs-shared';
+import { rangePreset, type LogRangePreset, type LogSourceFilter } from './logs-shared';
 import { ObsCode } from './obs-code';
 import { INITIAL_NAV, navReducer } from './stream-keys';
 import { StreamList } from './stream-list';
@@ -23,6 +23,7 @@ import { useStreamKeys } from './use-stream-keys';
 export function LogsView({ stack, retentionDays, children }: { stack: string; retentionDays: number | undefined; children: React.ReactNode }): React.JSX.Element {
   const [level, setLevel] = React.useState<LevelFilter>('all');
   const [part, setPart] = React.useState('');
+  const [source, setSource] = React.useState<LogSourceFilter>('auto');
   const [range, setRange] = React.useState<LogRangePreset>('15m');
   const [search, setSearch] = React.useState('');
   const [group, setGroup] = React.useState<string | null>(null);
@@ -30,7 +31,7 @@ export function LogsView({ stack, retentionDays, children }: { stack: string; re
   const searchRef = React.useRef<HTMLInputElement>(null);
   const { names } = useStackServiceNames(stack);
   const debounced = useDebouncedValue(search, 250);
-  const feed = useLogStream({ stack, range, part: part || undefined, search: debounced, enabled: true, paused: nav.paused });
+  const feed = useLogStream({ stack, range, part: part || undefined, source, search: debounced, enabled: true, paused: nav.paused });
 
   const counts = React.useMemo(() => levelCounts(feed.rows), [feed.rows]);
   const groups = React.useMemo(() => groupErrors(feed.rows), [feed.rows]);
@@ -59,6 +60,7 @@ export function LogsView({ stack, retentionDays, children }: { stack: string; re
               <StreamToolbar
                 level={level} counts={counts} onLevel={setLevel}
                 parts={names} part={part} onPart={setPart}
+                source={source} onSource={setSource}
                 search={search} onSearch={setSearch} searchRef={searchRef}
                 range={range} onRange={setRange}
                 paused={nav.paused} onTogglePause={() => dispatch({ kind: 'paused', paused: !nav.paused })}
@@ -66,7 +68,7 @@ export function LogsView({ stack, retentionDays, children }: { stack: string; re
               />
             </div>
             <StreamList rows={visible} nav={nav} dispatch={dispatch} fresh={feed.fresh} capped={feed.capped}
-              pending={feed.isPending} unreachable={feed.status === 'unreachable'} filtered={level !== 'all' || !!group || !!part || !!debounced} />
+              pending={feed.isPending} unreachable={feed.status === 'unreachable'} filtered={level !== 'all' || !!group || !!part || !!debounced || source === 'stdout' || source === 'otlp'} />
           </section>
           <Depth at="controls">{children}</Depth>
         </div>

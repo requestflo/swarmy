@@ -9,6 +9,7 @@ import { RowPage } from '@/components/rowpage/row-page';
 import { duration, forecastLine, keepPhrase, telemetryCode } from './telemetry-copy';
 import { TelemetryApply } from './telemetry-apply';
 import { TelemetryApps } from './telemetry-apps';
+import { TelemetryContainerLogs } from './telemetry-container-logs';
 import { TelemetryForecast } from './telemetry-forecast';
 import { TelemetryKeep } from './telemetry-keep';
 import { TelemetryPipeline } from './telemetry-pipeline';
@@ -69,6 +70,7 @@ export function TelemetryPage(): React.JSX.Element {
         <div className="flex min-w-0 flex-col gap-5">
           <TelemetryApps {...apps} disabled={!suiteOn} />
           <TelemetryPipeline pipeline={pipeline.data} />
+          <TelemetryContainerLogs s={s} change={draft.change} />
           <TelemetryRedaction rules={s.redaction} onChange={(redaction) => draft.change((c) => ({ ...c, redaction }))} />
         </div>
         <div className="flex min-w-0 flex-col gap-5">
