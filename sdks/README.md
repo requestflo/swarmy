@@ -76,6 +76,11 @@ available. Re-running it is idempotent.
 ## Verifying
 
 ```sh
+# Every route in the spec has a method in each SDK (from the repo root;
+# --table prints route × SDK). A route left out on purpose goes in the
+# script's ALLOWLIST with its reason.
+bun run scripts/check-sdk-parity.ts
+
 # TypeScript
 cd sdks/typescript && bun install && bunx tsc --noEmit && bun test
 

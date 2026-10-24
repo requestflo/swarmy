@@ -134,8 +134,13 @@ adapter contract.
   contract artifact. The SDKs' MODEL files (`sdks/{typescript/src/models.ts,
   python/swarmy/models.py,go/models.go}`) are generated from it by
   `scripts/gen-sdks.ts`; their client/resource layers are hand-written and must
-  gain each new route by hand (Go/Python/TS each have `services.update` and
-  join tokens). An optional `$ref` to an object becomes a Go pointer, and a
+  gain each new route by hand — each SDK has a method for every route, and
+  `scripts/check-sdk-parity.ts` (CI `sdks` job) fails on a route an SDK lacks
+  or a call to a path the spec doesn't have, unless its `ALLOWLIST` names the
+  route with a reason (today only `POST /nodes/{id}/cordon`, an alias of
+  drain). It finds a method by its transport call, so write the path inline:
+  `do(ctx, "GET", "/x/"+pathEscape(id), …)`, `request('GET', \`/x/${…}\`)`,
+  `request("GET", "/x/{}".format(…))`. An optional `$ref` to an object becomes a Go pointer, and a
   `$ref` to a nullable object is nullable in every language. In a Go REQUEST
   model (any schema a request body reaches) an optional boolean, or a number
   whose bounds admit 0, is a pointer (`swarmy.Ptr(false)`; omitempty would drop
@@ -203,7 +208,10 @@ adapter contract.
 5. **Regenerate the spec**: `bun run --filter @swarmy/api-rest openapi:dump` and
    commit `packages/api-rest/openapi.json` — this is the codegen input, so its
    diff IS the public-contract review.
-6. **Verify**: `bun --filter @swarmy/api-rest typecheck` and the package tests
+6. **SDK methods**: `bun run gen:sdks`, then add the route's method to each of
+   `sdks/{go,python,typescript}` with a test, until `bun run
+   scripts/check-sdk-parity.ts` passes (`--table` prints route × SDK).
+7. **Verify**: `bun --filter @swarmy/api-rest typecheck` and the package tests
    (`idempotency.test.ts`, `mappers-extra.test.ts`). Round-trip a call with a
    real key: `curl -H 'Authorization: Bearer swk_…' localhost:3021/api/v1/nodes`
    (see `skill("run-local")`), and confirm the spec renders at

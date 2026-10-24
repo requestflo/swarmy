@@ -80,6 +80,13 @@ jobs:
           bun run openapi:dump
           bun run gen:sdks
           git diff --exit-code -- packages/api-rest/openapi.json sdks/typescript/src/models.ts sdks/python/swarmy/models.py sdks/go/models.go
+      # The models are generated, the methods are not: a route with no
+      # hand-written method in an SDK fails here, unless the script's
+      # ALLOWLIST leaves it out on purpose and says why.
+      - name: Every REST route has a method in each SDK
+        run: |
+          bun test ./scripts/check-sdk-parity.test.ts
+          bun run scripts/check-sdk-parity.ts
       # A keyword field name once made `import swarmy` a SyntaxError.
       - name: Python SDK imports and passes its tests
         working-directory: sdks/python
