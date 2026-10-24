@@ -25,6 +25,7 @@ import { ProtectionEditor } from './protection-editor';
 import { edgeTone, notServingLabel, type EdgeState } from './edge-runtime';
 import type { RouteProtection } from './protection-model';
 import { DOMAIN_STATE_LABEL, domainStateTone, type DomainStatus, type WwwMode } from './domain-state';
+import { autoAddressLabel } from '@/lib/auto-address-label';
 
 /** One stack-scoped domain route (mirrors the controller's DomainView). */
 export interface StackDomain {
@@ -114,7 +115,7 @@ export function StackDomainRow({ domain }: { domain: StackDomain }): React.JSX.E
           </p>
           <p className="text-muted-foreground mono-label truncate">
             {domain.serviceName} · :{domain.targetPort}
-            {domain.auto ? ' · automatic address' : null}
+            {domain.auto ? ` · ${autoAddressLabel(domain.host)}` : null}
             {domain.companionHost ? ` · + ${domain.companionHost}` : null}
           </p>
         </div>

@@ -11,6 +11,7 @@ import { mesh } from './resolvers/mesh';
 import { observability } from './resolvers/observability';
 import { errors } from './resolvers/errors';
 import { geo } from './resolvers/geo';
+import { clusterZone } from './resolvers/cluster-zone';
 import { data } from './resolvers/data';
 import { backupHistory } from './resolvers/backup-history';
 import { access } from './resolvers/access';
@@ -89,6 +90,7 @@ const MODULES: DomainResolvers[] = [
   observability,
   errors,
   geo,
+  clusterZone,
   data,
   backupHistory,
   access,

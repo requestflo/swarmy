@@ -6,6 +6,7 @@ import { GlobeIcon } from 'lucide-react';
 import { perMinText } from './route-map/route-map-model';
 import { useAddressVisits } from './use-address-visits';
 import { domainSay, type HubDomain } from './use-network';
+import { autoAddressLabel } from '@/lib/auto-address-label';
 
 /**
  * One flat row per address: where it goes, whether HTTPS is on, its own
@@ -39,7 +40,7 @@ export function DomainList({ domains }: { domains: HubDomain[] }): React.JSX.Ele
             name={<span className="font-mono text-[13.5px]">{d.host}</span>}
             sub={`→ ${d.stack} / ${d.serviceName}${d.pathPrefix ? ` ${d.pathPrefix}` : ''}`}
             say={s.say}
-            tech={`:${d.targetPort} · tls ${d.tls}${d.auto ? ' · sslip.io' : ''}`}
+            tech={`:${d.targetPort} · tls ${d.tls}${d.auto ? ` · ${autoAddressLabel(d.host)}` : ''}`}
             word={s.word}
             trailing={
               v ? (

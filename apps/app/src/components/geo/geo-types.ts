@@ -35,7 +35,19 @@ export interface DnsZoneView {
   provider: { zoneId?: string; tokenEnv?: string; region?: string };
   /** Hosts the org's automatic app addresses (`<service>-<stack>.<zone>`). */
   autoAddresses: boolean;
+  /** The org's cluster zone: answers `<a-b-c-d>.<zone>` itself and is the address base. */
+  clusterZone: boolean;
   conflicts?: ZoneConflict[];
+}
+
+/** Mirror of `ClusterZoneView` (cluster-zone.service.ts). */
+export interface ClusterZoneView {
+  zoneId: string | null;
+  zone: string | null;
+  glue: Array<{ name: string; type: 'NS' | 'A'; value: string }>;
+  addressBase: string | null;
+  source: 'own-zone' | 'cluster-zone' | 'configured' | 'public-convenience' | null;
+  synthesized: string[];
 }
 
 /** Mirror of `DnsViewRow` — one derived hostname swarmy answers for. */

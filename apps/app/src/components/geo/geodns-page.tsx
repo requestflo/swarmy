@@ -16,6 +16,7 @@ import { GeoDnsControlsCard } from './geodns-controls-card';
 import { ZonesCard } from './zones-card';
 import { NsOnboardingCard } from './ns-onboarding-card';
 import { NodeRegionsCard } from './node-regions-card';
+import { ClusterZoneCard } from './cluster-zone-card';
 import { zoneModeLabel } from './geo-types';
 
 /**
@@ -72,6 +73,7 @@ export function GeoDnsPage({ zone: zoneName }: { zone?: string }): React.JSX.Ele
             {z ? <ZoneRecords zone={z} rows={g.rows} records={g.records} ready={g.rowsReady && g.recordsReady} nameOf={g.nameOf} /> : (
               <Section title="Zones"><p className="text-muted-foreground text-[13.5px]">Add your domain as a zone at Controls. swarmy becomes its nameserver and every address under it resolves to the nearest front door.</p></Section>
             )}
+            <ClusterZoneCard zones={g.zones} />
             <Depth at="controls">
               <GeoDnsControlsCard config={g.config} />
               <ZonesCard zones={g.zones} selectedId={z?.id ?? null} onSelect={(id) => void navigate({ to: '/network/geo-dns', search: { zone: g.zones.find((x) => x.id === id)?.zone } })} />

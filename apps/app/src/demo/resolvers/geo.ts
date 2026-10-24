@@ -54,6 +54,7 @@ interface DnsZoneView {
   nameservers: Array<{ label: string; fqdn: string; ip: string; nodeId: string; online: boolean }>;
   provider: { zoneId?: string; tokenEnv?: string; region?: string };
   autoAddresses: boolean;
+  clusterZone: boolean;
   conflicts?: Array<{ name: string; type: string; reason: string }>;
 }
 
@@ -92,6 +93,8 @@ interface ZoneState {
   advertisedNodeIds: string[];
   provider: { zoneId?: string; tokenEnv?: string; region?: string };
   autoAddresses?: boolean;
+  /** The org's cluster zone (demo resolvers/cluster-zone.ts). */
+  clusterZone?: boolean;
 }
 
 /** The mutable demo world behind the Geo-DNS section. */
@@ -124,11 +127,11 @@ function rid(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function getState(store: DemoStore): GeoState {
+export function getState(store: DemoStore): GeoState {
   return store.extra.geo as GeoState;
 }
 
-type DemoNode = DemoStore['nodes'][number] & {
+export type DemoNode = DemoStore['nodes'][number] & {
   ingress?: boolean;
   outlet?: boolean;
   region?: string | null;
@@ -168,11 +171,12 @@ function toConfigView(st: GeoState): GeoDnsConfigView {
   };
 }
 
-function toZoneView(store: DemoStore, z: ZoneState): DnsZoneView {
+export function toZoneView(store: DemoStore, z: ZoneState): DnsZoneView {
   const byId = new Map((store.nodes as DemoNode[]).map((n) => [n.id, n]));
   return {
     ...z,
     autoAddresses: z.autoAddresses ?? false,
+    clusterZone: z.clusterZone ?? false,
     nameservers: z.advertisedNodeIds.map((nodeId, i) => {
       const n = byId.get(nodeId);
       return {

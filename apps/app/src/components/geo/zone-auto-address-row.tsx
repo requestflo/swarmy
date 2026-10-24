@@ -15,7 +15,7 @@ export function ZoneAutoAddressRow({ zone }: { zone: DnsZoneView }): React.JSX.E
   const set = useMutation(
     trpc.geodns.setZoneAutoAddresses.mutationOptions({
       onSuccess: (z) => {
-        toast.success(z.autoAddresses ? `Apps now get addresses under ${z.zone}` : 'Apps are back on sslip.io addresses');
+        toast.success(z.autoAddresses ? `Apps now get addresses under ${z.zone}` : 'Apps are back on their fallback addresses');
         void qc.invalidateQueries();
       },
       onError: (e) => toast.error(e.message),
@@ -36,7 +36,7 @@ export function ZoneAutoAddressRow({ zone }: { zone: DnsZoneView }): React.JSX.E
       </Label>
       <span className="text-muted-foreground min-w-0 flex-1 text-xs">
         Every public app gets <span className="mono-data break-all">&lt;app&gt;.{zone.zone}</span>, answered by your own
-        nameservers — no sslip.io. Needs the NS delegation above to be live; existing addresses move over.
+        nameservers — no public convenience name. Needs the NS delegation above to be live; existing addresses move over.
       </span>
     </div>
   );
