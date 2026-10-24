@@ -2245,7 +2245,9 @@ export type ResilienceCheckId =
   | 'geodns-single-region'
   | 'controller-backup'
   | 'controller-store'
-  | 'mesh-control';
+  | 'mesh-control'
+  /** A swarm-kv document, or swarmy's whole swarm-kv footprint, nearing its size limit. */
+  | 'swarm-kv-size';
 
 /** One posture problem with a severity and a link to the page that fixes it. */
 export interface ResilienceProblemView {

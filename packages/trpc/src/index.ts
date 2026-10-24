@@ -441,6 +441,7 @@ export {
 } from './services/swarm-kv.service';
 export { reachableOrgIds } from './services/kv-repo';
 export { createKvWarmer, warmOrgKv, type KvWarmOutcome } from './services/swarm-kv-warm';
+export { createKvSizeWatch } from './services/swarm-kv-size-watch';
 export { readRestoreTargetFromKv, type KvRestoreTarget } from './services/controllerBackup.kv-target';
 export { ingressConfigRepo, ingressEnabledOrgIds } from './services/ingress-config.repo';
 export { meshConfigRepo } from './services/mesh-config.repo';

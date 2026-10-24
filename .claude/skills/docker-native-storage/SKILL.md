@@ -59,7 +59,12 @@ Before adding a Prisma model or column, run the decision below.
    memory or control.db — e.g. `OperationRun` for resumable runs); reads never
    write; "kv unavailable" (no manager agent yet) is never "no config" —
    readers fail or workers skip the org. Tests: `useMemoryKv` / `seedKv` /
-   `peekKv`.
+   `peekKv`. The controller warms each org's store at boot
+   (`swarm-kv-warm.ts`; a broken document is named in the startup log), warns
+   at 75% of either size limit (logged + the `swarm-kv-size` Resilience
+   check), and admins can put back one of the 3 kept versions from Settings ›
+   Platform (`swarmKv.revert`, `data.restore`). The disaster-restore CLI reads
+   its backup target from swarm-kv (`controllerBackup.kv-target.ts`).
 
 7. Otherwise → it may legitimately belong in the embedded SQLite store
    (`control.db`; see below).

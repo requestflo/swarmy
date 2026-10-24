@@ -9,7 +9,7 @@ import { DrillHistory } from './drill-history';
 import { ProblemsList } from './problems-list';
 
 /** Checks about the whole estate (storage, edge, DNS, swarmy itself): they belong on /backups and Network, not on one app's tab. */
-const ESTATE_CHECKS = new Set<ResilienceCheckId>(['storage-replication', 'storage-offsite', 'ingress-single', 'geodns-single-region', 'controller-backup', 'mesh-control']);
+const ESTATE_CHECKS = new Set<ResilienceCheckId>(['storage-replication', 'storage-offsite', 'ingress-single', 'geodns-single-region', 'controller-backup', 'mesh-control', 'swarm-kv-size']);
 
 interface StackResilienceSectionProps {
   stack: string;

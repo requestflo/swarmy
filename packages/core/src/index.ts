@@ -26,6 +26,7 @@ export * from './dotenv';
 export * from './secret-args';
 export * from './pull-errors';
 export * from './swarm-kv';
+export * from './swarm-kv-size';
 export * from './app-secrets';
 export * from './service-inspect';
 export * from './healthcheck';

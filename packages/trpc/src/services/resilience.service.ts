@@ -69,6 +69,7 @@ import { controllerStoreProblems, controllerStoreSignal, type ControllerStoreSig
 import { getConfig as getStorageConfig } from './replicatedStore.service';
 import { drillProgressBus, type DrillProgress } from './drill-progress';
 import { meshControlProblems, meshControlSignal, type MeshControlSignal } from './resilience-mesh';
+import { swarmKvSizeProblems, swarmKvSizeSignal, type SwarmKvSizeSignal } from './resilience.swarm-kv';
 
 // ── Read-only label mirrors (A3/E4 schemes; canonical copies live with owners) ─
 const CACHE_ROLE_LABEL = 'swarmy.cache.role';
@@ -133,6 +134,8 @@ export interface ResilienceSnapshot {
   managers: { total: number; reachable: number };
   /** The private network's own control plane, when it runs in swarmy (optional: older fixtures). */
   meshControl?: MeshControlSignal;
+  /** swarm-kv documents / footprint near their size limits (absent = the swarm couldn't be read). */
+  swarmKvSize?: SwarmKvSizeSignal;
 }
 
 // ── Pure helpers ───────────────────────────────────────────────────────────────
@@ -379,6 +382,8 @@ export function runChecks(snap: ResilienceSnapshot): ResilienceProblemView[] {
   out.push(...controllerStoreProblems(snap.controllerStore, snap.managers.total));
   // 9c. The private network's control plane (backed up, movable, relays).
   out.push(...meshControlProblems(snap.meshControl));
+  // 9d. swarmy's own config in the swarm (swarm-kv) nearing its size limits.
+  out.push(...swarmKvSizeProblems(snap.swarmKvSize));
 
   // 10–12. Swarm manager quorum (WS2). The check ids are additive to
   // ResilienceCheckId; the views.ts union is owned by another workstream this
@@ -603,6 +608,7 @@ export async function buildSnapshot(ctx: OrgContext, stack?: string): Promise<Re
   // No store runtime in this process (tests, tools) → no signal, not "local only".
   const controllerStore = await getStoreStatus(ctx).then(controllerStoreSignal).catch(() => null);
   const meshControl = await meshControlSignal(ctx).catch(() => undefined);
+  const swarmKvSize = await swarmKvSizeSignal(ctx).catch(() => undefined);
 
   const lastRestore = drills.find((d) => d.kind === 'restore' && d.status === 'passed');
 
@@ -637,6 +643,7 @@ export async function buildSnapshot(ctx: OrgContext, stack?: string): Promise<Re
       reachable: managerNodes.filter((n) => n.status === 'ready').length,
     },
     ...(meshControl ? { meshControl } : {}),
+    ...(swarmKvSize ? { swarmKvSize } : {}),
   };
 }
 
