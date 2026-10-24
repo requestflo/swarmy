@@ -46,7 +46,8 @@ export const OTLP_GRPC_PORT = 4317;
 export const OTLP_HTTP_PORT = 4318;
 
 const CLICKHOUSE_IMAGE = 'clickhouse/clickhouse-server:24.8-alpine';
-const COLLECTOR_IMAGE = 'otel/opentelemetry-collector-contrib:0.111.0';
+/** The pinned collector image (the suite's collector and the node log agent). */
+export const COLLECTOR_IMAGE = 'otel/opentelemetry-collector-contrib:0.111.0';
 
 const MANAGED_LABELS: Record<string, string> = {
   'swarmy.managed': 'true',
