@@ -50,7 +50,7 @@ func (p *swarmyProvider) Metadata(_ context.Context, _ provider.MetadataRequest,
 
 func (p *swarmyProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Manage swarmy services, stacks, ingress domains and API keys via the swarmy public REST API.",
+		Description: "Manage swarmy services, stacks, nodes, ingress domains, API keys and git repos via the swarmy public REST API.",
 		Attributes: map[string]schema.Attribute{
 			"endpoint": schema.StringAttribute{
 				Optional:    true,
@@ -135,6 +135,7 @@ func (p *swarmyProvider) Resources(_ context.Context) []func() resource.Resource
 		NewAPIKeyResource,
 		NewGitConnectionResource,
 		NewGitRepoResource,
+		NewNodeResource,
 	}
 }
 

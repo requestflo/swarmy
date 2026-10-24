@@ -146,6 +146,26 @@ type Node struct {
 	LastSeenAt    *string `json:"last_seen_at"`
 }
 
+// NodeAvailability mirrors the NodeAvailability DTO (dto-extra.ts) returned by
+// POST /nodes/{id}/drain, /cordon and /uncordon.
+type NodeAvailability struct {
+	ID           string `json:"id"`
+	Availability string `json:"availability"`
+}
+
+// NodeLabels mirrors the NodeLabels DTO (dto-extra.ts) returned by
+// PUT /nodes/{id}/labels.
+type NodeLabels struct {
+	ID     string            `json:"id"`
+	Labels map[string]string `json:"labels"`
+}
+
+// SetNodeLabelsRequest is the body for PUT /nodes/{id}/labels. The controller
+// merges these onto the swarm node's labels; it cannot delete a key.
+type SetNodeLabelsRequest struct {
+	Labels map[string]string `json:"labels"`
+}
+
 // APIKey mirrors the API key resource. NOTE: the public REST API does not yet
 // expose an /api-keys endpoint in openapi.json; these shapes follow the
 // documented convention (name + scopes in, token returned once on create). See

@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/url"
 )
 
@@ -124,6 +125,45 @@ func (c *Client) GetNode(ctx context.Context, id string) (*Node, error) {
 		return nil, err
 	}
 	return &n, nil
+}
+
+// SetNodeLabels writes labels onto a node (PUT /nodes/{id}/labels). The
+// controller merges them onto the swarm node's labels and cannot delete a key;
+// to clear one, send it with an empty value.
+func (c *Client) SetNodeLabels(ctx context.Context, id string, labels map[string]string) (*NodeLabels, error) {
+	if labels == nil {
+		labels = map[string]string{}
+	}
+	var out NodeLabels
+	if err := c.do(ctx, http.MethodPut, "/nodes/"+url.PathEscape(id)+"/labels", SetNodeLabelsRequest{Labels: labels}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// DrainNode sets a node's availability to drain: no new tasks, running tasks
+// move off (POST /nodes/{id}/drain; cordon is an alias).
+func (c *Client) DrainNode(ctx context.Context, id string) (*NodeAvailability, error) {
+	var out NodeAvailability
+	if err := c.post(ctx, "/nodes/"+url.PathEscape(id)+"/drain", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// UncordonNode restores a node's availability to active (POST /nodes/{id}/uncordon).
+func (c *Client) UncordonNode(ctx context.Context, id string) (*NodeAvailability, error) {
+	var out NodeAvailability
+	if err := c.post(ctx, "/nodes/"+url.PathEscape(id)+"/uncordon", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// RemoveNode drops swarmy's record of a node (DELETE /nodes/{id}). The
+// controller refuses for the swarm's only manager or the controller's host.
+func (c *Client) RemoveNode(ctx context.Context, id string) error {
+	return c.delete(ctx, "/nodes/"+url.PathEscape(id), nil)
 }
 
 // ListNodes returns all nodes.

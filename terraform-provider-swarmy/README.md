@@ -184,6 +184,7 @@ SWARMY_ENDPOINT=… SWARMY_API_KEY=swk_… make testacc
 | `swarmy_git_connection` | `POST /git/connections`, `GET/DELETE /git/connections/{id}` | Token kinds only (`gitlab` token, `gitea`, `generic`) — GitHub App / GitLab OAuth need a browser (API returns 422 `BROWSER_FLOW_REQUIRED`); make those in the dashboard and pass their id to `swarmy_git_repo.connection_id`. `token` is sensitive + write-only; any change replaces. Import by ID (token adopted from config without replacement). |
 | `swarmy_git_repo` | `POST /git/repos`, `GET/PATCH/DELETE /git/repos/{id}`, `PUT /apps/{id}/require-approval` | Link a picked provider repo (`repo_id`+`full_name`+`clone_url`) or a raw `url`. `webhook_secret` (sensitive) and `deploy_key_public` are returned ONCE on create and kept in state (null after import). `branch`, `config_path`, `require_approval` and `enforce_drift` update in place; anything else re-links. Import by ID. |
 | `data.swarmy_app` | `GET /apps` | Read-only GitOps app for a linked repo: environments + each one's latest plan id/status/sha, live `previews` (PR or branch, with `data_from`/`data_scrub` when seeded from a backup), `kept_volumes` per environment, and the cached drift check (`drift_checked_at`, `drift`). Filters the list by `repo_id`. |
+| `swarmy_node` | `GET/DELETE /nodes/{id}`, `PUT /nodes/{id}/labels`, `POST /nodes/{id}/drain`, `/uncordon` | Adopts a node that already joined (nodes enrol through the agent + a join token). Manages the configured `labels` (merged; a removed key is blanked, since the API cannot delete one) and `availability` (`active`/`drain`, read back from `status`). Destroy only forgets the node unless `remove_on_destroy = true`. `node_id` forces replace. Import by ID. |
 | `data.swarmy_node` | `GET /nodes`, `GET /nodes/{id}` | Lookup by `id` or `name` (exactly one). |
 
 ## Caveats
@@ -202,6 +203,15 @@ SWARMY_ENDPOINT=… SWARMY_API_KEY=swk_… make testacc
   service's last Swarm task error, and a stack's failed deploy events. A
   create that fails is kept in state as tainted, so the next apply replaces it;
   a failed update keeps the prior state, so the next apply tries again.
+- **Node labels are write-only.** The Node DTO returns neither labels nor
+  availability, so `swarmy_node` keeps `labels` from state (no drift
+  detection; empty after import) and derives `availability` from
+  `status == "draining"`.
+- **Not yet in REST, so not in the provider:** `swarmy_join_token` (join
+  tokens are tRPC-only: `nodes.generateJoinToken`/`listJoinTokens`/
+  `revokeJoinToken`) and `swarmy_ingress` for the ingress config (driver,
+  topology, target nodes, on-demand TLS, tunnel, DNS provider are tRPC-only
+  under `ingress.*`). Per-host routing is `swarmy_domain`.
 - **Changing `image` does not apply the new image yet.** It calls
   `/services/{id}/restart`, which redeploys the current spec; the REST API has
   no service-update route (tRPC `updateService` has no REST twin).
