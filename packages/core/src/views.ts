@@ -2233,6 +2233,24 @@ export interface ResilienceDrillResultView {
   error: string | null;
 }
 
+/**
+ * A drill while it runs (and for a minute after): what `resilience.drillProgress`
+ * streams. Each event is the whole run so far, so a late viewer needs no history.
+ */
+export interface ResilienceDrillProgressView {
+  runId: string;
+  kind: ResilienceDrillKind;
+  target: string | null;
+  /** Epoch ms the drill started. */
+  startedAt: number;
+  /** Steps finished so far, in order. */
+  steps: ResilienceDrillStepView[];
+  /** The step running now; null between steps and once it is over. */
+  current: { name: string; startedAt: number } | null;
+  /** null while it runs. */
+  status: ResilienceDrillStatus | null;
+}
+
 /** One drill card on the Resilience page: last outcome + derived RPO/RTO. */
 export interface ResilienceDrillCardView {
   kind: ResilienceDrillKind;

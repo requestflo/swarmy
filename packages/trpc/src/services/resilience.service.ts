@@ -65,6 +65,7 @@ import { appDbVerifySteps } from './appDbBackup.service';
 import { resolveExecTarget } from './live-resolve';
 import { getConfig as getControllerBackupConfig } from './controllerBackup.service';
 import { getConfig as getStorageConfig } from './replicatedStore.service';
+import { drillProgressBus, type DrillProgress } from './drill-progress';
 
 // ── Read-only label mirrors (A3/E4 schemes; canonical copies live with owners) ─
 const CACHE_ROLE_LABEL = 'swarmy.cache.role';
@@ -786,18 +787,26 @@ const READY_POLL_MS = 3_000;
 
 interface StepRecorder {
   steps: ResilienceDrillStepView[];
+  /** Live progress (`resilience.drillProgress`): each step as it starts and ends. */
+  progress?: DrillProgress;
   run<T>(name: string, fn: () => Promise<T>, detail?: (v: T) => string): Promise<T>;
 }
 
-function stepRecorder(): StepRecorder {
+function stepRecorder(progress?: DrillProgress): StepRecorder {
   const steps: ResilienceDrillStepView[] = [];
+  const record = (step: ResilienceDrillStepView): void => {
+    steps.push(step);
+    progress?.step(step);
+  };
   return {
     steps,
+    progress,
     async run<T>(name: string, fn: () => Promise<T>, detail?: (v: T) => string): Promise<T> {
       const t0 = Date.now();
+      progress?.start(name);
       try {
         const v = await fn();
-        steps.push({
+        record({
           name,
           status: 'passed',
           detail: detail ? detail(v) : null,
@@ -805,7 +814,7 @@ function stepRecorder(): StepRecorder {
         });
         return v;
       } catch (e) {
-        steps.push({
+        record({
           name,
           status: 'failed',
           detail: e instanceof Error ? e.message : String(e),
@@ -859,13 +868,14 @@ export async function waitForPostgres(ctx: OrgContext, service: string): Promise
   throw commandRejected(`postgres in "${service}" never became ready: ${lastError}`);
 }
 
-function finishDrill(
+async function finishDrill(
   ctx: OrgContext,
   base: { kind: ResilienceDrillKind; target: string | null; startedAt: number },
   rec: StepRecorder,
   outcome: { status: 'passed' | 'failed'; summary: string; error?: string },
 ): Promise<ResilienceDrillResultView> {
-  return recordDrill(ctx, {
+  // Recorded first, so a viewer that refetches on "finished" reads the new row.
+  const result = await recordDrill(ctx, {
     kind: base.kind,
     status: outcome.status,
     at: new Date().toISOString(),
@@ -874,7 +884,8 @@ function finishDrill(
     summary: outcome.summary,
     steps: rec.steps,
     error: outcome.error ?? null,
-  });
+  }).finally(() => rec.progress?.finish(outcome.status));
+  return result;
 }
 
 // ── Drill 1: restore (clone → verify → destroy) ───────────────────────────────
@@ -898,11 +909,11 @@ export async function runRestoreDrill(
   }
 
   const startedAt = Date.now();
-  const rec = stepRecorder();
   const drillCluster = `drill-${Date.now().toString(36)}`;
   const drillPrimary = primaryServiceName(input.stack, drillCluster);
   const drillReplica = replicaServiceName(input.stack, drillCluster);
   const node = await resolveManagerNode(ctx);
+  const rec = stepRecorder(drillProgressBus.begin(ctx.activeOrgId, 'restore', target));
 
   const cleanup = async (): Promise<void> => {
     for (const service of [drillPrimary, drillReplica]) {
@@ -996,7 +1007,6 @@ export async function runBackupVerify(
   if (!row) throw notFound('backup target', input.targetId);
 
   const startedAt = Date.now();
-  const rec = stepRecorder();
   const isNode = row.kind === 'node' || row.kind === 'NODE';
   const repo = resticRepoUrl(row.kind, row.endpoint, row.bucket, row.prefix);
   // In-cluster targets (swarmy-garage) only resolve on the swarmy overlay.
@@ -1008,6 +1018,7 @@ export async function runBackupVerify(
     secretAccessKey: row.secretKeyRef ? decryptSecret(row.secretKeyRef) : undefined,
     region: row.region ?? undefined,
   });
+  const rec = stepRecorder(drillProgressBus.begin(ctx.activeOrgId, 'backup-verify', row.name));
 
   try {
     const res = await rec.run(

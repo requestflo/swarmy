@@ -11,6 +11,7 @@ import {
   runBackupVerify,
   runRestoreDrill,
 } from '../services/resilience.service';
+import { subscribeDrillProgress } from '../services/drill-progress';
 
 /**
  * Resilience (slice F2) — "what isn't protected yet" over live signals, and the
@@ -28,6 +29,15 @@ export const resilienceRouter = router({
   drillHistory: orgProcedure
     .input(ResilienceDrillHistoryInput.extend({ stack: z.string().min(1).optional() }))
     .query(({ ctx, input }) => listDrillHistory(ctx, input.limit, input.stack)),
+
+  /**
+   * Drills running in this org: a replay of each run so far, then every step
+   * as it starts and ends (board 16's "Running · <step>"). Each event is the
+   * whole run; a finished one stays for a minute. In memory, never persisted.
+   */
+  drillProgress: orgProcedure.subscription(async function* ({ ctx, signal }) {
+    yield* subscribeDrillProgress(ctx.activeOrgId, signal ?? new AbortController().signal);
+  }),
 
   /** Clone the latest DB backup into a throwaway cluster, verify, destroy. */
   runRestoreDrill: adminProcedure
