@@ -486,6 +486,10 @@ const MONGO_PRELUDE = [
   "trap 'rm -f \"$CFG\" \"$LOG\"' EXIT",
   ...SAFE_NAMES_FN,
   'set -- --host=127.0.0.1 "--port=${SWARMY_DB_PORT:-27017}"',
+  // The password never rides argv (`ps` shows it): a 0600 --config file on
+  // tmpfs, or, for tools without --config / no tmpfs, the tools' own prompt,
+  // which reads stdin when stdin is not a terminal (`printf` is a builtin).
+  'PWIN=""',
   'if [ -n "${SWARMY_DB_USER:-}" ]; then',
   '  set -- "$@" "--username=$SWARMY_DB_USER" "--authenticationDatabase=${SWARMY_DB_AUTHDB:-admin}"',
   '  TOOL=${DUMP:-$RESTORE}',
@@ -493,9 +497,10 @@ const MONGO_PRELUDE = [
   "    printf \"password: '%s'\\n\" \"$(printf '%s' \"${SWARMY_DB_PASSWORD:-}\" | sed \"s/'/''/g\")\" > \"$CFG\"",
   '    set -- "$@" "--config=$CFG"',
   '  else',
-  '    set -- "$@" "--password=${SWARMY_DB_PASSWORD:-}"',
+  '    PWIN=1',
   '  fi',
   'fi',
+  'tool() { if [ -n "$PWIN" ]; then printf \'%s\\n\' "${SWARMY_DB_PASSWORD:-}" | "$@"; else "$@"; fi; }',
 ];
 
 const MONGO_WAIT = [
@@ -511,7 +516,7 @@ const MONGO_DUMP = [
   ...MONGO_PRELUDE,
   '[ -n "$DUMP" ] || { echo "swarmy: no mongodump in this image" >&2; exit 3; }',
   '[ -z "${SWARMY_DB_NAME:-}" ] || set -- "$@" "--db=$SWARMY_DB_NAME"',
-  `"$DUMP" "$@" --archive=${D}/dump.archive 2> "$LOG" || { cat "$LOG" >&2; exit 4; }`,
+  `tool "$DUMP" "$@" --archive=${D}/dump.archive 2> "$LOG" || { cat "$LOG" >&2; exit 4; }`,
   'cat "$LOG" >&2',
   // mongodump logs `writing app.posts to archive …` (older) or "writing `app.posts` to …" (100.x).
   "sed -n 's/.*writing [`]\\{0,1\\}\\([^.`]*\\)\\..*/\\1/p' \"$LOG\" | grep -Ev '^(admin|config|local)$' | sort -u > " +
@@ -528,10 +533,10 @@ function mongoLoad(wait: boolean): string[] {
     `set -- "$@" --archive=${D}/dump.archive '--nsExclude=admin.*' '--nsExclude=config.*' '--nsExclude=local.*'`,
     'if [ "${SWARMY_MODE:-copy}" = copy ]; then',
     "  set -- \"$@\" '--nsFrom=$db$.$coll$' \"--nsTo=\\$db\\$_${SWARMY_SUFFIX}.\\$coll\\$\"",
-    '  "$RESTORE" "$@"',
+    '  tool "$RESTORE" "$@"',
     `  for d in $(safe_names < ${D}/databases.txt 2>/dev/null || true); do echo "SWARMY_OUT db=\${d}_$SWARMY_SUFFIX"; done`,
     'else',
-    '  "$RESTORE" "$@" --drop',
+    '  tool "$RESTORE" "$@" --drop',
     `  for d in $(safe_names < ${D}/databases.txt 2>/dev/null || true); do echo "SWARMY_OUT db=$d"; done`,
     'fi',
   ];
