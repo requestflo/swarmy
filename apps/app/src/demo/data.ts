@@ -51,9 +51,12 @@ export const DEMO_NODES: NodeDetail[] = [
   node('n-mgr-1', 'mgr-1', 'manager', 'online', 8, 32, 34, 51, '10.0.1.11'),
   node('n-mgr-2', 'mgr-2', 'manager', 'online', 8, 32, 28, 47, '10.0.1.12'),
   node('n-wkr-1', 'wkr-1', 'worker', 'online', 16, 64, 62, 70, '10.0.1.21'),
-  // The one server whose agent missed two releases: "two versions behind — Upgrade agent".
+  // wkr-2: the Builder role (CI builds run there, rootless BuildKit), and the one
+  // server whose agent missed two releases: "two versions behind — Upgrade agent".
   {
     ...node('n-wkr-2', 'wkr-2', 'worker', 'online', 16, 64, 41, 58, '10.0.1.22'),
+    builder: true,
+    labels: { zone: 'eu-west', 'swarmy.node.builder': 'true' },
     agentVersion: '0.0.9',
     agentUpdateAvailable: true,
     agentSkew: { status: 'behind', versions: 2 },

@@ -7,6 +7,7 @@ import { CodeView, Depth, Say } from '@/components/calm';
 import { RowPage, plural } from '@/components/rowpage/row-page';
 import { AppsCard } from '@/components/gitops/apps-card';
 import { relTime } from '@/lib/format';
+import { BuildersSection } from './builders-section';
 import { BuildsList, repoName } from './builds-list';
 import { ciCode } from './ci-code';
 import { GcPolicyCard } from './gc-policy-card';
@@ -18,6 +19,7 @@ import { RegistryCredentialsCard } from './registry-credentials-card';
 import { RegistrySummary } from './registry-summary';
 import { ScanList } from './scan-list';
 import { ScanPolicyCard } from './scan-policy-card';
+import { SupplyChainGate } from './supply-chain-gate';
 
 /** Settings → CI & registry: git → build on your servers → the registry inside them. */
 export function CiPage(): React.JSX.Element {
@@ -64,6 +66,8 @@ export function CiPage(): React.JSX.Element {
       {newApp ? <GitNewAppCard key={newApp.connectionId ?? 'any'} initialConnectionId={newApp.connectionId} onClose={() => setNewApp(false)} /> : null}
       <AppsCard />
       <BuildsList builds={builds.data ?? []} />
+      <BuildersSection />
+      <SupplyChainGate />
       <Depth at="controls">
         <GitConnectionsCard />
         <div className="grid gap-4 2xl:grid-cols-2">

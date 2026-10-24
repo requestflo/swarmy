@@ -157,7 +157,7 @@ const routes: Array<[string, RegExp?]> = [
   ['/network/connections', /isolated by default/i],
   ['/network/geo-dns', /Ask from anywhere/],
   ['/network/geo-dns?zone=northwind.io', /Cloudflare/],
-  ['/ci'],
+  ['/ci', /Supply-chain gate[\s\S]*never public/],
   ['/backups'],
   ['/alerts'],
   // Incidents live in Activity (the old /incidents URLs redirect here).
