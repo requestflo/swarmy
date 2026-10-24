@@ -50,7 +50,8 @@ async function org(): Promise<{ ctx: OrgContext; slack: string; phone: string }>
 }
 
 const events = (ctx: OrgContext) =>
-  t.db.alertEvent.findMany({ where: { orgId: ctx.activeOrgId }, orderBy: { firedAt: 'asc' } });
+  // Two events can fire in the same millisecond: the cuid breaks the tie in creation order.
+  t.db.alertEvent.findMany({ where: { orgId: ctx.activeOrgId }, orderBy: [{ firedAt: 'asc' }, { id: 'asc' }] });
 
 /** Each resource's notify state. Events fired in the same millisecond tie on firedAt, so order isn't asserted. */
 const notifyByResource = async (ctx: OrgContext) =>
