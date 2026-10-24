@@ -27,6 +27,8 @@ import type {
   Service,
   ServiceList,
   Stack,
+  StackConnection,
+  StackEndpoints,
   StackList,
   StackRemoved,
 } from './models.js';
@@ -239,6 +241,32 @@ export class StacksResource {
   /** Turn OpenTelemetry on/off for the stack (admin). */
   setTelemetry(id: string, enabled: boolean): Promise<StackTelemetry> {
     return this.http.request<StackTelemetry>('PUT', `/stacks/${encodeURIComponent(id)}/telemetry`, { body: { enabled } });
+  }
+
+  /**
+   * How to reach the app's services and managed resources from inside the
+   * cluster: the DNS names swarm answers (`web`, `shop_web`, `web.shop` from
+   * a connected app) and each resource's host:port.
+   */
+  endpoints(id: string): Promise<StackEndpoints> {
+    return this.http.request<StackEndpoints>('GET', `/stacks/${encodeURIComponent(id)}/endpoints`);
+  }
+
+  /**
+   * Connect two apps over one private network (both roll once to join it).
+   * `id` and `peer` are a stack id or name. Idempotent; needs `write` and
+   * `stack.deploy` on both apps.
+   */
+  connect(id: string, peer: string): Promise<StackConnection> {
+    return this.http.request<StackConnection>('POST', `/stacks/${encodeURIComponent(id)}/connections`, { body: { peer } });
+  }
+
+  /** Disconnect two apps: both leave the pair network. */
+  disconnect(id: string, peer: string): Promise<StackConnection> {
+    return this.http.request<StackConnection>(
+      'DELETE',
+      `/stacks/${encodeURIComponent(id)}/connections/${encodeURIComponent(peer)}`,
+    );
   }
 
   iterate(opts?: ListOptions): AsyncIterableIterator<Stack> {

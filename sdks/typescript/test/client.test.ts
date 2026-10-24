@@ -116,3 +116,45 @@ describe('URL + header construction', () => {
     expect(() => new SwarmyClient({ endpoint: 'http://x', fetch: (async () => new Response()) as FetchLike })).toThrow();
   });
 });
+
+describe('connect apps', () => {
+  const link = { stack: 'shop', peer: 'billing', network: 'swarmy-link-ab12', services: ['billing_api'] };
+
+  it('endpoints / connect / disconnect hit the stack sub-resources', async () => {
+    const { fetch, calls } = mockFetch((url) =>
+      url.endsWith('/endpoints') ? json({ stack: 'shop', connected_apps: [], services: [], resources: [] }) : json(link),
+    );
+    const client = new SwarmyClient({ endpoint: 'http://x', apiKey: 'swk_y', fetch });
+
+    expect((await client.stacks.endpoints('shop')).stack).toBe('shop');
+    expect(await client.stacks.connect('st 1', 'billing')).toEqual(link);
+    await client.stacks.disconnect('shop', 'bill/ing');
+
+    expect(calls.map((c) => `${c.init!.method} ${c.url}`)).toEqual([
+      'GET http://x/api/v1/stacks/shop/endpoints',
+      'POST http://x/api/v1/stacks/st%201/connections',
+      'DELETE http://x/api/v1/stacks/shop/connections/bill%2Fing',
+    ]);
+    expect(JSON.parse(calls[1]!.init!.body as string)).toEqual({ peer: 'billing' });
+  });
+
+  it('a 412 admission refusal exposes its violations', async () => {
+    const problem = {
+      type: 'https://swarmy.dev/problems/precondition_failed',
+      title: 'Precondition Failed',
+      status: 412,
+      detail: 'Deployment blocked by policy',
+      swarmy_code: 'POLICY_DENIED',
+      violations: [{ rule: 'no-latest-tag-in-prod', severity: 'block', message: 'pin a tag', resource: 'shop_web' }],
+    };
+    const { fetch } = mockFetch(
+      () => new Response(JSON.stringify(problem), { status: 412, headers: { 'Content-Type': 'application/problem+json' } }),
+    );
+    const client = new SwarmyClient({ endpoint: 'http://x', apiKey: 'swk_y', fetch });
+    const err = (await client.services.create({ name: 'web', image: 'nginx:latest' }).catch((e) => e)) as SwarmyApiError;
+    expect(err).toBeInstanceOf(SwarmyApiError);
+    expect(err.status).toBe(412);
+    expect(err.code).toBe('POLICY_DENIED');
+    expect(err.violations).toEqual(problem.violations as SwarmyApiError['violations']);
+  });
+});
