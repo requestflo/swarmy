@@ -1,9 +1,15 @@
 # Docker Swarm's routing mesh (published ports) is unreachable in this Lima VM test environment — environment-level, not a swarmy code bug, but blocks local verification of any published-port feature
 
-**Status:** Open — root-caused as an environment/platform issue via a differential diagnostic test,
-not a swarmy source bug. Documented here (rather than silently assumed) because it directly
-affects how several other findings in this sweep should be interpreted, and because it currently
-blocks fully verifying the in-swarm CI/CD registry feature locally.
+**Status:** Open, needs a re-test on Lima. `scripts/local-vms.sh` now creates VMs on the e2e
+harness's VM-to-VM network (vzNAT + `lima:user-v2`). That fixes the multi-node half of the
+routing mesh, but it is unverified with this script. The single-node symptom below never
+touches Lima's network, so a networking-mode change can't be expected to fix it. See
+"Findings (2026-10)" at the end.
+
+Original status: root-caused as an environment/platform issue via a differential diagnostic
+test, not a swarmy source bug. Documented here (rather than silently assumed) because it
+directly affects how several other findings in this sweep should be interpreted, and because it
+currently blocks fully verifying the in-swarm CI/CD registry feature locally.
 **Severity:** Environment-blocking for local testing; **unknown severity for real deployments** —
 this needs retesting on the planned DigitalOcean droplets before drawing any conclusion about
 whether it affects real swarmy deployments at all.
@@ -97,3 +103,53 @@ Whether this reproduces on multipass (the other locally-documented VM tool per
 [[local-vm-swarm-testing]]-style setups) or only Lima specifically. Whether it reproduces on a
 real DigitalOcean droplet — this is the critical next check, planned as part of this sweep's
 later multi-region phase anyway.
+
+## Findings (2026-10)
+
+**Lima's default network breaks the multi-node routing mesh. Changed, unverified.**
+`scripts/local-vms.sh` used Lima's plain user-mode network (slirp). There every VM has the same
+address (`192.168.5.15`) and no path to the other VMs. Without the mesh, two VMs could not form
+one swarm, so a published port could never reach a task on another VM. That path needs VXLAN on
+UDP 4789 and gossip on 7946 between nodes. With NetBird, the swarm rode the mesh instead.
+
+The e2e cluster harness had already solved this on Lima (`apps/e2e/cluster/lib/provider.ts`,
+commits d1f4c0bd and 938cf6db):
+
+- `--network=vzNAT` gives each VM an address the Mac reaches. macOS isolates vzNAT guests from
+  each other: ARP fails VM to VM.
+- `--network=lima:user-v2`, Lima's virtual switch, carries VM-to-VM TCP and UDP.
+- The `user-v2` interface (eth0) is made the default route, so the address the agent advertises is
+  one the other VMs reach. The Mac's DHCP search domain is dropped too.
+
+`local-vms.sh` now does the same by default (`SWARMY_VM_NETWORK=fabric`; `slirp` keeps the old
+behaviour), and its prepare step prints which interface carries the default route. **Not run
+here: no Lima on this machine.** The netplan edit was checked on both cloud-init indent styles in
+an `ubuntu:24.04` container. The harness's own steps prove VM-to-VM overlay traffic (`dns`:
+container-to-container DNS across nodes). They don't exercise an ingress-mode published port
+across nodes, because the edge and the controller publish in host mode.
+
+**The single-node symptom above is not on Lima's network path.** The failing check was
+`curl localhost:5000` on the node running the task, plus an nginx control at `:8888`. That
+traffic stays inside the VM's kernel: DNAT to the ingress sandbox, IPVS, then the task's veth on
+the `ingress` overlay. No Lima NIC is involved, so changing vzNAT, socket_vmnet or a shared
+network should not change that result. Evidence on what it was:
+
+- The 2026-09 live verification on fresh Lima VMs (readiness sweep log, in git history) passed
+  "CI: link repo → build on Builder node → push → other node pulls + runs" through the registry on
+  `localhost:5000`, which is published on the routing mesh. So the routing mesh has worked on
+  Lima since.
+- The sweep environment had a crash-looping overlay control plane. "initialized VXLAN UDP port"
+  repeated every 5-10 s after the stale-manager-address incident ([[rejoin-force-can-corrupt-manager]]).
+  QA-066 b (b4e05bdd) reproduced, on Lima, overlay endpoints that dockerd left NO-CARRIER after
+  endpoint churn, with VIPs dead from that node. Either matches "DNAT rules present, the
+  connection never completes".
+- `swarmy-agent doctor` now flags the dead manager address (ff0a6a8e). `overlay-heal.ts` repairs
+  NO-CARRIER endpoints, but deliberately never touches `ingress`.
+
+**Next check (on Lima, then a droplet):**
+
+1. `bash scripts/local-vms.sh down && bash scripts/local-vms.sh up` with no mesh.
+2. `docker service create --publish 8888:80 nginx:alpine` pinned to node 2.
+3. `curl` the port from node 1 and from node 2.
+4. If it fails single-node again: `ip netns exec ingress_sbox ipvsadm -Ln` and `ip -d link` inside
+   the ingress sandbox (NO-CARRIER?), plus `journalctl -u docker | grep -i vxlan`.
