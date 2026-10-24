@@ -53,6 +53,9 @@ export function PgScrubber({ span, value, onChange }: PgScrubberProps): React.JS
             aria-label={`Jump to ${formatPit(g.midMs)} UTC`}
             aria-pressed={g.index === on}
             onClick={() => onChange(g.midMs)}
+            // A strip of blocks, not a row of buttons: the touch rule's 44px min-width
+            // would push it past a phone (the ±10 s stepper is the touch-sized way).
+            style={{ minWidth: 0 }}
             className={cn(
               'flex-1 border-r border-[var(--code)] outline-none last:border-r-0 focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-inset',
               g.index === on ? 'bg-primary' : 'bg-status-progress/25 hover:bg-status-progress/45',

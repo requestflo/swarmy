@@ -93,10 +93,11 @@ function CoverageRow({
   const [open, setOpen] = React.useState(false);
   const logical = db.logical ?? null;
   return (
-    <div className="grid gap-2 px-6 py-3">
-      <div className="flex flex-wrap items-center gap-4">
+    // One shrinkable column: a long method line truncates instead of widening the card past a phone.
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-2 px-4 py-3 sm:px-6">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <DatabaseIcon className="text-muted-foreground size-4 shrink-0" />
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 basis-44">
           <p className="mono-data truncate font-medium">{db.name}</p>
           <p className="text-muted-foreground mono-label truncate">
             {db.engine} ·{' '}
