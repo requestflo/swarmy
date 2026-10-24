@@ -74,6 +74,23 @@ export class Ctx {
     return this.cluster.docker(args, timeoutMs);
   }
 
+  /**
+   * Clean up a step's stack BY NAME. REST removes by id, so a bare
+   * `sdk.stacks.remove(name)` 404s — and swallowed, it left every stack
+   * running on the 1 GiB nodes for the rest of the run. Stacks with no REST
+   * row (label-only) go by their Docker label. Never throws.
+   */
+  async removeStack(name: string) {
+    try {
+      const row = (await this.sdk.stacks.list({ limit: 200 })).data.find((s) => s.name === name);
+      if (row) return void (await this.sdk.stacks.remove(row.id));
+    } catch (e) {
+      log(`stack ${name}: REST remove failed (${(e as Error).message.slice(0, 120)}); removing its services directly`);
+    }
+    const ids = await this.docker(`service ls -q --filter label=com.docker.stack.namespace=${name}`).catch(() => '');
+    if (ids.trim()) await this.docker(`service rm ${ids.trim().split(/\s+/).join(' ')}`).catch((e) => log(`stack ${name}: ${(e as Error).message.slice(0, 160)}`));
+  }
+
   node(i: number): ClusterNode {
     return this.cluster.nodes[i - 1]!;
   }

@@ -219,8 +219,8 @@ export async function reschedule(ctx: Ctx) {
     async () => (await ctx.sdk.nodes.list({ limit: 100 })).data.some((n) => n.hostname === victimHost && n.status === 'online'),
     { timeoutMs: 6 * 60_000, intervalMs: 5000 },
   );
-  await ctx.sdk.stacks.remove(stack).catch(() => {});
-  await ctx.sdk.stacks.remove(single).catch(() => {});
+  await ctx.removeStack(stack);
+  await ctx.removeStack(single);
   return `node Down after ${downAfter}s, solo task moved after ${moved}s; node rejoined`;
 }
 
@@ -275,7 +275,7 @@ export async function controllerMove(ctx: Ctx) {
   });
   const after = await ctx.q('controllerStore.status');
   assert(after?.hostname === targetHost, `controllerStore.status says ${after?.hostname}`);
-  await ctx.sdk.stacks.remove(stack).catch(() => {});
+  await ctx.removeStack(stack);
   return `controller ${res.from} → ${res.to} in ${movedIn}s (epoch ${st.epoch} → ${after.epoch}); login, API key, stack, nodes intact`;
 }
 
@@ -332,7 +332,7 @@ export async function upgrade(ctx: Ctx) {
   });
   const svc = (await ctx.sdk.services.list({ limit: 200 })).data.find((x) => x.name === `${stack}_web`);
   assert(svc && svc.replicas.running >= 1, `${stack}_web lost across the upgrade`);
-  await ctx.sdk.stacks.remove(stack).catch(() => {});
+  await ctx.removeStack(stack);
   const afterVersion = await (await fetch(`${c.controllerUrl}/version`)).text().catch(() => '?');
   const commitOf = (v: string) => /"commit":"([^"]+)"/.exec(v)?.[1] ?? v.slice(0, 20);
   return `${how}: ${commitOf(beforeVersion)} → ${commitOf(afterVersion)} (${digests.controller.slice(0, 19)}); login, API key, ${after.length} nodes and a stack survived`;

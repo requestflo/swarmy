@@ -66,7 +66,7 @@ export async function templates(ctx: Ctx) {
       results.push(`${id} ${got.code} in ${Math.round((Date.now() - t0) / 1000)}s`);
     }
   } finally {
-    if (!ctx.opts.keep) for (const s of deployed) await ctx.sdk.stacks.remove(s).catch(() => {});
+    if (!ctx.opts.keep) for (const s of deployed) await ctx.removeStack(s);
   }
   return results.join('; ');
 }
@@ -137,7 +137,7 @@ export async function composeSecret(ctx: Ctx) {
     assert(fileHash === want, '/run/secrets/E2E_SECRET does not hold the value');
     return 'value absent from service + container inspect and REST; app got it as $E2E_SECRET and at /run/secrets';
   } finally {
-    if (!ctx.opts.keep) await ctx.sdk.stacks.remove(stack).catch(() => {});
+    if (!ctx.opts.keep) await ctx.removeStack(stack);
   }
 }
 
@@ -186,7 +186,7 @@ export async function crossNodeDns(ctx: Ctx) {
     // tasks.<svc> resolves to task IPs (DNSRR), <svc> to the VIP.
     await ctx.execIn(`${stack}_s1`, `getent hosts tasks.s2`);
   } finally {
-    if (!ctx.opts.keep) await ctx.sdk.stacks.remove(stack).catch(() => {});
+    if (!ctx.opts.keep) await ctx.removeStack(stack);
   }
 
   // The full networking model (isolation between apps, control-plane

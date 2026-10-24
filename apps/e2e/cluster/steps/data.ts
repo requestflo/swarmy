@@ -70,7 +70,7 @@ export async function postgres(ctx: Ctx) {
     assert((await psql(primary, pw, 'SELECT count(*) FROM e2e_rows')).trim() === String(rows), 'source rows changed');
     return `${rows} rows → pg_dump ${b.sizeBytes}B → restored into a new cluster, checksums match`;
   } finally {
-    if (!ctx.opts.keep) await ctx.sdk.stacks.remove(stack).catch(() => {});
+    if (!ctx.opts.keep) await ctx.removeStack(stack);
   }
 }
 
@@ -149,6 +149,6 @@ volumes:
     out.push(`redis → volume ${rr.volume} (key + list intact)`);
     return out.join('; ');
   } finally {
-    if (!ctx.opts.keep) await ctx.sdk.stacks.remove(stack).catch(() => {});
+    if (!ctx.opts.keep) await ctx.removeStack(stack);
   }
 }
