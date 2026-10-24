@@ -18,6 +18,7 @@ import {
 import { runCacheGcForOrg, runImageGcForOrg } from '../services/image-gc.service';
 import { getBuild } from '../services/build-detail.service';
 import { runRegistryGcForOrg } from '../services/registry-gc.service';
+import { getRegistryUsage } from '../services/registry-usage';
 
 export const cicdRouter = router({
   // ── Repos ──
@@ -65,6 +66,9 @@ export const cicdRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => setRegistryCacheCredentials(ctx, input.login)),
+
+  /** Registry size + image counts, measured by the last GC tick (null until one ran since boot). */
+  getRegistryUsage: orgProcedure.query(({ ctx }) => getRegistryUsage(ctx.activeOrgId)),
 
   // ── GC policy ──
   getGcPolicy: orgProcedure.query(({ ctx }) => getGcPolicy(ctx)),

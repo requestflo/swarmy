@@ -30,6 +30,7 @@ export function CiPage(): React.JSX.Element {
   const registry = useQuery(trpc.cicd.getRegistryConfig.queryOptions());
   const creds = useQuery(trpc.registryCredentials.list.queryOptions());
   const gc = useQuery(trpc.cicd.getGcPolicy.queryOptions());
+  const usage = useQuery(trpc.cicd.getRegistryUsage.queryOptions());
   const [newApp, setNewApp] = React.useState<false | { connectionId?: string }>(false);
   const last = builds.data?.[0];
 
@@ -58,7 +59,7 @@ export function CiPage(): React.JSX.Element {
       aside={
         <>
           <CodeView title="CI as code" tabs={ciCode(registry.data ?? null)} note="Repos and registry logins are on the public API; builds read the repo's swarmy.yaml." />
-          <RegistrySummary config={registry.data} credentials={creds.data?.length} />
+          <RegistrySummary config={registry.data} credentials={creds.data?.length} usage={usage.data} />
         </>
       }
     >

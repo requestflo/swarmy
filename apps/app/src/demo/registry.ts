@@ -3,6 +3,7 @@ import { core } from './resolvers/core';
 import { inventory } from './resolvers/inventory';
 import { ingress } from './resolvers/ingress';
 import { cicd } from './resolvers/cicd';
+import { cicdRegistryUsage } from './resolvers/cicd-registry-usage';
 import { gitconnections } from './resolvers/gitconnections';
 import { apps } from './resolvers/apps';
 import { mesh } from './resolvers/mesh';
@@ -73,6 +74,7 @@ const MODULES: DomainResolvers[] = [
   inventory,
   ingress,
   cicd,
+  cicdRegistryUsage,
   gitconnections,
   apps,
   mesh,
