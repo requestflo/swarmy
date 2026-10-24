@@ -37,6 +37,17 @@ func (c *Client) ScaleService(ctx context.Context, id string, replicas int64) (*
 	return &ref, nil
 }
 
+// UpdateService patches a running service (PATCH /services/{id}, async 202):
+// only the fields set in body change. It runs the controller's admission
+// checks, so a guardrail can refuse it (412 with the violations).
+func (c *Client) UpdateService(ctx context.Context, id string, body UpdateServiceRequest) (*DeploymentRef, error) {
+	var ref DeploymentRef
+	if err := c.do(ctx, http.MethodPatch, "/services/"+url.PathEscape(id), body, &ref); err != nil {
+		return nil, err
+	}
+	return &ref, nil
+}
+
 // RestartService dispatches an async restart/redeploy (202).
 func (c *Client) RestartService(ctx context.Context, id string) (*DeploymentRef, error) {
 	var ref DeploymentRef

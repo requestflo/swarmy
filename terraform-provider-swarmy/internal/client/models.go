@@ -3,7 +3,7 @@ package client
 // Models mirror the public REST DTOs (snake_case JSON) from
 // packages/api-rest/src/dto.ts. Only fields present in those DTOs are mapped.
 
-// EnvVar is a single environment variable in a service create request.
+// EnvVar is a single environment variable in a service create/update request.
 type EnvVar struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
@@ -38,6 +38,17 @@ type CreateServiceRequest struct {
 	Command  []string `json:"command,omitempty"`
 	Env      []EnvVar `json:"env,omitempty"`
 	NodeID   *string  `json:"node_id,omitempty"`
+}
+
+// UpdateServiceRequest is the body for PATCH /services/{id}. A nil field is
+// left out, so the service keeps its live value. Command and Env are sent
+// whole when set; an empty slice clears them (Env replaces the plain
+// variables; secret variables set elsewhere are kept).
+type UpdateServiceRequest struct {
+	Image    *string   `json:"image,omitempty"`
+	Replicas *int64    `json:"replicas,omitempty"`
+	Command  *[]string `json:"command,omitempty"`
+	Env      *[]EnvVar `json:"env,omitempty"`
 }
 
 // ScaleServiceRequest is the body for POST /services/{id}/scale.

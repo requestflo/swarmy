@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"sort"
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
@@ -60,7 +61,7 @@ func (r *serviceResource) Configure(_ context.Context, req resource.ConfigureReq
 
 func (r *serviceResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "A swarmy service. Create, scale and redeploy are async on the controller; the provider polls the deployment until it converges (or fails, which fails the apply), bounded by the timeouts block (default 20m), then reads the service back.",
+		Description: "A swarmy service. Create, update and scale are async on the controller; the provider polls the deployment until it converges (or fails, which fails the apply), bounded by the timeouts block (default 20m), then reads the service back.",
 		Blocks: map[string]schema.Block{
 			"timeouts": timeouts.Block(ctx, timeouts.Opts{Create: true, Update: true}),
 		},
@@ -77,22 +78,22 @@ func (r *serviceResource) Schema(ctx context.Context, _ resource.SchemaRequest, 
 			},
 			"image": schema.StringAttribute{
 				Required:    true,
-				Description: "Container image (e.g. nginx:1.27). Changing this redeploys the service in place.",
+				Description: "Container image (e.g. nginx:1.27). Changing this updates the service in place (PATCH /services/{id}), subject to the controller's guardrails.",
 			},
 			"replicas": schema.Int64Attribute{
 				Optional:    true,
 				Computed:    true,
-				Description: "Desired replica count. Defaults to 1. Changes are applied via the scale endpoint.",
+				Description: "Desired replica count. Defaults to 1. A change on its own is a scale; alongside an image, command or env change it rides the same update.",
 			},
 			"command": schema.ListAttribute{
 				Optional:    true,
 				ElementType: types.StringType,
-				Description: "Override command (argv). Set only at create time.",
+				Description: "Override command (argv). Changing it updates the service in place; removing it goes back to the image default.",
 			},
 			"env": schema.MapAttribute{
 				Optional:    true,
 				ElementType: types.StringType,
-				Description: "Environment variables as a key/value map.",
+				Description: "Plain environment variables as a key/value map. Changing it updates the service in place and replaces its plain variables as a whole; secret variables set elsewhere are kept.",
 			},
 			"node_id": schema.StringAttribute{
 				Optional:    true,
@@ -225,33 +226,43 @@ func (r *serviceResource) Update(ctx context.Context, req resource.UpdateRequest
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	// One deadline for the whole update (a scale and a redeploy share it). A
-	// failed wait fails the apply and keeps the prior state; the next refresh
-	// reads the replica count the controller now wants.
+	// The update's deployment wait is bounded by this deadline. A failed wait
+	// fails the apply and keeps the prior state; the next refresh reads the
+	// image and replica count the controller now wants.
 	deadline := time.Now().Add(timeout)
 
-	// Scale if the desired replica count changed.
-	if !plan.Replicas.IsNull() && !plan.Replicas.IsUnknown() && plan.Replicas.ValueInt64() != state.Replicas.ValueInt64() {
+	replicasChanged := !plan.Replicas.IsNull() && !plan.Replicas.IsUnknown() && plan.Replicas.ValueInt64() != state.Replicas.ValueInt64()
+	imageChanged := !plan.Image.Equal(state.Image)
+	commandChanged := !plan.Command.Equal(state.Command)
+	envChanged := !plan.Env.Equal(state.Env)
+
+	switch {
+	case imageChanged || commandChanged || envChanged:
+		// One PATCH /services/{id} carries every changed field (a replica
+		// change too) as a single rollout of the live spec. It runs the
+		// controller's admission checks, so a guardrail can refuse it.
+		body, d := serviceUpdateBody(ctx, plan, imageChanged, commandChanged, envChanged, replicasChanged)
+		resp.Diagnostics.Append(d...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+		ref, err := r.client.UpdateService(ctx, id, body)
+		if err != nil {
+			resp.Diagnostics.AddError("Error updating service", err.Error())
+			return
+		}
+		if _, d := waitForDeployment(ctx, r.client, ref, deadline, "service "+state.Name.ValueString()+" to update"); d.HasError() {
+			resp.Diagnostics.Append(d...)
+			return
+		}
+	case replicasChanged:
+		// A replica change alone is a scale (its own, narrower policy action).
 		ref, err := r.client.ScaleService(ctx, id, plan.Replicas.ValueInt64())
 		if err != nil {
 			resp.Diagnostics.AddError("Error scaling service", err.Error())
 			return
 		}
 		if _, d := waitForDeployment(ctx, r.client, ref, deadline, "service "+state.Name.ValueString()+" to scale"); d.HasError() {
-			resp.Diagnostics.Append(d...)
-			return
-		}
-	}
-
-	// Redeploy if the image changed. The REST API exposes restart as the in-place
-	// redeploy primitive; image changes are picked up on redeploy.
-	if !plan.Image.Equal(state.Image) {
-		ref, err := r.client.RestartService(ctx, id)
-		if err != nil {
-			resp.Diagnostics.AddError("Error redeploying service", err.Error())
-			return
-		}
-		if _, d := waitForDeployment(ctx, r.client, ref, deadline, "service "+state.Name.ValueString()+" to redeploy"); d.HasError() {
 			resp.Diagnostics.Append(d...)
 			return
 		}
@@ -296,6 +307,39 @@ func (r *serviceResource) mapServiceToState(svc *client.Service, m *serviceModel
 	m.Status = types.StringValue(svc.Status)
 }
 
+// serviceUpdateBody builds the PATCH /services/{id} body from the changed
+// attributes. A removed command or env is sent as an empty list, which clears
+// it on the service.
+func serviceUpdateBody(ctx context.Context, plan serviceModel, image, command, env, replicas bool) (client.UpdateServiceRequest, diag.Diagnostics) {
+	var body client.UpdateServiceRequest
+	var diags diag.Diagnostics
+	if image {
+		v := plan.Image.ValueString()
+		body.Image = &v
+	}
+	if replicas {
+		v := plan.Replicas.ValueInt64()
+		body.Replicas = &v
+	}
+	if command {
+		cmd, d := listToStrings(ctx, plan.Command)
+		diags.Append(d...)
+		if cmd == nil {
+			cmd = []string{}
+		}
+		body.Command = &cmd
+	}
+	if env {
+		vars, d := mapToEnv(ctx, plan.Env)
+		diags.Append(d...)
+		if vars == nil {
+			vars = []client.EnvVar{}
+		}
+		body.Env = &vars
+	}
+	return body, diags
+}
+
 // listToStrings flattens a types.List of strings.
 func listToStrings(ctx context.Context, l types.List) ([]string, diag.Diagnostics) {
 	if l.IsNull() || l.IsUnknown() {
@@ -320,5 +364,6 @@ func mapToEnv(ctx context.Context, m types.Map) ([]client.EnvVar, diag.Diagnosti
 	for k, v := range raw {
 		out = append(out, client.EnvVar{Key: k, Value: v})
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
 	return out, d
 }

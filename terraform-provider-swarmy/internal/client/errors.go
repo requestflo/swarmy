@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 )
 
 // Problem is the RFC 9457 problem+json payload returned by the swarmy REST API
@@ -15,6 +16,17 @@ type Problem struct {
 	Detail     string `json:"detail,omitempty"`
 	Instance   string `json:"instance,omitempty"`
 	SwarmyCode string `json:"swarmy_code,omitempty"`
+	// Violations lists the rules an admission refusal (412) broke: guardrails,
+	// exposure, image policy or the platform network wall.
+	Violations []Violation `json:"violations,omitempty"`
+}
+
+// Violation is one admission rule a deploy broke (the GuardrailProblem DTO).
+type Violation struct {
+	Rule     string `json:"rule"`
+	Severity string `json:"severity"`
+	Message  string `json:"message"`
+	Resource string `json:"resource,omitempty"`
 }
 
 // APIError wraps a non-2xx HTTP response from the swarmy API. When the body was
@@ -31,6 +43,9 @@ func (e *APIError) Error() string {
 		msg := e.Problem.Title
 		if e.Problem.Detail != "" {
 			msg = fmt.Sprintf("%s: %s", e.Problem.Title, e.Problem.Detail)
+		}
+		for _, v := range e.Problem.Violations {
+			msg += fmt.Sprintf("\n  - %s (%s): %s", v.Rule, v.Severity, strings.TrimSpace(v.Message))
 		}
 		if e.Problem.SwarmyCode != "" {
 			return fmt.Sprintf("swarmy API error %d (%s): %s", e.StatusCode, e.Problem.SwarmyCode, msg)

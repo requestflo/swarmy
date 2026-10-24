@@ -177,7 +177,7 @@ SWARMY_ENDPOINT=… SWARMY_API_KEY=swk_… make testacc
 
 | Terraform | REST backing | Lifecycle |
 |---|---|---|
-| `swarmy_service` | `POST/GET/DELETE /services`, `/services/{id}/scale`, `/services/{id}/restart`, `GET /deployments/{id}` | Blocking: create, scale and redeploy (202) poll the deployment to a terminal phase, then read back. `name`/`node_id` force replace; `replicas` → scale; `image` → restart/redeploy. `timeouts { create, update }` (default 20m). Import by ID. |
+| `swarmy_service` | `POST/GET/PATCH/DELETE /services`, `/services/{id}/scale`, `GET /deployments/{id}` | Blocking: create, update and scale (202) poll the deployment to a terminal phase, then read back. `name`/`node_id` force replace; an `image`, `command` or `env` change is one `PATCH /services/{id}` (a replica change rides along), which applies the new image and can be refused by a guardrail (412, the apply fails listing each violation); `replicas` alone → scale. `env` is the plain variables as a whole; secret variables set elsewhere are kept. `timeouts { create, update }` (default 20m). Import by ID. |
 | `swarmy_stack` | `POST/GET/DELETE /stacks`, `GET /deployments/{id}`, `GET /deploys/{id}/events` | Blocking: deploy (202) polls `stack:<name>` until every service converges, then reads back. Update redeploys the compose source. `timeouts { create, update }` (default 20m). Import by ID. |
 | `swarmy_domain` | `GET/POST /ingress/domains`, `DELETE /ingress/domains/{id}` | Plain CRUD. No update endpoint, so attribute changes delete+recreate. Read filters the list by ID. Import by ID. |
 | `swarmy_api_key` | `POST/GET/DELETE /api-keys` | Token returned once on create, stored sensitive in state. `name`/`scopes` force replace. |
@@ -195,7 +195,7 @@ SWARMY_ENDPOINT=… SWARMY_API_KEY=swk_… make testacc
   paths to the real endpoint once it lands. Everything else maps to endpoints
   present in `openapi.json`.
 - **Deploys block.** After a 202 the provider polls `GET /deployments/{id}`
-  (the service id when scale/restart answer an empty `deployment_id`) every
+  (the service id when a scale answers an empty `deployment_id`) every
   few seconds until the phase is `complete` (success) or `failed`,
   `rolledback` or `canceled` (the apply fails). Any other phase keeps waiting;
   a 404 counts as "not visible yet" for two minutes. When it fails or the
@@ -204,7 +204,7 @@ SWARMY_ENDPOINT=… SWARMY_API_KEY=swk_… make testacc
   create that fails is kept in state as tainted, so the next apply replaces it.
   A failed update keeps the prior state: a stack redeploys on the next apply
   (its old `compose_source` is still in state), while a service's next refresh
-  reads the replica count the controller now wants.
+  reads the image and replica count the controller now wants.
 - **Node labels are write-only.** The Node DTO returns neither labels nor
   availability, so `swarmy_node` keeps `labels` from state (no drift
   detection; empty after import) and derives `availability` from
@@ -214,10 +214,7 @@ SWARMY_ENDPOINT=… SWARMY_API_KEY=swk_… make testacc
   `revokeJoinToken`) and `swarmy_ingress` for the ingress config (driver,
   topology, target nodes, on-demand TLS, tunnel, DNS provider are tRPC-only
   under `ingress.*`). Per-host routing is `swarmy_domain`.
-- **Changing `image` does not apply the new image yet.** It calls
-  `/services/{id}/restart`, which redeploys the current spec; the REST API has
-  no service-update route (tRPC `updateService` has no REST twin).
-- **`image`/`command`/`env`/`compose_source` are not echoed** by the read DTOs,
+- **`command`/`env`/`compose_source` are not echoed** by the read DTOs,
   so they are preserved from plan/state rather than refreshed from the API.
 
 ## Publish (future)

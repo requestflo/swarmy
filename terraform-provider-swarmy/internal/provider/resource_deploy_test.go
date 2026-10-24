@@ -47,6 +47,11 @@ type fakeDeployAPI struct {
 	readEarly []string
 	scales    []string
 	deletes   []string
+	restarts  []string
+	// patches records each PATCH /services/{id} body.
+	patches []map[string]any
+	// refusePatch answers PATCH /services/{id} with this admission 412.
+	refusePatch map[string]any
 }
 
 func newFakeDeployAPI(t *testing.T, converge int) (*fakeDeployAPI, *httptest.Server) {
@@ -117,9 +122,33 @@ func (f *fakeDeployAPI) serve(w http.ResponseWriter, r *http.Request) {
 		if seg[2] == "scale" {
 			s["replicas"] = map[string]any{"desired": body["replicas"], "running": body["replicas"]}
 			f.scales = append(f.scales, fmt.Sprint(body["replicas"]))
+		} else {
+			f.restarts = append(f.restarts, seg[1])
 		}
 		f.pending[seg[1]] = f.converge
 		reply(202, map[string]any{"id": seg[1], "deployment_id": ""})
+
+	case r.Method == "PATCH" && len(seg) == 2 && seg[0] == "services":
+		s := f.serviceByIDOrName(seg[1])
+		if s == nil {
+			notFound()
+			return
+		}
+		f.patches = append(f.patches, body)
+		if f.refusePatch != nil {
+			w.Header().Set("Content-Type", "application/problem+json")
+			reply(412, f.refusePatch)
+			return
+		}
+		if img, ok := body["image"]; ok {
+			s["image"] = img
+		}
+		if rep, ok := body["replicas"]; ok {
+			s["replicas"] = map[string]any{"desired": rep, "running": rep}
+		}
+		id := s["id"].(string)
+		f.pending[id] = f.converge
+		reply(202, map[string]any{"id": id, "deployment_id": id})
 
 	case len(seg) == 2 && seg[0] == "services":
 		// Like the controller, a service resolves by id or name.
