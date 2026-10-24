@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { AttachCacheInput, CACHE_EVICTION_POLICIES, CACHE_PERSISTENCE_MODES, ProvisionCacheInput } from '@swarmy/core';
+import {
+  AttachCacheInput,
+  CACHE_EVICTION_POLICIES,
+  CACHE_PERSISTENCE_MODES,
+  CacheStatsHistoryInput,
+  ProvisionCacheInput,
+} from '@swarmy/core';
 import { orgProcedure, router } from '../trpc';
 import { abacProcedure, resolveStackByName, resolveStackService } from '../abac';
 import {
@@ -18,6 +24,7 @@ import {
   setCacheReplicas,
 } from '../services/cache.service';
 import { setCachePolicy } from '../services/cache-policy.service';
+import { cacheStatsHistory } from '../services/cache-history';
 
 const stackName = z
   .string()
@@ -97,6 +104,9 @@ export const managedCacheRouter = router({
 
   /** Live INFO sample from the primary (falls back to the reconcile stamp). */
   stats: orgProcedure.input(clusterRef).query(({ ctx, input }) => cacheStats(ctx, input)),
+
+  /** Hit rate, ops/s and memory per slot (default 24 h) from telemetry.db — org-scoped. */
+  statsHistory: orgProcedure.input(CacheStatsHistoryInput).query(({ ctx, input }) => cacheStatsHistory(ctx, input)),
 
   /** BGSAVE + restic snapshot of the data volume (tag `cache:<cluster>`). */
   backup: orgProcedure

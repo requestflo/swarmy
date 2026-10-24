@@ -44,6 +44,7 @@ export * from './prometheus-text';
 export * from './edge-traffic';
 export * from './edge-traffic-hosts';
 export * from './node-stats-history';
+export * from './data-history';
 export * from './image-ref';
 export * from './bucket-cors';
 export * from './bucket-lifecycle';

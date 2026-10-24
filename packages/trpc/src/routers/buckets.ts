@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   AttachBucketInput,
+  BucketSizeHistoryInput,
   CreateBucketInput,
   CreateBucketKeyInput,
   DeleteBucketInput,
@@ -41,6 +42,7 @@ import {
 import { applyObjectStorageExposure, edgeMeshIps, orgDashboardDomain } from '../services/ingress.service';
 import { presignTarget, publicS3EndpointFor } from '../services/public-s3';
 import type { OrgContext } from '../context';
+import { bucketSizeHistory } from '../services/bucket-history';
 import { bucketRuleProcedures } from './bucket-rules';
 
 const accessMode = z.enum(BUCKET_ACCESS_MODES as [BucketAccessMode, ...BucketAccessMode[]]);
@@ -74,6 +76,9 @@ async function accessView(ctx: OrgContext, bucketId: string) {
 export const objectStorageRouter = router({
   /** Store state + every bucket with usage — the buckets page's main query. */
   overview: orgProcedure.query(({ ctx }) => overview(ctx)),
+
+  /** One bucket's size + objects per hour (default 7 days) from telemetry.db — org-scoped. */
+  sizeHistory: orgProcedure.input(BucketSizeHistoryInput).query(({ ctx, input }) => bucketSizeHistory(ctx, input)),
 
   /** Bucket detail: usage, per-key grants, quota, website flag, attachments. */
   get: orgProcedure

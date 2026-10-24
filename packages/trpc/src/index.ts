@@ -475,3 +475,12 @@ export { observabilityStore, orgErrorRates, type ServiceErrorRate } from './serv
 export { flushTrafficRollups, pruneTrafficRollups } from './services/traffic.service';
 // ── studio slow queries (24 h): the pg-slow-queries worker's snapshot + prune ──
 export { prunePgQuerySamples, slowQueryTargets, snapshotSlowQueries } from './services/studio-slow.service';
+
+// ── managed data history: the reconcile workers' samplers + the retention prune ──
+export { cacheCountersOf, type CacheCounters } from './services/data-history-sample';
+export {
+  pruneDataHistory,
+  recordBucketHistory,
+  recordCacheHistory,
+  recordQueueHistory,
+} from './services/data-history-record';

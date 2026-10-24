@@ -311,7 +311,10 @@ async function samplesStore(ctx: OrgContext): Promise<OrgClickhouse | null> {
 export interface SampledCluster {
   stack: string;
   cluster: string;
+  prefix: string;
   queues: BullQueueSample[];
+  /** queue name → this tick's rate point (null on a queue's seeding tick). */
+  rates: Record<string, RatePoint | null>;
 }
 
 /**
@@ -364,11 +367,13 @@ export async function sampleQueueClusters(
     } catch {
       continue;
     }
-    out.push({ stack: p.stack, cluster: p.cluster, queues: reply.queues });
+    const sampled: SampledCluster = { stack: p.stack, cluster: p.cluster, prefix, queues: reply.queues, rates: {} };
+    out.push(sampled);
     for (const q of reply.queues) {
       const key = rateKey(ctx.activeOrgId, { ...p, prefix }, q.name);
       const point = ratePoint(cursors.get(key), now, q.events);
       cursors.set(key, { lastId: q.events.lastId, at: now });
+      sampled.rates[q.name] = point;
       if (!point) continue;
       latestRates.set(key, point);
       rows.push({

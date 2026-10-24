@@ -135,10 +135,13 @@ describe('queue studio service', () => {
     });
     const first = await sampleQueueClusters(ctx);
     expect(first[0]!.queues[0]!.name).toBe('emails');
+    expect(first[0]!.prefix).toBe('bull');
+    expect(first[0]!.rates).toEqual({ emails: null });
     expect(seen[0]).toEqual({});
     await Bun.sleep(20);
-    await sampleQueueClusters(ctx);
+    const second = await sampleQueueClusters(ctx);
     expect(seen[1]).toEqual({ emails: '5-0' });
+    expect(second[0]!.rates.emails).toMatchObject({ completed: 6, failed: 2 });
     const ov = await studioOverview(ctx, { stack: 'shop', cluster: 'jobs', prefix: 'bull' });
     expect(ov.queues[0]!.rate).toMatchObject({ completed: 6, failed: 2, failureRatio: 0.25 });
   });

@@ -3,6 +3,7 @@ import {
   AttachQueueInput,
   QueueBatchInput,
   QueueDlqListInput,
+  QueueDepthHistoryInput,
   QueueRefInput,
   UpdateQueueInput,
 } from '@swarmy/core';
@@ -27,6 +28,7 @@ import {
   studioOverview,
   studioRates,
 } from '../services/queue-studio.service';
+import { queueDepthHistory } from '../services/queue-history';
 import {
   attachQueue,
   dlqList,
@@ -72,6 +74,9 @@ export const queuesRouter = router({
 
   /** Live depth sample from the cache primary (falls back to the label stamp). */
   stats: orgProcedure.input(QueueRefInput).query(({ ctx, input }) => queueStats(ctx, input)),
+
+  /** A BullMQ queue's depth, worker copies and finished jobs per slot (default 6 h) — org-scoped. */
+  depthHistory: orgProcedure.input(QueueDepthHistoryInput).query(({ ctx, input }) => queueDepthHistory(ctx, input)),
 
   /** Bounded retry batch: BullMQ failed → wait. */
   retryFailed: abacProcedure('data.write', resolveStackByName)
