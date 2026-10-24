@@ -5,7 +5,8 @@ import type { RouteProtection } from '@/components/ingress/protection-model';
  * shaped like the real renderer's (packages/ingress render/caddyfile.ts
  * protectionLines): before the proxy, in the same order, with the same matcher
  * and zone names. Country rules render nothing, as for real without a GeoIP
- * database on the edge.
+ * database on the edge. A password renders after the rate limit, with the
+ * hash hidden the way the real preview hides it.
  */
 export interface ProtectedRoute {
   host: string;
@@ -37,5 +38,7 @@ export function protectionLines(r: ProtectedRoute): string[] {
     const by = rl.key === 'header' && rl.header ? `{header.${rl.header}}` : '{remote_host}';
     out.push('rate_limit {', `  zone rl_${k} {`, `    key ${by}`, `    events ${rl.requests}`, `    window ${rl.windowSeconds}s`, '  }', '}');
   }
+  const users = p.basicAuth?.users ?? [];
+  if (users.length) out.push('basic_auth {', ...users.map((u) => `  ${u.username} <bcrypt hash, sealed in swarmy>`), '}');
   return out;
 }

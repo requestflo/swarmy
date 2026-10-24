@@ -4,6 +4,7 @@ import { HostRedirectSchema } from './www';
 import { DnsChallengeSchema } from './dns-challenge';
 import { RouteAuthSchema } from './app-auth';
 import { RouteRumSchema } from './rum';
+import { BasicAuthRuleInputSchema, BasicAuthRuleSchema, RouteBasicAuthSchema } from './basic-auth';
 
 // Wire/render types are owned by @swarmy/core so the agent and the controller
 // share one definition. The ingress package re-exports them.
@@ -184,8 +185,20 @@ export const RouteProtectionSchema = z.object({
   countryDeny: z.array(CountryCodeSchema).optional(),
   /** WAF-lite (scanner paths / methods / query patterns) — plain matchers. */
   waf: WafRuleSchema.optional(),
+  /**
+   * "Require a password" (HTTP basic auth). Users and vault REFERENCES only —
+   * the bcrypt hashes are sealed controller-side and resolved at render time
+   * into `DomainRoute.basicAuth`. See `basic-auth.ts`. Optional, not defaulted.
+   */
+  basicAuth: BasicAuthRuleSchema.optional(),
 });
 export type RouteProtection = z.infer<typeof RouteProtectionSchema>;
+
+/** A protection as a write carries it: basic-auth users may bring a new `password`. */
+export const RouteProtectionInputSchema = RouteProtectionSchema.extend({
+  basicAuth: BasicAuthRuleInputSchema.optional(),
+});
+export type RouteProtectionInput = z.infer<typeof RouteProtectionInputSchema>;
 
 /**
  * One region-local candidate upstream for a route (geo-edge). `service` is a
@@ -257,6 +270,13 @@ export const DomainRouteSchema = z.object({
    * driver. Absent ⇒ the org's driver.
    */
   driver: z.string().optional(),
+  /**
+   * "Require a password": the route's basic-auth users with their bcrypt
+   * hashes, controller-resolved from the vault for `protection.basicAuth`.
+   * Render-only — never on a label. Empty users ⇒ the route refuses every
+   * request (fail closed). Absent ⇒ byte-identical legacy output.
+   */
+  basicAuth: RouteBasicAuthSchema.optional(),
 });
 export type DomainRoute = z.infer<typeof DomainRouteSchema>;
 

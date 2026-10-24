@@ -2,6 +2,7 @@ import * as React from 'react';
 import { Section } from '@/components/calm';
 import { Segmented } from '@/components/domains/segmented';
 import type { RouteProtection } from '@/components/ingress/protection-model';
+import { PasswordCard } from './password-card';
 import { ProtectionCard } from './protection-card';
 import { RATE_PRESETS, isOn, ruleSay, rulesOn, switchedOff, switchedOn, withRate } from './protection-rules';
 import { TypedRuleCard } from './typed-rule-card';
@@ -64,6 +65,7 @@ export function ProtectionsSection({ host, service, protection: p, saving, save 
         <TypedRuleCard key={`c-${host}`} id="countries" protection={p} service={service} saving={saving} save={save} />
         <TypedRuleCard key={`i-${host}`} id="ips" protection={p} service={service} saving={saving} save={save} />
         <TypedRuleCard key={`s-${host}`} id="size" protection={p} service={service} saving={saving} save={save} />
+        <PasswordCard key={`p-${host}`} protection={p} service={service} saving={saving} save={save} />
       </div>
     </Section>
   );

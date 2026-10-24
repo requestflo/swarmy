@@ -1344,3 +1344,144 @@ describe('caddy object storage — per-bucket exposure', () => {
   });
 });
 
+
+describe('caddy basic auth — "Require a password" (basic_auth)', () => {
+  const H1 = '$2a$04$s9UrunJ5THGBb7K3rf97.O.h.mHLDwhTHpeBbrK4gp4cfHTgn2ioK';
+  const H2 = '$2a$04$OuzdkFUwmQWNORTufjDmcuQ7T1AhAlBxB282nhIoh5MK5P.sIo0EC';
+  const refs = (...names: string[]) => ({
+    users: names.map((username, i) => ({ username, passwordSecret: `rpw_${String(i).repeat(16)}` })),
+  });
+
+  it('GOLDEN: a password-only root route runs basic_auth in a literal-order route before the proxy', () => {
+    const out = buildCaddyfile(
+      cfg([
+        {
+          domain: 'admin.xyz.com',
+          service: 'admin',
+          port: 8080,
+          pathPrefix: '/',
+          tls: 'auto',
+          protection: { basicAuth: refs('alice', 'bob') },
+          basicAuth: { users: [{ username: 'alice', hash: H1 }, { username: 'bob', hash: H2 }] },
+        },
+      ]),
+    );
+    expect(out).toBe(
+      [
+        'admin.xyz.com {',
+        '  route {',
+        '    basic_auth {',
+        `      alice ${H1}`,
+        `      bob ${H2}`,
+        '    }',
+        '    reverse_proxy admin:8080 {',
+        '      stream_close_delay 5m',
+        '    }',
+        '  }',
+        '}',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  it('GOLDEN: blocks and the rate limit come first, then the password; the cache is skipped', () => {
+    const out = buildCaddyfile(
+      cfg([
+        { domain: 'xyz.com', service: 'web', port: 3000, pathPrefix: '/', tls: 'auto' },
+        {
+          domain: 'xyz.com',
+          service: 'admin',
+          port: 8080,
+          pathPrefix: '/admin',
+          tls: 'auto',
+          protection: {
+            ipDeny: ['203.0.113.7'],
+            rateLimit: { requests: 10, windowSeconds: 60, key: 'ip' },
+            cache: { ttlSeconds: 60 },
+            basicAuth: refs('alice'),
+          },
+          basicAuth: { users: [{ username: 'alice', hash: H1 }] },
+        },
+      ]),
+    );
+    expect(out).not.toContain('order cache');
+    expect(siteBlock(out, 'xyz.com')).toEqual([
+      '  handle /admin* {',
+      '    route {',
+      '      @deny_xyz_com_admin remote_ip 203.0.113.7',
+      '      abort @deny_xyz_com_admin',
+      '      rate_limit {',
+      '        zone rl_xyz_com_admin {',
+      '          key {remote_host}',
+      '          events 10',
+      '          window 60s',
+      '        }',
+      '      }',
+      '      basic_auth {',
+      `        alice ${H1}`,
+      '      }',
+      '      reverse_proxy admin:8080 {',
+      '        stream_close_delay 5m',
+      '      }',
+      '    }',
+      '  }',
+      '  handle {',
+      '    reverse_proxy web:3000 {',
+      '      stream_close_delay 5m',
+      '    }',
+      '  }',
+    ]);
+  });
+
+  it('the password runs before the swarmy login gate (forward_auth) when both are on', () => {
+    const out = buildCaddyfile(
+      cfg([
+        {
+          domain: 'app.xyz.com',
+          service: 'web',
+          port: 3000,
+          pathPrefix: '/',
+          tls: 'auto',
+          protection: { basicAuth: refs('alice') },
+          basicAuth: { users: [{ username: 'alice', hash: H1 }] },
+          auth: { upstream: 'swarmy_controller:3021', verifyPath: '/_app-auth/verify?org=org_1' },
+        },
+      ]),
+    );
+    const block = siteBlock(out, 'app.xyz.com');
+    const basic = block.findIndex((l) => l.trim() === 'basic_auth {');
+    const fwd = block.findIndex((l) => l.trim().startsWith('forward_auth'));
+    expect(basic).toBeGreaterThan(block.findIndex((l) => l.trim() === 'route {'));
+    expect(basic).toBeLessThan(fwd);
+  });
+
+  it('fails closed: a password the controller could not resolve refuses every request', () => {
+    const unresolved = buildCaddyfile(
+      cfg([{ domain: 'admin.xyz.com', service: 'admin', port: 8080, protection: { basicAuth: refs('alice') } }]),
+    );
+    const empty = buildCaddyfile(
+      cfg([{ domain: 'admin.xyz.com', service: 'admin', port: 8080, protection: { basicAuth: refs('alice') }, basicAuth: { users: [] } }]),
+    );
+    for (const out of [unresolved, empty]) {
+      const block = siteBlock(out, 'admin.xyz.com');
+      expect(block).toContain('    respond "This address needs a password that is not set up yet" 503');
+      expect(out).not.toContain('basic_auth');
+      expect(block.findIndex((l) => l.includes('respond'))).toBeLessThan(block.findIndex((l) => l.includes('reverse_proxy')));
+    }
+  });
+
+  it('a label never carries a password or a hash: the protection schema keeps names and references only', () => {
+    const parsed = cfg([
+      {
+        domain: 'admin.xyz.com',
+        service: 'admin',
+        port: 8080,
+        protection: { basicAuth: { users: [{ username: 'alice', passwordSecret: 'rpw_0000000000000000', password: 'hunter22', hash: H1 }] } },
+      },
+    ]);
+    expect(parsed.domains[0]?.protection?.basicAuth).toEqual({ users: [{ username: 'alice', passwordSecret: 'rpw_0000000000000000' }] });
+    const bad = (users: unknown) => () => cfg([{ domain: 'a.xyz.com', service: 'a', port: 1, protection: { basicAuth: { users } } }]);
+    expect(bad([{ username: 'a b', passwordSecret: 'rpw_0000000000000000' }])).toThrow();
+    expect(bad(refs('al', 'al').users)).toThrow();
+  });
+});

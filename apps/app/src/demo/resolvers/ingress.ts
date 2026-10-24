@@ -4,6 +4,7 @@ import type { DemoStore, DomainResolvers } from '../types';
 import type { EdgeState } from '@/components/ingress/edge-runtime';
 import { advance, checkStatus, demoDns, demoEdges, registrarGuidance, type DemoCheck, type DemoEdge } from './ingress-domains';
 import { demoCaddyfile, type DemoCaddyRoute } from './ingress-caddyfile';
+import { sealDemoPasswords } from './ingress-passwords';
 
 /**
  * Ingress demo resolvers — the Networking surface (driver chooser + rendered-config
@@ -27,6 +28,8 @@ interface RouteProtection {
   bodyMaxSize?: string;
   blockBots: boolean;
   requiredHeaders: { name: string; value?: string }[];
+  /** Require a password: users + where each hash is sealed (a write may bring a new `password`). */
+  basicAuth?: { users: { username: string; passwordSecret?: string; password?: string }[] };
 }
 
 /** Mirror of the controller's `DomainView` (ingress.service.ts). */
@@ -456,7 +459,7 @@ export const ingress: DomainResolvers = {
               r.driver && VALID_DRIVERS.has(r.driver as IngressDriverId) && r.driver !== 'none'
                 ? (r.driver as IngressDriverId)
                 : null,
-            protection: r.protection ?? null,
+            protection: sealDemoPasswords(r.protection) ?? null,
             canaryPct: match?.canaryPct ?? null,
           };
         }),
@@ -746,12 +749,14 @@ export const ingress: DomainResolvers = {
           tls: 'custom',
           pathPrefix: null,
           ingressDriver: null,
+          // An internal dashboard: office addresses only, and a shared password.
           protection: {
             rateLimit: undefined,
             ipAllow: ['10.0.0.0/8'],
             ipDeny: [],
             blockBots: false,
             requiredHeaders: [],
+            basicAuth: { users: [{ username: 'ops', passwordSecret: 'rpw_0d3a0d3a0d3a0d3a0d3a0d3a' }] },
           },
           canaryPct: null,
         },

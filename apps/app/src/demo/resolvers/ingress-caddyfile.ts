@@ -24,8 +24,10 @@ export interface DemoCaddyRoute {
 }
 
 function proxy(r: DemoCaddyRoute, pad: string): string[] {
-  const guard = protectionLines({ host: r.host, path: r.pathPrefix, protection: r.protection ?? null }).map((l) => `${pad}${l}`);
-  return [...guard, ...upstream(r, pad)];
+  const inner = [...protectionLines({ host: r.host, path: r.pathPrefix, protection: r.protection ?? null }), ...upstream(r, '')];
+  // A password route keeps its literal order in one `route` block, as the real renderer does.
+  const body = r.protection?.basicAuth?.users.length ? ['route {', ...inner.map((l) => `  ${l}`), '}'] : inner;
+  return body.map((l) => `${pad}${l}`);
 }
 
 function upstream(r: DemoCaddyRoute, pad: string): string[] {

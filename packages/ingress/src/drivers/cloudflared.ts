@@ -54,7 +54,15 @@ export class CloudflaredDriver implements IngressDriver {
         message: 'cloudflared requires a run token or tunnel credentials (resolved from the vault)',
       });
     }
-    return errors.length ? { ok: false, errors } : { ok: true };
+    // The tunnel proxies straight to each service: no edge runs basic_auth.
+    const warnings = config.domains
+      .filter((d) => d.basicAuth || d.protection?.basicAuth)
+      .map((d) => ({
+        path: `domains.${d.domain}.protection.basicAuth`,
+        message: `${d.domain} asks for a password, but a Cloudflare tunnel does not enforce it — serve it through Caddy, or protect it in Cloudflare Access`,
+      }));
+    const extra = warnings.length ? { warnings } : {};
+    return errors.length ? { ok: false, errors, ...extra } : { ok: true, ...extra };
   }
 
   render(full: IngressConfig): RenderedConfig {

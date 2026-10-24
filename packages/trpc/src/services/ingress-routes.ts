@@ -146,6 +146,7 @@ export function compactProtection(p: RouteProtection): RouteProtection | undefin
   if (p.countryAllow && p.countryAllow.length > 0) out.countryAllow = p.countryAllow;
   if (p.countryDeny && p.countryDeny.length > 0) out.countryDeny = p.countryDeny;
   if (p.waf) out.waf = p.waf;
+  if (p.basicAuth && p.basicAuth.users.length > 0) out.basicAuth = p.basicAuth;
   const active =
     out.rateLimit !== undefined ||
     out.ipAllow.length > 0 ||
@@ -156,7 +157,8 @@ export function compactProtection(p: RouteProtection): RouteProtection | undefin
     out.cache !== undefined ||
     out.countryAllow !== undefined ||
     out.countryDeny !== undefined ||
-    out.waf !== undefined;
+    out.waf !== undefined ||
+    out.basicAuth !== undefined;
   return active ? out : undefined;
 }
 

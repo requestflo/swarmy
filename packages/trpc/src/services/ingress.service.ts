@@ -19,6 +19,7 @@ import {
   type TunnelOptions,
   type WwwMode,
   appAuthVerifyPath,
+  redactBcryptHashes,
 } from '@swarmy/ingress';
 import type { IngressStatus, RenderedConfig } from '@swarmy/core/protocol';
 import { meshControlVhosts } from './mesh-control.service';
@@ -56,6 +57,7 @@ import {
 } from './ingress-routes';
 import { regionUpstreamsFor } from './ingress-regions';
 import { rumRouteResolver } from './rum/rum-settings.service';
+import { basicAuthResolver } from './ingress-basic-auth';
 import { attachRoutedServicesToEdge, servicesMissingEdge } from './ingress-network';
 import { publicIpFromLabels } from './node.service';
 import { objectStoreState } from './buckets.service';
@@ -342,6 +344,12 @@ interface IngressSettings {
    * (Legacy `haStorage` Redis settings from older builds are ignored.)
    */
   certStorage?: EdgeCertStorageSettings;
+  /**
+   * Route passwords ("Require a password"): `rpw_<hex>` reference → the
+   * vault-sealed bcrypt hash. Labels carry only the reference; resolved at
+   * render time (`ingress-basic-auth.ts`), never returned to a client.
+   */
+  routePasswords?: Record<string, string>;
   /** Cloudflare tunnel coords (non-secret) + encrypted secret refs. */
   tunnel?: {
     provider?: 'cloudflare';
@@ -588,6 +596,8 @@ async function loadOrgConfig(
   const liveServices = ctx.hub.liveInventory(ctx.activeOrgId).services;
   // Web analytics / session replay: per-app `swarmy.rum` settings + the route's own toggle.
   const rumFor = rumRouteResolver(ctx, activatorUpstream());
+  // Require a password: the label names users + vault references; the edge gets the hashes.
+  const basicAuthFor = basicAuthResolver(persisted as unknown as Record<string, unknown>);
   const allDomains = serviceRoutes.map(({ serviceName, stack, route, expose }) => ({
       domain: route.host,
       pathPrefix: route.path ?? '/',
@@ -603,6 +613,7 @@ async function loadOrgConfig(
       protection: route.protection,
       regionUpstreams: regionUpstreamsFor(serviceName, route.port, liveServices),
       rum: rumFor(stack, route.rum),
+      ...(route.protection?.basicAuth ? { basicAuth: basicAuthFor(route.protection) } : {}),
       // Protect my app: forward-auth to the controller (the activator's dial target).
       ...(route.access?.login
         ? { auth: { upstream: activatorUpstream(), verifyPath: appAuthVerifyPath(ctx.activeOrgId) } }
@@ -1344,7 +1355,9 @@ export async function previewConfig(
   driver?: IngressDriverId,
 ): Promise<RenderedConfig> {
   const config = await loadOrgConfig(ctx);
-  return previewConfigPkg({ ...config, driver: driver ?? config.driver, enabled: true });
+  const rendered = previewConfigPkg({ ...config, driver: driver ?? config.driver, enabled: true });
+  // Members read the preview: route-password hashes stay sealed in it.
+  return JSON.parse(redactBcryptHashes(JSON.stringify(rendered))) as RenderedConfig;
 }
 
 /**

@@ -10,6 +10,7 @@ export function domainWords(d: StackDomain): { say: string; word: string; tone: 
     p && (p.ipDeny.length || p.ipAllow.length) ? 'IP rules' : null,
     p?.countryDeny?.length || p?.countryAllow?.length ? 'country rules' : null,
     p?.bodyMaxSize ? `uploads up to ${p.bodyMaxSize}` : null,
+    p?.basicAuth?.users.length ? 'a password' : null,
   ].filter((x): x is string => x !== null);
   const guarded = guards.length ? ` Protected: ${guards.join(', ')}.` : ' No protections yet.';
   if (!d.serving) return { say: `The front door isn’t serving yet.${guarded}`, word: 'Offline', tone: 'bad' };

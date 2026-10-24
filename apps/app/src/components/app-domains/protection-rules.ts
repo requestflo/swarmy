@@ -100,7 +100,8 @@ export function ruleSay(p: RouteProtection | null, id: RuleId, service: string):
   }
 }
 
-/** How many of the cards are on (the flow strip's "N protections on"). */
+/** How many of the cards are on (the flow strip's "N protections on"), the password card included. */
 export function rulesOn(p: RouteProtection | null): number {
-  return (['rate', 'bots', 'scanners', 'countries', 'ips', 'size'] as const).filter((id) => isOn(p, id)).length;
+  const password = p?.basicAuth?.users.length ? 1 : 0;
+  return (['rate', 'bots', 'scanners', 'countries', 'ips', 'size'] as const).filter((id) => isOn(p, id)).length + password;
 }

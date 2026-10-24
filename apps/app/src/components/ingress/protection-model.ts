@@ -24,6 +24,17 @@ export interface WafRule {
   denyQueryPatterns: string[];
 }
 
+/**
+ * "Require a password": who may sign in. Saved users carry the reference to
+ * their sealed hash (`passwordSecret`); a user being added carries the new
+ * `password` once — the controller hashes and seals it, the label never sees it.
+ */
+export interface BasicAuthUser {
+  username: string;
+  passwordSecret?: string;
+  password?: string;
+}
+
 export interface RouteProtection {
   rateLimit?: RateLimitRule;
   ipAllow: string[];
@@ -35,6 +46,7 @@ export interface RouteProtection {
   countryAllow?: string[];
   countryDeny?: string[];
   waf?: WafRule;
+  basicAuth?: { users: BasicAuthUser[] };
 }
 
 /** Editable string/boolean form state for the inline protection editor. */
@@ -64,6 +76,8 @@ export interface ProtectionDraft {
   wafMethods: string;
   /** One regex per line, 403'd when it matches the query string. */
   wafQueryPatterns: string;
+  /** Carried through untouched: the password card edits it, not this form. */
+  basicAuth?: { users: BasicAuthUser[] };
 }
 
 /** Seed the editor draft from a route's persisted protection (or none). */
@@ -94,6 +108,7 @@ export function toDraft(p: RouteProtection | null | undefined): ProtectionDraft 
     wafScannerPaths: p?.waf?.blockScannerPaths ?? true,
     wafMethods: (p?.waf?.blockMethods ?? []).join(', '),
     wafQueryPatterns: (p?.waf?.denyQueryPatterns ?? []).join('\n'),
+    ...(p?.basicAuth?.users.length ? { basicAuth: p.basicAuth } : {}),
   };
 }
 
@@ -159,7 +174,9 @@ export function fromDraft(d: ProtectionDraft): RouteProtection | null {
       denyQueryPatterns: lines(d.wafQueryPatterns),
     };
   }
+  if (d.basicAuth?.users.length) out.basicAuth = d.basicAuth;
   const active =
+    out.basicAuth !== undefined ||
     out.rateLimit !== undefined ||
     out.ipAllow.length > 0 ||
     out.ipDeny.length > 0 ||
@@ -187,6 +204,7 @@ export function summarizeProtection(p: RouteProtection | null | undefined): stri
   if (countryRules > 0) chips.push(`${countryRules} country rule${countryRules === 1 ? '' : 's'}`);
   if (p.cache) chips.push(`cache ${p.cache.ttlSeconds}s`);
   if (p.waf) chips.push('WAF-lite');
+  if (p.basicAuth?.users.length) chips.push('password');
   if (p.bodyMaxSize) chips.push(`body ≤ ${p.bodyMaxSize}`);
   if (p.blockBots) chips.push('bots blocked');
   const hdrs = p.requiredHeaders?.length ?? 0;

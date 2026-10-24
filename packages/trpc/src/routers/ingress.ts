@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { TlsMode } from '@swarmy/core';
-import { EdgeGeoipSettingSchema, RouteProtectionSchema, WwwModeSchema } from '@swarmy/ingress';
+import { EdgeGeoipSettingSchema, RouteProtectionInputSchema, WwwModeSchema } from '@swarmy/ingress';
 import { getEdgeGeoip, setEdgeGeoip } from '../services/edge-geoip.service';
 import { getAutoAddressBase, setAutoAddressBase } from '../services/auto-address-base.service';
 import { adminProcedure, orgProcedure, router } from '../trpc';
@@ -89,8 +89,12 @@ const routeInput = z.object({
   stripPrefix: z.boolean().optional(),
   middlewares: z.array(z.string()).optional(),
   driver: z.string().optional(),
-  /** Edge protections (rate limit, IP rules, body cap, bots, required headers). */
-  protection: RouteProtectionSchema.optional(),
+  /**
+   * Edge protections (rate limit, IP rules, body cap, bots, required headers,
+   * a password). A basic-auth user may bring a new `password`: it is hashed and
+   * sealed before the label is written, so only its reference is stored.
+   */
+  protection: RouteProtectionInputSchema.optional(),
   /** Apex ↔ www toggle for this route's host. */
   www: WwwModeSchema.optional(),
 });

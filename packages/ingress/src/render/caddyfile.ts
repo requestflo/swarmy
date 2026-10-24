@@ -13,6 +13,7 @@ import {
   type RouteAuth,
 } from '../app-auth';
 import { CADDY_RUM_ORDER, caddyRumDirective, caddyRumHandle, caddyRumSpanAttributes, rumIdentified } from '../rum';
+import { caddyBasicAuthLines, type RouteBasicAuth } from '../basic-auth';
 import type { HostRedirect } from '../www';
 import { caddyDnsTlsLines } from '../dns-challenge';
 
@@ -35,11 +36,24 @@ export const WAF_SCANNER_PATHS: readonly string[] = [
 
 /**
  * Does any route cache? Cold routes never cache (the wake redirect must not
- * stick), and neither do login-protected ones: a shared cache would serve one
- * signed-in user's page to the next caller.
+ * stick), and neither do login- or password-protected ones: a shared cache
+ * would serve one signed-in user's page to the next caller.
  */
 function anyCached(config: IngressConfig): boolean {
-  return config.domains.some((d) => d.protection?.cache && !d.cold && !d.auth);
+  return config.domains.some(cachesRoute);
+}
+
+function cachesRoute(r: DomainRoute): boolean {
+  return Boolean(r.protection?.cache) && !r.cold && !r.auth && !passwordGate(r);
+}
+
+/**
+ * A route's password gate. A label that asks for one the controller could not
+ * resolve renders as an empty gate — the route refuses every request (fail
+ * closed) instead of serving without its password.
+ */
+function passwordGate(r: DomainRoute): RouteBasicAuth | null {
+  return r.basicAuth ?? (r.protection?.basicAuth ? { users: [] } : null);
 }
 
 /** Build a Caddyfile from an org ingress config. Pure string construction. */
@@ -528,8 +542,9 @@ function routeKey(r: DomainRoute): string {
  * blocked request never reaches the upstream. Order: IP deny → IP allow →
  * country deny → country allow → bot block → WAF-lite → required headers →
  * body cap → rate limit (mholt/caddy-ratelimit — needs the swarmy Caddy build,
- * see docker/caddy-swarmy) → cache. Matcher names carry the route key so
- * sibling routes on one host never collide.
+ * see docker/caddy-swarmy); `appendRoute` then adds the password (basic_auth)
+ * and the cache. Matcher names carry the route key so sibling routes on one
+ * host never collide.
  */
 function protectionLines(r: DomainRoute, geoipMmdbPath?: string): string[] {
   const p: RouteProtection | undefined = r.protection;
@@ -626,11 +641,18 @@ function protectionLines(r: DomainRoute, geoipMmdbPath?: string): string[] {
       '}',
     );
   }
-  // Response cache (caddyserver/cache-handler — swarmy Caddy build only), last:
-  // a request must clear every gate above before it can hit or fill the cache.
-  // Cold routes never cache — the body is the activator's wake redirect.
-  const cache = p.cache;
-  if (cache && !r.cold && !r.auth) {
+  return out;
+}
+
+/**
+ * Response cache (caddyserver/cache-handler — swarmy Caddy build only), after
+ * every gate: a request must clear them all before it can hit or fill the
+ * cache. Cold routes never cache — the body is the activator's wake redirect.
+ */
+function cacheLines(r: DomainRoute): string[] {
+  const cache = r.protection?.cache;
+  const out: string[] = [];
+  if (cache && cachesRoute(r)) {
     out.push('cache {', `  ttl ${cache.ttlSeconds}s`);
     if (cache.staleWhileRevalidateSeconds !== undefined) {
       out.push(`  stale ${cache.staleWhileRevalidateSeconds}s`);
@@ -661,8 +683,14 @@ function appendRoute(out: string[], r: DomainRoute, bare: boolean, config: Ingre
   const geoipMmdbPath = typeof extra.geoipMmdbPath === 'string' ? extra.geoipMmdbPath : undefined;
   // Protections run first so a blocked request never reaches the upstream —
   // and never wakes a cold service.
+  const password = passwordGate(r);
   const inner: string[] = [
     ...protectionLines(r, geoipMmdbPath),
+    // Password after every block and the rate limit: a refused request never
+    // gets a prompt, and password guesses count against the limit. A password
+    // route never caches (`cachesRoute`), so no cached page skips the prompt.
+    ...(password ? caddyBasicAuthLines(password) : []),
+    ...cacheLines(r),
     // Login gate after the protections (a blocked request never reaches the
     // controller) and before the proxy / wake (an anonymous caller never wakes
     // a cold service).
@@ -686,7 +714,9 @@ function appendRoute(out: string[], r: DomainRoute, bare: boolean, config: Ingre
   // A protected route runs as one `route` block: Caddy's directive order puts
   // forward_auth BEFORE request_header, so without the literal ordering the
   // header strip would run after the auth step and delete the identity headers.
-  const body = r.auth ? ['route {', ...inner.map((l) => `  ${l}`), '}'] : inner;
+  // Likewise Caddy sorts basic_auth BEFORE abort/respond, so a password route
+  // keeps the literal order above (blocks and the limit first, then the password).
+  const body = r.auth || password ? ['route {', ...inner.map((l) => `  ${l}`), '}'] : inner;
 
   if (bare) {
     for (const line of body) out.push(`  ${line}`);
