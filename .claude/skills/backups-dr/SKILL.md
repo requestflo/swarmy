@@ -49,9 +49,14 @@ and where everything lives. Backups are dispatched to the agent as commands — 
    `pg_dumpall` / `snapshot-from-replica`) restore via clone / in-place /
    single-database; physical (`wal-g` / `pgbackrest`) is PITR-only. The handlers
    enforce this (`restoreDbLogical` throws for physical engines; `restoreDbPitr`
-   throws for logical) — keep both guards. `snapshot-from-replica` is a `pg_dump`
+   throws for logical) — keep both guards. `restoreDb` checks the pairing
+   controller-side too, before any safety copy is taken (invariant 13).
+   `snapshot-from-replica` is a `pg_dump`
    whose `conn.host` the controller pointed at a read replica; it restores as
-   `pg_dump`. Compose-DB dumps (`appdb.*`, MySQL/MariaDB/Postgres/Mongo/Redis/Valkey)
+   `pg_dump`. PITR starts from the newest base backup that finished at or
+   before the target (`pickBaseBackup`, `apps/agent/src/handlers/pitr-restore.ts`);
+   a target before every base backup is refused with the recoverable window
+   (it starts when the oldest base backup finished). Compose-DB dumps (`appdb.*`, MySQL/MariaDB/Postgres/Mongo/Redis/Valkey)
    are a separate path: never a `DbBackupEngine` and never a `Snapshot` row
    (dr-reconcile would restore a dump file into a volume). Their catalog is
    restic tags `appdb:<stack>/<service>`, their history `appdb.backup`/
@@ -125,6 +130,20 @@ and where everything lives. Backups are dispatched to the agent as commands — 
     marker (`clearSidecarFiles`). Litestream v0.5 takes ONE replica per DB, so an
     off-site controller copy means pointing the replica at an external S3
     target (the nightly bundle is the other off-box copy).
+13. **A managed-Postgres restore that writes over its source saves the source
+    first.** In-place, single-database, PITR, or a clone pointed back at the
+    same cluster (`overwritesSource`) first takes a LOGICAL backup through the
+    normal `backupDb` path: `pg_dumpall` for a PITR or a whole-cluster load,
+    otherwise a `pg_dump` of the one database (`safetyBackupPlan`). It is tagged
+    `reason:pre-restore` (the snapshot view's `reason`) and never stamps
+    `swarmy.db.backup.lastRun`. If it fails, the restore is refused and nothing
+    is touched. The only way past is `skipSafetyBackup: true`, audited as
+    `db.restore.safety.skip` before the restore starts. A logical `latest` is
+    pinned to a real save BEFORE the safety copy exists (`latestRestorable`);
+    otherwise the restore would put back the data it was meant to replace. The
+    result carries `safetySnapshotId`, and restoring that snapshot undoes the
+    restore. The logic lives in `dbRestoreSafety.service.ts`. Never add a
+    restore-over-live-data path that skips `ensureSafetyCopy`.
 
 ## Contracts between the layers
 
@@ -164,6 +183,8 @@ and where everything lives. Backups are dispatched to the agent as commands — 
 | Volume backup schedules + restore-op history | `packages/trpc/src/services/backupSchedule.service.ts` |
 | Two destinations per schedule (primary + `secondaryTargetId` "also copy to") | `backupSchedule.service.ts` (`setScheduleSecondary`), worker `apps/api/src/workers/backup-scheduler.ts` (`backupToTarget`), UI `components/backups/schedule-secondary-select.tsx` |
 | DB backups: engines, `swarmy.db.backup.*` labels, schedule, PITR, restore | `packages/trpc/src/services/dbBackup.service.ts` (+ `routers/dbBackup.ts`) |
+| Pre-restore safety copy (`overwritesSource`, `safetyBackupPlan`, `latestRestorable`, `ensureSafetyCopy`) | `packages/trpc/src/services/dbRestoreSafety.service.ts` (+ `.test.ts`) |
+| PITR orchestration (stop, aside + fetch, start, promote) + base-backup pick | `packages/trpc/src/services/dbPitrRestore.service.ts`, agent `apps/agent/src/handlers/pitr-restore.ts` (`pickBaseBackup`) |
 | Controller brain: config, passphrase, bundle build/restore, re-adopt | `packages/trpc/src/services/controllerBackup.{service,bundle,snapshot}.ts` (+ `routers/controllerBackup.ts`) |
 | Standalone disaster-restore entrypoint (dashboard is down) | `apps/api/src/restore.ts` |
 | Controller store runtime: boot restore, restore selection, lease rules, Litestream supervisor, replica markers | `apps/api/src/controller-store/{boot,restore-select,lease,supervisor,litestream,replica,config}.ts` (entrypoint: `apps/api/docker-entrypoint.sh`) |
@@ -175,8 +196,10 @@ and where everything lives. Backups are dispatched to the agent as commands — 
 | Compose-DB logical dumps + restore (MySQL/MariaDB/Postgres/Mongo/Redis/Valkey: credential recipe, `appdb.*` commands, scheduler hook, drill leg) | `packages/trpc/src/services/appDbBackup.service.ts` (router `routers/appDbBackup.ts` → `backups.appDb`), wire + pure scripts `packages/core/src/protocol/appDb{,Scripts}.ts`, agent `apps/agent/src/handlers/appdb.ts`, UI `components/backups/{appdb-dumps,restore-appdb-confirm}.tsx` |
 | Controller datastore (embedded SQLite: `control.db` + `telemetry.db`, bun:sqlite adapter, `ensureSchema`) | `packages/db/src/{client,bun-sqlite-adapter,ensure-schema}.ts` |
 | Workers: scheduled backups / restore-on-recovery / controller schedule | `apps/api/src/workers/{backup-scheduler,dr-reconcile,controller-backup-scheduler}.ts` |
-| UI: one Backups page — destinations + "swarmy itself" (controller replica + bundle) | `apps/app/src/routes/_authed/backups.tsx`, `components/controllerbackup/*` |
+| UI: one Backups page — destinations, the restore-point grid, the DR drill, Verify all, "swarmy itself" (controller replica + bundle) | `apps/app/src/routes/_authed/backups.tsx` → `components/backups/backups-page.tsx` (+ `restore-grid-{card,model,lanes}`, `restore-point-detail`, `dr-drill-card`, `drill-steps`, `verify-all`, `controller-line`), `components/controllerbackup/*` |
 | UI: per-stack Backups tab (schedules, what isn't protected yet, drills) | `routes/_authed/stacks/$name.backups.tsx` → `components/backups/{stack-backups,stack-schedules-card,…}.tsx`, `components/resilience/*`; overview card `components/overview/resilience-card.tsx` |
+| UI: Postgres backups on that tab (schedule, retention preview, point-in-time scrubber, restore) | `components/pgbackups/*` (`pitr-scrub.ts`, `retention-preview.ts` pure + tested) |
+| UI: Time travel — an app's week of releases, incidents and saves; a read-only replay; restore to the nearest save | `routes/_authed/stacks/$name_.time-travel.tsx` → `components/time-travel/*` (`time-travel-model.ts`, `time-travel-replay.ts` pure + tested) |
 | Crypto: `encryptSecret`/`decryptSecret`, `generateRestorePassphrase` + fingerprint | `packages/core/src/crypto.ts` |
 
 ## Adding a check or a drill (the recipe)
@@ -223,8 +246,9 @@ ends with `finishDrill(...)` (which `recordDrill`s the audit row); wire it as an
   works. So never put `swarmy.controller.avoid=true` on every manager.
 - Verify: `bun --filter @swarmy/trpc typecheck` and the pure suites
   (`resilience.service.test.ts`, `dbBackup.service.test.ts`,
-  `controllerBackup.bundle.test.ts`, `controllerBackup.snapshot.test.ts`,
-  `controllerBackup.schedule.test.ts`). Agent
-  side: `bun --filter @swarmy/agent typecheck`. Multi-node restore-on-recovery:
+  `dbRestoreSafety.service.test.ts`, `controllerBackup.bundle.test.ts`,
+  `controllerBackup.snapshot.test.ts`, `controllerBackup.schedule.test.ts`).
+  Agent side: `bun --filter @swarmy/agent typecheck` and
+  `handlers/pitr-restore.test.ts`. Multi-node restore-on-recovery:
   `scripts/local-vms.sh` (see `skill("run-local")`) — back up a volume, kill the
   host agent, watch `dr-reconcile` restore it onto a survivor.

@@ -129,7 +129,21 @@ Four ideas, one story:
   `snapshot-from-replica` — a dump pointed at a read replica, zero primary load)
   land in the same restic catalog; physical (`wal-g` / `pgbackrest`) push base
   backups + WAL for **point-in-time recovery**. Restore modes: clone-to-new-cluster,
-  in-place, single-database, and pitr-to-a-timestamp.
+  in-place, single-database, and pitr-to-a-timestamp. A point-in-time restore
+  starts from the newest base backup that finished at or before the target. A
+  target earlier than every base backup is refused, and the message names the
+  recoverable window.
+- **A restore over live data saves that data first.** A managed-Postgres
+  restore that writes over the cluster it came from (in-place, single-database,
+  point-in-time, or a clone pointed back at itself) first takes a fresh logical
+  backup of what it is about to replace. That backup goes through the normal
+  backup path, tagged `reason:pre-restore`, and shows as a restore point:
+  restoring it undoes the restore. If the backup fails, nothing is restored.
+  The one way past is `skipSafetyBackup: true`, for when the backup can't be
+  taken (the server is down), and that is audited (`db.restore.safety.skip`).
+  A logical restore of "latest" is pinned to a real save before the safety
+  copy exists, so it never puts back the data it was meant to replace. A
+  restore into a different cluster is a copy and needs no safety backup.
 - **The controller's store is two embedded SQLite files.** `control.db` holds
   every control-plane model; `telemetry.db` holds only `MetricSample` (no foreign
   keys into `control.db`). Both live in `SWARMY_DATA_DIR`
@@ -243,7 +257,7 @@ Four ideas, one story:
 
 | Failure | Behaviour |
 |---|---|
-| A backup target is down when a scheduled backup fires | The `Snapshot` row is marked `FAILED` with the error; the schedule's `nextRunAt` still advances; backup recency turns the Resilience score red until a good run lands. |
+| A backup target is down when a scheduled backup fires | The `Snapshot` row is marked `FAILED` with the error; the schedule's `nextRunAt` still advances; backup recency puts it on the "what isn't protected yet" list until a good run lands. |
 | Node holding a `local` volume dies | Past the grace window, `dr-reconcile` restores the volume's latest snapshot (by `Snapshot.hostNodeId`) onto a healthy manager and writes a `RestoreOperation` — recovery to the last backup, not zero-RPO. |
 | The controller's node dies (replicated store) | Swarm starts the controller on another manager. Its empty volume is restored from the replica before the DB opens, it takes the lease once the old one has been silent for 60 s, and agents re-adopt. Up to about 1 s of writes is lost. |
 | The controller is partitioned from the managers | It can't renew (no raft quorum on its side), so it stops writing and exits within 52 s, without a final sync. The majority side's new controller can take over only after 60 s. If the old side still shipped after the new one's restore, the new one's pre-replication check sees it and restores again. No two lineages are ever interleaved. |
@@ -253,6 +267,7 @@ Four ideas, one story:
 | Restore drill fails midway | The throwaway `drill-<ts>` cluster is destroyed regardless; the drill is recorded `failed` with the step that broke; nothing on the real cluster was touched (preconditions throw before anything is created). |
 | DB backup of a live Postgres | For managed Postgres, logical engines dump a transactionally-consistent point-in-time; `snapshot-from-replica` takes it off a read replica for zero primary load. A compose MySQL/MariaDB/Postgres/Mongo/Redis/Valkey also gets a logical dump; only a compose DB whose credentials can't be resolved (e.g. a random root password and no app user) is volume-only. |
 | Logical dump of a compose DB fails | Audited as a failed `appdb.backup`, shown on the stack's Databases card; the volume copy from the same schedule still ran. An in-place restore whose safety dump fails changes nothing. |
+| In-place managed-Postgres restore, and the pre-restore backup fails | The restore is refused before anything is touched, with the reason. Fix it and retry, or restore with `skipSafetyBackup: true` (audited). |
 
 ## Explicitly rejected
 
@@ -312,7 +327,8 @@ safety gates, and where every model lives. Key homes: `packages/db/prisma/schema
 backups.prisma` (targets, snapshots, controller backup, schedules, restore ops),
 `apps/agent/src/handlers/backup.ts` (the restic + DB-engine sidecars),
 `packages/trpc/src/services/backups.service.ts` and `dbBackup.service.ts` (volume
-+ DB backup/restore), `packages/trpc/src/services/controllerBackup.service.ts`
+and DB backup/restore; `dbRestoreSafety.service.ts` is the pre-restore safety
+copy), `packages/trpc/src/services/controllerBackup.service.ts`
 (the controller brain bundle; `controllerBackup.snapshot.ts` takes and loads the
 `control.db` snapshot) with `apps/api/src/restore.ts` (the standalone
 disaster-restore entrypoint), `packages/trpc/src/services/resilience.service.ts`
@@ -322,7 +338,10 @@ boot restore, lease, Litestream supervisor; the agent's
 `handlers/controller-service.ts`; `controllerStore.service.ts` for status /
 replication / move), the workers
 `apps/api/src/workers/{backup-scheduler,dr-reconcile,controller-backup-scheduler}.ts`,
-and the UI: estate destinations at `apps/app/src/routes/_authed/backups.tsx`,
+and the UI: estate destinations, the restore-point grid and the DR drill at
+`apps/app/src/routes/_authed/backups.tsx`,
 the "swarmy itself" section on that same page (controller replica + bundle), and each stack's Backups tab
-(`stacks/$name.backups.tsx` → `components/backups/*` + the "what isn't protected yet" list in
-`components/resilience/*`).
+(`stacks/$name.backups.tsx` → `components/backups/*`, Postgres backups in
+`components/pgbackups/*`, the "what isn't protected yet" list in
+`components/resilience/*`), and each app's Time travel
+(`stacks/$name_.time-travel.tsx` → `components/time-travel/*`).
