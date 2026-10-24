@@ -82,6 +82,16 @@ invariants that must survive every change, and where everything lives.
   `settings.autoAddresses` (set only while delegated) replaces the sslip.io
   base (`auto-address.service` `autoAddressBase`); own-zone auto hosts go
   through the DNS gate.
+- **Cluster zone** (self-reliance B2b, `cluster-zone.ts`): one swarmy-ns zone
+  per org flagged `settings.clusterZone` (installer `--zone` →
+  `SWARMY_CLUSTER_ZONE` → bootstrap seed, or `geodns.setClusterZone`, which
+  needs live delegation). Its snapshot carries `synth.ips` (the cluster's own
+  public IPv4s, additive field) and `answerQuery` synthesises
+  `<a-b-c-d>.<zone>` + names under it (`@swarmy/dns` synth.ts): allow-listed
+  IPs only, private/reserved refused, A only (AAAA NODATA), real records win,
+  and it fills an otherwise empty A answer. It is the wildcard base
+  `wildcardBaseFrom` returns first, so apps get `<svc>-<stack>.<ip>.<zone>`
+  (DNS-gated); sslip.io is only the fallback with no cluster zone.
 - **Edge Caddy spec**: `caddyEdgeSpec(opts)` exported from
   `ingress-controller.ts` is THE spec; the swarmy-stack composition must
   consume it, never hand-roll (topology/ports/mounts single-sourced).
