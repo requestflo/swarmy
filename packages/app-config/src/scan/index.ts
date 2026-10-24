@@ -14,5 +14,6 @@ export {
   scanHits,
 } from './files';
 export { detectAppNeeds, dockerfileFacts, type DetectOptions } from './detect';
+export { detectHeroku, type HerokuFound } from './detect-heroku';
 export type { FrameworkHint } from './detect-process';
 export { generateAppConfig, suggestAppName, type BuildOptions, type GenerateOptions, type GeneratedConfig } from './generate';

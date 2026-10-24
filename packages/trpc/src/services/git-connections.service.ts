@@ -84,7 +84,7 @@ import {
   type ProviderRepo,
 } from './git-providers';
 import { type BuildDetection, detectBuild, detectProbePaths } from './git-providers/detect-build';
-import { type AppScanView, scanFromInspect, scanProbePaths } from './git-scan';
+import { type AppScanView, scanFromInspect, scanProbePaths, scanReadPaths } from './git-scan';
 
 type Deps = { db: DB; hub: AgentHub; auth: Auth };
 
@@ -714,8 +714,10 @@ async function runInspect(
     scan?: boolean;
   },
 ): Promise<InspectResult & InspectExtras> {
-  const { creds, paths } = input;
+  const { creds } = input;
   const detectDir = input.detectDir ?? '';
+  // A scan also reads app.json whole (the Heroku import parses it as JSON; a probe stops at 4 KB).
+  const paths = input.scan ? [...new Set([...input.paths, ...scanReadPaths(detectDir)])] : input.paths;
   const probes = detectProbePaths(detectDir);
   if (input.scan) {
     const extra = scanProbePaths(detectDir);
