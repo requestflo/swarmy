@@ -11,8 +11,8 @@
  * The request lives on the run row (`options.pauseRequestedAt`) and the driver
  * reads it fresh after every step, so it holds across the controller
  * replacing itself. Abandon walks the FINISHED steps newest-first and puts
- * back each one that can be put back (agents, system services — health-gated,
- * one at a time); the controller (its database moved forward: the preflight
+ * back each one that can be put back (agents, system services, mesh clients —
+ * health-gated, one at a time); the controller (its database moved forward: the preflight
  * backup is the way back) and a Garage major (data migrated forward) stay.
  * `abandoning` is re-driven by the worker tick, so a restart resumes it.
  */
@@ -26,7 +26,7 @@ export const DRIVEN_RUN_STATUSES: RunStatus[] = ['running', 'abandoning'];
 export const FINISHED_RUN_STATUSES: RunStatus[] = ['done', 'failed', 'cancelled', 'abandoned'];
 
 /** Steps Abandon puts back (their handlers carry `abandon` / `rollback`). */
-export const REVERSIBLE_STEPS: readonly StepKey[] = ['agents', 'system'];
+export const REVERSIBLE_STEPS: readonly StepKey[] = ['agents', 'system', 'mesh'];
 
 /** Why a finished step stays as it is on Abandon. */
 export const KEPT_ON_ABANDON: Partial<Record<StepKey, string>> = {

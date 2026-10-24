@@ -21,6 +21,11 @@
  *              observability), each `docker service update` health-gated with
  *              Swarm auto-rollback; the step's own rollback reverts every
  *              service it already moved (`docker service rollback`).
+ *   mesh       each server's NetBird client onto the release's image, one
+ *              server at a time, only while another is on the mesh, gated on
+ *              the peer reconnecting with the same mesh IP; the agent puts
+ *              the old client back itself on failure, the step's rollback
+ *              moves the others back (`platform-mesh-roll.ts`).
  *   engines    object storage: a Garage major is the registered migration
  *              (`engine-upgrade.service`: snapshot → brief pause → v2,
  *              rollback = restore on v1), polled until it settles; a minor /
@@ -55,6 +60,7 @@ import { engineUpgradeAvailable, getEngineUpgrade, startEngineUpgrade } from './
 import { isSameAgentBuild, upgradeAgent } from './node.service';
 import { invalidateEffectiveImages } from './platform-images';
 import { garageRollIO, rollGarage } from './platform-garage-roll.run';
+import { meshRollIO, rollMesh, rollMeshBack } from './platform-mesh-roll.run';
 import { edgeVerifyIO, verifyEdges, type EdgeVerifyReport } from './platform-edge-verify';
 import {
   PROCESS_STARTED_AT,
@@ -119,6 +125,11 @@ export interface PlatformUpgradeDeps {
     /** No major migration applies: the minor / patch rolling update (or a skip). */
     roll: (ctx: OrgContext, c: StepContext, m: PlatformManifest) => Promise<StepOutcome>;
   };
+  /** Each server's NetBird client onto the release's image, one at a time (and back). */
+  mesh: {
+    roll: (ctx: OrgContext, c: StepContext, m: PlatformManifest) => Promise<StepOutcome>;
+    rollback: (ctx: OrgContext, c: StepContext) => Promise<string>;
+  };
   /** Verify's edge leg: one request through every edge to the controller (throws when one keeps failing). */
   edges: (ctx: OrgContext) => Promise<EdgeVerifyReport>;
   audit: typeof writeAudit;
@@ -142,6 +153,10 @@ export const defaultDeps: PlatformUpgradeDeps = {
     start: (ctx) => startEngineUpgrade(ctx),
     read: async (ctx) => (await getEngineUpgrade(ctx)).run,
     roll: (ctx, c, m) => rollGarage(c, m.components.garage, garageRollIO(ctx, m, { dockerCli, registryLogin, refResolver })),
+  },
+  mesh: {
+    roll: (ctx, c, m) => rollMesh(c, m.components.netbirdClient, meshRollIO(ctx)),
+    rollback: (ctx, c) => rollMeshBack(c, meshRollIO(ctx)),
   },
   edges: (ctx) => verifyEdges(edgeVerifyIO(ctx, (ms) => new Promise((r) => setTimeout(r, ms)), () => Date.now())),
   audit: writeAudit,
@@ -549,6 +564,7 @@ export function buildHandlers(ctx: OrgContext, row: RunRow, deps: PlatformUpgrad
           },
         }),
     },
+    mesh: { run: (c) => deps.mesh.roll(ctx, c, target), rollback: (c) => deps.mesh.rollback(ctx, c) },
     engines: { run: engines },
     verify: { run: verify },
   };

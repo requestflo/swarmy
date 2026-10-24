@@ -24,27 +24,27 @@ describe('demo platform run — pause after this step', () => {
     p.run!.paused = null;
     p.run!.pauseAt = null;
     expect(demoRunView(p, s(71))).toMatchObject({ status: 'running', step: 'agents' });
-    expect(demoRunView(p, s(95))).toMatchObject({ status: 'done' });
+    expect(demoRunView(p, s(101))).toMatchObject({ status: 'done' });
     expect(p.current).toBe('1.3.0');
   });
 
-  it('abandon puts back the system services, then the agents; the controller stays', () => {
+  it('abandon puts back the mesh clients, the system services, then the agents; the controller stays', () => {
     const p = host();
     p.run!.pauseAt = 3;
-    expect(demoRunView(p, s(25))).toMatchObject({ status: 'paused', step: 'engines', abandon: { putBack: ['system', 'agents'] } });
+    expect(demoRunView(p, s(25))).toMatchObject({ status: 'paused', step: 'mesh', abandon: { putBack: ['system', 'agents'] } });
     p.run!.abandon = { since: s(30) };
     expect(demoRunView(p, s(31))).toMatchObject({ status: 'abandoning', step: 'system' });
     expect(demoRunView(p, s(35))).toMatchObject({ status: 'abandoning', step: 'agents' });
     const v = demoRunView(p, s(39));
     expect(v.status).toBe('abandoned');
-    expect(v.steps.map((x) => x.status)).toEqual(['done', 'done', 'rolled-back', 'rolled-back', 'pending', 'pending']);
+    expect(v.steps.map((x) => x.status)).toEqual(['done', 'done', 'rolled-back', 'rolled-back', 'pending', 'pending', 'pending']);
     expect(p.history[0]).toMatchObject({ status: 'abandoned', toVersion: '1.3.0' });
     expect(p.current).toBe('1.2.4');
   });
 
   it('a pause asked on the last step is moot: the run finishes', () => {
     const p = host();
-    p.run!.pauseAt = 5;
-    expect(demoRunView(p, s(40)).status).toBe('done');
+    p.run!.pauseAt = 6;
+    expect(demoRunView(p, s(46)).status).toBe('done');
   });
 });

@@ -17,11 +17,13 @@
 export const AGENT_CAPABILITY = {
   /** Read-only: a PITR cluster's base backups and recoverable window (`dbPitrWindow`). */
   dbPitrWindow: 'dbPitrWindow',
+  /** Re-image the NetBird client sidecar in place, reconnect-checked (`reimageMesh`, the upgrade's mesh step). */
+  reimageMesh: 'reimageMesh',
 } as const;
 export type AgentCapability = (typeof AGENT_CAPABILITY)[keyof typeof AGENT_CAPABILITY];
 
 /** Everything this build of the agent understands beyond the base protocol. */
-export const AGENT_CAPABILITIES: readonly AgentCapability[] = [AGENT_CAPABILITY.dbPitrWindow];
+export const AGENT_CAPABILITIES: readonly AgentCapability[] = [AGENT_CAPABILITY.dbPitrWindow, AGENT_CAPABILITY.reimageMesh];
 
 /**
  * Does an agent with these advertised capabilities understand `cap`? An

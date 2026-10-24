@@ -127,7 +127,7 @@ export function registryAuthConverged(live: SwarmServiceInfo, secretName: string
   );
 }
 
-const MIRROR_CMDS = new Set<CommandName>(['service.deploy', 'container.runOnce', 'image.build', 'applyMesh', 'mesh.accessRouter']);
+const MIRROR_CMDS = new Set<CommandName>(['service.deploy', 'container.runOnce', 'image.build', 'applyMesh', 'mesh.accessRouter', 'mesh.reimage']);
 
 /** Images a dispatch will make a node pull (only the commands that pull). */
 export function dispatchImages(cmd: CommandName, payload: unknown): string[] {
@@ -136,7 +136,7 @@ export function dispatchImages(cmd: CommandName, payload: unknown): string[] {
   if (cmd === 'image.pull' || cmd === 'container.runOnce') return typeof p?.image === 'string' ? [p.image] : [];
   // Mesh clients pull their public upstream ref anonymously; only the cluster
   // copy (the `mirrorImage` hint) needs the in-swarm registry login.
-  if (cmd === 'applyMesh' || cmd === 'mesh.accessRouter') return typeof p?.mirrorImage === 'string' ? [p.mirrorImage] : [];
+  if (cmd === 'applyMesh' || cmd === 'mesh.accessRouter' || cmd === 'mesh.reimage') return typeof p?.mirrorImage === 'string' ? [p.mirrorImage] : [];
   return [];
 }
 

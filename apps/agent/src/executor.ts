@@ -24,6 +24,7 @@ import { localReload } from './handlers/ingress-local';
 import { applyMesh } from './handlers/mesh';
 import { applyMeshControl } from './handlers/mesh-control';
 import { applyMeshRelay } from './handlers/mesh-relay';
+import { reimageMeshClient } from './handlers/mesh-reimage';
 import { applyAccessRouter } from './handlers/access-router';
 import { applyIngressConnector } from './handlers/ingress-connector';
 import { buildImage } from './handlers/build';
@@ -189,6 +190,26 @@ export async function handleCommand(
         return;
       }
       return run(conn, commandId, () => applyMesh(docker, rendered, { mirrorImage, registryAuth }));
+    }
+    case 'reimageMesh': {
+      // The upgrade's mesh step (capability `reimageMesh`): the NetBird client
+      // onto a new image, put back locally if it doesn't reconnect.
+      const p = envlp.payload;
+      if (!env.ALLOW_MESH) {
+        conn.send('commandResult', {
+          commandId: p.commandId,
+          status: 'rejected',
+          error: { code: 'E_MESH_DISABLED', message: 'mesh disabled on this agent' },
+        });
+        return;
+      }
+      return run(conn, p.commandId, async () => {
+        const r = await reimageMeshClient(docker, p);
+        // This link may ride the mesh that just blinked: give it a moment to redial so the answer isn't dropped.
+        for (let i = 0; i < 30 && !conn.connected; i++) await new Promise((res) => setTimeout(res, 1_000));
+        pushInventory(docker, conn);
+        return r;
+      });
     }
     case 'applyMeshControl':
     case 'applyAccessRouter':

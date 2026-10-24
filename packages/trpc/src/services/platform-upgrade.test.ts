@@ -45,7 +45,7 @@ function recorder(over: Partial<Record<StepKey, Partial<StepHandlers[StepKey]>>>
 }
 
 describe('driveRun — ordering', () => {
-  it('runs preflight → controller → agents → system → engines → verify, in order, once', async () => {
+  it('runs preflight → controller → agents → system → mesh → engines → verify, in order, once', async () => {
     const { calls, handlers } = recorder();
     const run = newRunState();
     const saves: string[] = [];
@@ -98,7 +98,7 @@ describe('driveRun — resume', () => {
     expect(await driveRun(JSON.parse(stored), handlers, persist, now)).toBe('done');
     expect(calls.filter((c) => c === 'run:preflight')).toHaveLength(1);
     expect(calls.filter((c) => c === 'run:controller')).toHaveLength(3);
-    expect(calls.slice(-4)).toEqual(['run:agents', 'run:system', 'run:engines', 'run:verify']);
+    expect(calls.slice(-5)).toEqual(['run:agents', 'run:system', 'run:mesh', 'run:engines', 'run:verify']);
   });
 });
 
@@ -345,6 +345,7 @@ describe('drivePlatformUpgrade (service over fakes)', () => {
       },
       agentRelease: () => ({ version: '1.3.0', commit: 'new' }),
       engine: { available: async () => null, start: async () => ({ id: 'x' }), read: async () => null, roll: async () => ({ status: 'skipped' }) },
+      mesh: { roll: async () => ({ status: 'skipped' }), rollback: async () => 'no mesh client was moved' },
       edges: async () => ({ checked: ['node-1'] }),
       audit: async () => undefined,
       sleep: async () => undefined,
@@ -387,6 +388,7 @@ describe('drivePlatformUpgrade (service over fakes)', () => {
       'controller:done',
       'agents:done',
       'system:done',
+      'mesh:skipped',
       'engines:skipped',
       'verify:done',
     ]);

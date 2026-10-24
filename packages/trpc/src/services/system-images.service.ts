@@ -249,7 +249,7 @@ export function rewriteSystemImages<P>(
   // untouched upstream ref, because the node must still join when the
   // registry is unreachable (it rides the swarm, the swarm rides the mesh).
   // A new agent tries the hint, then upstream; an old agent ignores it.
-  if (cmd === 'applyMesh' || cmd === 'mesh.accessRouter') {
+  if (cmd === 'applyMesh' || cmd === 'mesh.accessRouter' || cmd === 'mesh.reimage') {
     if (p?.mirrorImage) return payload;
     const ref = cmd === 'applyMesh' ? (p?.rendered as { client?: { image?: unknown } } | undefined)?.client?.image : p?.image;
     const to = map(bareSystemRef(ref, images));

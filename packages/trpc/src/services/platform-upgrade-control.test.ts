@@ -72,6 +72,7 @@ function world() {
     upgradeAgent: async (_c, id) => void (agentCommit[id] = 'new'),
     agentRelease: () => ({ version: '1.3.0', commit: 'new' }),
     engine: { available: async () => null, start: async () => ({ id: 'x' }), read: async () => null, roll: async () => ({ status: 'skipped' }) },
+    mesh: { roll: async () => ({ status: 'skipped' }), rollback: async () => 'no mesh client was moved' },
     edges: async () => ({ checked: ['node-1'] }),
     audit: async (_c, e) => void audit.push(e.action),
     sleep: async () => undefined,
@@ -116,14 +117,14 @@ describe('abandon a paused run', () => {
     await drivePlatformUpgrade(w.ctx, 'run1', w.deps(0));
     w.img.controller = `${CTRL}@${D('b')}`;
     await drivePlatformUpgrade(w.ctx, 'run1', w.deps(Date.now() + 1_000));
-    expect(w.row()).toMatchObject({ status: 'paused', step: 'engines' });
-    expect(w.steps()).toBe('preflight:done controller:done agents:done system:done engines:pending verify:pending');
+    expect(w.row()).toMatchObject({ status: 'paused', step: 'mesh' });
+    expect(w.steps()).toBe('preflight:done controller:done agents:done system:done mesh:pending engines:pending verify:pending');
 
     await abandonPlatformUpgrade(w.ctx, 'run1', w.deps(Date.now() + 1_000));
     await settle();
     expect(w.row().status).toBe('abandoned');
     expect(w.row().finishedAt).toBeInstanceOf(Date);
-    expect(w.steps()).toBe('preflight:done controller:done agents:rolled-back system:rolled-back engines:pending verify:pending');
+    expect(w.steps()).toBe('preflight:done controller:done agents:rolled-back system:rolled-back mesh:pending engines:pending verify:pending');
     expect(w.img.dns).toBe(`${DNS}@${D('c')}`);
     expect(w.img.controller).toBe(`${CTRL}@${D('b')}`);
     const back = w.dispatched.filter((d) => d.cmd === 'agent.update').map((d) => d.payload.image);

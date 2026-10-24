@@ -38,6 +38,11 @@ export const STEP_TEXT: Record<string, { name: string; what: string; ifFails: st
     what: 'swarmy-dns → Caddy edges → observability, each health-checked',
     ifFails: 'previous image restored per service',
   },
+  mesh: {
+    name: 'Private network',
+    what: "Each server's private-network client, one server at a time, only while another server stays on it, confirmed by it reconnecting",
+    ifFails: 'that server puts its old client back itself; the ones already moved go back too',
+  },
   engines: {
     name: 'Engine upgrades',
     what: 'Object storage: a minor update goes one member at a time, healthy in between; a major takes a snapshot and a brief pause',

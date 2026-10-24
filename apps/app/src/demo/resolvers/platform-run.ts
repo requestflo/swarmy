@@ -3,10 +3,10 @@
  * with "Pause after this step", Resume and Abandon. Mirrors PlatformRunView
  * (platform-upgrade.service.ts) and the pause rules in platform-upgrade.pause.ts:
  * a pause lands once the current step finishes (never after the last one);
- * Abandon puts back system services, then agents; the controller and object
- * storage stay.
+ * Abandon puts back the mesh clients, system services, then agents; the
+ * controller and object storage stay.
  */
-const KEYS = ['preflight', 'controller', 'agents', 'system', 'engines', 'verify'] as const;
+const KEYS = ['preflight', 'controller', 'agents', 'system', 'mesh', 'engines', 'verify'] as const;
 const STEP_MS = 6_000;
 const BACK_MS = 4_000;
 const DETAIL: Record<string, string> = {
@@ -14,10 +14,12 @@ const DETAIL: Record<string, string> = {
   controller: 'the new controller is up and resumed the run',
   agents: '4 agent(s) upgraded, one at a time',
   system: '3 system service(s) upgraded',
+  mesh: '4 server(s) on the new mesh client, one at a time',
   engines: 'object storage on dxflrs/garage:v2.4.1',
   verify: '4 server(s) online, system services converged, 2 edge(s) answered',
 };
 const BACKING: Record<string, string> = {
+  mesh: 'node-3: mesh client back on the previous build',
   system: 'swarmy-dns: back to ghcr.io/requestflo/swarmy-dns@sha256:…',
   agents: '4 container agent(s) going back to 1.2.4',
 };
@@ -61,7 +63,7 @@ export function demoRunView(p: RunHost, now = Date.now()) {
   // A pause lands once the step it was asked on finishes (never after the last one).
   if (!r.paused && r.pauseAt !== null && raw > r.pauseAt && r.pauseAt < KEYS.length - 1) r.paused = { idx: r.pauseAt + 1, since: endOf(r.pauseAt) };
   const at = r.paused ? r.paused.idx : Math.min(KEYS.length, raw);
-  const putBack = (['system', 'agents'] as const).filter((k) => KEYS.indexOf(k) < at);
+  const putBack = (['mesh', 'system', 'agents'] as const).filter((k) => KEYS.indexOf(k) < at);
   const backDone = r.abandon ? Math.min(putBack.length, Math.floor((now - r.abandon.since) / BACK_MS)) : 0;
   const status = r.abandon ? (backDone >= putBack.length ? 'abandoned' : 'abandoning') : r.paused ? 'paused' : at >= KEYS.length ? 'done' : 'running';
   if ((status === 'done' || status === 'abandoned') && !r.finishedAt) {

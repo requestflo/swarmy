@@ -52,6 +52,7 @@ export type CommandName =
   | 'mesh.control' // self-hosted NetBird control plane (swarmy-mesh-control, agent-supervised)
   | 'mesh.accessRouter' // people access: a stack's routing peer (swarmy-access-<stackId>)
   | 'mesh.relay' // relays on edges: NetBird's standalone relay + STUN (swarmy-mesh-relay, agent-supervised)
+  | 'mesh.reimage' // platform upgrade: the NetBird client sidecar onto a new image, reconnect-checked (capability `reimageMesh`)
   | 'swarm.join' // node-onboarding P2: init/join the org's Docker Swarm
   | 'swarm.autolock' // WS2 quorum recovery: toggle AutoLockManagers (returns the unlock key on enable)
   | 'swarm.rotateTokens' // WS2 quorum recovery: rotate worker/manager join tokens
@@ -118,6 +119,7 @@ export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
   'mesh.control': 'applyMeshControl',
   'mesh.accessRouter': 'applyAccessRouter',
   'mesh.relay': 'applyMeshRelay',
+  'mesh.reimage': 'reimageMesh',
   'swarm.join': 'swarmJoin',
   'swarm.autolock': 'swarmSetAutolock',
   'swarm.rotateTokens': 'swarmRotateTokens',

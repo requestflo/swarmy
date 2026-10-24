@@ -40,6 +40,10 @@ describe('mesh client image hints', () => {
     expect(r).toMatchObject({ image: PINNED, mirrorImage: NB_MIRROR });
     const t = rewriteSystemImages('applyMesh', applyMesh(pinnedTaggedRef('tailscaleClient')), H, state) as { mirrorImage?: string };
     expect(t.mirrorImage).toBe(`localhost:5000/swarmy-system/docker.io/tailscale/tailscale@${ts.digest}`);
+    // The upgrade's mesh step re-images the client the same way.
+    const re = rewriteSystemImages<Record<string, unknown>>('mesh.reimage', { image: PINNED }, H, state);
+    expect(re).toMatchObject({ image: PINNED, mirrorImage: NB_MIRROR });
+    expect(dispatchImages('mesh.reimage', re)).toEqual([NB_MIRROR]);
   });
 
   test('no trusted copy, a custom client image or an explicit hint → payload untouched (same reference)', () => {

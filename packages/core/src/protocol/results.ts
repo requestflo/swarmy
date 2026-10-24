@@ -49,6 +49,7 @@ export type CommandResultMsg = z.infer<typeof CommandResultMsg>;
 /** Typed `result` shapes per originating command, for controller-side narrowing. */
 import type { ResticSnapshotInfo } from './backup';
 import type { ApplyMeshResult } from './mesh';
+import type { ReimageMeshResult } from './mesh-reimage';
 import type { BuildImageResult } from './build';
 import type { SwarmJoinResult } from './swarm';
 
@@ -71,6 +72,7 @@ export interface CommandResultMap {
   restoreVolume: { targetVolume: string; bytesRestored: number; durationMs?: number };
   listSnapshots: { snapshots: ResticSnapshotInfo[] };
   applyMesh: ApplyMeshResult;
+  reimageMesh: ReimageMeshResult;
   buildImage: BuildImageResult;
   swarmJoin: SwarmJoinResult;
 }

@@ -73,22 +73,23 @@ describe('abandon a paused run', () => {
     return run;
   }
 
-  it('previews and puts back agents + system, newest first; controller and a Garage major stay', async () => {
+  it('previews and puts back agents + system + mesh clients, newest first; controller and a Garage major stay', async () => {
     const run = await pausedAfter('engines');
     const p = abandonPreview(run);
-    expect(p.putBack).toEqual(['system', 'agents']);
+    expect(p.putBack).toEqual(['mesh', 'system', 'agents']);
     expect(p.kept.map((k) => k.key)).toEqual(['engines', 'controller']);
     const order: string[] = [];
     const h = handlers([], {
       agents: { rollback: async () => void order.push('agents') },
       system: { abandon: async () => (order.push('system'), 'swarmy-dns back') },
+      mesh: { rollback: async () => void order.push('mesh') },
     });
     expect(() => beginAbandon({ ...run, status: 'running' }, now)).toThrow(/only a paused upgrade/);
     beginAbandon(run, now);
     expect(await abandonRun(run, h, async () => undefined, now)).toBe('abandoned');
-    expect(order).toEqual(['system', 'agents']);
+    expect(order).toEqual(['mesh', 'system', 'agents']);
     expect(run.steps.map((s) => `${s.key}:${s.status}`)).toEqual([
-      'preflight:done', 'controller:done', 'agents:rolled-back', 'system:rolled-back', 'engines:done', 'verify:pending',
+      'preflight:done', 'controller:done', 'agents:rolled-back', 'system:rolled-back', 'mesh:rolled-back', 'engines:done', 'verify:pending',
     ]);
     expect(run.log.some((l) => /kept: the controller stays on the new build/.test(l.msg))).toBe(true);
   });

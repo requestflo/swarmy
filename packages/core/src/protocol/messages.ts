@@ -23,6 +23,7 @@ import {
 import { ApplyIngressMsg, IngressNodeStatusMsg } from './ingress';
 import { ApplyMeshMsg, MeshStateMsg, ApplyMeshControlMsg, ApplyAccessRouterMsg } from './mesh';
 import { ApplyMeshRelayMsg } from './mesh-relay';
+import { ReimageMeshMsg } from './mesh-reimage';
 import { ApplyDnsMsg } from './dns';
 import { BuildImageMsg } from './build';
 import { BuildStageMsg } from './build-stage';
@@ -109,6 +110,7 @@ export const ControllerToAgentMessage = z.discriminatedUnion('type', [
   ApplyMeshControlMsg,
   ApplyAccessRouterMsg,
   ApplyMeshRelayMsg,
+  ReimageMeshMsg,
   ApplyDnsMsg,
   BuildImageMsg,
   PruneImagesMsg,

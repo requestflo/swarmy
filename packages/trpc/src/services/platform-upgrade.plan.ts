@@ -1,7 +1,7 @@
 /**
  * The platform upgrade step engine (plans/epic-platform-upgrades.md §2) — pure.
  *
- *   preflight → controller → agents → system → engines → verify
+ *   preflight → controller → agents → system → mesh → engines → verify
  *
  * A run is a persisted list of per-step states. {@link driveRun} walks it from
  * the current step, checkpointing after every transition, so a run survives
@@ -28,7 +28,7 @@
  * with fake handlers in `platform-upgrade.test.ts`.
  */
 
-export const STEP_ORDER = ['preflight', 'controller', 'agents', 'system', 'engines', 'verify'] as const;
+export const STEP_ORDER = ['preflight', 'controller', 'agents', 'system', 'mesh', 'engines', 'verify'] as const;
 export type StepKey = (typeof STEP_ORDER)[number];
 
 export const STEP_LABEL: Record<StepKey, string> = {
@@ -36,6 +36,7 @@ export const STEP_LABEL: Record<StepKey, string> = {
   controller: 'Controller',
   agents: 'Agents',
   system: 'System services',
+  mesh: 'Mesh clients',
   engines: 'Engine upgrades',
   verify: 'Verify',
 };

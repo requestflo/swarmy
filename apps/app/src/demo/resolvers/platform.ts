@@ -75,7 +75,7 @@ function status(s: DemoStore) {
       pause: null,
       ...h,
       actorId: null,
-      progress: { done: 6, total: 6 },
+      progress: { done: 7, total: 7 },
       options: {},
     })),
   };
