@@ -11,7 +11,7 @@ import { seedKv, useMemoryKv } from './swarm-kv.service';
 export const ENGINE = {
   id: 'svc-search', name: 'shop_main-search', image: 'getmeili/meilisearch:v1.12', mode: 'replicated',
   replicas: 1, runningReplicas: 1, desiredReplicas: 1,
-  labels: { 'com.docker.stack.namespace': 'shop', 'swarmy.search.engine': 'meilisearch', 'swarmy.search.cluster': 'main' },
+  labels: { 'com.docker.stack.namespace': 'shop', 'swarmy.search.engine': 'meilisearch', 'swarmy.search.cluster': 'main' } as Record<string, string>,
   networks: [] as string[], env: [] as string[], ports: [], secrets: [] as string[], createdAt: 0, updatedAt: 0,
 };
 const container = {

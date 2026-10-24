@@ -67,6 +67,11 @@ export const SEARCH_RESTORING_LABEL = 'swarmy.search.restoring';
 /** On an APP service: which instance it is wired to + the host env var used. */
 export const SEARCH_INJECT_LABEL = 'swarmy.search.inject';
 export const SEARCH_INJECT_VAR_LABEL = 'swarmy.search.inject.var';
+/**
+ * The key secret VERSION the instance mounts now (`…-key__v<n>`), stamped by
+ * search.rotateKey. Absent = the first key, under the family name itself.
+ */
+export const SEARCH_KEY_SECRET_LABEL = 'swarmy.search.keySecret';
 const MANAGED_LABEL = 'swarmy.managed';
 const SCALE_TO_ZERO_EXEMPT_LABEL = 'swarmy.scaleToZero.exempt';
 
@@ -117,6 +122,18 @@ export function searchDataVolume(stack: string, name: string): string {
 export function searchKeySecretName(stack: string, name: string): string {
   return `swarmy-search-${searchBaseName(stack, name)}-key`;
 }
+/** The key secret the instance mounts now (the family name until a rotation). */
+export function currentKeySecret(labels: Record<string, string> | undefined, stack: string, name: string): string {
+  return labels?.[SEARCH_KEY_SECRET_LABEL] || searchKeySecretName(stack, name);
+}
+
+/** Matches every version of this instance's key secret (the family, `…__v<n>`). */
+export function isKeySecretOf(stack: string, name: string): (secret: string) => boolean {
+  const family = searchKeySecretName(stack, name);
+  return (secret) =>
+    secret === family || (secret.startsWith(family) && /^__v\d+$/.test(secret.slice(family.length)));
+}
+
 /** restic tag identifying the instance's snapshots. */
 export function searchBackupTag(stack: string, name: string): string {
   return `search:${searchBaseName(stack, name)}`;
@@ -444,7 +461,7 @@ function toView(ctx: OrgContext, i: LiveInstance): SearchInstanceView {
     host,
     port,
     url: `http://${host}:${port}`,
-    keySecret: searchKeySecretName(i.stack, i.name),
+    keySecret: currentKeySecret(i.service.labels, i.stack, i.name),
     stats: parseSearchStatsLabel(i.service.labels[SEARCH_STATS_LABEL]),
     attachments,
   };
@@ -577,9 +594,9 @@ export async function destroySearch(
     throw mapDispatchError(e);
   }
   // Best-effort: a failed secret removal must not block the destroy.
-  await ctx.hub
-    .dispatch(node.id, 'secret.remove', { name: searchKeySecretName(i.stack, i.name) })
-    .catch(() => undefined);
+  for (const secret of new Set([currentKeySecret(i.service.labels, i.stack, i.name), searchKeySecretName(i.stack, i.name)])) {
+    await ctx.hub.dispatch(node.id, 'secret.remove', { name: secret }).catch(() => undefined);
+  }
   await writeAudit(ctx, {
     action: 'search.destroy',
     targetType: 'searchInstance',
@@ -608,14 +625,17 @@ export async function attachSearchToService(
   );
   if (!app) throw notFound('service', input.appService);
 
+  // The file path apps read is the FAMILY name; the version behind it changes on rotation.
   const secretName = searchKeySecretName(input.stack, input.name);
+  const current = currentKeySecret(i.service.labels, input.stack, input.name);
   const injected = searchAttachEnv(engine, host, secretName);
   const network = searchNetworkName(input.stack, input.name);
 
   // One-aspect patch over the FULL live spec — volumes/command/placement survive.
   await patchLiveService(ctx, app, {
     setEnv: injected,
-    addSecrets: [{ source: secretName }],
+    removeSecrets: isKeySecretOf(input.stack, input.name),
+    addSecrets: [{ source: current, target: secretName }],
     addNetworks: [network],
     setLabels: {
       [STACK_LABEL]: input.stack,
@@ -659,7 +679,7 @@ export async function detachSearchFromService(
 
   await patchLiveService(ctx, app, {
     removeEnv: [...injectedKeys],
-    removeSecrets: [secretName],
+    removeSecrets: isKeySecretOf(input.stack, input.name),
     removeNetworks: [network],
     removeLabels: [SEARCH_INJECT_LABEL, SEARCH_INJECT_VAR_LABEL],
   });

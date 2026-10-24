@@ -23,6 +23,7 @@ import {
 } from '../services/search.service';
 import { searchIndex, searchIndexes, searchQuery } from '../services/search-indexes.service';
 import { setSearchIndexSettings } from '../services/search-index-settings.service';
+import { rotateSearchKey } from '../services/search-key.service';
 
 const stackName = z
   .string()
@@ -111,6 +112,16 @@ export const managedSearchRouter = router({
   setIndexSettings: abacProcedure('stack.deploy', resolveStackByName)
     .input(SetIndexSettingsInput)
     .mutation(({ ctx, input }) => setSearchIndexSettings(ctx, input)),
+
+  /**
+   * Rotate the master key: a new `…-key__v<n>` secret, the engine restarted
+   * on it, every attached app moved onto it at the same file path, old
+   * versions removed. Returns the new key ONCE. Gated like
+   * db.rotatePassword (`secret.delete`); audited `search.key.rotate`.
+   */
+  rotateKey: abacProcedure('secret.delete', resolveStackByName)
+    .input(SearchInstanceRef)
+    .mutation(({ ctx, input }) => rotateSearchKey(ctx, input)),
 
   /** Snapshots for this instance (restic catalog filtered by the search tag). */
   listBackups: orgProcedure

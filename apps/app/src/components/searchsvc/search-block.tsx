@@ -10,6 +10,7 @@ import { DestroySearchDialog } from './destroy-search-dialog';
 import { SearchAttachSection } from './search-attach-section';
 import { SearchBackupsSection } from './search-backups-section';
 import { SearchIndexes } from './search-indexes';
+import { SearchKeyRow } from './search-key-row';
 import { Kv } from './search-kv';
 
 const ENGINE = { meilisearch: { label: 'Meilisearch', env: 'MEILI_HOST' }, typesense: { label: 'Typesense', env: 'TYPESENSE_HOST' } } as const;
@@ -70,11 +71,7 @@ export function SearchBlock({ v }: { v: SearchInstanceView }): React.JSX.Element
       </div>
       <SearchIndexes v={v} />
       <div className="flex flex-col">
-        <Kv k="Master key" tech={`Docker secret ${v.keySecret} · mounted as a file for attached apps`}>
-          <span className="text-[13px]">
-            <span className="font-mono">••••••••••••</span> <span className="text-muted-foreground">· shown once, when it was made</span>
-          </span>
-        </Kv>
+        <SearchKeyRow v={v} />
         <Kv k="Engine" tech={`swarmy.search.engine=${v.engine} · fixed when it was made`}>
           <span className="text-[13px]">{e.label}{where ? `, one copy on ${where}` : ''}</span>
         </Kv>

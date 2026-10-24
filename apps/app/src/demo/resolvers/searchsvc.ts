@@ -192,11 +192,11 @@ export const searchsvc: DomainResolvers = {
               TYPESENSE_HOST: v.host,
               TYPESENSE_PORT: String(v.port),
               TYPESENSE_PROTOCOL: 'http',
-              TYPESENSE_API_KEY_FILE: `/run/secrets/${v.keySecret}`,
+              TYPESENSE_API_KEY_FILE: `/run/secrets/swarmy-search-${v.stack}_${v.name}-key`,
             }
           : {
               MEILI_HOST: v.url,
-              MEILI_MASTER_KEY_FILE: `/run/secrets/${v.keySecret}`,
+              MEILI_MASTER_KEY_FILE: `/run/secrets/swarmy-search-${v.stack}_${v.name}-key`,
             };
       return { appService: b.appService, name: v.name, envVar, url: v.url, env };
     },

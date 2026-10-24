@@ -137,4 +137,6 @@ export interface SearchKeyRotateResult {
   masterKey: string;
   /** The engine first, then every attached app (each restarted). */
   redeployed: string[];
+  /** Apps that could not be moved onto the new key (rotate again to retry them). */
+  failed: Array<{ service: string; error: string }>;
 }
