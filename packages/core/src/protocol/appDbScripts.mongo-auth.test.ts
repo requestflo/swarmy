@@ -1,7 +1,8 @@
 /**
  * Mongo dump/restore never put the password on argv (`ps` would show it to
  * anything on the node). Scripts run under /bin/sh with a stub mongodump /
- * mongorestore that records its argv, its stdin, and any --config file.
+ * mongorestore that records its argv, its stdin, and any --config file. The
+ * real sh runs are slow under a busy `bun run test`, hence the 20 s timeouts.
  */
 import { describe, expect, it } from 'bun:test';
 import { spawnSync } from 'node:child_process';
@@ -47,7 +48,7 @@ describe('mongo dump/restore credentials', () => {
       expect(r.argv).not.toContain(PW);
       expect(r.config).toBe("password: 's3cr3t-''pw'\n");
       expect(r.stdin).toBe('');
-    });
+    }, 20_000);
 
     it(`${name}: tools without --config (or no tmpfs) read the password from stdin, never argv`, () => {
       for (const opts of [{ withConfig: false, tmpfs: true }, { withConfig: true, tmpfs: false }]) {
@@ -58,7 +59,7 @@ describe('mongo dump/restore credentials', () => {
         expect(r.argv).not.toContain('--password');
         expect(r.stdin).toBe(`${PW}\n`);
       }
-    });
+    }, 20_000);
   }
 
   it('no user: no password anywhere', () => {
