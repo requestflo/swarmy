@@ -344,7 +344,7 @@ describe('drivePlatformUpgrade (service over fakes)', () => {
         agentCommit = 'new';
       },
       agentRelease: () => ({ version: '1.3.0', commit: 'new' }),
-      engine: { available: async () => null, start: async () => ({ id: 'x' }), read: async () => null },
+      engine: { available: async () => null, start: async () => ({ id: 'x' }), read: async () => null, roll: async () => ({ status: 'skipped' }) },
       edges: async () => ({ checked: ['node-1'] }),
       audit: async () => undefined,
       sleep: async () => undefined,
@@ -419,6 +419,22 @@ describe('drivePlatformUpgrade (service over fakes)', () => {
     expect(w.row()).toMatchObject({ status: 'failed', step: 'verify' });
     expect(w.row().error).toMatch(/node-2: no answer from its edge/);
     expect(w.currentManifest()).toBeNull();
+  });
+
+  it('engines: no major migration applies → the Garage minor rolling update runs (with the target release)', async () => {
+    const from = builtInManifest('1.2.0', 'o', BOM);
+    const target = buildPlatformManifest({ version: '1.3.0', channel: 'stable', commit: 'n', digests: { controller: NEW } });
+    const w = world(target, from);
+    const rolled: string[] = [];
+    const d = (t: number): PlatformUpgradeDeps => {
+      const base = w.deps(t);
+      return { ...base, engine: { ...base.engine, roll: async (_c, _s, m) => (rolled.push(m.version), { status: 'done', detail: 'object storage on Garage v2.4.1' }) } };
+    };
+    await drivePlatformUpgrade(w.ctx, 'run1', d(0));
+    w.swarmReplacesController(`ghcr.io/requestflo/swarmy-controller@${NEW}`);
+    await drivePlatformUpgrade(w.ctx, 'run1', d(Date.now() + 1_000));
+    expect(rolled).toEqual(['1.3.0']);
+    expect(w.row().steps.find((s: any) => s.key === 'engines')).toMatchObject({ status: 'done', detail: 'object storage on Garage v2.4.1' });
   });
 
   it('refuses a tampered release at preflight (signature re-verified on every drive)', async () => {

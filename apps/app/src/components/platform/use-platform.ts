@@ -40,8 +40,8 @@ export const STEP_TEXT: Record<string, { name: string; what: string; ifFails: st
   },
   engines: {
     name: 'Engine upgrades',
-    what: 'Garage major version: snapshot, a brief pause, all members together',
-    ifFails: 'snapshot restored on the old version',
+    what: 'Object storage: a minor update goes one member at a time, healthy in between; a major takes a snapshot and a brief pause',
+    ifFails: 'every member back on the old version (a major restores its snapshot)',
   },
   verify: {
     name: 'Verify',

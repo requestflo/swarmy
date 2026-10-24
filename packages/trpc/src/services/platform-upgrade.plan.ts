@@ -383,9 +383,14 @@ function sq(s: string): string {
  * previous spec back when the new task fails within the monitor window. The
  * script prints `@@SWARMY-UPDATE@@ <rc> <UpdateStatus.State>` last. With
  * `detach`, it returns right after Swarm accepted the new spec (the controller
- * step: this process is about to be replaced). Registry creds come as env.
+ * step: this process is about to be replaced). `delay` / `order` set Swarm's
+ * pause between tasks and stop-/start-first (the Garage roll). Registry creds come as env.
  */
-export function serviceUpdateScript(service: string, image: string, opts: { detach?: boolean; monitor?: string; login?: string } = {}): string {
+export function serviceUpdateScript(
+  service: string,
+  image: string,
+  opts: { detach?: boolean; monitor?: string; login?: string; delay?: string; order?: 'stop-first' | 'start-first' } = {},
+): string {
   const lines = ['set -u'];
   if (opts.login) {
     lines.push(
@@ -394,7 +399,8 @@ export function serviceUpdateScript(service: string, image: string, opts: { deta
   }
   lines.push(
     `docker service update --quiet ${opts.detach ? '--detach' : '--detach=false'} \${AUTH:-} --image ${sq(image)} ` +
-      `--update-failure-action rollback --update-monitor ${opts.monitor ?? '30s'} --update-parallelism 1 ${sq(service)}; RC=$?`,
+      `--update-failure-action rollback --update-monitor ${opts.monitor ?? '30s'} --update-parallelism 1 ` +
+      `${opts.delay ? `--update-delay ${opts.delay} ` : ''}${opts.order ? `--update-order ${opts.order} ` : ''}${sq(service)}; RC=$?`,
     `ST=$(docker service inspect ${sq(service)} --format '{{if .UpdateStatus}}{{.UpdateStatus.State}}{{end}}' 2>/dev/null)`,
     `echo "${UPDATE_MARKER} $RC \${ST:-none}"`,
   );

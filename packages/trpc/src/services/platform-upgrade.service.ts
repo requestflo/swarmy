@@ -21,9 +21,11 @@
  *              observability), each `docker service update` health-gated with
  *              Swarm auto-rollback; the step's own rollback reverts every
  *              service it already moved (`docker service rollback`).
- *   engines    registered migrations that are not rolling — today the Garage
- *              major (`engine-upgrade.service`: snapshot → brief pause → v2,
- *              rollback = restore on v1), polled until it settles.
+ *   engines    object storage: a Garage major is the registered migration
+ *              (`engine-upgrade.service`: snapshot → brief pause → v2,
+ *              rollback = restore on v1), polled until it settles; a minor /
+ *              patch is a rolling update, one member at a time, healthy in
+ *              between (`platform-garage-roll.ts`).
  *   verify     every node back, every system service converged, and one
  *              request through every edge reaches the controller
  *              (`platform-edge-verify.ts`); the release becomes the cluster's
@@ -52,6 +54,7 @@ import { runControllerBackup } from './controllerBackup.service';
 import { engineUpgradeAvailable, getEngineUpgrade, startEngineUpgrade } from './engine-upgrade.service';
 import { isSameAgentBuild, upgradeAgent } from './node.service';
 import { invalidateEffectiveImages } from './platform-images';
+import { garageRollIO, rollGarage } from './platform-garage-roll.run';
 import { edgeVerifyIO, verifyEdges, type EdgeVerifyReport } from './platform-edge-verify';
 import {
   PROCESS_STARTED_AT,
@@ -78,6 +81,7 @@ import {
   type RunState,
   type StepContext,
   type StepHandlers,
+  type StepOutcome,
   type StepState,
 } from './platform-upgrade.plan';
 import { systemAbandon } from './platform-upgrade.abandon';
@@ -112,6 +116,8 @@ export interface PlatformUpgradeDeps {
     available: (ctx: OrgContext) => Promise<string | null>;
     start: (ctx: OrgContext) => Promise<{ id: string }>;
     read: (ctx: OrgContext) => Promise<{ id: string; status: string; error?: string; to: string; from: string } | null>;
+    /** No major migration applies: the minor / patch rolling update (or a skip). */
+    roll: (ctx: OrgContext, c: StepContext, m: PlatformManifest) => Promise<StepOutcome>;
   };
   /** Verify's edge leg: one request through every edge to the controller (throws when one keeps failing). */
   edges: (ctx: OrgContext) => Promise<EdgeVerifyReport>;
@@ -135,6 +141,7 @@ export const defaultDeps: PlatformUpgradeDeps = {
     },
     start: (ctx) => startEngineUpgrade(ctx),
     read: async (ctx) => (await getEngineUpgrade(ctx)).run,
+    roll: (ctx, c, m) => rollGarage(c, m.components.garage, garageRollIO(ctx, m, { dockerCli, registryLogin, refResolver })),
   },
   edges: (ctx) => verifyEdges(edgeVerifyIO(ctx, (ms) => new Promise((r) => setTimeout(r, ms)), () => Date.now())),
   audit: writeAudit,
@@ -474,10 +481,11 @@ export function buildHandlers(ctx: OrgContext, row: RunRow, deps: PlatformUpgrad
   };
 
   const engines = async (c: StepContext) => {
-    const d = dataOf<{ engineRunId?: string; to?: string }>(c.step);
+    const d = dataOf<{ engineRunId?: string; to?: string; garage?: unknown }>(c.step);
     if (!d.engineRunId) {
-      const to = await deps.engine.available(ctx);
-      if (!to) return { status: 'skipped' as const, detail: 'no engine migration applies (object storage is current or off)' };
+      // A rolling update already under way resumes as one; else a major migration first.
+      const to = d.garage ? null : await deps.engine.available(ctx);
+      if (!to) return deps.engine.roll(ctx, c, target);
       c.note(`object storage: starting the Garage migration to ${to} (brief pause, snapshot first)`);
       const r = await deps.engine.start(ctx);
       d.engineRunId = r.id;

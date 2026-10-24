@@ -31,7 +31,7 @@ export const REVERSIBLE_STEPS: readonly StepKey[] = ['agents', 'system'];
 /** Why a finished step stays as it is on Abandon. */
 export const KEPT_ON_ABANDON: Partial<Record<StepKey, string>> = {
   controller: 'the controller stays on the new build: its database already moved forward (the preflight backup is the way back)',
-  engines: 'object storage stays on the new version: a Garage major moves its data forward',
+  engines: 'object storage stays on the new version: a Garage major moves its data forward, and a minor update is not rolled through every member again',
 };
 
 export interface PauseRequest {
