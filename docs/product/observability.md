@@ -134,6 +134,16 @@ Four ideas, one story:
   public status page (`/s/<slug>` or a custom domain) with 90-day uptime bars
   sampled by the alert-evaluator worker. Every fire, resolve, and override is
   audited.
+- **A rule shows what it would have done.** Editing an error-rate or disk rule
+  replays its threshold and duration over the last week of real readings and
+  marks each time it would have fired, by the evaluator's own rule (strictly
+  above the line, for at least the duration, each part or server on its own).
+  Disk history is a week of each server's 5-minute peaks
+  (`alerts.diskHistory`); a gap is drawn as a gap, never as zero. Other signals
+  have no backtest yet.
+- **Send test shows what lands.** A channel's test message is drawn in that
+  app's own look (Slack, Discord, Telegram, email…), from the same renderers
+  the controller sends with, so the preview and the delivery can't differ.
 
 ## Error tracking (Sentry-compatible)
 
@@ -258,7 +268,9 @@ collector/ClickHouse config, `create_schema: true`), `observability-query.ts` /
 (the plain-words narrative), `observability.service.ts` + `routers/observability.ts`
 (the read/enable layer), the alerting spine
 (`alerts.service.ts`/`alerts-fire.ts`/`incidents-record.ts`/`statusPages.service.ts`
-+ their routers), `apps/api/src/workers/{observability-reconcile,alert-evaluator}.ts`,
+and their routers; the message renderers in `packages/core/src/alert-render{,-apps}.ts`;
+the disk backtest history in `alerts-disk-history.ts`),
+`apps/api/src/workers/{observability-reconcile,alert-evaluator}.ts`,
 error tracking in `packages/trpc/src/services/errors/*` + `routers/errors.ts` + `apps/api/src/errors-ingest.ts` (UI `components/errors/*`, stack tab `routes/_authed/stacks/$name.errors.*`), and the UI at `apps/app/src/components/observability/*` (the stack
 Observability tab `routes/_authed/stacks/$name.observability.tsx`, trace detail
 `routes/_authed/observability.$traceId.tsx`) and the public status page at

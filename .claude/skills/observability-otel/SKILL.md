@@ -125,6 +125,23 @@ db→protocol→service→router→UI shape see `skill("add-feature-slice")`.
   `statusPages.service.ts` composes the public snapshot (90-day uptime).
 - **Result of a fire**: everything is audited via `writeAudit` — fires, resolves,
   overrides, enable/disable.
+- **What a channel receives is rendered once, in `@swarmy/core`.**
+  `alert-render.ts` (slack/teams one-liner, email subject, signed webhook body,
+  `testNotification`) and `alert-render-apps.ts` (Discord embed, Telegram
+  MarkdownV2, ntfy, Gotify) are pure and browser-safe; `alerts-channels.ts`
+  owns only the transport. The dashboard's Send test preview
+  (`components/alerts/channel-preview{,-apps}.tsx`) imports the same
+  renderers, so it shows exactly what lands. Never format a message in the
+  transport or in the UI.
+- **The rule backtest replays the evaluator's rule over real readings.**
+  `alerts.diskHistory` (`alerts-disk-history.ts`) returns a week of each
+  server's disk use from telemetry.db as 5-minute peaks on one fixed grid
+  (`null` where no sample was kept, never a zero; org-scoped, unknown nodes
+  dropped); error rate comes from `observability.requestSeries`. The pure
+  `components/alerts/rule-backtest.ts` mirrors `alert-evaluator`: strictly
+  above the threshold, held for at least `forSeconds`, each subject on its
+  own. Only error rate and disk have a backtest; a new signal needs a history
+  source first.
 
 ## File map
 
@@ -139,6 +156,8 @@ db→protocol→service→router→UI shape see `skill("add-feature-slice")`.
 | Plain-words health narrative | `packages/trpc/src/services/health-summary.ts` |
 | tRPC router (getConfig/status/traces/…/health) | `packages/trpc/src/routers/observability.ts` |
 | Alerts spine | `services/{alerts.service,alerts-fire}.ts` + `routers/alerts.ts` |
+| Notification words (pure, shared with the dashboard) + transport | `packages/core/src/alert-render{,-apps}.ts`, `packages/trpc/src/services/alerts-channels.ts`; UI `apps/app/src/components/alerts/channel-preview{,-apps}.tsx` |
+| Rule backtest: a week of disk peaks + the "would have fired" replay | `packages/trpc/src/services/alerts-disk-history.ts` (+ `.test.ts`, `alerts.diskHistory`); UI `apps/app/src/components/alerts/{rule-backtest.ts,rule-backtest-chart.tsx,use-rule-backtest.ts,use-error-rate-history.ts}` |
 | Incidents spine | `services/{incidents.service,incidents-record}.ts` + `routers/incidents.ts` |
 | Status pages (+ public snapshot) | `services/statusPages.service.ts`, `routers/statusPages.ts`, `apps/api/src/status-public.ts` |
 | Store-state reconcile (probe reachability/footprint) | `apps/api/src/workers/observability-reconcile.ts` |
