@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { useDepth } from '@/components/calm';
 import type { RouteProtection } from '@/components/ingress/protection-model';
+import { CountryDatabase } from '@/components/ingress/country-database';
 import { ProtectionCard, RuleFields } from './protection-card';
 import { isOn, patch, ruleSay, switchedOff, tokens } from './protection-rules';
 
@@ -71,6 +72,7 @@ export function TypedRuleCard({ id, protection: p, service, saving, save }: {
           onCancel={editing ? () => setEditing(false) : undefined}
         />
       ) : null}
+      {id === 'countries' && (on || editing || controls) ? <CountryDatabase /> : null}
     </ProtectionCard>
   );
 }

@@ -189,8 +189,9 @@ export class CaddyDriver implements IngressDriver {
         path: 'globalOptions.extraConfig.geoipMmdbPath',
         message:
           `${geoRouted.length} route(s) carry country allow/deny rules, but no GeoIP database path ` +
-          'is configured (extraConfig.geoipMmdbPath) — the rules are NOT enforced. Mount a country ' +
-          'mmdb into the ingress container and set the path.',
+          'is configured (extraConfig.geoipMmdbPath) — the rules are NOT enforced. Pick the country ' +
+          'database in the Countries protection: the bundled DB-IP Country Lite (swarmy Caddy build) ' +
+          'or the path of an mmdb inside the ingress container.',
       });
     }
     if (geoRouted.length > 0 && geoipMmdbPath !== '' && stockImage) {

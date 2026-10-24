@@ -9,6 +9,7 @@ import {
   normalizeHostname,
   applyIngress as applyIngressPkg,
   previewConfig as previewConfigPkg,
+  resolveEdgeGeoip,
   tunnelSideConfig,
   type ColdRoute,
   type ControllerVhost,
@@ -66,6 +67,7 @@ import {
   type EdgeCertStorageSettings,
 } from './ingress-certs';
 import { domainChecksOf } from './domain-checks.store';
+import { edgeGeoipInputs } from './edge-geoip.service';
 import { ingressConfigRepo, type IngressDriverEnum } from './ingress-config.repo';
 import { observabilityConfigRepo } from './observability-config.repo';
 import { meshPeers } from './mesh-peers';
@@ -556,6 +558,11 @@ async function loadOrgConfig(
   // validate() must judge the image Caddy really runs — the configured one, else
   // the default swarmy build (both topologies deploy it).
   extraConfig.controllerImage = settings.controllerImage ?? defaultEdgeImage();
+  // Country rules read the org's country database: the DB-IP Country Lite
+  // bundled in swarmy's Caddy build by default, an operator mmdb, or off.
+  const geoip = resolveEdgeGeoip(edgeGeoipInputs(settings as Record<string, unknown>));
+  if (geoip.path) extraConfig.geoipMmdbPath = geoip.path;
+  else delete extraConfig.geoipMmdbPath;
   // Edge-per-node topology renders per node (region-aware) and each node's
   // agent writes its config INSIDE its local edge task, then reloads — see
   // caddy driver applyVia 'local'.
@@ -1372,7 +1379,7 @@ async function applyAndRecord(ctx: OrgContext, config: OrgIngressConfig): Promis
  * pulling) the apply is deferred — the ingress-reconcile worker applies the
  * moment a task appears — rather than recorded as a failure.
  */
-async function reapply(ctx: OrgContext): Promise<IngressStatus | null> {
+export async function reapply(ctx: OrgContext): Promise<IngressStatus | null> {
   const config = await loadOrgConfig(ctx);
   if (config.driver === 'none' || !config.enabled) return null;
   if (usesInTaskExec(config) && (await ingressTaskNodes(ctx)).length === 0) {

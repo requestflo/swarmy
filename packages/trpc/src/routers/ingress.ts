@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { TlsMode } from '@swarmy/core';
-import { RouteProtectionSchema, WwwModeSchema } from '@swarmy/ingress';
+import { EdgeGeoipSettingSchema, RouteProtectionSchema, WwwModeSchema } from '@swarmy/ingress';
+import { getEdgeGeoip, setEdgeGeoip } from '../services/edge-geoip.service';
 import { adminProcedure, orgProcedure, router } from '../trpc';
 import { BYO_DNS_PROVIDERS } from '@swarmy/ingress';
 import { getDnsChallengeView, setByoDnsProvider } from '../services/acme-dns.service';
@@ -16,6 +17,7 @@ import {
   listDomains,
   previewConfig,
   parseDomainId,
+  reapply,
   removeDomain,
   setControllerImage,
   setDomainWww,
@@ -125,6 +127,13 @@ export const ingressRouter = router({
    *  Swarm can't change mode in place, so the service is removed + recreated
    *  (cert volumes kept, seconds of downtime). The setting persists only once
    *  the new service deployed. */
+  /** The country database the edge's country rules read (bundled DB-IP Country Lite by default). */
+  edgeGeoip: orgProcedure.query(({ ctx }) => getEdgeGeoip(ctx)),
+  /** Pick it: `bundled`, `file` (an mmdb path inside the edge container) or `off`. */
+  setEdgeGeoip: adminProcedure
+    .input(EdgeGeoipSettingSchema.refine((v) => v.mode !== 'file' || Boolean(v.path), { message: 'a file path is required', path: ['path'] }))
+    .mutation(({ ctx, input }) => setEdgeGeoip(ctx, input, reapply)),
+
   setTopology: adminProcedure
     .input(z.object({ topology: z.enum(['controller', 'edge-per-node']) }))
     .mutation(({ ctx, input }) => setTopology(ctx, input.topology)),

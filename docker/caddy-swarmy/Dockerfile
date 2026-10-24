@@ -31,11 +31,13 @@
 #     why via a `Swarmy-Rum` header). The app itself is never changed.
 # This image is the stock Caddy plus all eight, built with xcaddy.
 #
-# Country rules also need a GeoIP country mmdb visible INSIDE the container:
-# mount one and point `extraConfig.geoipMmdbPath` at it. swarmy does not
-# auto-download an mmdb for the edge in this pass — the DNS plane already
-# manages GeoIP downloads (apps/dns/src/geoip-manager.ts) and wiring that
-# into ingress is a follow-up; until then the path is operator-provided.
+# Country rules also need a GeoIP country mmdb INSIDE the container. This image
+# bundles DB-IP "IP to Country Lite" (CC BY 4.0) at
+# /usr/share/swarmy/geoip/dbip-country-lite.mmdb with the same fetch swarmy-dns
+# uses (geoip/bundle-dbip-country.sh), so country rules work on a fresh edge
+# with no egress. The controller points the matcher at it by default
+# (`EDGE_GEOIP_BUNDLED_PATH`); an operator mmdb path or "off" is an org setting.
+# DBIP_MONTH=YYYY-MM pins an edition; SWARMY_EDGE_BUNDLE_GEOIP=0 skips it.
 #
 # Build + push (any registry the swarm can pull from):
 #   docker build -t <registry>/caddy-swarmy:2 docker/caddy-swarmy
@@ -69,6 +71,17 @@ RUN xcaddy build \
     --with github.com/caddyserver/cache-handler@v0.16.0 \
     --with github.com/porech/caddy-maxmind-geolocation@v1.0.3
 
+FROM alpine:3.20 AS geoip
+ARG DBIP_MONTH=
+ARG SWARMY_EDGE_BUNDLE_GEOIP=1
+COPY geoip/bundle-dbip-country.sh /usr/local/bin/bundle-dbip-country
+RUN DBIP_MONTH="$DBIP_MONTH" BUNDLE="$SWARMY_EDGE_BUNDLE_GEOIP" sh /usr/local/bin/bundle-dbip-country /out \
+  'the swarmy edge matches each request country against the allow/deny rules of its routes.'
+
 FROM caddy:2.11.4-alpine
 
+LABEL org.opencontainers.image.licenses.geoip="CC-BY-4.0" \
+      dev.swarmy.geoip.attribution="IP Geolocation by DB-IP (https://db-ip.com), CC BY 4.0"
+
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy
+COPY --from=geoip /out/ /usr/share/swarmy/geoip/

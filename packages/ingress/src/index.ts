@@ -10,6 +10,7 @@ export * from './dns-challenge';
 export * from './app-auth';
 export * from './rum';
 export * from './route-channel';
+export * from './edge-geoip';
 export {
   CaddyDriver,
   caddyAdminLoadUrl,
