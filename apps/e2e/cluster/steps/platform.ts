@@ -389,6 +389,7 @@ async function upgradeViaButton(ctx: Ctx, nextTag: string, digests: { controller
   log(`platform.start → ${JSON.stringify(started).slice(0, 200)}`);
 
   let lastSteps = '';
+  let lastNote = '';
   const final = await poll(
     'platform upgrade run finished',
     async () => {
@@ -403,6 +404,7 @@ async function upgradeViaButton(ctx: Ctx, nextTag: string, digests: { controller
       const run = st?.run;
       const steps = (run?.steps ?? []).map((x: any) => `${x.key}=${x.status}`).join(' ');
       if (steps !== lastSteps) log(`run ${run?.status}: ${(lastSteps = steps)}`);
+      lastNote = run?.log?.at(-1)?.msg ?? lastNote;
       if (run?.status === 'failed' || run?.status === 'cancelled') {
         const bad = (run.steps ?? []).find((x: any) => x.status === 'failed');
         throw new Fatal(`upgrade run ${run.status}: ${run.error ?? ''} ${bad ? `(${bad.key}: ${bad.error ?? bad.detail ?? ''})` : ''}`);
@@ -410,7 +412,11 @@ async function upgradeViaButton(ctx: Ctx, nextTag: string, digests: { controller
       return run?.status === 'done' ? st : null;
     },
     { timeoutMs: 20 * 60_000, intervalMs: 5000 },
-  );
+  ).catch((e: Error) => {
+    // Say WHERE it stuck: a preflight with no "release images" note is still
+    // pre-copying ~30 system images into the cluster registry (slow egress).
+    throw e instanceof Fatal ? e : new Error(`${e.message}; run at ${lastSteps || '?'}; last run log: "${lastNote}"`);
+  });
   assert(final.release?.current?.version === version, `current release is ${final.release?.current?.version}, want ${version}`);
   return `platform.start (${version})`;
 }
