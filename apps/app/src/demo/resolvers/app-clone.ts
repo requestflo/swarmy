@@ -11,7 +11,7 @@ import { pushDemoAudit } from './auditlog';
  * demo swarmy.yaml; a clone is a plan row like any environment's, its stack
  * a copy of the source's services, its secrets empty until filled.
  */
-interface Clone {
+export interface Clone {
   repoId: string;
   name: string;
   stack: string;
@@ -20,7 +20,7 @@ interface Clone {
   slots: Array<SecretSlot & { filled: boolean; version: number }>;
 }
 
-const clones = (s: DemoStore): Clone[] => ((s.extra['appClones'] as Clone[] | undefined) ??= []);
+export const clones = (s: DemoStore): Clone[] => ((s.extra['appClones'] as Clone[] | undefined) ??= []);
 const storefront = () => parseAppConfig(STOREFRONT_YAML).config!;
 
 /** The app (and environment) a stack belongs to. */

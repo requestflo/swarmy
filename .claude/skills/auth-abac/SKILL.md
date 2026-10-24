@@ -240,6 +240,8 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
   down from the dashboard (`apps.teardownPreview`) is `stack.remove` on the
   preview's live stack (`resolvePreviewStack` in `routers/apps.ts`; an
   unknown preview is `NOT_FOUND`, never "authorize as the org").
+  Removing a cloned environment (`apps.removeEnvironment`) is `stack.remove`
+  on its stack, plus `data.destroy` per database it deletes (`remove-env.ts`).
   So are the last role-gated deletes: RUM GDPR erase (`rum.remove`), mesh
   people revoke/revokeDevice (`mesh.revoke`), a moved volume's old copy
   (`data.destroy` on its live service) — all admin-only by default — and

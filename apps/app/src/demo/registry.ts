@@ -79,6 +79,7 @@ import { appPreviews } from './resolvers/app-previews';
 import { edgeGeoip } from './resolvers/edge-geoip';
 import { appsConfigFile } from './resolvers/apps-config-file';
 import { appClone } from './resolvers/app-clone';
+import { appCloneRemove } from './resolvers/app-clone-remove';
 import { appsConvert } from './resolvers/apps-convert';
 
 /**
@@ -169,6 +170,7 @@ const MODULES: DomainResolvers[] = [
   appsConfigFile,
   // Wraps apps' apps.list (clones marked as the dashboard's), so it comes after it.
   appClone,
+  appCloneRemove,
   appsConvert,
 ];
 

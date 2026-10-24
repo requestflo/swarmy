@@ -3,13 +3,13 @@ import {
   SECRET_ORG_LABEL,
   SECRET_OWNER_BLUEPRINT_LABEL,
   SECRET_OWNER_STACK_LABEL,
-  type InvService,
 } from '@swarmy/core';
 import type { SwarmResourceInfo } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import { commandRejected, mapDispatchError } from '../errors';
 import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
+import { removeFamiliesOfStack } from './secret-family-remove';
 import {
   consumersOf,
   groupSecrets,
@@ -148,39 +148,8 @@ export async function removeStackOwnedSecrets(
   stack: string,
 ): Promise<{ removed: string[]; kept: string[] }> {
   const raw = await listRawSecrets(ctx, nodeId);
-  const owned = familiesOwnedByStack(raw, ctx.activeOrgId, stack);
-  const others: InvService[] = liveOrgServices(ctx).filter((s) => s.stack !== stack);
-  const removed: string[] = [];
-  const kept: string[] = [];
-  for (const g of owned) {
-    const users = consumersOf(others, g);
-    if (users.length) {
-      kept.push(g.family);
-      continue;
-    }
-    const removedVersions: number[] = [];
-    for (const v of g.versions) {
-      // A version the removed tasks still hold is released as they stop — a
-      // failed remove leaves that version for the Secrets page, never aborts.
-      const ok = await ctx.hub
-        .dispatch(nodeId, 'secret.remove', { name: v.name }, { timeoutMs: DISPATCH_TIMEOUT_MS })
-        .then(() => true)
-        .catch(() => false);
-      if (ok) removedVersions.push(v.version);
-    }
-    if (removedVersions.length) removed.push(g.family);
-    await writeAudit(ctx, {
-      action: 'secrets.delete',
-      targetType: 'secretFamily',
-      targetId: g.family,
-      metadata: {
-        reason: 'stack.remove',
-        stack,
-        blueprint: familyOwner(raw, ctx.activeOrgId, g.family)?.blueprint ?? null,
-        removedVersions: removedVersions.sort((a, b) => a - b),
-        ...(removedVersions.length < g.versions.length ? { failedVersions: g.versions.length - removedVersions.length } : {}),
-      },
-    });
-  }
-  return { removed, kept };
+  return removeFamiliesOfStack(ctx, nodeId, stack, familiesOwnedByStack(raw, ctx.activeOrgId, stack), (g) => ({
+    reason: 'stack.remove',
+    blueprint: familyOwner(raw, ctx.activeOrgId, g.family)?.blueprint ?? null,
+  }));
 }

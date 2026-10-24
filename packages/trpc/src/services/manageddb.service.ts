@@ -2098,7 +2098,14 @@ export function dbRemoveConfirmPhrase(stack: string, cluster: string): string {
  */
 export async function removeDb(
   ctx: OrgContext,
-  input: { stack: string; cluster: string; confirm: string; deleteData?: boolean },
+  input: {
+    stack: string;
+    cluster: string;
+    confirm: string;
+    deleteData?: boolean;
+    /** Controller-internal: app services removed in the same step (an environment's removal) that the live inventory may still list. */
+    alsoRemoving?: readonly string[];
+  },
 ): Promise<{ cluster: string; removed: string[]; volumesDeleted: string[]; volumesKept: string[] }> {
   const expected = dbRemoveConfirmPhrase(input.stack, input.cluster);
   if (input.confirm.trim() !== expected) {
@@ -2107,7 +2114,10 @@ export async function removeDb(
   const { members } = findCluster(ctx, input.stack, input.cluster);
   if (members.length === 0) throw notFound('db cluster', input.cluster);
   const attached = liveStackServices(ctx, input.stack).filter(
-    (s) => s.labels[DB_INJECT_LABEL] === input.cluster && s.labels[DB_CLUSTER_LABEL] !== input.cluster,
+    (s) =>
+      s.labels[DB_INJECT_LABEL] === input.cluster &&
+      s.labels[DB_CLUSTER_LABEL] !== input.cluster &&
+      !input.alsoRemoving?.includes(s.name),
   );
   if (attached.length > 0) {
     throw commandRejected(

@@ -1,9 +1,9 @@
 /**
  * Environments of a git app (boards Environments · AppVariables): the
  * shared-vs-override layers swarmy.yaml defines (read-only, masked), Clone as
- * a new environment, and filling a clone's secret slots (write-only). Spread
- * into `appsRouter`, so the paths are `apps.envLayers` / `apps.cloneEnvironment`
- * / `apps.setEnvironmentSecret`.
+ * a new environment, filling a clone's secret slots (write-only) and removing
+ * a clone. Spread into `appsRouter`, so the paths are `apps.envLayers` /
+ * `apps.cloneEnvironment` / `apps.setEnvironmentSecret` / `apps.removeEnvironment`.
  */
 import { z } from 'zod';
 import { ENV_NAME_RE } from '@swarmy/app-config';
@@ -13,6 +13,8 @@ import { planCommit } from '../services/apps.service';
 import { cloneEnvironment } from '../services/apps/clone';
 import { readEnvLayers } from '../services/apps/env-layers';
 import { setEnvironmentSecret } from '../services/apps/env-secrets';
+import { removeEnvironment } from '../services/apps/remove-env';
+import { realRemoveEnvOps } from '../services/apps/remove-env-ops';
 
 const stack = z.string().min(1).max(100);
 
@@ -41,4 +43,15 @@ export const appEnvironmentProcedures = {
   setEnvironmentSecret: abacProcedure('service.configure', resolveStackByName)
     .input(z.object({ stack, family: z.string().min(1).max(56), value: z.string().min(1).max(100_000) }))
     .mutation(({ ctx, input }) => setEnvironmentSecret(ctx, input)),
+
+  /**
+   * Remove a cloned environment: its stack torn down like a preview, its
+   * database kept (default) or deleted, its own secrets removed, its marker
+   * dropped. Refused for production and swarmy.yaml environments. `stack.remove`
+   * on the environment's stack (+ `data.destroy` per deleted database);
+   * audited `app.environment.remove`.
+   */
+  removeEnvironment: abacProcedure('stack.remove', resolveStackByName)
+    .input(z.object({ stack, confirm: z.string().max(200), database: z.enum(['keep', 'delete']).default('keep') }))
+    .mutation(({ ctx, input }) => removeEnvironment(ctx, input, realRemoveEnvOps(ctx))),
 };

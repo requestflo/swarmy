@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from '@tanstack/react-router';
 import { Section } from '@/components/calm';
 import { useTRPC } from '@/integrations/trpc';
 import { canPromote, findStackApp } from '../gitops-types';
@@ -18,6 +19,7 @@ import { PromoteSheet } from './promote-sheet';
  */
 export function EnvironmentLanes({ stack }: { stack: string }): React.JSX.Element | null {
   const trpc = useTRPC();
+  const navigate = useNavigate();
   const apps = useQuery({ ...trpc.apps.list.queryOptions(), refetchInterval: 15_000 });
   const inventory = useQuery({ ...trpc.inventory.get.queryOptions(), refetchInterval: 4_000 });
   const match = apps.data ? findStackApp(apps.data, stack) : null;
@@ -50,7 +52,17 @@ export function EnvironmentLanes({ stack }: { stack: string }): React.JSX.Elemen
             drift={drift(e.environment)}
             services={live ? laneServices(e.stack, live, e === prod ? null : prodImages) : undefined}
             action={canPromote(e) ? <PromoteSheet repoId={app.repoId} env={e} prodImages={prodImages} /> : null}
-            note={e.dashboard ? <DashboardEnvNote env={e} /> : null}
+            note={
+              e.dashboard ? (
+                <DashboardEnvNote
+                  env={e}
+                  // Removing the environment this page is: go to production's.
+                  onRemoved={() => {
+                    if (e.stack === stack && prod) void navigate({ to: '/stacks/$name/releases', params: { name: prod.stack } });
+                  }}
+                />
+              ) : null
+            }
           />
         ))}
       </div>

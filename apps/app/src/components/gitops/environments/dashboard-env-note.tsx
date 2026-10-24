@@ -4,14 +4,15 @@ import { Button, Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle 
 import type { AppEnvironment } from '../gitops-types';
 import { envLabel } from '../plan-status';
 import { slotsLeft, slotsWords } from './clone-model';
+import { RemoveEnvDialog } from './remove-env-dialog';
 import { SecretSlots } from './secret-slots';
 
 /**
  * On a cloned environment's lane: where it is declared (the dashboard, until
- * swarmy.yaml names it) and its secrets — how many are still empty, and the
- * write-only fields to fill them.
+ * swarmy.yaml names it), its secrets — how many are still empty, and the
+ * write-only fields to fill them — and Remove environment.
  */
-export function DashboardEnvNote({ env }: { env: AppEnvironment }): React.JSX.Element | null {
+export function DashboardEnvNote({ env, onRemoved }: { env: AppEnvironment; onRemoved?: () => void }): React.JSX.Element | null {
   const [open, setOpen] = React.useState(false);
   const d = env.dashboard;
   if (!d) return null;
@@ -22,16 +23,23 @@ export function DashboardEnvNote({ env }: { env: AppEnvironment }): React.JSX.El
       <p className="text-tone-info text-[12.5px]">
         Cloned from {d.from}. Lives in the dashboard until you add it to swarmy.yaml.
       </p>
-      {d.secretSlots.length ? (
-        <Sheet open={open} onOpenChange={setOpen}>
-          <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        {d.secretSlots.length ? (
+          <>
             <span className={left ? 'text-tone-warn text-[12.5px]' : 'text-muted-foreground text-[12.5px]'}>
               {slotsWords(left, d.secretSlots.length)}
             </span>
             <Button variant="outline" size="sm" className="pointer-coarse:min-h-11" onClick={() => setOpen(true)}>
               <KeyRoundIcon className="size-3.5" /> {left ? 'Fill secrets' : 'Secrets'}
             </Button>
-          </div>
+          </>
+        ) : null}
+        <span className="ml-auto">
+          <RemoveEnvDialog env={env} {...(onRemoved ? { onRemoved } : {})} />
+        </span>
+      </div>
+      {d.secretSlots.length ? (
+        <Sheet open={open} onOpenChange={setOpen}>
           <SheetContent className="w-full overflow-y-auto sm:max-w-lg">
             <SheetHeader>
               <SheetTitle>{name}’s secrets</SheetTitle>

@@ -152,6 +152,8 @@ const GATES: Array<[string, unknown, string]> = [
   // Clone as a new environment deploys a stack of the app; filling its secret slots configures it.
   ['apps.cloneEnvironment', { stack: 'shop', name: 'qa', branch: 'qa' }, 'stack.deploy'],
   ['apps.setEnvironmentSecret', { stack: 'shop', family: 'stripe-key', value: 'x' }, 'service.configure'],
+  // Removing a cloned environment removes its stack.
+  ['apps.removeEnvironment', { stack: 'shop', confirm: 'shop' }, 'stack.remove'],
   // AI gateway app wiring: configuring the app it injects into.
   ['ai.attachToService', { stack: 'shop', appService: 'web' }, 'service.configure'],
   ['ai.grantStackAccess', { stack: 'shop' }, 'service.configure'],

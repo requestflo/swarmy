@@ -70,6 +70,7 @@ import {
   dashboardDesired,
   dashboardEnvironments,
   dashboardEnvView,
+  REMOVED,
   type SecretSlotView,
 } from './apps/dashboard-envs';
 import { appliedCommits, staleCommitReason } from './apps/stale-commit';
@@ -289,6 +290,11 @@ async function withAppLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
   }
 }
 
+/** Run `fn` under an app environment's apply lock (removing a dashboard environment). */
+export function lockAppEnvironment<T>(repoId: string, environment: string, fn: () => Promise<T>): Promise<T> {
+  return withAppLock(envKey(repoId, environment, 0), fn);
+}
+
 // ── live state ───────────────────────────────────────────────────────────────
 
 function liveServices(ctx: OrgContext) {
@@ -296,7 +302,7 @@ function liveServices(ctx: OrgContext) {
   return buildInventory(services, containers).services;
 }
 
-async function latestLedger(
+export async function latestLedger(
   db: DB,
   repoId: string,
   environment: string,
@@ -1048,6 +1054,9 @@ export async function planCommit(
     : toDesired(cfg, preview ? { preview, environment: previewBase } : { environment });
   const prNumber = branchPr ?? input.prNumber ?? 0;
   return withAppLock(envKey(repo.id, environment, prNumber), async () => {
+    // A dashboard environment removed while this plan waited for the lock stays removed.
+    if (dashboard && !input.clone && !(await dashboardEnvironments(ctx.db, repo.id)).some((e) => e.environment === environment))
+      return { planId: null, status: 'skipped', environment: null, stack: null, reason: `${environment} was removed` };
     // M8: a (replayed) push of a commit this environment already moved past never rolls it back.
     if (input.trigger === 'push' && environment !== 'preview' && !input.retry && !input.dryRun) {
       const applied = await appliedCommits(ctx.db, { repoId: repo.id, environment, prNumber });
@@ -1107,6 +1116,10 @@ export async function planCommit(
         });
       }
     }
+    // A removed environment's row at this key (its name cloned again, or now in swarmy.yaml) starts over.
+    await ctx.db.appPlan.deleteMany({
+      where: { repoId: repo.id, environment, sha, trigger: input.trigger, prNumber, status: REMOVED },
+    });
     const row = await ctx.db.appPlan.upsert({
       where: {
         repoId_environment_sha_trigger_prNumber: {
@@ -1493,6 +1506,7 @@ export async function listApps(ctx: OrgContext): Promise<AppView[]> {
       })),
     ];
     for (const [env, row] of latestByEnv) {
+      if (row.status === REMOVED) continue; // a removed dashboard environment (remove-env.ts)
       const marker = (row.desiredJson as unknown as DesiredApp | null)?.dashboard;
       if (marker) {
         envs.push(dashboardEnvView(ctx, env, row.stack, marker, toPlanView(row)));

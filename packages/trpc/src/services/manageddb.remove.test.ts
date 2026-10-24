@@ -53,6 +53,13 @@ describe('removeDb (db.remove)', () => {
     expect(w.calls).toEqual([]);
   });
 
+  it('an app removed in the same step (environment removal) no longer counts as connected', async () => {
+    const app = svc('shop_web', { 'swarmy.db.inject': 'main' });
+    const w = world([PRIMARY, REPLICA, app]);
+    await removeDb(w.ctx, { stack: 'shop', cluster: 'main', confirm: 'shop/main', alsoRemoving: ['shop_web'] });
+    expect(w.calls.map((c) => c.payload.service)).toEqual(['shop_main-primary', 'shop_main-replica']);
+  });
+
   it('unknown cluster → not found', async () => {
     const w = world([]);
     await expect(removeDb(w.ctx, { stack: 'shop', cluster: 'main', confirm: 'shop/main' })).rejects.toThrow();

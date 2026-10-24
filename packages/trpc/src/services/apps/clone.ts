@@ -18,6 +18,7 @@ import type { OrgContext } from '../../context';
 import { commandRejected, notFound } from '../../errors';
 import { writeAudit } from '../audit.service';
 import type { PlanCommitInput, PlanCommitResult } from '../apps.service';
+import { takenEnvironments } from './dashboard-envs';
 
 export interface CloneEnvironmentInput {
   /** The stack of the environment being cloned (production or a named one). */
@@ -50,12 +51,8 @@ export async function cloneEnvironment(
   });
   if (!source) throw notFound('git app environment', input.stack);
   if (input.mask && !input.database) throw commandRejected('masking applies to a copied database — turn on “start its database” too');
-  const known = await ctx.db.appPlan.findMany({
-    where: { repoId: source.repoId, prNumber: 0 },
-    distinct: ['environment'],
-    select: { environment: true },
-  });
-  if (known.some((k) => k.environment === input.name))
+  // A removed environment's name is free again.
+  if ((await takenEnvironments(ctx.db, source.repoId)).includes(input.name))
     throw commandRejected(`this app already has an environment called ${input.name}`);
 
   const clone: DashboardEnvironment = {
