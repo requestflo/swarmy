@@ -134,10 +134,26 @@ Docker images are pruned by the controller's node-hygiene worker. Disk size is
 fixed when a VM is created, so `up` warns about an existing smaller VM; recreate
 it (`down`, then `up`) to grow it.
 
+Network: by default (`SWARMY_VM_NETWORK=fabric`) each VM gets two networks,
+the same layout as the e2e cluster harness (`apps/e2e/cluster/lib/provider.ts`):
+
+- `vzNAT` gives each VM an address the Mac reaches.
+- `lima:user-v2` (Lima's virtual switch) carries VM-to-VM traffic. Before
+  enrolling, the script makes it the default route, so the swarm advertises an
+  address the other VMs can reach.
+
+This is what lets two VMs form one swarm without the mesh, and lets the routing
+mesh carry a published port to a task on another VM. It needs Lima's `vz` VM
+type, the default on macOS 13.5+ with Lima 1.x. `SWARMY_VM_NETWORK=slirp` keeps
+Lima's plain default. There every VM is `192.168.5.15` and VMs cannot reach each
+other, so more than one node only works with the mesh. The network is fixed when
+a VM is created; recreate older VMs to switch. Not yet verified with this
+script on real VMs: see `issues/swarm-routing-mesh-unreachable-in-lima-vm.md`.
+
 > Apple-Silicon Lima VMs are `arm64`; the installer downloads the
-> `linux-arm64` binary automatically. Lima uses QEMU + the native `hvf`
-> accelerator, so VMs are fast. If a `limactl shell` call hangs, the script
-> caps each call and prints a recover hint
+> `linux-arm64` binary automatically. Lima runs them on the native hypervisor
+> (Virtualization.framework with `vz`), so VMs are fast. If a `limactl shell`
+> call hangs, the script caps each call and prints a recover hint
 > (`limactl restart <vm> && bun run dev:vms reenroll`).
 
 ---

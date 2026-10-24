@@ -32,7 +32,12 @@
 #   SWARMY_CONTROLLER_IP=…       host IP the VMs dial (default: en0/en1 LAN IP)
 #   SWARMY_CONTROLLER_PORT=3021
 #   SWARMY_JOIN_TOKEN=…          (default: mint a fresh one via scripts/mint-token.ts)
-#   SWARMY_VM_BRIDGE=            extra Lima network, e.g. "lima:shared" (default: none, slirp)
+#   SWARMY_VM_NETWORK=fabric     fabric: vzNAT + lima:user-v2, so VMs reach each other
+#                                 (a swarm and its routing mesh without the mesh; needs
+#                                 Lima's vz VM type) | slirp: Lima's plain default, every
+#                                 VM is 192.168.5.15 and multi-node needs the mesh.
+#                                 Applies when a VM is created.
+#   SWARMY_VM_BRIDGE=            one more Lima network, e.g. "lima:shared"
 #   SWARMY_ALLOW_MESH=false      agent capability flags
 #   SWARMY_MESH_DRIVER=          e.g. "netbird" — enables mesh for the dev org (see
 #                                 docs/LOCAL-SWARM.md). Unset (default): no mesh, VMs
@@ -87,18 +92,30 @@ resolve_controller_ip() {
   CONTROLLER_URL="http://${HOST_IP}:${CONTROLLER_PORT}"
 }
 
-# Lima's default networking (slirp) lets VMs reach the host's LAN IP and
-# external hosts — sufficient for dialing the controller. An extra vmnet
-# network (e.g. "lima:shared" for a routable 192.168.205.0/24 address) can be
-# added via SWARMY_VM_BRIDGE for cases that need the VM directly on a network.
+# Lima's default user-mode network (slirp) reaches the controller, but gives
+# EVERY VM the same address (192.168.5.15) and no path to the other VMs. A
+# multi-node swarm can then only form over the mesh, and so can the routing
+# mesh: a published port reaches a task on another node over VXLAN (UDP 4789)
+# plus gossip (7946). `fabric` (the default) is the e2e harness's layout
+# (apps/e2e/cluster/lib/provider.ts): vzNAT gives each VM an address the Mac
+# reaches, lima:user-v2 (Lima's virtual switch) carries VM-to-VM traffic, and
+# prepare_vm makes user-v2 the default route, so the agent advertises the
+# address the other VMs can reach. vzNAT alone is not enough: macOS isolates
+# vzNAT guests from each other.
 resolve_network() {
-  local want="${SWARMY_VM_BRIDGE:-}"
+  NETWORK_MODE="${SWARMY_VM_NETWORK:-fabric}"
   NETWORK_ARGS=()
-  if [ -n "$want" ]; then
-    NETWORK_ARGS=(--network "$want")
-    NET_DESC="via ${want}"
-  else
-    NET_DESC="default slirp (reaches controller at ${HOST_IP})"
+  case "$NETWORK_MODE" in
+    fabric)
+      NETWORK_ARGS=(--network=vzNAT --network=lima:user-v2)
+      NET_DESC="vzNAT + lima:user-v2 (VM-to-VM fabric)" ;;
+    slirp)
+      NET_DESC="default slirp (VMs cannot reach each other: multi-node needs the mesh)" ;;
+    *) die "SWARMY_VM_NETWORK must be fabric or slirp (got: ${NETWORK_MODE})" ;;
+  esac
+  if [ -n "${SWARMY_VM_BRIDGE:-}" ]; then
+    NETWORK_ARGS+=(--network "$SWARMY_VM_BRIDGE")
+    NET_DESC="${NET_DESC} + ${SWARMY_VM_BRIDGE}"
   fi
 }
 
@@ -204,6 +221,31 @@ rm -rf /usr/src/linux-headers-*
 apt-get -qq -o DPkg::Lock::Timeout=60 autoremove --purge -y >/dev/null 2>&1 || true
 apt-get -qq clean >/dev/null 2>&1 || true
 df -h / | awk 'NR == 2 { print "    disk: " $3 " used, " $4 " free (" $5 " full)" }'
+
+# Network fabric (SWARMY_VM_NETWORK=fabric): user-v2 (eth0) becomes the
+# default route, so the address the agent advertises to the swarm (its route
+# toward the controller) is the one the other VMs reach. The Mac's DHCP search
+# domain is dropped too: Docker copies it into every container, and busybox
+# nslookup of a bare service name then fails. Same steps as the e2e harness.
+[ "$VM_NETWORK" = fabric ] || exit 0
+np=/etc/netplan/50-cloud-init.yaml
+if ip -4 -o addr show dev eth0 2>/dev/null | grep -q ' 192\.168\.5\.15/' || ! ip link show lima0 >/dev/null 2>&1; then
+  echo "    network: WARNING: this VM was created without the fabric (plain slirp). For a multi-node swarm without the mesh, recreate it (down, then up)."
+  exit 0
+fi
+if [ -f "$np" ] && ! grep -q 'use-domains: false' "$np"; then
+  # eth0 carries Lima's user-network metric (200), lima0 the vmnet one (100).
+  # use-domains goes under each route-metric, at that line's indentation.
+  sed -i -e '0,/route-metric: 200/s//route-metric: 50/' -e 's/^\([[:space:]]*\)route-metric:.*$/&\n\1use-domains: false/' "$np"
+  netplan apply 2>/dev/null || true
+fi
+# netplan apply briefly drops the routes; wait for DHCP to put them back.
+for _ in $(seq 1 30); do ip -4 route get 1.1.1.1 2>/dev/null | grep -q 'dev eth0' && break; sleep 1; done
+if ip -4 route get 1.1.1.1 2>/dev/null | grep -q 'dev eth0'; then
+  echo "    network: swarm fabric on eth0 $(ip -4 -o addr show dev eth0 | awk '{print $4}' | cut -d/ -f1) (default route)"
+else
+  echo "    network: WARNING: the default route is not the user-v2 fabric ($(ip -4 route get 1.1.1.1 2>/dev/null | grep -o 'dev [a-z0-9]*')). The swarm may advertise an address the other VMs cannot reach."
+fi
 SWARMY_PREPARE_EOF
 }
 
@@ -212,7 +254,8 @@ SWARMY_PREPARE_EOF
 prepare_vm() {
   local name="$1"
   say "[$name] VM hygiene: journald ≤ ${JOURNALD_MAX}, no apt cache, no kernel headers"
-  guarded 180 limactl shell --workdir / "$name" -- sudo env JOURNALD_MAX="$JOURNALD_MAX" bash -c "$(prepare_vm_script)" \
+  guarded 180 limactl shell --workdir / "$name" -- sudo env JOURNALD_MAX="$JOURNALD_MAX" VM_NETWORK="$NETWORK_MODE" \
+    bash -c "$(prepare_vm_script)" \
     || warn "[$name] VM hygiene step failed (continuing)."
 }
 
@@ -254,6 +297,9 @@ up() {
   need_lima; resolve_controller_ip; resolve_network
   build_binaries; preflight_controller; ensure_mesh_seed; resolve_token
 
+  if [ "$NETWORK_MODE" = slirp ] && [ "$COUNT" -gt 1 ] && [ -z "${MESH_SETUP_KEY:-}" ]; then
+    warn "SWARMY_VM_NETWORK=slirp with ${COUNT} VMs and no mesh: every VM gets the same address, so they cannot form one swarm. Use the default fabric or a mesh."
+  fi
   say "Launching ${COUNT} × Ubuntu ${RELEASE} (${CPUS} CPU / ${MEM} / ${DISK}) — ${NET_DESC}"
   printf '    controller : %s\n    backend    : %s\n    join token : %s…\n\n' \
     "$CONTROLLER_URL" "$BACKEND" "${TOKEN:0:14}"
@@ -291,7 +337,7 @@ up() {
 # Re-run the installer on already-launched VMs (e.g. after a fresh token or a
 # new agent build). The installer's systemd path restarts the running unit.
 reenroll() {
-  need_lima; resolve_controller_ip
+  need_lima; resolve_controller_ip; resolve_network
   build_binaries; preflight_controller; ensure_mesh_seed; resolve_token
   for i in $(seq 1 "$COUNT"); do
     local name="${PREFIX}-${i}"
