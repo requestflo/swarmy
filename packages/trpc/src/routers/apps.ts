@@ -26,6 +26,7 @@ import {
 } from '../services/apps.service';
 import { readAppConfigFile } from '../services/apps/config-file';
 import { appEnvironmentProcedures } from './apps-environments';
+import { convertToConfig } from '../services/apps/convert';
 
 const id = z.string().min(1).max(100);
 
@@ -57,6 +58,14 @@ export const appsRouter = router({
   configFile: orgProcedure
     .input(z.object({ stack: z.string().min(1).max(100) }))
     .query(({ ctx, input }) => readAppConfigFile(ctx, input)),
+  /**
+   * "Convert to swarmy.yaml" for an app deployed from compose: the compose it
+   * was deployed from as a swarmy.yaml (checked by the controller's parser)
+   * and what didn't translate, with why. Read-only; nothing is written to git.
+   */
+  convertToConfig: orgProcedure
+    .input(z.object({ stack: z.string().min(1).max(100) }))
+    .query(({ ctx, input }) => convertToConfig(ctx, input)),
   plan: orgProcedure
     .input(z.object({ planId: id }))
     .query(({ ctx, input }) => getPlan(ctx, input.planId)),
