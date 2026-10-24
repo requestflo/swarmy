@@ -58,7 +58,7 @@ is defined below. To run the app under test locally, see `skill("run-local")`.
    last assertion of any of these is a regression in the gate, not cleanup.
 7. **The GC test's job is to prove a digest running in prod is never removed.**
    `computeGcPlan` tests assert `plan.remove` never contains a pinned digest under
-   every mode (AGE_DAYS, ON_HEALTHCHECK), including when the pin is a full
+   every mode (AGE_DAYS, ON_HEALTHCHECK, KEEP_LAST), including when the pin is a full
    `repo@sha256:` ref, and that `keepProd:false` is the only way to disable it.
    This is a safety invariant of `skill("cicd-registry")`; treat it like the
    never-empty-DNS-answer rule — the test defends a promise, not a code path.

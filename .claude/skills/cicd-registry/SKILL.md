@@ -158,8 +158,18 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
   autodeploy" path was removed in 2026-09 — every repo is a git app.)
 - **GC**: `image-gc` worker (`runImageGcAllOrgs`) + `cicd.runGc` (dryRun) →
   `computePinnedDigests` → `computeGcPlan` → dispatch `image.prune`
-  ({ keepDigests: plan.pinned, repoPrefix, strategy, untilDays?, dryRun }) to
-  every online node. Modes: `ON_HEALTHCHECK` (prune all non-pinned) / `AGE_DAYS`.
+  ({ keepDigests: plan.pinned (+ plan.kept), repoPrefix, strategy, untilDays?, dryRun })
+  to every online node. Modes: `ON_HEALTHCHECK` (prune all non-pinned) /
+  `AGE_DAYS` / `KEEP_LAST` (newest N per registry repo + anything pinned).
+  Then the registry-side pass (`registry-gc.service.ts`, worker-held signature
+  gate): read-only scan one-shot on the volume's node → `planRegistryGc` (pure;
+  the LIVE pinned set always wins, even with `keepProd:false`; ON_HEALTHCHECK
+  keeps builds in the registry; untagged leftovers swept in every mode; 24h
+  grace) → `DELETE /v2/<repo>/manifests/<digest>` (regctl) → read-only window
+  (`REGISTRY_STORAGE_MAINTENANCE_READONLY`, pinned to the volume node,
+  stop-first) → `registry garbage-collect` → read-write. Never
+  `--delete-untagged` (registry 2.x drops multi-arch children + untagged
+  in-prod digests).
 - **Admission (spine)**: `admission-images.evaluate(ctx, intent)` is called by
   the admission spine on `stack.deploy`/`service.deploy`; returns `Violation[]`
   (`images/critical-cves` block, `images/unscanned` warn, `images/unsigned`
@@ -225,10 +235,13 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
   and cosign images must be pullable from a public registry to bootstrap.
 - BuildKit's cache volume is itself a disk consumer — GC prunes images, not the
   build cache; watch it on builder nodes.
-- GC is node-local only: `image.prune` reclaims node disk, but registry
-  manifests/blobs are never deleted — rollback and a fresh node's pull depend on
-  that, so the registry volume only grows. Any future registry-side GC must
-  reuse the live pinned set and add a grace window for in-flight builds/deploys.
+- Registry GC deletes manifests only from the plan above, so rollback and a
+  fresh node's pull keep working: the live pinned set, each repo's kept builds
+  and anything written in the last 24h survive. Its read-only window refuses
+  pushes for about a minute (skipped while a build is pushing); a window a
+  crash interrupted is healed on the next tick, and a login rotation is refused
+  mid-window. Size + counts are measured by the scan (`cicd.getRegistryUsage`,
+  in memory).
 - Single-replica registry is a data-loss SPOT — treat it as cache-rebuildable
   (rebuild from git); document S3 storage for HA.
 - Per-repo webhook secrets are minted and registered with the provider by the
