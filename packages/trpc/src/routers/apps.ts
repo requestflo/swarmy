@@ -24,6 +24,7 @@ import {
   setEnforceDrift,
   setRequireApproval,
 } from '../services/apps.service';
+import { readAppConfigFile } from '../services/apps/config-file';
 
 const id = z.string().min(1).max(100);
 
@@ -47,6 +48,13 @@ const resolvePreviewStack: ResolveResource = async (ctx, input) => {
 
 export const appsRouter = router({
   list: orgProcedure.query(({ ctx }) => listApps(ctx)),
+  /**
+   * The swarmy.yaml text an app stack runs from (its last planned commit), for
+   * the Source tab's editor. Read-only; cached per commit. Null = not a git app.
+   */
+  configFile: orgProcedure
+    .input(z.object({ stack: z.string().min(1).max(100) }))
+    .query(({ ctx, input }) => readAppConfigFile(ctx, input)),
   plan: orgProcedure
     .input(z.object({ planId: id }))
     .query(({ ctx, input }) => getPlan(ctx, input.planId)),

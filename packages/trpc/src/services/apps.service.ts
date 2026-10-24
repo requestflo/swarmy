@@ -62,6 +62,7 @@ import { buildForApp, systemContext } from './cicd.service';
 import { rollOutBuilds } from './build-rollout.service';
 import { resolveManagerNode } from './dispatch.service';
 import { inspectCommit, listProviderBranches } from './git-connections.service';
+import { rememberConfigText } from './apps/config-file';
 import { reportCommitStatus, upsertPrComment } from './git-feedback.service';
 import { controllerPublicUrl } from './git-credentials';
 import { deployFromCompose } from './stack.service';
@@ -829,6 +830,8 @@ export async function planCommit(
   });
   const sha = inspected.sha;
   const text = inspected.files[repo.configPath];
+  // The Source tab's editor reads this text back (apps.configFile) without another builder run.
+  rememberConfigText(repo.id, sha, repo.configPath, text ?? null);
   const feedbackRepo = repo;
   if (text == null) {
     // Not a swarmy.yaml app (yet): callers fall back to a plain build.
