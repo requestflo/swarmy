@@ -22,6 +22,8 @@ export * from './parse';
 export * from './ai';
 export * from './email';
 export * from './from-compose';
+export * from './from-heroku';
+export * from './from-heroku-steps';
 export { SWARMY_YAML_JSON_SCHEMA } from './json-schema';
 export { MINIMAL_EXAMPLE, FULL_EXAMPLE } from './examples';
 export * from './scan';
