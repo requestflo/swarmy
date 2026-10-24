@@ -94,6 +94,8 @@ export class GatewayStore {
     shellOverride?: 'allow' | 'deny';
     /** Version skew against this controller, judged on register (`agentSkew`). */
     skew?: AgentSkew;
+    /** Optional commands the agent advertised in its register facts (`agentSupports`). */
+    capabilities?: readonly string[];
   }
   >();
   /** Last heartbeat/snapshot time per node (replaces DB Node.lastSeenAt). */

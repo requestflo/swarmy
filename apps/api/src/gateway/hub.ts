@@ -283,6 +283,8 @@ export class AgentHubImpl implements AgentHub {
     shellOverride?: 'allow' | 'deny';
     /** Version skew against this controller, judged on register. */
     skew?: AgentSkew;
+    /** Optional commands the agent advertised in its register facts. */
+    capabilities?: readonly string[];
   } | undefined {
     return this.store.agentBuild.get(controllerNodeId);
   }

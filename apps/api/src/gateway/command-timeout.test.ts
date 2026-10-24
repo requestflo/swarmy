@@ -6,6 +6,8 @@ describe('commandTimeoutMs', () => {
     expect(commandTimeoutMs('updateAgent')).toBe(300_000);
     expect(commandTimeoutMs('deployService')).toBe(120_000);
     expect(commandTimeoutMs('pullImage')).toBe(600_000);
+    // The read-only PITR window check: its sidecar ceiling is cut from this budget.
+    expect(commandTimeoutMs('dbPitrWindow')).toBe(300_000);
   });
   it('an explicit timeout wins; unknown commands fall back to 15s', () => {
     expect(commandTimeoutMs('updateAgent', 5_000)).toBe(5_000);

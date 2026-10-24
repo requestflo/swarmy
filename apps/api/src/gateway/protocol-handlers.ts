@@ -337,6 +337,7 @@ async function handleRegister(ws: AgentSocket, payload: RegisterPayload, deps: D
     execOverride: facts.execOverride,
     shellOverride: facts.shellOverride,
     skew: judgeAgentSkew(nodeId, facts),
+    capabilities: facts.capabilities,
   });
   const previous = deps.registry.add(nodeId, ws);
   previous?.close(CloseCode.DUPLICATE_SESSION, 'newer session');
