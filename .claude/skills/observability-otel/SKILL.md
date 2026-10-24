@@ -150,7 +150,7 @@ db→protocol→service→router→UI shape see `skill("add-feature-slice")`.
 | OTEL env/label injection + service override | `packages/trpc/src/services/otel-injection.ts` (`injectOtel`, `augmentSpecForService`, `augmentSpecsForStack`, `OTEL_ENABLED_LABEL`) |
 | Managed store + collector `ServiceSpec`s | `packages/trpc/src/services/observability-stack.ts` |
 | Collector config + ClickHouse init render (`create_schema`, TTL) | `packages/trpc/src/services/observability-render.ts` |
-| Org-scoped ClickHouse SQL: traces/metrics/logs | `packages/trpc/src/services/observability-query.ts` |
+| Org-scoped ClickHouse SQL: traces/metrics/logs | `packages/trpc/src/services/observability-query.ts` (logs: `observability-logs-query.ts`) |
 | Org-scoped ClickHouse SQL: service map (RED per edge) | `packages/trpc/src/services/observability-map.ts` |
 | Enable/read layer (deploy suite, query, status) | `packages/trpc/src/services/observability.service.ts` |
 | Plain-words health narrative | `packages/trpc/src/services/health-summary.ts` |
@@ -161,6 +161,7 @@ db→protocol→service→router→UI shape see `skill("add-feature-slice")`.
 | Incidents spine | `services/{incidents.service,incidents-record}.ts` + `routers/incidents.ts` |
 | Status pages (+ public snapshot) | `services/statusPages.service.ts`, `routers/statusPages.ts`, `apps/api/src/status-public.ts` |
 | Store-state reconcile (probe reachability/footprint) | `apps/api/src/workers/observability-reconcile.ts` |
+| Container output: identity labels/log-opts, agent render/spec/converge, logs SQL | `@swarmy/core` `container-logs.ts`; `services/observability-agent{,-render,-operators,-status,.service}.ts`, `observability-logs-query.ts` |
 | Alert eval + uptime sampling worker | `apps/api/src/workers/alert-evaluator.ts` |
 | Prisma: config/store-state + alerts/incidents/status | `packages/db/prisma/schema/{observability,alerts}.prisma` |
 | Error tracking: envelope parse, grouping, source maps, ingest, issue/release/artifact reads | `packages/trpc/src/services/errors/*`, `routers/errors.ts`; ingest HTTP `apps/api/src/errors-ingest.ts`; spike worker `apps/api/src/workers/errors-alerts.ts`; UI `apps/app/src/components/errors/*` |
@@ -199,9 +200,20 @@ observe-only (ClickHouse `TTL` owns deletion).
   don't-overwrite rule; keep them green.
 - ClickHouse is heavy: keep the suite strictly opt-in (zero footprint when off),
   keep short `TTL` defaults, and surface `diskUsedBytes` in the UI so growth is
-  visible before it hurts. The collector pipelines are OTLP-only (`resource` +
-  `batch`) — no `filelog` stdout tailing, tail sampling or gateway tier yet,
-  although `docs/product/observability.md` describes them as the direction.
+  visible before it hurts. The collector is the gateway: OTLP in, `resource` →
+  redaction → `tail_sampling` (traces, when the share < 100%) → `batch`.
+- Container output (stdout/stderr) is a SECOND tier: a global
+  `swarmy-otel-agent` (swarmy-system) per server, `filelog` on Docker's
+  json-file logs (read-only, rotated files too, offsets on a node volume) →
+  OTLP → the collector. Opt-in per org (`TelemetrySettings.containerLogs`,
+  needs the suite on), converged by `observability-reconcile`
+  (signature-gated). A line is attributed only by Docker itself: services
+  deployed while collecting get `swarmy.stack`/`swarmy.service` CONTAINER
+  labels + the json-file `labels=` option (`withLogIdentity`, `max-file` ≥ 2),
+  so each line carries `attrs`; lines without them are never shipped.
+  `swarmy.org_id` comes from the agent's render, never a label. Rows carry
+  `swarmy.log.source=stdout`; the logs builder's `auto` source shows a
+  service's stdout only when it sent no OTLP log in the window.
 - The collector schema is the writer's — if you touch table shape, change
   `renderCollectorConfig`'s exporter settings, not a hand-rolled `CREATE TABLE`
   in `renderClickhouseInitSql`.

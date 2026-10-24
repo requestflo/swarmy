@@ -24,7 +24,8 @@
  * just before a rotation (even while the agent was down) is read once, never
  * twice. Compressed `.gz` files are never read.
  */
-import { DOCKER_CONTAINERS_DIR, LOG_SERVICE_LABEL, LOG_SOURCE_ATTR, LOG_STACK_LABEL, SYSTEM_STACK } from '@swarmy/core';
+import { DOCKER_CONTAINERS_DIR, LOG_SOURCE_ATTR } from '@swarmy/core';
+import { agentOperators, yq } from './observability-agent-operators';
 
 export interface AgentRenderInput {
   /** The org this swarm belongs to — stamped on every line (the org wall). */
@@ -39,72 +40,6 @@ export const AGENT_CONFIG_PATH = '/etc/otelcol-contrib/agent.yaml';
 export const AGENT_STATE_DIR = '/var/lib/otelcol/file_storage';
 /** Env var the spec fills with the swarm node's hostname (`{{.Node.Hostname}}`). */
 export const AGENT_NODE_ENV = 'SWARMY_NODE';
-
-/** A YAML single-quoted scalar. */
-const yq = (s: string): string => `'${s.replace(/'/g, "''")}'`;
-const attr = (key: string): string => `attributes.attrs[${JSON.stringify(key)}]`;
-
-const LEVEL_KEY = String.raw`(?i)\b(?:level|lvl|severity)\W{0,2}[=:]\W{0,2}(?P<sev>[a-z]+)`;
-const LEVEL_WORD = String.raw`\b(?P<sev>TRACE|DEBUG|INFO|WARN|WARNING|ERROR|FATAL|PANIC|CRITICAL)\b`;
-/** An expr-lang `matches` test on the body (the regex as a double-quoted expr string). */
-const bodyMatches = (re: string): string => `body matches ${JSON.stringify(re)}`;
-
-function operators(): string[] {
-  const move = (from: string, to: string, type = 'move') => [`      - type: ${type}`, `        from: ${from}`, `        to: ${to}`];
-  const remove = (field: string, cond?: string) => [
-    '      - type: remove',
-    ...(cond ? [`        if: ${yq(cond)}`] : []),
-    `        field: ${field}`,
-  ];
-  return [
-    '    operators:',
-    '      - type: json_parser',
-    '        id: docker-line',
-    '        timestamp:',
-    '          parse_from: attributes.time',
-    '          layout_type: gotime',
-    `          layout: ${yq('2006-01-02T15:04:05.999999999Z07:00')}`,
-    // Lines without the identity attrs are not an app swarmy deployed with
-    // collection on (or are swarmy's own) — dropped before any other work.
-    '      - type: filter',
-    '        id: only-swarmy-apps',
-    `        expr: ${yq(`attributes.attrs == nil or ${attr(LOG_SERVICE_LABEL)} == nil or ${attr(LOG_STACK_LABEL)} == ${JSON.stringify(SYSTEM_STACK)}`)}`,
-    '      - type: recombine',
-    '        id: docker-partials',
-    '        combine_field: attributes.log',
-    `        source_identifier: attributes["log.file.path"]`,
-    `        is_last_entry: ${yq('attributes.log endsWith "\\n"')}`,
-    `        combine_with: ''`,
-    '        max_log_size: 1MiB',
-    ...move('attributes.log', 'body'),
-    ...move('attributes.stream', 'attributes["log.iostream"]'),
-    ...move(attr(LOG_STACK_LABEL), `resource[${JSON.stringify(LOG_STACK_LABEL)}]`),
-    ...move(attr(LOG_SERVICE_LABEL), 'resource["service.name"]', 'copy'),
-    ...move(attr(LOG_SERVICE_LABEL), `resource[${JSON.stringify(LOG_SERVICE_LABEL)}]`),
-    ...remove('attributes.attrs'),
-    ...remove('attributes.time'),
-    ...remove('attributes["log.file.path"]'),
-    // A level the line states itself; otherwise the line stays unspecified.
-    '      - type: regex_parser',
-    '        id: level-key',
-    `        if: ${yq(bodyMatches(LEVEL_KEY))}`,
-    '        parse_from: body',
-    `        regex: ${yq(LEVEL_KEY)}`,
-    '      - type: regex_parser',
-    '        id: level-word',
-    `        if: ${yq(`attributes.sev == nil and ${bodyMatches(LEVEL_WORD)}`)}`,
-    '        parse_from: body',
-    `        regex: ${yq(LEVEL_WORD)}`,
-    '      - type: severity_parser',
-    `        if: ${yq('attributes.sev != nil')}`,
-    '        parse_from: attributes.sev',
-    '        mapping:',
-    '          warn: [warning, WARNING, Warning]',
-    '          error: [err, ERR]',
-    '          fatal: [panic, PANIC, critical, CRITICAL, crit, CRIT]',
-    ...remove('attributes.sev', 'attributes.sev != nil'),
-  ];
-}
 
 /** Render the agent `config.yaml`. Deterministic for a given input. */
 export function renderAgentConfig(input: AgentRenderInput): string {
@@ -131,7 +66,7 @@ export function renderAgentConfig(input: AgentRenderInput): string {
     '    max_log_size: 1MiB',
     '    max_concurrent_files: 512',
     '    storage: file_storage',
-    ...operators(),
+    ...agentOperators(),
     '',
     'processors:',
     '  memory_limiter:',
