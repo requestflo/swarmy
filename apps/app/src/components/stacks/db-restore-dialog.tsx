@@ -11,24 +11,22 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
   Button,
-  Label,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
   toast,
 } from '@swarmy/ui';
 import type { DbBackupSnapshotView } from '@swarmy/core';
 import type { DbRestoreMode } from '@swarmy/core/protocol';
 import { useTRPC } from '@/integrations/trpc';
+import { RestoreCopyStatus } from '@/components/backups/restore-copy-status';
+import { useRestoreCopy } from '@/components/backups/use-restore-copy';
 import { DbRestoreFields } from './db-restore-fields';
-import { DB_RESTORE_MODES, engineLabel, isPhysical } from './db-backup-format';
+import { DbRestoreModeSelect } from './db-restore-mode-select';
+import { engineLabel, isPhysical } from './db-backup-format';
 
 /**
  * Restore a single DB backup — a destructive confirm with a mode-specific
  * form, so it uses the one sanctioned modal (AlertDialog) around
- * `DbRestoreFields`.
+ * `DbRestoreFields`. A clone creates its own database (`useRestoreCopy`)
+ * and stays open on what it made, with "Remove the copy".
  */
 export function DbRestoreDialog({
   stack,
@@ -55,12 +53,14 @@ export function DbRestoreDialog({
   const qc = useQueryClient();
   const [open, setOpen] = React.useState(false);
   const [mode, setMode] = React.useState<DbRestoreMode>(initialMode ?? 'clone-to-new-cluster');
-  const [targetCluster, setTargetCluster] = React.useState(`${cluster}-restore`);
   const [pitrTarget, setPitrTarget] = React.useState(initialTargetTime ?? '');
   const [database, setDatabase] = React.useState('app');
   const [dataVolume, setDataVolume] = React.useState('');
 
   const engine = backup.engine ?? 'pg_dump';
+  const copy = useRestoreCopy(stack, cluster);
+  const clone = mode === 'clone-to-new-cluster';
+  const made = clone && copy.restore.isSuccess;
 
   const restore = useMutation(
     trpc.dbBackups.restore.mutationOptions({
@@ -73,21 +73,22 @@ export function DbRestoreDialog({
     }),
   );
 
-  const meta = DB_RESTORE_MODES.find((m) => m.value === mode);
   const pitrBlocked = mode === 'pitr' && (!isPhysical(engine) || !dataVolume.trim());
+  const pending = restore.isPending || copy.running != null;
   const submit = (): void =>
-    restore.mutate({
-      stack,
-      cluster,
-      engine,
-      mode,
-      targetId,
-      snapshotId: backup.id,
-      targetCluster: mode === 'clone-to-new-cluster' ? targetCluster.trim() || undefined : undefined,
-      targetTime: mode === 'pitr' ? pitrTarget.trim() || undefined : undefined,
-      database: mode === 'single-database' ? database.trim() || undefined : undefined,
-      dataVolume: mode === 'pitr' ? dataVolume.trim() || undefined : undefined,
-    });
+    clone
+      ? copy.restore.mutate({ stack, cluster, engine, targetId, snapshotId: backup.id, name: copy.name })
+      : restore.mutate({
+          stack,
+          cluster,
+          engine,
+          mode,
+          targetId,
+          snapshotId: backup.id,
+          targetTime: mode === 'pitr' ? pitrTarget.trim() || undefined : undefined,
+          database: mode === 'single-database' ? database.trim() || undefined : undefined,
+          dataVolume: mode === 'pitr' ? dataVolume.trim() || undefined : undefined,
+        });
 
   return (
     <AlertDialog open={open} onOpenChange={setOpen}>
@@ -107,52 +108,36 @@ export function DbRestoreDialog({
         </AlertDialogHeader>
 
         <div className="space-y-4">
-          <div className="grid gap-1.5">
-            <Label className="mono-label">Mode</Label>
-            <Select value={mode} onValueChange={(v) => setMode(v as DbRestoreMode)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {DB_RESTORE_MODES.map((m) => (
-                  <SelectItem key={m.value} value={m.value}>
-                    {m.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {meta && <p className="text-muted-foreground text-sm">{meta.blurb}</p>}
-            {mode === 'pitr' && !isPhysical(engine) && (
-              <p className="text-tone-warn text-sm">
-                Point-in-time needs a wal-g / pgBackRest backup — this one is {engineLabel(engine)}.
-              </p>
-            )}
-          </div>
+          {made ? null : <DbRestoreModeSelect mode={mode} onMode={setMode} engine={engine} />}
 
-          <DbRestoreFields
+          {made ? null : <DbRestoreFields
             mode={mode}
+            stack={stack}
             cluster={cluster}
-            targetCluster={targetCluster}
-            onTargetCluster={setTargetCluster}
+            copyName={copy.name}
             pitrTarget={pitrTarget}
             onPitrTarget={setPitrTarget}
             database={database}
             onDatabase={setDatabase}
             dataVolume={dataVolume}
             onDataVolume={setDataVolume}
-          />
+          />}
+          {/* This dialog's own copy restore: running, then what it made. */}
+          {clone && (copy.restore.isPending || made) ? <RestoreCopyStatus stack={stack} cluster={cluster} copy={copy} /> : null}
         </div>
 
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <Button
-            variant={mode === 'in-place' ? 'destructive' : 'default'}
-            onClick={submit}
-            disabled={restore.isPending || pitrBlocked}
-          >
-            <RotateCcwIcon className="size-4" />
-            {restore.isPending ? 'Restoring…' : 'Start restore'}
-          </Button>
+          <AlertDialogCancel>{made ? 'Done' : 'Cancel'}</AlertDialogCancel>
+          {made ? null : (
+            <Button
+              variant={mode === 'in-place' ? 'destructive' : 'default'}
+              onClick={submit}
+              disabled={pending || pitrBlocked || (clone && !copy.ready)}
+            >
+              <RotateCcwIcon className="size-4" />
+              {pending ? 'Restoring…' : 'Start restore'}
+            </Button>
+          )}
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

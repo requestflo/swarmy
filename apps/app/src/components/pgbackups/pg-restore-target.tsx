@@ -1,7 +1,6 @@
 import * as React from 'react';
-import { Link } from '@tanstack/react-router';
 import { Input, cn } from '@swarmy/ui';
-import { Depth, Tech } from '@/components/calm';
+import { Tech } from '@/components/calm';
 
 export type RestoreTarget = 'new' | 'in';
 
@@ -10,10 +9,8 @@ interface PgRestoreTargetProps {
   cluster: string;
   target: RestoreTarget;
   onTarget: (t: RestoreTarget) => void;
-  /** Other databases in this app that can take the restore. */
-  siblings: string[];
-  into: string | null;
-  onInto: (c: string) => void;
+  /** The database "into a new cluster" creates (`useRestoreCopy`). */
+  copyName: string;
   confirm: string;
   onConfirm: (v: string) => void;
 }
@@ -36,7 +33,7 @@ function Pick({ on, onClick, title, sub }: { on: boolean; onClick: () => void; t
   );
 }
 
-/** Where the restore lands: another database in this app (compare first), or this one (its current data is backed up first). */
+/** Where the restore lands: a new database it creates beside this one (compare first), or this one (its current data is backed up first). */
 export function PgRestoreTarget(p: PgRestoreTargetProps): React.JSX.Element {
   const ref = `${p.stack}/${p.cluster}`;
   return (
@@ -46,32 +43,10 @@ export function PgRestoreTarget(p: PgRestoreTargetProps): React.JSX.Element {
           on={p.target === 'new'}
           onClick={() => p.onTarget('new')}
           title="Into a new cluster"
-          sub={p.into ? <><span className="font-mono">{p.into}</span> · compare, then swap. {p.cluster} keeps serving.</> : 'Needs a second database in this app to restore into.'}
+          sub={<>creates <span className="font-mono">{p.copyName}</span> · nothing changes until you switch {p.stack} to it</>}
         />
         <Pick on={p.target === 'in'} onClick={() => p.onTarget('in')} title="In place" sub={`replaces ${p.cluster} · its current data is backed up first`} />
       </div>
-      {p.target === 'new' && !p.into ? (
-        <p className="text-muted-foreground text-[13px]">
-          Add an empty database to this app on its{' '}
-          <Link to="/stacks/$name/data" params={{ name: p.stack }} className="text-primary hover:underline">Data tab</Link>, then restore into it.
-        </p>
-      ) : null}
-      {p.target === 'new' && p.siblings.length > 1 ? (
-        <Depth at="controls">
-          <label className="flex flex-wrap items-center gap-2 text-[13px]">
-            <span className="text-muted-foreground font-semibold">Restore into</span>
-            <select
-              value={p.into ?? ''}
-              onChange={(e) => p.onInto(e.target.value)}
-              className="border-input bg-background h-8 rounded-md border px-2 font-mono text-[12.5px] pointer-coarse:min-h-11"
-            >
-              {p.siblings.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-          </label>
-        </Depth>
-      ) : null}
       {p.target === 'in' ? (
         <Input
           value={p.confirm}
@@ -84,7 +59,9 @@ export function PgRestoreTarget(p: PgRestoreTargetProps): React.JSX.Element {
         />
       ) : null}
       <Tech>
-        dbBackups.restore · {p.target === 'in' ? `into ${ref} itself, after a reason:pre-restore backup (refused if it fails)` : `into ${p.stack}/${p.into ?? '…'} (must already be running)`}
+        {p.target === 'in'
+          ? `dbBackups.restore · into ${ref} itself, after a reason:pre-restore backup (refused if it fails)`
+          : `dbBackups.restoreAsCopy · creates ${p.stack}/${p.copyName} (1 copy, same image and placement), wired into no app · remove it with db.remove`}
       </Tech>
     </div>
   );

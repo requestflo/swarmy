@@ -36,8 +36,6 @@ export function usePgBackups(stack: string, cluster: string) {
     hasTarget,
     catalog,
     points: catalog.data ?? [],
-    /** Other managed clusters in this app: where "into a new cluster" can restore. */
-    siblings: rows.filter((r) => r.stack === stack && r.cluster !== cluster).map((r) => r.cluster),
     drill,
     drillTargets: (resilience.data?.drillTargets ?? []).filter((t) => t.cluster === cluster),
   };

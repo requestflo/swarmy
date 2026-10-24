@@ -42,7 +42,7 @@ export const DB_BACKUP_ENGINES: EngineMeta[] = [
 
 /** Restore modes shown by the restore confirm (db-restore-dialog). */
 export const DB_RESTORE_MODES: { value: DbRestoreMode; label: string; blurb: string }[] = [
-  { value: 'clone-to-new-cluster', label: 'Clone to new cluster', blurb: 'Restore into a fresh cluster — safest, nothing live is touched.' },
+  { value: 'clone-to-new-cluster', label: 'Clone to new cluster', blurb: 'Creates a new database beside this one and restores into it. Nothing live is touched.' },
   { value: 'single-database', label: 'Single database', blurb: 'Restore just one database from the backup. Its current data is backed up first.' },
   { value: 'pitr', label: 'Point-in-time', blurb: 'Replay WAL up to a timestamp (wal-g / pgBackRest backups). The current data is backed up first.' },
   { value: 'in-place', label: 'In place', blurb: 'Overwrite the live primary. Its current data is backed up first.' },

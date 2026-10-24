@@ -3,6 +3,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { LoaderCircleIcon } from 'lucide-react';
 import { Button, toast } from '@swarmy/ui';
 import { Section } from '@/components/calm';
+import { RestoreCopyStatus } from '@/components/backups/restore-copy-status';
+import { useRestoreCopy } from '@/components/backups/use-restore-copy';
 import { useTRPC } from '@/integrations/trpc';
 import { fmtBytes, isPhysical } from '@/components/stacks/db-backup-format';
 import { clampPit, formatPit, pitSpan, spanDays } from './pitr-scrub';
@@ -23,9 +25,9 @@ interface PgRestoreProps {
 
 /**
  * Restore: to any second in the PITR window (physical engines, the scrubber),
- * or from the picked saved copy (logical), into another database in this app
- * or in place behind a typed confirm. `dbBackups.restore` with mode `pitr`,
- * `clone-to-new-cluster` or `in-place`.
+ * or from the picked saved copy (logical), into a NEW database it creates
+ * beside this one (`dbBackups.restoreAsCopy`) or in place behind a typed
+ * confirm (`dbBackups.restore`, mode `pitr` or `in-place`).
  */
 export function PgRestore({ stack, cluster, b, selected, primary }: PgRestoreProps): React.JSX.Element {
   const trpc = useTRPC();
@@ -41,37 +43,33 @@ export function PgRestore({ stack, cluster, b, selected, primary }: PgRestorePro
   const logical = b.points.filter((p) => !p.engine || !isPhysical(p.engine));
   const point = logical.find((p) => p.id === selected) ?? logical[0] ?? null;
   const [target, setTarget] = React.useState<RestoreTarget>('new');
-  const [into, setInto] = React.useState<string | null>(null);
-  const intoName = into && b.siblings.includes(into) ? into : (b.siblings.find((c) => c.includes('restore')) ?? b.siblings[0] ?? null);
   const [confirm, setConfirm] = React.useState('');
   const ref = `${stack}/${cluster}`;
-  const dest = target === 'in' ? cluster : (intoName ?? '');
+  const copy = useRestoreCopy(stack, cluster);
 
   const restore = useMutation(
     trpc.dbBackups.restore.mutationOptions({
       onSuccess: () => {
-        toast.success(`Restored into ${dest}`);
+        toast.success(`Restored ${cluster}`);
         setConfirm('');
         void qc.invalidateQueries();
       },
-      onError: (e) => toast.error(`Restore into ${dest} failed`, { description: e.message, duration: 10_000 }),
+      onError: (e) => toast.error(`Restore of ${cluster} failed`, { description: e.message, duration: 10_000 }),
     }),
   );
-  const intoTarget = target === 'new' && intoName ? { targetStack: stack, targetCluster: intoName } : {};
   const run = (): void => {
-    if (pitr && at != null && s) {
-      restore.mutate({
-        stack, cluster, engine: s.engine, mode: 'pitr', targetTime: new Date(at).toISOString(),
-        ...(target === 'in' ? { dataVolume: s.dataVolume ?? undefined } : intoTarget),
-      });
-    } else if (point) {
-      restore.mutate({
-        stack, cluster, engine: point.engine ?? 'pg_dump', snapshotId: point.id,
-        mode: target === 'in' ? 'in-place' : 'clone-to-new-cluster', ...intoTarget,
-      });
-    }
+    const what =
+      pitr && at != null && s
+        ? { engine: s.engine, targetTime: new Date(at).toISOString() }
+        : point
+          ? { engine: point.engine ?? 'pg_dump', snapshotId: point.id }
+          : null;
+    if (!what) return;
+    if (target === 'new') return copy.restore.mutate({ stack, cluster, ...what, name: copy.name });
+    restore.mutate({ stack, cluster, ...what, ...(pitr ? { mode: 'pitr' as const, dataVolume: s?.dataVolume ?? undefined } : { mode: 'in-place' as const }) });
   };
-  const ready = (pitr || point != null) && (target === 'in' ? confirm.trim() === ref : intoName != null);
+  const ready = (pitr || point != null) && (target === 'in' ? confirm.trim() === ref : copy.ready);
+  const pending = restore.isPending || copy.running != null;
   const when = pitr && at != null ? formatPit(at) : point ? `${pointTime(Date.parse(point.time))} UTC` : null;
   const done = restore.data;
 
@@ -91,15 +89,15 @@ export function PgRestore({ stack, cluster, b, selected, primary }: PgRestorePro
         <>
           <PgRestoreTarget
             stack={stack} cluster={cluster} target={target} onTarget={setTarget}
-            siblings={b.siblings} into={intoName} onInto={setInto} confirm={confirm} onConfirm={setConfirm}
+            copyName={copy.name} confirm={confirm} onConfirm={setConfirm}
           />
           <div className="flex flex-wrap items-center gap-3">
             <Button
               variant={target === 'in' ? 'destructive' : primary ? 'default' : 'outline'}
-              disabled={!ready || restore.isPending}
+              disabled={!ready || pending}
               onClick={run}
             >
-              {target === 'in' ? 'Restore in place' : `Restore to ${intoName ?? 'a new cluster'}`}
+              {target === 'in' ? 'Restore in place' : `Restore into ${copy.name}`}
             </Button>
             <span className="text-muted-foreground font-mono text-[11.5px]">
               {target === 'in' ? 'typed confirm · audited' : `no downtime for ${cluster}`}
@@ -107,14 +105,15 @@ export function PgRestore({ stack, cluster, b, selected, primary }: PgRestorePro
           </div>
         </>
       )}
+      <RestoreCopyStatus stack={stack} cluster={cluster} copy={copy} what={when ? `${cluster} as of ${when}` : undefined} />
       {restore.isPending ? (
         <p role="status" className="text-muted-foreground flex items-center gap-2 text-[13px]">
           <LoaderCircleIcon aria-hidden className="size-3.5 animate-spin motion-reduce:animate-none" />
-          Restoring {dest} to {when}… {target === 'in' ? `Backing up ${cluster} first, then replacing it.` : `${cluster} keeps serving. Nothing changes until you swap.`}
+          Restoring {cluster} to {when}… Backing up {cluster} first, then replacing it.
         </p>
       ) : done ? (
         <p role="status" className="text-tone-ok text-[13px]">
-          Restored {fmtBytes(done.bytesRestored)} into {dest}{done.recoveredTo ? `, up to ${done.recoveredTo}` : ''}.
+          Restored {fmtBytes(done.bytesRestored)} into {cluster}{done.recoveredTo ? `, up to ${done.recoveredTo}` : ''}.
           {done.safetySnapshotId ? ` What was there before is backed up as ${done.safetySnapshotId.slice(0, 8)}: restore that to put it back.` : ''}
         </p>
       ) : null}

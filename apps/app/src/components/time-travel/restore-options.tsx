@@ -2,6 +2,8 @@ import * as React from 'react';
 import type { DbBackupSnapshotView } from '@swarmy/core';
 import { Button, Input, Label, cn } from '@swarmy/ui';
 import { Tech } from '@/components/calm';
+import { RestoreCopyStatus } from '@/components/backups/restore-copy-status';
+import { useRestoreCopy } from '@/components/backups/use-restore-copy';
 import { DbRestoreDialog } from '@/components/stacks/db-restore-dialog';
 import { clockLabel, momentLabel } from './time-travel-model';
 import { restoreModes } from './time-travel-replay';
@@ -39,10 +41,11 @@ interface RestoreOptionsProps {
 }
 
 /**
- * Restore as a copy (safe) or replace in place, then the existing
- * `DbRestoreDialog` opens on that mode. Replacing needs the app's name typed
- * back. Replacing backs up the current data first and is refused if that
- * fails (dbRestoreSafety.service), so the page can promise it.
+ * Restore as a copy (safe: it creates its own database beside the original,
+ * `useRestoreCopy`) or replace in place through the existing
+ * `DbRestoreDialog`. Replacing needs the app's name typed back. Replacing
+ * backs up the current data first and is refused if that fails
+ * (dbRestoreSafety.service), so the page can promise it.
  */
 export function RestoreOptions({ stack, cluster, targetId, backup, savedAt, at }: RestoreOptionsProps): React.JSX.Element {
   const modes = restoreModes(backup.engine);
@@ -50,7 +53,10 @@ export function RestoreOptions({ stack, cluster, targetId, backup, savedAt, at }
   const [typed, setTyped] = React.useState('');
   const pitr = modes.replace === 'pitr';
   const confirmId = React.useId();
-  const mode = choice === 'copy' && modes.copy ? modes.copy : modes.replace;
+  const mode = modes.replace;
+  const copy = useRestoreCopy(stack, cluster);
+  const restoreCopy = (): void =>
+    copy.restore.mutate({ stack, cluster, engine: backup.engine ?? 'pg_dump', targetId, snapshotId: backup.id, name: copy.name });
 
   return (
     <div className="flex flex-col gap-2.5">
@@ -58,9 +64,9 @@ export function RestoreOptions({ stack, cluster, targetId, backup, savedAt, at }
         {modes.copy ? (
           <Option on={choice === 'copy'} onPick={() => setChoice('copy')} title={<>Restore as a copy <span className="text-tone-ok border-tone-ok/50 ml-1 rounded-md border px-1.5 py-0.5 text-[11px]">safe</span></>}>
             <span className="text-muted-foreground text-[12.5px] leading-snug">
-              Loaded into a separate database beside {cluster}. Nothing changes until you switch {stack} to it.
+              Creates <span className="text-foreground font-mono">{copy.name}</span> beside {cluster} and loads this save into it. Nothing changes until you switch {stack} to it.
             </span>
-            <Tech>clone-to-new-cluster · loads into the cluster you name ({cluster}-restore by default); declare it on the Data tab first</Tech>
+            <Tech>dbBackups.restoreAsCopy · new cluster {stack}/{copy.name} · 1 copy, same image and placement · wired into no app</Tech>
           </Option>
         ) : null}
         <Option on={choice === 'replace'} onPick={() => setChoice('replace')} title={pitr ? `Replace ${cluster} as it was at ${momentLabel(at)}` : `Replace ${cluster} in place`}>
@@ -83,24 +89,30 @@ export function RestoreOptions({ stack, cluster, targetId, backup, savedAt, at }
           <Input id={confirmId} value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={stack} autoComplete="off" spellCheck={false} />
         </div>
       ) : null}
-      <DbRestoreDialog
-        key={`${backup.id}-${mode}-${pitr ? at : ''}`}
-        stack={stack}
-        cluster={cluster}
-        targetId={targetId}
-        backup={backup}
-        initialMode={mode}
-        initialTargetTime={mode === 'pitr' ? new Date(at).toISOString() : undefined}
-        trigger={
-          choice === 'copy' ? (
-            <Button className="w-full pointer-coarse:min-h-11">Restore as copy</Button>
-          ) : (
+      {choice === 'copy' ? (
+        <>
+          <Button onClick={restoreCopy} disabled={!copy.ready || copy.running != null} className="w-full pointer-coarse:min-h-11">
+            {copy.running ? 'Restoring…' : 'Restore as copy'}
+          </Button>
+          <RestoreCopyStatus stack={stack} cluster={cluster} copy={copy} what={`the save of ${clockLabel(savedAt)}`} />
+        </>
+      ) : null}
+      {choice === 'replace' ? (
+        <DbRestoreDialog
+          key={`${backup.id}-${mode}-${pitr ? at : ''}`}
+          stack={stack}
+          cluster={cluster}
+          targetId={targetId}
+          backup={backup}
+          initialMode={mode}
+          initialTargetTime={mode === 'pitr' ? new Date(at).toISOString() : undefined}
+          trigger={
             <Button variant="outline" disabled={typed.trim() !== stack} className="border-tone-bad text-tone-bad w-full pointer-coarse:min-h-11">
               Replace {cluster}
             </Button>
-          )
-        }
-      />
+          }
+        />
+      ) : null}
     </div>
   );
 }

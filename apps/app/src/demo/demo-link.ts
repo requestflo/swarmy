@@ -64,8 +64,17 @@ export function demoLink(): TRPCLink<AppRouter> {
             try {
               const handler = HANDLERS[path];
               const data = handler ? handler(input, store) : fallback(path, input);
-              observer.next({ result: { type: 'data', data } });
-              observer.complete();
+              // A handler may answer later (a drill that runs for a few seconds).
+              void Promise.resolve(data).then(
+                (d) => {
+                  if (cancelled) return;
+                  observer.next({ result: { type: 'data', data: d } });
+                  observer.complete();
+                },
+                (err: unknown) => {
+                  if (!cancelled) observer.error(err);
+                },
+              );
             } catch (err) {
               observer.error(err);
             }

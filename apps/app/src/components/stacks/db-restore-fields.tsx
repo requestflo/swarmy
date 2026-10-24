@@ -5,9 +5,10 @@ import type { DbRestoreMode } from '@swarmy/core/protocol';
 
 interface RestoreFieldsProps {
   mode: DbRestoreMode;
+  stack: string;
   cluster: string;
-  targetCluster: string;
-  onTargetCluster: (value: string) => void;
+  /** The database a clone creates (`useRestoreCopy`). */
+  copyName: string;
   pitrTarget: string;
   onPitrTarget: (value: string) => void;
   database: string;
@@ -19,9 +20,9 @@ interface RestoreFieldsProps {
 /** Mode-specific inputs for `DbRestoreDialog` (clone / pitr / single-database / in-place). */
 export function DbRestoreFields({
   mode,
+  stack,
   cluster,
-  targetCluster,
-  onTargetCluster,
+  copyName,
   pitrTarget,
   onPitrTarget,
   database,
@@ -32,16 +33,12 @@ export function DbRestoreFields({
   return (
     <>
       {mode === 'clone-to-new-cluster' && (
-        <div className="grid gap-1.5">
-          <Label htmlFor="restore-target" className="mono-label">
-            New cluster name
-          </Label>
-          <Input
-            id="restore-target"
-            value={targetCluster}
-            onChange={(e) => onTargetCluster(e.target.value)}
-            placeholder={`${cluster}-restore`}
-          />
+        <div className="grid gap-1">
+          <span className="mono-label">New database</span>
+          <span className="font-mono text-sm">{copyName}</span>
+          <p className="text-muted-foreground text-sm">
+            Created beside {cluster} with one copy and loaded from this save. Nothing changes until you switch {stack} to it.
+          </p>
         </div>
       )}
 
