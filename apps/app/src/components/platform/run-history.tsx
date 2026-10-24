@@ -1,6 +1,9 @@
 import * as React from 'react';
 import { StatusWord } from '@/components/calm';
+import type { Tone } from '@/components/calm/tone';
 import { STEP_TEXT, usePlatformStatus, when } from './use-platform';
+
+const RESULT_TONE: Record<string, Tone> = { done: 'ok', running: 'info', abandoning: 'info', paused: 'warn', failed: 'bad' };
 
 /** Every platform upgrade run, newest first (each is audited). */
 export function RunHistory(): React.JSX.Element | null {
@@ -31,7 +34,7 @@ export function RunHistory(): React.JSX.Element | null {
                   </td>
                   <td className="py-2 pr-4 text-xs">{r.trigger === 'auto' ? 'auto (window)' : 'manual'}</td>
                   <td className="py-2 pr-4 text-xs">
-                    <StatusWord tone={r.status === 'done' ? 'ok' : r.status === 'running' ? 'info' : r.status === 'failed' ? 'bad' : 'idle'} word={r.status} />
+                    <StatusWord tone={RESULT_TONE[r.status] ?? 'idle'} word={r.status} />
                     {r.error ? (
                       <span className="text-muted-foreground ml-2">
                         at {STEP_TEXT[r.step]?.name ?? r.step}: {r.error}

@@ -3,6 +3,9 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button, Progress, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { NextAction } from '@/components/calm';
+import { PauseButton } from './pause-button';
+import { pausingWords } from './pause-words';
+import { RunPaused } from './run-paused';
 import { durationOf, fmtDuration, stepDurations } from './upgrade-durations';
 import { STEP_TEXT, type PlatformRun } from './use-platform';
 
@@ -18,7 +21,11 @@ function doneSummary(run: PlatformRun): { took: string | null; steps: string } {
   };
 }
 
-/** A run in flight (progress), one that finished (the summary), or one that stopped (retry is the one action). */
+/**
+ * A run in flight (progress + "Pause after this step"), paused or being put
+ * back (`RunPaused`), one that finished (the summary), or one that stopped
+ * (retry is the one action).
+ */
 export function RunStatus({ run, admin }: { run: PlatformRun; admin: boolean }): React.JSX.Element | null {
   const trpc = useTRPC();
   const qc = useQueryClient();
@@ -26,12 +33,22 @@ export function RunStatus({ run, admin }: { run: PlatformRun; admin: boolean }):
   const retry = useMutation(trpc.platform.retry.mutationOptions(done));
   const cancel = useMutation(trpc.platform.cancel.mutationOptions(done));
   const step = STEP_TEXT[run.step]?.name ?? run.step;
+  if (run.status === 'paused' || run.status === 'abandoning') return <RunPaused run={run} admin={admin} />;
   if (run.status === 'running') {
     const pct = Math.round((run.progress.done / run.progress.total) * 100);
     return (
-      <NextAction tone="info" eyebrow="Upgrading" title={`${step}: ${run.steps.find((s) => s.key === run.step)?.detail ?? 'in progress'}`} tech={`run ${run.id} · ${run.fromVersion} → ${run.toVersion}`}>
+      <NextAction
+        tone="info"
+        eyebrow={run.pause ? 'Pausing' : 'Upgrading'}
+        title={`${step}: ${run.steps.find((s) => s.key === run.step)?.detail ?? 'in progress'}`}
+        tech={`run ${run.id} · ${run.fromVersion} → ${run.toVersion}${run.pause ? ` · pause asked ${new Date(run.pause.requestedAt).toLocaleTimeString()}` : ''}`}
+        actions={admin ? <PauseButton run={run} /> : undefined}
+      >
         <Progress value={pct} aria-label="Upgrade progress" className="my-1" />
-        <span className="text-xs">Step {Math.min(run.progress.done + 1, run.progress.total)} of {run.progress.total}. You can close this tab; it keeps going while swarmy restarts itself.</span>
+        <span className="text-xs">
+          Step {Math.min(run.progress.done + 1, run.progress.total)} of {run.progress.total}.{' '}
+          {run.pause ? pausingWords(run) : 'You can close this tab; it keeps going while swarmy restarts itself.'}
+        </span>
       </NextAction>
     );
   }

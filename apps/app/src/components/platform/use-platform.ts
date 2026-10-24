@@ -1,12 +1,17 @@
 import { useQuery } from '@tanstack/react-query';
 import { useTRPC } from '@/integrations/trpc';
 
-/** Settings → Platform status; polls fast while a run is live. */
+const LIVE = new Set(['running', 'abandoning']);
+
+/** Settings → Platform status; polls fast while a run is live (or being put back), steadily while paused. */
 export function usePlatformStatus() {
   const trpc = useTRPC();
   return useQuery({
     ...trpc.platform.status.queryOptions(),
-    refetchInterval: (q) => (q.state.data?.run?.status === 'running' ? 3_000 : 60_000),
+    refetchInterval: (q) => {
+      const s = q.state.data?.run?.status;
+      return s && LIVE.has(s) ? 3_000 : s === 'paused' ? 15_000 : 60_000;
+    },
   });
 }
 

@@ -23,7 +23,7 @@ export function UpgradeNext({ v, admin }: { v: PlatformStatus; admin: boolean })
   const backup = useQuery({ ...trpc.controllerBackup.getConfig.queryOptions(), enabled: admin && !!av });
   const [setting, setSetting] = React.useState(false);
 
-  if (run && (run.status === 'running' || run.status === 'failed')) return <RunStatus run={run} admin={admin} />;
+  if (run && ['running', 'paused', 'abandoning', 'failed'].includes(run.status)) return <RunStatus run={run} admin={admin} />;
   // Up to date after a run in the last day: say how it went.
   if (!av && run?.status === 'done' && run.finishedAt && Date.now() - Date.parse(run.finishedAt) < DAY_MS) {
     return <RunStatus run={run} admin={admin} />;

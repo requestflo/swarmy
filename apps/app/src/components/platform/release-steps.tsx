@@ -8,7 +8,7 @@ import { STEP_TEXT, when, type PlatformStatus } from './use-platform';
 export function ReleaseSteps({ v }: { v: PlatformStatus }): React.JSX.Element {
   const { run, release } = v;
   const av = release.available;
-  const recent = run && (run.status === 'running' || run.status === 'failed' || (run.finishedAt && Date.now() - new Date(run.finishedAt).getTime() < 24 * 3600_000));
+  const recent = run && (['running', 'paused', 'abandoning', 'failed'].includes(run.status) || (run.finishedAt && Date.now() - new Date(run.finishedAt).getTime() < 24 * 3600_000));
   const pause = av?.migrations.some((m) => m.pause) ?? false;
   return (
     <Section

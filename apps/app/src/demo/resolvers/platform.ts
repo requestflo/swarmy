@@ -1,26 +1,14 @@
 import type { DemoStore, DomainResolvers } from '../types';
+import { demoRunView, newDemoRun, runControls, type RunHost } from './platform-run';
 
 /**
  * Settings → Platform demo: v1.2.4 on Stable with v1.3.0 ready (signed,
  * verified, a Garage major inside). "Start upgrade" plays the run through its
- * steps on each poll. Mirrors PlatformStatusView (platform-upgrade.service.ts).
+ * steps on each poll; "Pause after this step", Resume and Abandon work on it
+ * (platform-run.ts). Mirrors PlatformStatusView (platform-upgrade.service.ts).
  */
-const KEYS = ['preflight', 'controller', 'agents', 'system', 'engines', 'verify'] as const;
-const STEP_MS = 6_000;
-const DETAIL: Record<string, string> = {
-  preflight: '4 server(s) online, quorum ok, backup taken',
-  controller: 'the new controller is up and resumed the run',
-  agents: '4 agent(s) upgraded, one at a time',
-  system: '3 system service(s) upgraded',
-  engines: 'object storage on dxflrs/garage:v2.4.1',
-  verify: '4 server(s) online, system services converged',
-};
-
-interface DemoPlatform {
+interface DemoPlatform extends RunHost {
   policy: { channel: 'stable' | 'edge'; feedUrl: string | null; autoApplyPatches: boolean; window: { days: number[]; startHour: number; hours: number } };
-  current: string;
-  run: null | { id: string; startedAt: string; ticks: number; finishedAt: string | null };
-  history: Array<{ id: string; fromVersion: string; toVersion: string; status: string; trigger: string; startedAt: string; finishedAt: string | null; error: string | null; step: string }>;
 }
 
 function state(s: DemoStore): DemoPlatform {
@@ -36,51 +24,15 @@ function state(s: DemoStore): DemoPlatform {
   return e.platform as DemoPlatform;
 }
 
+const ACTIVE = new Set(['running', 'paused', 'abandoning']);
 const DAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const winText = (w: DemoPlatform['policy']['window']) =>
   `${w.days.map((d) => DAY[d]).join(', ')} ${String(w.startHour).padStart(2, '0')}:00–${String((w.startHour + w.hours) % 24).padStart(2, '0')}:00 UTC`;
 
-function runView(p: DemoPlatform) {
-  const r = p.run!;
-  // The replay is on the clock: each step takes STEP_MS, so its timestamps (and durations) are real.
-  const t0 = Date.parse(r.startedAt);
-  const stamp = (i: number): string => new Date(t0 + i * STEP_MS).toISOString();
-  const at = Math.min(KEYS.length, Math.floor((Date.now() - t0) / STEP_MS));
-  const done = at >= KEYS.length;
-  if (done && !r.finishedAt) {
-    r.finishedAt = stamp(KEYS.length);
-    p.current = '1.3.0';
-    p.history.unshift({ id: r.id, fromVersion: '1.2.4', toVersion: '1.3.0', status: 'done', trigger: 'manual', startedAt: r.startedAt, finishedAt: r.finishedAt, error: null, step: 'verify' });
-  }
-  return {
-    id: r.id,
-    status: done ? 'done' : 'running',
-    step: KEYS[Math.min(at, KEYS.length - 1)],
-    fromVersion: '1.2.4',
-    toVersion: '1.3.0',
-    trigger: 'manual',
-    actorId: 'u1',
-    error: null,
-    startedAt: r.startedAt,
-    finishedAt: r.finishedAt,
-    progress: { done: at, total: KEYS.length },
-    steps: KEYS.map((key, i) => ({
-      key,
-      status: i < at ? 'done' : i === at ? (key === 'controller' ? 'waiting' : 'running') : 'pending',
-      detail: i < at ? DETAIL[key] : i === at && key === 'engines' ? 'object storage: stop — paused ~84 s' : null,
-      error: null,
-      startedAt: i <= at ? stamp(i) : null,
-      finishedAt: i < at ? stamp(i + 1) : null,
-    })),
-    log: KEYS.slice(0, at).map((k, i) => ({ at: stamp(i + 1), msg: `${k}: done — ${DETAIL[k]}` })),
-    options: {},
-  };
-}
-
 function status(s: DemoStore) {
   const p = state(s);
   // The run first: finishing it moves `current`, so the same poll already reads up to date.
-  const run = p.run ? runView(p) : null;
+  const run = p.run ? demoRunView(p) : null;
   const upToDate = p.current === '1.3.0';
   return {
     release: {
@@ -117,7 +69,13 @@ function status(s: DemoStore) {
       lastCheckError: null,
     },
     run,
-    history: [...(run && run.status === 'running' ? [{ ...run, log: undefined, steps: undefined }] : []), ...p.history].map((h) => ({ ...h, actorId: null, progress: { done: 6, total: 6 }, options: {} })),
+    history: [...(run && ACTIVE.has(run.status) ? [{ ...run, log: undefined, steps: undefined, abandon: undefined }] : []), ...p.history].map((h) => ({
+      pause: null,
+      ...h,
+      actorId: null,
+      progress: { done: 6, total: 6 },
+      options: {},
+    })),
   };
 }
 
@@ -138,12 +96,15 @@ export const platform: DomainResolvers = {
     },
     'platform.start': (_i, s) => {
       const p = state(s);
-      p.run = { id: `pr${Date.now()}`, startedAt: new Date().toISOString(), ticks: 0, finishedAt: null };
-      return runView(p);
+      p.run = newDemoRun();
+      return demoRunView(p);
     },
     'platform.importRelease': () => ({ manifest: { version: '1.3.0' }, verified: true, source: 'bundle' }),
-    'platform.retry': (_i, s) => (state(s).run ? runView(state(s)) : null),
+    'platform.retry': (_i, s) => (state(s).run ? demoRunView(state(s)) : null),
     'platform.cancel': () => ({ status: 'cancelled' }),
-    'platform.run': (_i, s) => (state(s).run ? runView(state(s)) : null),
+    'platform.run': (_i, s) => (state(s).run ? demoRunView(state(s)) : null),
+    'platform.pause': (i, s) => runControls.pause(state(s), i as { pause?: boolean }),
+    'platform.resume': (_i, s) => runControls.resume(state(s)),
+    'platform.abandon': (_i, s) => runControls.abandon(state(s)),
   },
 };

@@ -1,9 +1,10 @@
 import * as React from 'react';
-import { CodeView, Depth, Say } from '@/components/calm';
+import { CodeView, Depth } from '@/components/calm';
 import { ErrorState, SkeletonBody } from '@/components/states';
 import { RowPage } from '@/components/rowpage/row-page';
 import { ControllerBackupCard } from './controller-backup-card';
 import { ImportReleaseButton } from './import-release-button';
+import { platformTitle } from './platform-title';
 import { PolicyCard } from './policy-card';
 import { ReleaseFacts } from './release-facts';
 import { ReleaseNotes } from './release-notes';
@@ -19,16 +20,7 @@ export function PlatformPage(): React.JSX.Element {
   const q = usePlatformStatus();
   const v = q.data;
   const av = v?.release.available;
-  const run = v?.run;
-  const title = !v ? 'swarmy itself.' : run?.status === 'running' ? (
-    <>Upgrading to {run.toVersion}. <em>Apps keep serving.</em></>
-  ) : run?.status === 'failed' ? (
-    <>You’re on {v.release.current.version}. <Say tone="bad">The upgrade to {run.toVersion} stopped.</Say></>
-  ) : av ? (
-    <>You’re on {v.release.current.version}. <Say tone="info">{av.version} is ready.</Say></>
-  ) : (
-    <>You’re on {v.release.current.version}. <em>Up to date.</em></>
-  );
+  const title = platformTitle(v);
   const lede = v
     ? `${v.release.policy.channel === 'edge' ? 'Edge channel: every main build.' : 'Stable channel: tagged releases.'} Nothing changes until someone presses the button; swarmy backs up first and goes one piece at a time.`
     : undefined;

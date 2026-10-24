@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { CheckIcon, Loader2Icon, PauseIcon, XIcon } from 'lucide-react';
+import { CheckIcon, Loader2Icon, PauseIcon, RotateCcwIcon, XIcon } from 'lucide-react';
 import { cn } from '@swarmy/ui';
 import { StatusWord } from '@/components/calm';
 import { stepTimeWords } from './upgrade-durations';
@@ -33,7 +33,9 @@ export function UpgradeTimeline({
         const t = STEP_TEXT[s.key] ?? { name: s.key, what: '', ifFails: '' };
         const done = s.status === 'done' || s.status === 'skipped';
         const live = s.status === 'running' || s.status === 'waiting';
-        const bad = s.status === 'failed' || s.status === 'rolled-back';
+        // Put back on purpose (Abandon) is calm; put back because it failed is not.
+        const putBack = s.status === 'rolled-back' && !s.error;
+        const bad = s.status === 'failed' || (s.status === 'rolled-back' && !putBack);
         const took = stepTimeWords({ startedAt: s.startedAt ?? null, finishedAt: s.finishedAt ?? null });
         return (
           <li
@@ -61,6 +63,8 @@ export function UpgradeTimeline({
                 <PauseIcon className="size-3.5" />
               ) : live ? (
                 <Loader2Icon className="size-3.5 animate-spin" />
+              ) : putBack ? (
+                <RotateCcwIcon className="size-3.5" />
               ) : bad ? (
                 <XIcon className="size-3.5" />
               ) : (
@@ -75,10 +79,10 @@ export function UpgradeTimeline({
               <span className="text-muted-foreground text-xs">{s.error ?? s.detail ?? t.what}</span>
             </span>
             <span className="grid shrink-0 justify-items-end gap-0.5">
-              <StatusWord tone={done ? 'ok' : live ? 'info' : bad ? 'bad' : 'idle'} word={s.status === 'waiting' ? 'waiting' : s.status} />
+              <StatusWord tone={done ? 'ok' : live ? 'info' : bad ? 'bad' : 'idle'} word={putBack ? 'put back' : s.status} />
               {took && s.status !== 'skipped' ? <span className="mono-data text-[11px]">{took}</span> : null}
               <span className="text-muted-foreground mono-data hidden text-[10.5px] sm:block">
-                {done ? '' : `if it fails: ${t.ifFails}`}
+                {done || putBack ? '' : `if it fails: ${t.ifFails}`}
               </span>
             </span>
           </li>
