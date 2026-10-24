@@ -745,6 +745,25 @@ export interface QueueView extends QueueDef {
   calm: QueueCalm | null;
 }
 
+/**
+ * BullMQ workers connected to one queue — what BullMQ's `Queue.getWorkers()`
+ * reports: the cache's CLIENT LIST connections named after the queue
+ * (`<prefix>:<base64 queue>`, `…:w:<name>` when the worker sets a name).
+ * A worker's concurrency is an option inside its process; Redis never
+ * records it, so it isn't here.
+ */
+export interface QueueConnectedView {
+  queue: string;
+  workerService: string;
+  /** Connected BullMQ workers, or null when it can't be known (see `reason`). */
+  connected: number | null;
+  /** The names workers gave themselves (`new Worker(q, fn, { name })`), unique, sorted. */
+  names: string[];
+  /** Why `connected` is null: a raw list's consumers don't name their connections, or the cache didn't answer. */
+  reason: 'raw-list' | 'unreachable' | null;
+  measuredAt: string;
+}
+
 /** Aggregates for the Queues page hero. */
 export interface QueuesOverview {
   queues: number;

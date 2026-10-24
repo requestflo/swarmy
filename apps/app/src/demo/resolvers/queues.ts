@@ -11,6 +11,7 @@ import {
 } from '@swarmy/core';
 import type { DemoStore, DomainResolvers } from '../types';
 import { queueStudio, STOREFRONT_QUEUES } from './queue-studio-demo';
+import { queueWorkersDemo } from './queue-workers-demo';
 
 /** How each storefront queue's workers scale (the counts live in STOREFRONT_QUEUES). */
 const STOREFRONT_WORKERS: Record<string, { workerService: string; scalePerJobs: number; maxWorkers: number; retries: number; running: number }> = {
@@ -153,6 +154,7 @@ export const queues: DomainResolvers = {
 
   handlers: {
     ...queueStudio.handlers,
+    ...queueWorkersDemo,
     'queues.list': (i, s): QueueView[] => {
       const { stack } = (i ?? {}) as { stack?: string };
       return [...getState(s).queues]

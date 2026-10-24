@@ -29,6 +29,7 @@ import {
   studioRates,
 } from '../services/queue-studio.service';
 import { queueDepthHistory } from '../services/queue-history';
+import { connectedWorkers } from '../services/queue-workers.service';
 import {
   attachQueue,
   dlqList,
@@ -74,6 +75,9 @@ export const queuesRouter = router({
 
   /** Live depth sample from the cache primary (falls back to the label stamp). */
   stats: orgProcedure.input(QueueRefInput).query(({ ctx, input }) => queueStats(ctx, input)),
+
+  /** BullMQ workers connected to a queue now (CLIENT LIST, as `Queue.getWorkers()`); concurrency isn't in Redis. */
+  connectedWorkers: orgProcedure.input(QueueRefInput).query(({ ctx, input }) => connectedWorkers(ctx, input)),
 
   /** A BullMQ queue's depth, worker copies and finished jobs per slot (default 6 h) — org-scoped. */
   depthHistory: orgProcedure.input(QueueDepthHistoryInput).query(({ ctx, input }) => queueDepthHistory(ctx, input)),

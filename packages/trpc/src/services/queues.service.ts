@@ -381,12 +381,12 @@ function findCachePrimary(
   );
 }
 
-function engineOf(primary: InvService | undefined): CacheEngineKind {
+export function engineOf(primary: InvService | undefined): CacheEngineKind {
   return primary?.labels[CACHE_ENGINE_LABEL] === 'redis' ? 'redis' : 'valkey';
 }
 
 /** Run a redis-cli command inside the cache primary's running container. */
-async function execOnPrimary(
+export async function execOnPrimary(
   ctx: OrgContext,
   primary: InvService,
   script: string,
@@ -418,7 +418,7 @@ async function execOnPrimary(
 }
 
 /** Resolve worker + def + backing primary in one go (mutations/action paths). */
-function resolveQueue(
+export function resolveQueue(
   ctx: OrgContext,
   ref: QueueRefInput,
 ): { services: InvService[]; worker: InvService; def: QueueDef; primary: InvService } {

@@ -90,7 +90,10 @@ Four ideas, one story:
   failed/delayed and the `<q>:dead` list are keys in the org's own Valkey/Redis
   primary. swarmy reads and mutates them by exec'ing the CLI inside that
   container (the password is read from the mounted secret file, never on the
-  wire).
+  wire). Connected BullMQ workers are read the same way, off the cache's
+  CLIENT LIST (`queues.connectedWorkers`: the count `Queue.getWorkers()`
+  gives). A worker's concurrency is an option inside its process that Redis
+  never records, so the dashboard says so rather than showing a number.
 - **Scheduled jobs and their runs are swarmy's DB** — `ScheduledJob`/
   `JobRun`. These are identity +
   input + audited history, not swarm state, so the controller's store (`control.db`) is the right home.
@@ -179,8 +182,9 @@ Real code homes:
 
 - **Queues** — `packages/trpc/src/routers/queues.ts`,
   `packages/trpc/src/services/queues.service.ts` (label codecs, redis command
-  builders, exec-on-primary), worker
-  `apps/api/src/workers/queue-reconcile.ts`.
+  builders, exec-on-primary), `queue-workers{,.service}.ts` (connected
+  workers), the autoscale rule in `packages/core/src/queue-autoscale.ts`,
+  worker `apps/api/src/workers/queue-reconcile{,.core,.live}.ts`.
 - **Scheduled jobs** — `packages/trpc/src/routers/jobs.ts`,
   `packages/trpc/src/services/jobs.service.ts` (+ cron in
   `packages/trpc/src/services/schedule.ts`), worker
