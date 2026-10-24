@@ -18,6 +18,8 @@ describe('rolesAtAGlance (the real role sentences)', () => {
           'Members can connect to non-production stacks',
           'Members can read non-production databases',
           'Members can use AI models',
+          'Members can remove alerts, status pages, jobs and AI keys',
+          'Members can remove inbound webhooks',
         ],
       },
     ]);
