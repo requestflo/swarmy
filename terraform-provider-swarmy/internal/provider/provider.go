@@ -136,6 +136,7 @@ func (p *swarmyProvider) Resources(_ context.Context) []func() resource.Resource
 		NewGitConnectionResource,
 		NewGitRepoResource,
 		NewNodeResource,
+		NewJoinTokenResource,
 	}
 }
 
