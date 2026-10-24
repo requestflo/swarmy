@@ -36,6 +36,7 @@ import { guardrails } from './resolvers/guardrails';
 import { auditlog } from './resolvers/auditlog';
 import { cost } from './resolvers/cost';
 import { resilience } from './resolvers/resilience';
+import { resilienceLive } from './resolvers/resilience-live';
 import { dbRestoreCopy } from './resolvers/db-restore-copy';
 import { controllerstore } from './resolvers/controllerstore';
 import { platform } from './resolvers/platform';
@@ -110,6 +111,7 @@ const MODULES: DomainResolvers[] = [
   auditlog,
   cost,
   resilience,
+  resilienceLive,
   dbRestoreCopy,
   controllerstore,
   platform,

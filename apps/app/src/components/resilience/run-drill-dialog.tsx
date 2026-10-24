@@ -51,7 +51,7 @@ export function RunDrillDialog({
   label?: string;
   /** `default` only when this is the screen's one coral action. */
   variant?: 'default' | 'outline';
-  /** Called once the person confirms (the card shows its own running state). */
+  /** Called once the person confirms; the dialog then closes and the card shows its own running state. */
   onStart?: () => void;
   /** The recorded outcome, for cards that show the steps. */
   onResult?: (r: ResilienceDrillResultView) => void;
@@ -86,13 +86,18 @@ export function RunDrillDialog({
   const verify = useMutation(trpc.resilience.runBackupVerify.mutationOptions(opts));
   const pending = restore.isPending || verify.isPending;
 
+  const start = (): void => {
+    if (!onStart) return;
+    onStart();
+    setOpen(false);
+  };
   const run = (): void => {
     if (kind === 'backup-verify') {
-      onStart?.();
+      start();
       return void verify.mutate({});
     }
     if (!selected) return;
-    onStart?.();
+    start();
     restore.mutate({ stack: selected.stack, cluster: selected.cluster });
   };
 

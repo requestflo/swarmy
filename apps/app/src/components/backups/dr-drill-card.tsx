@@ -6,7 +6,8 @@ import { DRILL_TECH, formatDurationMs, relativeTime } from '@/components/resilie
 import { RunDrillDialog } from '@/components/resilience/run-drill-dialog';
 import { useTRPC } from '@/integrations/trpc';
 import { DrillSteps } from './drill-steps';
-import { drillOutcome } from './drill-words';
+import { drillOutcome, stepWords } from './drill-words';
+import { useDrillProgress } from './use-drill-progress';
 import { VerifyAll } from './verify-all';
 
 /** Whole seconds since `since`, ticking while it is set. */
@@ -23,8 +24,9 @@ function useElapsed(since: number | null): number {
 /**
  * The DR drill on /backups (board 16): restore the latest database save into
  * a throwaway copy, check it answers, delete it (`resilience.runRestoreDrill`).
- * Shows the last run's recorded steps (`drillHistory[].steps`); "Verify all"
- * checks every destination.
+ * While one runs (started here or by anyone in the org) it shows
+ * "Running · <step>" and the steps so far, live (`resilience.drillProgress`);
+ * otherwise the last run's recorded steps. "Verify all" checks every destination.
  */
 export function DrDrillCard({ primary }: { primary: boolean }): React.JSX.Element {
   const trpc = useTRPC();
@@ -33,7 +35,10 @@ export function DrDrillCard({ primary }: { primary: boolean }): React.JSX.Elemen
   const [pick, setPick] = React.useState<string | null>(null);
   const [startedAt, setStartedAt] = React.useState<number | null>(null);
   const [result, setResult] = React.useState<ResilienceDrillResultView | null>(null);
-  const elapsed = useElapsed(startedAt);
+  const live = useDrillProgress('restore');
+  const running = live != null || startedAt != null;
+  const elapsed = useElapsed(live?.startedAt ?? startedAt);
+  const now = live?.current ? stepWords(live.current.name).toLowerCase() : 'starting';
 
   const card = overview.data?.drills.find((d) => d.kind === 'restore') ?? null;
   const targets = overview.data?.drillTargets ?? [];
@@ -41,10 +46,12 @@ export function DrDrillCard({ primary }: { primary: boolean }): React.JSX.Elemen
   // Default to the database the last drill ran on, so the sentence and its steps match.
   const ref = (t: { stack: string; cluster: string }): string => `${t.stack}/${t.cluster}`;
   const target =
-    targets.find((t) => ref(t) === (pick ?? restores[0]?.target)) ?? targets.find((t) => t.healthy) ?? targets[0] ?? null;
+    targets.find((t) => ref(t) === (live?.target ?? pick ?? restores[0]?.target)) ?? targets.find((t) => t.healthy) ?? targets[0] ?? null;
   const lastPassed = restores.find((h) => h.status === 'passed');
   const shown = result ?? restores[0] ?? null;
-  const eyebrow = lastPassed
+  const eyebrow = running
+    ? `DR drill · running for ${elapsed} s`
+    : lastPassed
     ? `DR drill · last passed ${relativeTime(lastPassed.at)}`
     : restores[0]
       ? `DR drill · last run failed ${relativeTime(restores[0].at)}`
@@ -78,8 +85,8 @@ export function DrDrillCard({ primary }: { primary: boolean }): React.JSX.Elemen
           </label>
         </Depth>
       ) : null}
-      {shown ? <DrillSteps steps={shown.steps} dim={startedAt != null} /> : null}
-      {shown && startedAt == null ? (
+      {live ? <DrillSteps steps={live.steps} current={live.current} /> : shown ? <DrillSteps steps={shown.steps} dim={running} /> : null}
+      {shown && !running ? (
         <div className="flex flex-col gap-0.5 border-t pt-3">
           <span className={`text-[14px] font-semibold ${TONE_TEXT[shown.status === 'passed' ? 'ok' : 'bad']}`}>
             {shown.status === 'passed' ? 'Drill passed' : 'Drill failed'}
@@ -93,9 +100,9 @@ export function DrDrillCard({ primary }: { primary: boolean }): React.JSX.Elemen
         <RunDrillDialog
           kind="restore"
           targets={target ? [target] : []}
-          label={startedAt != null ? `Running · ${elapsed} s` : shown ? 'Run again' : 'Run a DR drill'}
+          label={running ? `Running · ${now}` : shown ? 'Run again' : 'Run a DR drill'}
           variant={primary ? 'default' : 'outline'}
-          disabled={!card?.available || !target}
+          disabled={!card?.available || !target || running}
           disabledReason={card?.unavailableReason ?? null}
           onStart={() => {
             setResult(null);

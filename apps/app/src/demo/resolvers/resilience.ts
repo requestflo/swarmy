@@ -1,4 +1,5 @@
 import type { DemoStore, DomainResolvers } from '../types';
+import { playDemoDrill } from './resilience-live';
 
 /**
  * Resilience demo resolvers — the Resilience surface (`/resilience`): readiness
@@ -106,9 +107,9 @@ function drillCards(st: ResilienceState): DrillCardView[] {
   ];
 }
 
-function runDemoDrill(st: ResilienceState, kind: DrillKind, target: string | null): DrillResultView {
-  const steps: DrillStepView[] =
-    kind === 'restore'
+/** The steps a demo drill runs (the names the controller's drill runner uses). */
+function demoDrillSteps(kind: DrillKind, target: string | null): DrillStepView[] {
+  return kind === 'restore'
       ? [
           { name: 'Create throwaway cluster', status: 'passed', detail: 'deployed data_drill-mc41k2-primary', durationMs: 42_000 },
           { name: 'Wait for postgres', status: 'passed', detail: null, durationMs: 21_000 },
@@ -117,6 +118,9 @@ function runDemoDrill(st: ResilienceState, kind: DrillKind, target: string | nul
           { name: 'Destroy the clone', status: 'passed', detail: null, durationMs: 3_400 },
         ]
       : [{ name: `restic check on "${target}"`, status: 'passed', detail: 'exit 0', durationMs: 39_000 }];
+}
+
+function runDemoDrill(st: ResilienceState, kind: DrillKind, target: string | null, steps: DrillStepView[]): DrillResultView {
   const durationMs = steps.reduce((sum, s) => sum + (s.durationMs ?? 0), 0);
   const result: DrillResultView = {
     kind,
@@ -174,9 +178,12 @@ export const resilience: DomainResolvers = {
       return history.slice(0, limit);
     },
 
+    // Plays the steps live on `resilience.drillProgress` (resilience-live.ts), then records the run.
     'resilience.runRestoreDrill': (i, s) => {
       const b = i as { stack: string; cluster: string };
-      return runDemoDrill(getState(s), 'restore', `${b.stack}/${b.cluster}`);
+      const target = `${b.stack}/${b.cluster}`;
+      const steps = demoDrillSteps('restore', target);
+      return playDemoDrill(s, 'restore', target, steps, () => runDemoDrill(getState(s), 'restore', target, steps));
     },
 
     // Verify names the destination it checked (the first one when no id is given), like the service.
@@ -184,7 +191,9 @@ export const resilience: DomainResolvers = {
       const targets = (s.extra.data as { targets?: { id: string; name: string }[] } | undefined)?.targets ?? [];
       const id = (i as { targetId?: string } | undefined)?.targetId;
       const t = targets.find((x) => x.id === id) ?? targets[0];
-      return runDemoDrill(getState(s), 'backup-verify', t?.name ?? 'Backblaze B2 (primary)');
+      const target = t?.name ?? 'Backblaze B2 (primary)';
+      const steps = demoDrillSteps('backup-verify', target);
+      return playDemoDrill(s, 'backup-verify', target, steps, () => runDemoDrill(getState(s), 'backup-verify', target, steps));
     },
   },
 
