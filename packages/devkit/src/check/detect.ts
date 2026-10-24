@@ -71,6 +71,13 @@ const NODE_FRAMEWORKS: Array<{ dep: string; name: string; port: number }> = [
   { dep: 'vite', name: 'Vite', port: 80 },
 ];
 
+const OTHER_FRAMEWORK_DEPS: Record<string, string> = { Django: 'django', FastAPI: 'fastapi', Flask: 'flask', Rails: 'rails', Laravel: 'laravel/framework' };
+
+/** The dependency that names a detected framework (`Next.js` → `next`), for evidence. */
+export function frameworkDep(framework: string): string | undefined {
+  return NODE_FRAMEWORKS.find((f) => framework.startsWith(f.name))?.dep ?? OTHER_FRAMEWORK_DEPS[framework];
+}
+
 /** First major version in a semver range ("^20.11" / ">=18" / "v22.3.0" → "20" / "18" / "22"). */
 export function majorOf(range: string | undefined | null): string | undefined {
   const m = /(\d+)(?:\.(\d+))?/.exec((range ?? '').trim());

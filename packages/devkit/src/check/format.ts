@@ -43,6 +43,14 @@ export function formatCheckReport(r: CheckReport): string {
     out.push('', 'Resources:');
     for (const x of r.resources) out.push(`  ${x.name.padEnd(14)} ${x.detail}`);
   }
+  // Only the web service found is not news; anything more is what the code needs.
+  if (r.needs.length > 1) {
+    out.push('', `What the code needs (scanned ${r.scanned} file${r.scanned === 1 ? '' : 's'}):`);
+    for (const d of r.needs) {
+      const e = d.evidence[0];
+      out.push(`  ${d.label.padEnd(26)} → ${d.maps.padEnd(24)}${e ? ` ${e.file}:${e.line}  ${e.text}` : ''}`);
+    }
+  }
   if (r.plan.length) {
     out.push('', 'What swarmy will do:');
     r.plan.forEach((p, n) => out.push(`  ${n + 1}. ${p}`));

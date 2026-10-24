@@ -109,10 +109,10 @@ export function createSwarmyMcpServer(opts: SwarmyMcpOptions): McpServer {
     {
       title: 'Will this repo work on swarmy?',
       description:
-        'Checks a repository locally and reports how swarmy would deploy it: finds swarmy.yaml (validating it with the exact parser the controller uses, with line numbers), or a compose file, a Dockerfile, or a stack Railpack can build (Node, Python, Go, …); lists the services, databases, domains and jobs a deploy would create; and every problem that would stop it. Deploys nothing and calls no server. ' +
+        'Checks a repository locally and reports how swarmy would deploy it: finds swarmy.yaml (validating it with the exact parser the controller uses, with line numbers), or a compose file, a Dockerfile, or a stack Railpack can build (Node, Python, Go, …); lists the services, databases, domains and jobs a deploy would create; what the code needs (Postgres, a Redis/Valkey cache or queue, S3 buckets, workers, cron, its port) with file:line evidence and the swarmy.yaml key each maps to; and every problem that would stop it. Deploys nothing and calls no server. ' +
         (opts.transport === 'stdio'
           ? 'Pass `path` (a local directory, default the current one).'
-          : 'Pass `files`: the contents of swarmy.yaml plus the manifests that matter (package.json, Dockerfile, lockfiles, pyproject.toml, go.mod, …) keyed by repo-relative path.'),
+          : 'Pass `files`: the contents of swarmy.yaml plus the manifests that matter (package.json, Dockerfile, lockfiles, pyproject.toml, go.mod, Procfile, .env.example, …) and the source files that open connections, keyed by repo-relative path.'),
       inputSchema: z.object({
         path: z.string().optional().describe('Local directory to check (stdio only). Default: the current directory.'),
         files: z

@@ -9,15 +9,18 @@
  */
 import {
   CONFIG_FILENAMES,
+  generateAppConfig,
   parseAppConfig,
   toDesired,
   type AppConfig,
   type DesiredApp,
   type DesiredResource,
+  type Detection,
 } from '@swarmy/app-config';
 import { parse as parseYaml } from 'yaml';
 import { detectStack, describeDetection, type StackDetection } from './detect';
 import { cleanRel, joinRel, type RepoFs } from './fs';
+import { findNeeds } from './needs';
 
 export type CheckSeverity = 'error' | 'warning' | 'info';
 
@@ -63,7 +66,15 @@ export interface CheckReport {
   /** Plain-words summary of what swarmy will do, in order. */
   plan: string[];
   issues: CheckIssue[];
-  /** A starter swarmy.yaml when the repo has none (always parses clean). */
+  /**
+   * What the code says the app needs (Postgres, a cache, a bucket, workers,
+   * cron, its port), each with file:line evidence and the swarmy.yaml key it
+   * maps to — the same detections the New app wizard shows.
+   */
+  needs: Detection[];
+  /** Files the needs scan read. */
+  scanned: number;
+  /** A swarmy.yaml generated from `needs` when the repo has none (always parses clean). */
   suggestedConfig?: string;
 }
 
@@ -393,6 +404,15 @@ export async function checkRepo(fs: RepoFs, opts: CheckOptions & { name?: string
     jobs: [],
     plan: [],
     issues: [],
+    needs: [],
+    scanned: 0,
+  };
+  let scanned = false;
+  const scan = async (detected: StackDetection | null): Promise<void> => {
+    scanned = true;
+    const found = await findNeeds(fs, detected);
+    report.needs = found.detections;
+    report.scanned = found.files;
   };
 
   const configPath = await findConfig(fs, opts);
@@ -427,7 +447,8 @@ export async function checkRepo(fs: RepoFs, opts: CheckOptions & { name?: string
           ...(detected?.port ? { port: detected.port } : {}),
           domains: [],
         });
-        report.suggestedConfig = starterConfig(app, detected, hasDockerfile);
+        await scan(detected);
+        report.suggestedConfig = generateAppConfig(report.needs, { app }).yaml;
         report.issues.push({
           severity: 'info',
           code: 'config/missing',
@@ -453,6 +474,7 @@ export async function checkRepo(fs: RepoFs, opts: CheckOptions & { name?: string
     }
   }
 
+  if (!scanned) await scan(await detectStack(fs, ''));
   report.ok = !report.issues.some((i) => i.severity === 'error');
   return report;
 }
