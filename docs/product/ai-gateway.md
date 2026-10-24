@@ -126,11 +126,32 @@ process, without its RAM bill or enterprise licence:
   updates the key in place; it only rotates if its secret is gone.
 - **LiteLLM itself** is a template for anyone who wants its UI.
 
-**Known gap — in-cluster reachability.** The controller lives only on
-`swarmy-control`, which user services may never join. Discovery registers the
-engine at `http://<service>:<port>`; until the installer attaches the
-controller to a shared AI overlay the operator can override the base URL (for
-example a node-local published port). Tracked in the plan.
+**In-cluster reachability.** The controller lives on `swarmy-control`, which
+user services may never join, so it reaches a registered engine at
+`http://<service>:<port>` over **`swarmy-integrations`**: an encrypted overlay
+(MTU sized for the mesh) that holds only the controller and the services it
+must dial — the engines discovery registers, and the in-swarm hosts of alert
+channels and outbound webhooks. Nothing of the control plane is on it, compose
+may not declare it, and aliases on it are refused.
+
+- The installer creates it and the stack file attaches the controller. On an
+  install that predates it, the integrations reconcile (60 s,
+  `integrations-network.ts`) adds the controller with one
+  `docker service update --network-add` once a target exists.
+- The same reconcile attaches each registered engine and detaches anything
+  else it finds on the overlay. Apps are never attached by default.
+- A compose deploy keeps a service swarmy attached on the overlay and puts a
+  newly deployed engine on it in the same update (`integrations-carry.ts`), so
+  redeploying the Ollama template never drops it for a tick or reloads the
+  model twice.
+- Only the engine discovery picks is attached: the first Ollama and the first
+  vLLM by service name. A second one of the same kind is neither registered
+  nor reachable.
+
+Verified by unit tests only. Not verified without a multi-node swarm: name
+resolution and calls from the controller task to an engine on another node
+across the encrypted overlay, and the one-off controller network-add on an
+older install.
 
 ## Roles and where truth lives
 

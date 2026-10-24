@@ -32,6 +32,7 @@ import { carrySecretFamilies, mountsSecretFamily } from './secret-family-carry';
 import { removeStackOwnedSecrets } from './secret-owner.service';
 import { liveStackMounts, removeStackVolumes, stackVolumeNames } from './stack-data';
 import { augmentSpecsForStack } from './otel-injection';
+import { carryIntegrationsNetwork } from './integrations-carry';
 import { stackTelemetryEnabled } from './observability.service';
 import { augmentSpecsForErrors, releaseFor, specsRequestErrors } from './errors/injection';
 import { ensureProject } from './errors/projects';
@@ -495,7 +496,7 @@ export async function deployFromCompose(
   // "Connect apps" pairings are stack-level Docker truth (`swarmy.links` on
   // its services): every (re)deployed or newly added service keeps them.
   const peers = stackPeers(liveStackServices(ctx, input.name));
-  const specs = plan.specs.map((spec, i) => {
+  const carried = plan.specs.map((spec, i) => {
     const short = plan.services[i]!.short;
     const source =
       liveByName.get(spec.name) ?? migration.legacy.find((l) => migration.shortOf[l.name] === short);
@@ -512,6 +513,9 @@ export async function deployFromCompose(
     );
     return carryLinks(attached, { orgId: ctx.activeOrgId, stack: input.name, peers });
   });
+  // …and the controller's integrations overlay: an AI engine keeps it (or
+  // joins it on first deploy) in this same update, never a reconcile later.
+  const specs = carryIntegrationsNetwork(carried, liveRaw);
 
   // D1: every stack deploy runs the admission pipeline first. Violations refuse
   // the deploy unless explicitly overridden; overriding a `block` violation
