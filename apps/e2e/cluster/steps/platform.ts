@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import { assert, Fatal, log, must, poll, q, run, secret } from '../lib/util';
 import { ensureReplicated, followController } from '../lib/controller';
 import { DindProvider } from '../lib/provider-dind';
+import { assertAdvertiseAddrs } from '../lib/swarm-addr';
 
 // ── 1. install ─────────────────────────────────────────────────────────────
 export async function install(ctx: Ctx) {
@@ -127,7 +128,8 @@ export async function servers(ctx: Ctx) {
     },
     { timeoutMs: 5 * 60_000, intervalMs: 5000 },
   );
-  return online.map((n) => `${n.hostname}:${n.role}:${n.status}`).join(' ');
+  const addrs = await assertAdvertiseAddrs(c);
+  return `${online.map((n) => `${n.hostname}:${n.role}:${n.status}`).join(' ')}; ${addrs}`;
 }
 
 /**
