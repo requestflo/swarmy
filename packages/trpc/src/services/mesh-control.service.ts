@@ -15,6 +15,7 @@
  *   4. Litestream to Garage bucket `swarmy-mesh` once object storage is on
  *   4b. relays on edges (mesh-relay.service), when switched on
  *   5. the rendered config on the hosting node (applyMeshControl when it drifts)
+ *   6. fence a control plane that came back on a node it moved away from
  */
 import { createHash } from 'node:crypto';
 import {
@@ -49,6 +50,7 @@ import { isMeshCidr } from './mesh-onmesh';
 import { objectStoreState, provisionSystemBucketKey, retireSupersededSystemKeys } from './buckets.service';
 import { reconcileEdgeRelays, relayCard, relayVhostsFor, relaysWanted } from './mesh-relay.service';
 import { meshRelayLive } from './mesh-relay-live';
+import { staleControlPlanes } from './mesh-control-fence';
 
 /** The swarmy OIDC client NetBird's Dex uses as its connector (confidential). */
 export const MESH_OIDC_CLIENT_ID = 'swarmy-mesh';
@@ -518,6 +520,19 @@ export async function reconcileMeshControl(ctx: OrgContext, opts: { force?: bool
   }
   // NetBird just let go of (or took back) STUN on its node: re-send that relay's spec now, not in 30 s.
   if (relaysChanged) await relayStep(m).catch(() => undefined);
+
+  // 6. Fence: a control plane back on a node it moved away from (its agent was dark at the move).
+  for (const stale of staleControlPlanes(meshControlLive.all(ctx.activeOrgId), m.controlNodeId)) {
+    if (!ctx.hub.isOnline(stale)) continue;
+    try {
+      await ctx.hub.dispatch(stale, 'mesh.control', { action: 'stop' }, { timeoutMs: 60_000 });
+      meshControlLive.report(ctx.activeOrgId, stale, { running: false, healthy: false, waitingForConfig: false });
+      steps.push(`fenced the old control plane on ${stale}`);
+      await writeAudit(ctx, { action: 'mesh.control.fence', targetType: 'meshConfig', targetId: ctx.activeOrgId, metadata: { node: stale, current: m.controlNodeId } });
+    } catch (e) {
+      steps.push(`fence on ${stale} failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
   row = await meshConfigRepo.get(ctx, ctx.activeOrgId);
   return { managed: true, steps };
 }
