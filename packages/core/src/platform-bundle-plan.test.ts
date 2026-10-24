@@ -1,0 +1,70 @@
+import { describe, expect, it } from 'bun:test';
+import { buildPlatformManifest, parsePlatformManifest } from './platform-manifest';
+import { planBundle } from './platform-bundle-plan';
+import { registryForwarderImage } from './registry-forwarder';
+import { SYSTEM_IMAGES, pinnedTaggedRef, type SystemImageKey } from './system-images';
+
+const d = (c: string) => `sha256:${c.repeat(64)}`;
+const FLOATING = SYSTEM_IMAGES.filter((i) => !i.digest).map((i) => i.key);
+
+/** The manifest CI publishes: the BOM with a digest for every own build. */
+function release(over: Partial<Record<SystemImageKey, string>> = {}) {
+  const digests = Object.fromEntries(FLOATING.map((k) => [k, d('a')])) as Partial<Record<SystemImageKey, string>>;
+  return buildPlatformManifest({ version: '1.3.0', channel: 'stable', commit: 'c', tag: '1.3.0', digests: { ...digests, ...over } });
+}
+
+describe('planBundle — the offline bundle covers the BOM (nothing a node pulls is missed)', () => {
+  it('carries every BOM image at the release digest', () => {
+    const plan = planBundle(release());
+    expect(plan.unresolved).toEqual([]);
+    expect(plan.notInRelease).toEqual([]);
+    expect(plan.images.map((i) => i.key).sort()).toEqual(SYSTEM_IMAGES.map((i) => i.key).sort());
+    for (const img of SYSTEM_IMAGES) {
+      const got = plan.images.find((i) => i.key === img.key)!;
+      expect(got.ref).toBe(img.ref);
+      expect(got.digest).toBe(img.digest ?? d('a'));
+      expect(got.source.endsWith(`@${got.digest}`)).toBe(true);
+    }
+  });
+
+  it('includes what a joining node pulls first: the forwarder Caddy and the NetBird images', () => {
+    const plan = planBundle(release());
+    const refs = plan.images.map((i) => `${i.ref}@${i.digest}`);
+    expect(refs).toContain(registryForwarderImage());
+    for (const k of ['netbirdClient', 'netbirdRelay', 'netbirdServer'] as const) expect(refs).toContain(pinnedTaggedRef(k));
+  });
+
+  it('copies by the repository the release published (a fork), never a floating tag', () => {
+    const m = buildPlatformManifest({
+      version: '1.3.0', channel: 'stable', commit: 'c', tag: '1.3.0',
+      digests: Object.fromEntries(FLOATING.map((k) => [k, d('b')])),
+      images: { controller: '10.0.0.5:5000/swarmy-controller' },
+    });
+    expect(planBundle(m).images.find((i) => i.key === 'controller')!.source).toBe(`10.0.0.5:5000/swarmy-controller@${d('b')}`);
+    expect(planBundle(m).images.every((i) => /@sha256:[a-f0-9]{64}$/.test(i.source))).toBe(true);
+  });
+
+  it('reports an own build the release names without a digest (the script refuses)', () => {
+    const digests = Object.fromEntries(FLOATING.filter((k) => k !== 'walg').map((k) => [k, d('a')]));
+    const plan = planBundle(buildPlatformManifest({ version: '1.3.0', channel: 'stable', commit: 'c', digests }));
+    expect(plan.unresolved).toEqual(['walg']);
+    expect(plan.images.some((i) => i.key === 'walg')).toBe(false);
+  });
+
+  it('an older release: skips own builds it never names, still carries every pin', () => {
+    const m = release();
+    const { walg: _w, caddy: _c, ...components } = m.components;
+    const plan = planBundle(parsePlatformManifest({ ...m, components }));
+    expect(plan.notInRelease).toEqual(['walg']);
+    expect(plan.images.find((i) => i.key === 'caddy')?.digest).toBe(SYSTEM_IMAGES.find((i) => i.key === 'caddy')!.digest!);
+  });
+
+  it('a newer release: carries components this BOM does not know yet', () => {
+    const m = release();
+    const plan = planBundle(parsePlatformManifest({
+      ...m,
+      components: { ...m.components, future: { ref: 'ghcr.io/x/future:1', image: 'ghcr.io/x/future', digest: d('c') } },
+    }));
+    expect(plan.images.find((i) => i.key === 'future')).toEqual({ key: 'future', ref: 'ghcr.io/x/future:1', source: `ghcr.io/x/future@${d('c')}`, digest: d('c') });
+  });
+});

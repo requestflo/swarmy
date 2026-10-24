@@ -2,9 +2,11 @@ name: Offline bundle
 
 # The air-gapped install/upgrade bundle for a published release
 # (plans/epic-platform-upgrades.md §1 "Offline bundles"): swarmy-<ver>.tar =
-# the release's signed platform.json + .sig + every image it names as an OCI
-# layout (scripts/platform-bundle.ts). Load it in Settings → Platform →
-# Import release → The bundle (.tar).
+# the release's signed platform.json + .sig + every image a node can pull (the
+# BOM at the release's digests: planBundle) as an OCI layout
+# (scripts/platform-bundle.ts). Load it in Settings → Platform → Import
+# release → The bundle (.tar), or install from it with
+# `install-swarmy.sh --bundle swarmy-<ver>.tar` on an air-gapped host.
 #
 # Manual, like the Release workflow: run it (Actions → Offline bundle → Run
 # workflow) after Images has published the release's manifest to the feed.
