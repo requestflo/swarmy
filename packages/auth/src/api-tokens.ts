@@ -1,7 +1,9 @@
 import { verifyJwsAccessToken } from 'better-auth/oauth2';
+import type { DB } from '@swarmy/db';
 import { oidcIssuer, SWARMY_API_SCOPES, swarmyApiAudiences } from './oidc-provider';
 import type { EnsureOidcClientInput, OidcClientDb, OidcClientInfo } from './oidc-clients';
 import { ensureOidcClient } from './oidc-clients';
+import { isTokenRevoked } from './token-revocation';
 
 /**
  * swarmy's OIDC provider as the authorization server for swarmy's OWN APIs:
@@ -14,6 +16,9 @@ import { ensureOidcClient } from './oidc-clients';
  * - Audience: the client asks for the resource by URL (RFC 8707 `resource`,
  *   which MCP clients always send); the provider then issues a JWT whose
  *   `aud` is that URL. Only swarmy's own API URLs are accepted.
+ * - Revocation: a token issued at or before the user's `tokensRevokedAt`
+ *   (stamped on sign-out and session revocation, token-revocation.ts) is
+ *   refused, so a JWT does not outlive the session it came from.
  * - The principal is resolved per request (current membership and role), in
  *   `@swarmy/trpc` `apiKeyContext` — the one seam where a bearer becomes a
  *   principal.
@@ -43,6 +48,7 @@ export interface AuthHandler {
  */
 export function createApiTokenVerifier(
   getAuth: () => AuthHandler,
+  db: Pick<DB, 'user'>,
   env: Record<string, string | undefined> = process.env,
 ): (token: string) => Promise<VerifiedApiToken | null> {
   const issuer = oidcIssuer(env);
@@ -62,6 +68,8 @@ export function createApiTokenVerifier(
       });
       const sub = typeof payload.sub === 'string' ? payload.sub : null;
       if (!sub) return null;
+      const user = await db.user.findUnique({ where: { id: sub }, select: { tokensRevokedAt: true } });
+      if (!user || isTokenRevoked(payload.iat, user.tokensRevokedAt)) return null;
       const scope = typeof payload.scope === 'string' ? payload.scope : '';
       return {
         userId: sub,

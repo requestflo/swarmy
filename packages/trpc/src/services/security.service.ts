@@ -1,6 +1,6 @@
 import { TRPCError } from '@trpc/server';
 import type { DB } from '@swarmy/db';
-import { displayEmail, usernamePlaceholderEmail } from '@swarmy/auth';
+import { displayEmail, revokeUserTokens, usernamePlaceholderEmail } from '@swarmy/auth';
 import type { AuthedContext, OrgContext } from '../context';
 import { writeAudit } from './audit.service';
 import {
@@ -256,11 +256,16 @@ export async function listMemberMfa(ctx: OrgContext) {
   });
 }
 
-/** Remove a user's authenticator + backup codes and sign them out everywhere. */
+/**
+ * Remove a user's authenticator + backup codes and sign them out everywhere —
+ * API access tokens and OAuth grants included (a direct session delete skips
+ * Better Auth's hook, so revoke explicitly).
+ */
 async function wipeTwoFactor(db: Db, userId: string): Promise<void> {
   await db.twoFactor.deleteMany({ where: { userId } });
   await db.user.update({ where: { id: userId }, data: { twoFactorEnabled: false } });
   await db.session.deleteMany({ where: { userId } });
+  await revokeUserTokens(db, userId);
 }
 
 const ROLE_RANK: Record<Role, number> = { member: 0, admin: 1, owner: 2 };

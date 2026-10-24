@@ -35,7 +35,12 @@ function mockDb(state: MockState, log: { audit: string[]; writes: string[] }) {
           .length ?? 0,
     },
     twoFactor: { deleteMany: async () => void log.writes.push('twoFactor.deleteMany') },
-    user: { update: async () => void log.writes.push('user.update') },
+    user: {
+      update: async () => void log.writes.push('user.update'),
+      updateMany: async () => void log.writes.push('user.tokensRevokedAt'),
+    },
+    oidcAccessToken: { deleteMany: async () => void log.writes.push('oidcAccessToken.deleteMany') },
+    oidcRefreshToken: { deleteMany: async () => void log.writes.push('oidcRefreshToken.deleteMany') },
     auditLog: {
       create: async ({ data }: { data: { action: string } }) => {
         log.audit.push(data.action);
@@ -163,7 +168,14 @@ describe('resetMemberTwoFactor', () => {
   it('wipes the factor, signs the member out, and audits', async () => {
     const { ctx: c, log } = ctx({ members }, { role: 'admin' });
     await resetMemberTwoFactor(c, 'm-dev');
-    expect(log.writes).toEqual(['twoFactor.deleteMany', 'user.update', 'session.deleteMany']);
+    expect(log.writes).toEqual([
+      'twoFactor.deleteMany',
+      'user.update',
+      'session.deleteMany',
+      'user.tokensRevokedAt',
+      'oidcAccessToken.deleteMany',
+      'oidcRefreshToken.deleteMany',
+    ]);
     expect(log.audit).toEqual(['security.twoFactor.reset']);
   });
 

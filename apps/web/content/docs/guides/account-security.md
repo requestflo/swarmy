@@ -44,6 +44,12 @@ The sign-in challenge works like this:
 scoped, hashed credentials. They are not user sessions, so 2FA and the org
 wall do not apply to them. Scope and revoke them under Settings → API keys.
 
+**Signing out reaches MCP and CLI tokens too.** OAuth access tokens swarmy
+issued for its own APIs (MCP hosts, `/api/v1`) stop working the moment you
+sign out or a session is revoked. Clients authorized from the session you
+signed out of must sign in again; "sign out everywhere" and a 2FA reset end
+every client's grant. `swk_` API keys are unaffected: revoke those by hand.
+
 After 10 wrong codes in a row, the account locks for 15 minutes. This applies
 both at sign-in and to in-session step-up.
 

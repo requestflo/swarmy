@@ -14,6 +14,9 @@ model User {
   image         String?
   // Better Auth twoFactor plugin: true once an authenticator app is verified.
   twoFactorEnabled Boolean @default(false)
+  // Sign-out / session revocation stamp (packages/auth/src/token-revocation.ts):
+  // swarmy-issued JWT access tokens minted at or before it are refused.
+  tokensRevokedAt DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

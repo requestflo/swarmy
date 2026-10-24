@@ -22,6 +22,7 @@ import {
 import { trustedOriginsNow } from './origins';
 import { mfaAssurance, swarmyTwoFactor } from './two-factor';
 import { OIDC_DISABLED_PATHS, swarmyOidcProvider } from './oidc-provider';
+import { onSessionDeleted } from './token-revocation';
 import {
   allowedDomainsFor,
   inviteIdFromRequest,
@@ -268,6 +269,9 @@ export function buildAuth(
             return { data: { ...session, activeOrganizationId: member.organizationId } };
           },
         },
+        // Sign-out / revocation ends the API tokens and OAuth grants minted
+        // from the session too (token-revocation.ts).
+        delete: { after: onSessionDeleted(db) },
       },
     },
     // Verification + reset mail through the email service when it is wired.

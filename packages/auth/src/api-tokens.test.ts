@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import type { DB } from '@swarmy/db';
 import { createApiTokenVerifier, MCP_OIDC_CLIENT, swarmyApiAudiences } from './api-tokens';
 import { oidcClientRow } from './oidc-clients';
 
@@ -22,6 +23,18 @@ async function keyPair() {
   return { jwk, sign };
 }
 
+/** A user table where `u1` exists; `revoked` sets its `tokensRevokedAt`. */
+function usersDb(revoked: { at: Date | null } = { at: null }) {
+  return {
+    user: {
+      findUnique: async ({ where }: { where: { id: string } }) =>
+        where.id === 'u1' ? { tokensRevokedAt: revoked.at } : null,
+    },
+  } as unknown as Pick<DB, 'user'>;
+}
+
+const jwksAuth = (jwk: JsonWebKey) => ({ handler: async () => Response.json({ keys: [jwk] }) });
+
 describe('swarmy API access tokens', () => {
   test('audiences are the MCP and REST URLs', () => {
     expect(swarmyApiAudiences(env)).toEqual(['https://ctl.example/mcp', 'https://ctl.example/api/v1']);
@@ -37,7 +50,7 @@ describe('swarmy API access tokens', () => {
         return Response.json({ keys: [jwk] });
       },
     };
-    const verify = createApiTokenVerifier(() => auth, env);
+    const verify = createApiTokenVerifier(() => auth, usersDb(), env);
     const now = Math.floor(Date.now() / 1000);
     const base = { iss: 'https://ctl.example/api/auth', sub: 'u1', iat: now, exp: now + 600, scope: 'openid swarmy:write', org: 'org_1', azp: 'swarmy-mcp' };
 
@@ -55,6 +68,26 @@ describe('swarmy API access tokens', () => {
     const forged = (await sign({ ...base, aud: 'https://ctl.example/mcp' })).replace(/\.[^.]+$/, '.AAAA');
     expect(await verify(forged)).toBeNull();
     expect(jwksCalls).toBeGreaterThanOrEqual(1);
+  });
+
+  test('sign-out / revocation kills outstanding tokens; tokens minted after it work', async () => {
+    const { jwk, sign } = await keyPair();
+    const revoked = { at: null as Date | null };
+    const verify = createApiTokenVerifier(() => jwksAuth(jwk), usersDb(revoked), env);
+    const now = Math.floor(Date.now() / 1000);
+    const claims = { iss: 'https://ctl.example/api/auth', aud: 'https://ctl.example/mcp', scope: 'swarmy:read' };
+    const before = await sign({ ...claims, sub: 'u1', iat: now - 120, exp: now + 600 });
+    expect(await verify(before)).not.toBeNull();
+
+    revoked.at = new Date((now - 60) * 1000);
+    expect(await verify(before)).toBeNull();
+    // Same second as the stamp counts as revoked (fail closed); later is fine.
+    expect(await verify(await sign({ ...claims, sub: 'u1', iat: now - 60, exp: now + 600 }))).toBeNull();
+    expect(await verify(await sign({ ...claims, sub: 'u1', iat: now - 59, exp: now + 600 }))).not.toBeNull();
+    // A stamp with no iat to compare against fails closed.
+    expect(await verify(await sign({ ...claims, sub: 'u1', exp: now + 600 }))).toBeNull();
+    // A deleted user's tokens are dead too.
+    expect(await verify(await sign({ ...claims, sub: 'gone', iat: now, exp: now + 600 }))).toBeNull();
   });
 
   test('the MCP client may request the API scopes; other clients keep identity scopes', () => {

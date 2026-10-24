@@ -48,6 +48,14 @@ export {
   type VerifiedApiToken,
 } from './api-tokens';
 export {
+  revokeUserTokens,
+  onSessionDeleted,
+  isTokenRevoked,
+  noteSessionsRevoked,
+  sessionsRevokedSince,
+  type RevocationDb,
+} from './token-revocation';
+export {
   authTrustedOrigins,
   trustedOriginsNow,
   servedOrigins,

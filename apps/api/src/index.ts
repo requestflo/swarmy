@@ -286,7 +286,7 @@ app.all('/api/trpc/*', (c) => handleTrpc(c.req.raw));
 // Public REST API (OpenAPI) — handlers reuse the tRPC service layer via a
 // bearer-resolved OrgContext: an `swk_…` API key, or an OAuth access token
 // swarmy's OIDC provider issued for its own APIs (MCP clients).
-const verifyAccessToken = createApiTokenVerifier(() => authRegistry.getAuth());
+const verifyAccessToken = createApiTokenVerifier(() => authRegistry.getAuth(), prisma);
 const resolveBearer = (presented: string) =>
   resolveOrgContextFromBearer({ db: prisma, hub, auth: authRegistry.getAuth(), verifyAccessToken }, presented);
 const restApp = createRestApp({ resolveContextFromApiKey: resolveBearer });
