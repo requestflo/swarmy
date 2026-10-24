@@ -2,23 +2,14 @@ import * as React from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Button, Input, Label, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
-import { GitSegmented } from './git-segmented';
 
 interface GitConnectGenericProps {
   onConnected: () => void;
 }
 
-type Kind = 'gitea' | 'generic';
-
-const OPTIONS = [
-  { value: 'generic', label: 'Any git host' },
-  { value: 'gitea', label: 'Gitea / Forgejo' },
-] as const;
-
-/** Gitea / Forgejo (repo search works) or any git host (you type the repo URL later). */
+/** Any git host over HTTPS (you type the repo URL later). Gitea / Forgejo has its own card. */
 export function GitConnectGeneric({ onConnected }: GitConnectGenericProps): React.JSX.Element {
   const trpc = useTRPC();
-  const [kind, setKind] = React.useState<Kind>('generic');
   const [baseUrl, setBaseUrl] = React.useState('');
   const [displayName, setDisplayName] = React.useState('');
   const [tokenUser, setTokenUser] = React.useState('');
@@ -36,7 +27,7 @@ export function GitConnectGeneric({ onConnected }: GitConnectGenericProps): Reac
 
   const submit = (): void =>
     create.mutate({
-      kind,
+      kind: 'generic',
       mode: 'basic',
       baseUrl: baseUrl.trim(),
       displayName: displayName.trim() || undefined,
@@ -46,7 +37,6 @@ export function GitConnectGeneric({ onConnected }: GitConnectGenericProps): Reac
 
   return (
     <div className="space-y-3">
-      <GitSegmented value={kind} onChange={setKind} options={OPTIONS} />
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="grid gap-1.5">
           <Label className="mono-label">Host URL</Label>

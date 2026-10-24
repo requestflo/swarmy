@@ -5,6 +5,7 @@ import { ingress } from './resolvers/ingress';
 import { cicd } from './resolvers/cicd';
 import { cicdRegistryUsage } from './resolvers/cicd-registry-usage';
 import { gitconnections } from './resolvers/gitconnections';
+import { gitconnectionsGitea } from './resolvers/gitconnections-gitea';
 import { apps } from './resolvers/apps';
 import { mesh } from './resolvers/mesh';
 import { observability } from './resolvers/observability';
@@ -82,6 +83,7 @@ const MODULES: DomainResolvers[] = [
   cicd,
   cicdRegistryUsage,
   gitconnections,
+  gitconnectionsGitea,
   apps,
   mesh,
   observability,

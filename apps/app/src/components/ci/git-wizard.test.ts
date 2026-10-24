@@ -21,10 +21,12 @@ describe('git providers', () => {
     conn('b', 'github', 'https://github.northwind.dev/', 'platform'),
     conn('c', 'gitlab', 'https://gitlab.com', 'dana.ops', 'pending'),
     conn('d', 'generic', 'https://git.example.com', null),
+    conn('e', 'gitea', 'https://codeberg.org', 'dana'),
   ];
 
-  test('cards by host: github.com, gitlab.com, everything else self-hosted, generic = any URL', () => {
-    expect(conns.map(providerOf)).toEqual(['github', 'self', 'gitlab', 'url']);
+  test('cards by host: github.com, gitlab.com, Gitea/Forgejo its own, other hosts self-hosted, generic = any URL', () => {
+    expect(conns.map(providerOf)).toEqual(['github', 'self', 'gitlab', 'url', 'gitea']);
+    expect(providerChip('gitea', conns)).toEqual({ label: 'connected · dana', tone: 'ok' });
   });
 
   test('only active connections back a card', () => {

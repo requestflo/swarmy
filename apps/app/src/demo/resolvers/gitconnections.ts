@@ -1,5 +1,6 @@
 import type { DemoStore, DomainResolvers } from '../types';
 import { DEMO_APP_NAME, demoManifest, isPreviewCall } from './gitconnections-manifest';
+import { demoGiteaTest } from './gitconnections-gitea';
 import { demoDraft, demoScan } from './gitscan';
 
 /**
@@ -346,6 +347,7 @@ export const gitconnections: DomainResolvers = {
         baseUrl?: string;
         displayName?: string;
         tokenUser?: string;
+        token?: string;
       };
       const st = state(s);
       const baseUrl = (b.baseUrl ?? (b.kind === 'gitlab' ? 'https://gitlab.com' : '')).replace(
@@ -353,12 +355,23 @@ export const gitconnections: DomainResolvers = {
         '',
       );
       const host = baseUrl.replace(/^https?:\/\//, '');
+      // Gitea / Forgejo: a token is tested before it's saved, like the controller does.
+      const gitea = b.kind === 'gitea' ? demoGiteaTest({ baseUrl, token: b.token }) : null;
+      if (gitea && !gitea.ok) throw new Error(gitea.error);
       const conn = addConnection(st, {
         kind: b.kind,
         displayName:
-          b.displayName ?? (b.kind === 'gitlab' ? (host === 'gitlab.com' ? 'GitLab' : host) : host),
+          b.displayName ??
+          (b.kind === 'gitlab'
+            ? host === 'gitlab.com'
+              ? 'GitLab'
+              : host
+            : gitea
+              ? `${gitea.flavor === 'forgejo' ? 'Forgejo' : 'Gitea'} · ${host}`
+              : host),
         baseUrl,
-        account: b.kind === 'gitlab' ? 'demo-user' : (b.tokenUser ?? null),
+        account:
+          b.kind === 'gitlab' || (gitea && b.mode === 'oauth') ? 'demo-user' : (gitea?.account ?? b.tokenUser ?? null),
       });
       if (b.kind === 'gitlab')
         st.repos[conn.id] = [
@@ -370,7 +383,7 @@ export const gitconnections: DomainResolvers = {
           },
         ];
       return b.mode === 'oauth'
-        ? { connection: conn, authorizeUrl: connectedPath('gitlab', conn.id) }
+        ? { connection: conn, authorizeUrl: connectedPath(b.kind, conn.id) }
         : { connection: conn };
     },
 
@@ -416,7 +429,8 @@ export const gitconnections: DomainResolvers = {
       st.linked[id] = { fullName, configPath, branch: b.branch };
       mirrorIntoCicd(s, { id, url, branch: b.branch, kind: conn?.kind ?? null });
       const ssh = /^(ssh:\/\/|[\w.-]+@[\w.-]+:)/.test(url);
-      const needsHook = conn?.kind !== 'github' && conn?.kind !== 'gitlab';
+      // GitHub's App hook covers every repo; GitLab and Gitea hooks are registered for you.
+      const needsHook = conn?.kind !== 'github' && conn?.kind !== 'gitlab' && conn?.kind !== 'gitea';
       return {
         id,
         url,

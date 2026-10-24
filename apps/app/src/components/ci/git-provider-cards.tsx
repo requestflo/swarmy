@@ -1,11 +1,17 @@
 import * as React from 'react';
-import { GithubIcon, GitlabIcon, LinkIcon, ServerIcon, type LucideIcon } from 'lucide-react';
+import { GitBranchIcon, GithubIcon, GitlabIcon, LinkIcon, ServerIcon, type LucideIcon } from 'lucide-react';
 import { cn } from '@swarmy/ui';
 import { GitChip } from './git-chip';
 import { GIT_PROVIDERS, providerChip, type GitProviderId } from './git-providers';
 import type { GitConnection } from './git-types';
 
-const ICON: Record<GitProviderId, LucideIcon> = { github: GithubIcon, gitlab: GitlabIcon, self: ServerIcon, url: LinkIcon };
+const ICON: Record<GitProviderId, LucideIcon> = {
+  github: GithubIcon,
+  gitlab: GitlabIcon,
+  gitea: GitBranchIcon,
+  self: ServerIcon,
+  url: LinkIcon,
+};
 
 /** Where the code lives: one card per provider, each saying whether it's connected (board 23). */
 export function GitProviderCards({
@@ -18,7 +24,7 @@ export function GitProviderCards({
   onPick: (p: GitProviderId) => void;
 }): React.JSX.Element {
   return (
-    <div role="radiogroup" aria-label="Git provider" className="grid grid-cols-1 gap-2.5 @md:grid-cols-2 @3xl:grid-cols-4">
+    <div role="radiogroup" aria-label="Git provider" className="grid grid-cols-1 gap-2.5 @md:grid-cols-2 @3xl:grid-cols-3 @6xl:grid-cols-5">
       {GIT_PROVIDERS.map((p) => {
         const Icon = ICON[p.id];
         const chip = providerChip(p.id, conns);

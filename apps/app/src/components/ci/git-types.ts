@@ -39,7 +39,7 @@ export interface LinkedRepo {
 export const KIND_LABEL: Record<GitConnectionKind, string> = {
   github: 'GitHub',
   gitlab: 'GitLab',
-  gitea: 'Gitea',
+  gitea: 'Gitea / Forgejo',
   generic: 'Git',
 };
 
@@ -53,7 +53,7 @@ export function canListBranches(kind: GitConnectionKind): boolean {
   return kind !== 'generic';
 }
 
-/** GitHub's branches API takes `owner/name`; GitLab's takes the project id. */
+/** GitHub's and Gitea's branches APIs take `owner/name`; GitLab's takes the project id. */
 export function branchRepoKey(kind: GitConnectionKind, repo: ProviderRepo): string {
   return kind === 'gitlab' ? repo.id : repo.fullName;
 }
