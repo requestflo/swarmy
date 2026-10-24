@@ -23,6 +23,7 @@ import { defaultJobService, domainHost } from './validate';
 import { toDesiredAi, type DesiredAi } from './ai';
 import { emailEnvFor, toDesiredEmail, type DesiredEmail, type EmailBindingField } from './email';
 import { AUTH_PORT, AUTH_ROUTE_PATH, AUTH_UNIT, authServiceInput, authServiceUrl } from './auth';
+import type { DashboardEnvMarker } from './clone-env';
 
 export const DEFAULT_PREVIEW_TTL_SECONDS = 72 * 3600;
 export const DEFAULT_JOB_TIMEOUT_SECONDS = 600;
@@ -174,6 +175,8 @@ export interface DesiredApp {
   previewData?: { fromStack: string; fromEnvironment: string; scrub?: string };
   /** Previews with `resources: shared` bind to the prod app's resources. */
   sharedResourcesFrom?: string;
+  /** An environment the dashboard declared (Clone as a new environment), not swarmy.yaml (clone-env.ts). */
+  dashboard?: DashboardEnvMarker;
   services: DesiredService[];
   resources: DesiredResource[];
   routes: DesiredRoute[];

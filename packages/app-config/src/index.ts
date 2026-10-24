@@ -12,6 +12,8 @@ export * from './bindings';
 export * from './validate';
 export * from './hash';
 export * from './environments';
+export * from './env-layers';
+export * from './clone-env';
 export * from './branches';
 export * from './desired';
 export * from './plan';

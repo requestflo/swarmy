@@ -158,7 +158,7 @@ export function planApp(desired: DesiredApp, live: LiveApp, opts: PlanOptions = 
         id: `resource.create:${r.name}`,
         phase: 1,
         gate: 'auto',
-        reason: `create ${describeResource(r)}${r.type === 'postgres' && desired.previewData ? ` — a COPY of ${desired.previewData.fromEnvironment}'s latest backup${desired.previewData.scrub ? `, scrubbed by ${desired.previewData.scrub}` : ''}; destroyed with the preview` : ''}`,
+        reason: `create ${describeResource(r)}${r.type === 'postgres' && desired.previewData ? ` — a COPY of ${desired.previewData.fromEnvironment}'s latest backup${desired.previewData.scrub ? `, scrubbed by ${desired.previewData.scrub}` : ''}; ${desired.environment === 'preview' ? 'destroyed with the preview' : 'its own copy, kept with this environment'}` : ''}`,
         kind: 'resource.create',
         name: r.name,
         resource: r,
