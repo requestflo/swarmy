@@ -1,8 +1,8 @@
 import { networkIsolationViolations, reservedLabelViolations } from '@swarmy/core';
 import { TRPCError } from '@trpc/server';
 import type { OrgContext } from '../context';
-import { evaluateAdmission, type AdmissionIntent, type Violation } from './admission.service';
-import { writeAudit } from './audit.service';
+import type { AdmissionIntent, Violation } from './admission.service';
+import { assessAdmission, recordAdmission } from './admission-record';
 
 /**
  * The shared "refuse / override / audit" wrapper every deploy-shaped mutation
@@ -12,16 +12,20 @@ import { writeAudit } from './audit.service';
  *
  *  - interactive (a person or API key deploying):
  *      any violation + no override  → `admissionDenied` (PRECONDITION_FAILED,
- *                                     swarmyCode POLICY_DENIED); the guardrails
- *                                     evaluator records `guardrails.deploy.blocked`.
+ *                                     swarmyCode POLICY_DENIED).
  *      block violation + override by a `member` → FORBIDDEN (admin/owner only).
  *      block override without a reason, when the caller requires one →
  *                                     BAD_REQUEST (OVERRIDE_REASON_REQUIRED).
  *      violations + permitted override → one `<kind>.override` audit row,
  *                                     carrying the reason when given.
  *  - automation (workers/webhooks: autodeploy, PR previews): nobody can
- *      confirm a warn or authorise an override, so warns pass (they are still
- *      recorded by the evaluator) and any `block` refuses.
+ *      confirm a warn or authorise an override, so warns pass and any `block`
+ *      refuses.
+ *
+ * Every decision is recorded here, once (`recordAdmission`): blocked, warned,
+ * overridden, or allowed with a Warn/Off guardrail that would have blocked.
+ * The one exception is a block override missing its reason: that is an
+ * unfinished form, not a decision, and the person sends it again.
  */
 
 /** Admission refusal — a typed error listing every policy violation. */
@@ -71,17 +75,30 @@ export async function enforceAdmission(
 
   const automation = opts.mode === 'automation';
   const effective: AdmissionIntent = automation ? { ...intent, override: false } : intent;
-  const violations = await evaluateAdmission(ctx, effective);
-  if (violations.length === 0) return violations;
+  const assessed = await assessAdmission(ctx, effective);
+  const { violations } = assessed;
+  const record = (admitted: boolean, reason?: string): Promise<void> =>
+    recordAdmission(ctx, {
+      ...assessed,
+      intent: effective,
+      admitted,
+      mode: automation ? 'automation' : 'interactive',
+      targetType: opts.targetType,
+      targetId: opts.targetId,
+      ...(reason ? { reason } : {}),
+    });
+  const hasBlock = violations.some((v) => v.severity === 'block');
 
-  if (automation) {
-    if (violations.some((v) => v.severity === 'block')) throw admissionDenied(violations);
+  if (violations.length === 0 || (automation && !hasBlock)) {
+    await record(true);
     return violations;
   }
-
-  if (!effective.override) throw admissionDenied(violations);
-  const hasBlock = violations.some((v) => v.severity === 'block');
+  if (automation || !effective.override) {
+    await record(false);
+    throw admissionDenied(violations);
+  }
   if (hasBlock && ctx.membership?.role === 'member') {
+    await record(false);
     throw new TRPCError({
       code: 'FORBIDDEN',
       message: 'overriding a blocking policy violation requires an admin or owner',
@@ -96,11 +113,6 @@ export async function enforceAdmission(
       cause: { swarmyCode: 'OVERRIDE_REASON_REQUIRED', violations },
     });
   }
-  await writeAudit(ctx, {
-    action: intent.kind === 'stack.deploy' ? 'stack.deploy.override' : 'service.deploy.override',
-    targetType: opts.targetType,
-    targetId: opts.targetId,
-    metadata: { violations: violations.map((v) => ({ ...v })), ...(reason ? { reason } : {}) },
-  });
+  await record(true, reason);
   return violations;
 }

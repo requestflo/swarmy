@@ -1,18 +1,10 @@
-import { registryConfigs } from './apps.repo';
-import { backupSchedules } from './backups.repo';
-import {
-  buildInventory,
-  STACK_LABEL,
-  type GuardrailRuleId,
-  type GuardrailSeverity,
-  type GuardrailsConfigView,
-} from '@swarmy/core';
+import type { GuardrailRuleId, GuardrailSeverity, GuardrailsConfigView } from '@swarmy/core';
 import type { OrgContext } from '../context';
 import type { AdmissionIntent, Violation } from './admission.service';
-import { writeAudit } from './audit.service';
-import { DB_BACKUP_SCHEDULE_LABEL } from './dbBackup.service';
-import { DB_CLUSTER_LABEL, DB_REPLICAS_LABEL, DB_ROLE_LABEL } from './manageddb.service';
-import { ENV_LABEL, PRODUCTION_ENV, readConfig } from './guardrails.service';
+import { estateFor, guardrailFacts } from './admission-guardrails-facts';
+import { isLatestImage, type GuardrailSpecFacts } from './admission-guardrails-specs';
+
+export { isLatestImage, specFacts, type GuardrailSpecFacts } from './admission-guardrails-specs';
 
 /**
  * Guardrails admission evaluator (slice E4) — enforces `GuardrailConfig.rulesJson`
@@ -26,92 +18,10 @@ import { ENV_LABEL, PRODUCTION_ENV, readConfig } from './guardrails.service';
  * enforces signatures (`RegistryConfig.requireSignedImages`), this evaluator
  * emits nothing — the image-policy evaluator does the real cosign verify.
  *
- * Refused (non-overridden) evaluations with violations are recorded to the
- * audit log (`guardrails.deploy.blocked`) — the Governance page's feed.
+ * The evaluator only decides. The admission gate records every decision
+ * (`admission-record.ts`), and `admission-guardrails-shadow.ts` re-runs the
+ * Warn and Off rules at Block over the same facts for "would have blocked".
  */
-
-// ── Pure: spec fact extraction ────────────────────────────────────────────────
-
-/** The slice of a deploy spec this evaluator inspects. */
-export interface GuardrailSpecFacts {
-  name: string;
-  image: string;
-  labels: Record<string, string>;
-  /** Published ports using host mode (bypass the routing mesh, bind the node). */
-  hostPorts: number[];
-  hasHealthcheck: boolean;
-  hasMemoryLimit: boolean;
-  privileged: boolean;
-}
-
-const num = (v: unknown): number | undefined =>
-  typeof v === 'number' && Number.isFinite(v) ? v : undefined;
-
-/** Coerce unknown intent specs into the facts this evaluator needs. */
-export function specFacts(specs: unknown[]): GuardrailSpecFacts[] {
-  const out: GuardrailSpecFacts[] = [];
-  for (const raw of specs) {
-    if (typeof raw !== 'object' || raw === null) continue;
-    const o = raw as Record<string, unknown>;
-    if (typeof o.name !== 'string' || !o.name) continue;
-    const labels =
-      typeof o.labels === 'object' && o.labels !== null
-        ? (o.labels as Record<string, string>)
-        : {};
-
-    const hostPorts: number[] = [];
-    if (Array.isArray(o.ports)) {
-      for (const p of o.ports) {
-        if (typeof p !== 'object' || p === null) continue;
-        const port = p as Record<string, unknown>;
-        const published = num(port.published);
-        if (port.mode === 'host' && published !== undefined && published > 0) {
-          hostPorts.push(published);
-        }
-      }
-    }
-
-    const hc = (typeof o.healthcheck === 'object' && o.healthcheck !== null
-      ? o.healthcheck
-      : null) as { disable?: unknown; test?: unknown } | null;
-    const hcTest = Array.isArray(hc?.test) ? (hc.test as unknown[]) : null;
-    const hasHealthcheck =
-      hc !== null && hc.disable !== true && (hcTest === null || hcTest[0] !== 'NONE');
-
-    const resources = (typeof o.resources === 'object' && o.resources !== null
-      ? o.resources
-      : {}) as { limits?: { memoryBytes?: unknown } };
-    const hasMemoryLimit = (num(resources.limits?.memoryBytes) ?? 0) > 0;
-
-    const caps = [
-      ...(Array.isArray(o.capAdd) ? o.capAdd : []),
-      ...(Array.isArray(o.cap_add) ? o.cap_add : []),
-    ];
-    const privileged =
-      o.privileged === true || caps.includes('ALL') || caps.includes('SYS_ADMIN');
-
-    out.push({
-      name: o.name,
-      image: typeof o.image === 'string' ? o.image : '',
-      labels,
-      hostPorts,
-      hasHealthcheck,
-      hasMemoryLimit,
-      privileged,
-    });
-  }
-  return out;
-}
-
-/** True when an image ref would float on `:latest` (explicit, or no tag at all). */
-export function isLatestImage(image: string): boolean {
-  if (!image) return false;
-  if (image.includes('@')) return false; // digest-pinned = immutable
-  const lastSegment = image.slice(image.lastIndexOf('/') + 1);
-  const colon = lastSegment.lastIndexOf(':');
-  if (colon < 0) return true; // no tag → Docker pulls :latest
-  return lastSegment.slice(colon + 1) === 'latest';
-}
 
 // ── Pure: effective rule resolution ───────────────────────────────────────────
 
@@ -278,104 +188,15 @@ export function decideGuardrails(input: {
 // ── Evaluator (spine contract) ───────────────────────────────────────────────
 
 export async function evaluate(ctx: OrgContext, intent: AdmissionIntent): Promise<Violation[]> {
-  if (intent.kind !== 'stack.deploy' && intent.kind !== 'service.deploy') return [];
-  const specs = specFacts(intent.specs ?? []);
-  if (specs.length === 0) return [];
-
-  const config = await readConfig(ctx);
-
-  // Prod detection: the live stack's `swarmy.env` label, or the incoming specs
-  // themselves (a deploy that stamps the label counts as prod immediately).
-  const { services, containers } = ctx.hub.liveInventory(ctx.activeOrgId);
-  const live = buildInventory(services, containers).services;
-  const prodStacks = new Set(
-    live.filter((s) => s.labels[ENV_LABEL] === PRODUCTION_ENV).map((s) => s.stack),
-  );
-  const targetStacks = new Set<string>();
-  if (intent.stackName) targetStacks.add(intent.stackName);
-  for (const spec of specs) {
-    const stackLabel = spec.labels[STACK_LABEL];
-    if (stackLabel) targetStacks.add(stackLabel);
-  }
-  const isProd =
-    [...targetStacks].some((s) => prodStacks.has(s)) ||
-    specs.some((s) => s.labels[ENV_LABEL] === PRODUCTION_ENV);
-
-  const rules = effectiveRules(config, isProd);
+  const facts = await guardrailFacts(ctx, intent);
+  if (!facts) return [];
+  const rules = effectiveRules(facts.config, facts.isProd);
   if (rules.size === 0) return [];
-
-  // Managed db clusters in the intent's stack(s): live facts win (Docker truth);
-  // spec-only clusters (a brand-new db in this very deploy) fall back to labels.
-  const clusters = new Map<string, DbClusterFact>();
-  for (const spec of specs) {
-    const cluster = spec.labels[DB_CLUSTER_LABEL];
-    if (!cluster || clusters.has(cluster)) continue;
-    clusters.set(cluster, {
-      cluster,
-      declaredReplicas: Number.parseInt(spec.labels[DB_REPLICAS_LABEL] ?? '', 10) || 0,
-      hasBackupSchedule: !!spec.labels[DB_BACKUP_SCHEDULE_LABEL],
-    });
-  }
-  for (const svc of live) {
-    const cluster = svc.labels[DB_CLUSTER_LABEL];
-    if (!cluster || !targetStacks.has(svc.stack)) continue;
-    if (svc.labels[DB_ROLE_LABEL] && svc.labels[DB_ROLE_LABEL] !== 'primary') continue;
-    const declared = Number.parseInt(svc.labels[DB_REPLICAS_LABEL] ?? '', 10);
-    clusters.set(cluster, {
-      cluster,
-      declaredReplicas: Number.isFinite(declared)
-        ? declared
-        : live.filter(
-            (m) => m.labels[DB_CLUSTER_LABEL] === cluster && m.labels[DB_ROLE_LABEL] === 'replica',
-          ).length,
-      hasBackupSchedule: !!svc.labels[DB_BACKUP_SCHEDULE_LABEL],
-    });
-  }
-  const dbClusters = [...clusters.values()];
-
-  // DB lookups only when the active rule actually needs them.
-  let hasOrgBackupSchedules = false;
-  if (
-    rules.has('requireBackupPolicy') &&
-    dbClusters.length > 0 &&
-    !dbClusters.some((c) => c.hasBackupSchedule)
-  ) {
-    hasOrgBackupSchedules =
-      (await backupSchedules(ctx, ctx.activeOrgId).count({
-        where: { orgId: ctx.activeOrgId, paused: false },
-      })) > 0;
-  }
-  let signingEnforced = false;
-  if (rules.has('requireSignedImagesProd')) {
-    const reg = await registryConfigs(ctx, ctx.activeOrgId).findUnique({
-      where: { orgId: ctx.activeOrgId },
-      select: { requireSignedImages: true },
-    });
-    signingEnforced = reg?.requireSignedImages === true;
-  }
-
-  const violations = decideGuardrails({
+  return decideGuardrails({
     rules,
-    isProd,
+    isProd: facts.isProd,
     stackName: intent.stackName,
-    specs,
-    estate: { dbClusters, hasOrgBackupSchedules, signingEnforced },
+    specs: facts.specs,
+    estate: await estateFor(facts, new Set(rules.keys())),
   });
-
-  // A refused (non-overridden) gate is a decision worth remembering — the
-  // Governance page's "recently blocked" feed reads these audit rows.
-  if (violations.length > 0 && !intent.override) {
-    await writeAudit(ctx, {
-      action: 'guardrails.deploy.blocked',
-      targetType: 'stack',
-      targetId: intent.stackName,
-      metadata: {
-        stackName: intent.stackName ?? null,
-        isProd,
-        violations: violations.map((v) => ({ ...v })),
-      },
-    });
-  }
-
-  return violations;
 }

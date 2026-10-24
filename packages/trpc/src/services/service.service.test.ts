@@ -133,6 +133,16 @@ describe('createService admission', () => {
     expect(dispatched).toHaveLength(0);
     // The refusal lands in the Recent-decisions feed; no success row is written.
     expect(audit.map((a) => a.action)).toEqual(['guardrails.deploy.blocked']);
+    expect(audit[0]?.metadata).toMatchObject({
+      outcome: 'blocked',
+      admitted: false,
+      // Safety mode arms every rule at Block in production, so each one that fired is a blocked check…
+      checks: expect.arrayContaining([
+        { rule: 'guardrails/no-latest-tag-in-prod', outcome: 'blocked', resources: ['web'] },
+        { rule: 'guardrails/require-healthcheck', outcome: 'blocked', resources: ['web'] },
+      ]),
+      wouldBlock: [], // …and leaves nothing to imagine.
+    });
   });
 
   it('a member cannot override a block; an admin override deploys and is audited', async () => {
@@ -165,8 +175,23 @@ describe('createService admission', () => {
     const res = await createService(ctx, input('nginx:1.27.1'));
     expect(res.id).toBe('web');
     expect(dispatched.map((d) => d.command)).toEqual(['service.deploy']);
-    expect(audit).toHaveLength(1);
+    // Admitted clean, but the Off rules record what they would have stopped at Block.
+    expect(audit.map((a) => a.action)).toEqual(['guardrails.deploy.allowed', 'service.deploy']);
     expect(audit[0]).toMatchObject({
+      targetType: 'stack',
+      targetId: 'shop',
+      metadata: {
+        outcome: 'allowed',
+        admitted: true,
+        checks: [],
+        wouldBlock: [
+          { rule: 'guardrails/require-healthcheck', level: 'off', resources: ['web'] },
+          { rule: 'guardrails/require-resource-limits', level: 'off', resources: ['web'] },
+          { rule: 'guardrails/require-signed-images-prod', level: 'off', resources: ['shop'] },
+        ],
+      },
+    });
+    expect(audit[1]).toMatchObject({
       action: 'service.deploy',
       targetType: 'service',
       targetId: 'web',
@@ -197,7 +222,7 @@ describe('updateService admission', () => {
     const spec = (deploy?.payload as { spec: { labels: Record<string, string> } }).spec;
     expect(spec.labels['swarmy.env']).toBe('production');
     expect(spec.labels['com.docker.stack.namespace']).toBe('shop');
-    expect(audit[0]).toMatchObject({
+    expect(audit.find((a) => a.action === 'service.deploy')).toMatchObject({
       action: 'service.deploy',
       metadata: { image: 'ghcr.io/acme/api:1.3.0', previousImage: 'ghcr.io/acme/api:1.2.3', update: true },
     });

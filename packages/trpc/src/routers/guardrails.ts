@@ -1,4 +1,5 @@
 import {
+  AdmissionTallyInput,
   GuardrailDecisionsInput,
   SetGuardrailRuleInput,
   SetGuardrailSafetyModeInput,
@@ -13,6 +14,7 @@ import {
   setSafetyMode,
   setStackEnv,
 } from '../services/guardrails.service';
+import { admissionTally } from '../services/admission-tally.service';
 
 /**
  * Guardrails (slice E4) — production safety rules enforced at deploy admission.
@@ -44,4 +46,7 @@ export const guardrailsRouter = router({
   recentDecisions: orgProcedure
     .input(GuardrailDecisionsInput)
     .query(({ ctx, input }) => recentDecisions(ctx, input)),
+
+  /** Every admission decision of the window counted per rule/check, would-have-blocked included. */
+  tally: orgProcedure.input(AdmissionTallyInput).query(({ ctx, input }) => admissionTally(ctx, input)),
 });

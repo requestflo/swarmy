@@ -433,7 +433,8 @@ import {
   type CanaryRunView,
   type StartCanaryInput,
 } from '@swarmy/core';
-import { evaluateAdmission } from './admission.service';
+import type { AdmissionIntent } from './admission.service';
+import { assessAdmission, recordAdmission } from './admission-record';
 import { readRoutes, type Route } from './ingress-routes';
 import { setServiceRoutes } from './ingress-routes-api';
 import { redSnapshot } from './observability.service';
@@ -681,14 +682,24 @@ export async function startCanary(ctx: OrgContext, input: StartCanaryInput): Pro
   });
   const spec = canarySpecFor(live, stable, input.image, params);
 
-  // A canary is a service deploy — the admission pipeline still applies.
-  const violations = await evaluateAdmission(ctx, {
+  // A canary is a service deploy — the admission pipeline still applies, and
+  // its decision is recorded like any other (warns pass, a block refuses).
+  const intent: AdmissionIntent = {
     kind: 'service.deploy',
     orgId: ctx.activeOrgId,
     stackName: stable.stack === UNGROUPED ? undefined : stable.stack,
     specs: [spec],
+  };
+  const assessed = await assessAdmission(ctx, intent);
+  const blocking = assessed.violations.filter((v) => v.severity === 'block');
+  await recordAdmission(ctx, {
+    ...assessed,
+    intent,
+    admitted: blocking.length === 0,
+    mode: 'automation',
+    targetType: 'service',
+    targetId: canaryName,
   });
-  const blocking = violations.filter((v) => v.severity === 'block');
   if (blocking.length > 0) {
     throw commandRejected(`canary refused by policy: ${blocking.map((v) => v.message).join('; ')}`);
   }

@@ -1,4 +1,5 @@
 import {
+  ADMISSION_ACTIONS,
   buildInventory,
   GUARDRAIL_RULE_IDS,
   UNGROUPED,
@@ -28,7 +29,7 @@ import { resolveManagerNode } from './dispatch.service';
  * truth: "this stack is production" is the `swarmy.env=production` label on the
  * stack's services (written via `service.updateLabels`, read from live
  * inventory), and the blocked/overridden feed is a query over the AuditLog
- * entries the admission pipeline writes.
+ * entries the admission gate writes (`admission-record.ts`).
  *
  * Enforcement itself lives in `admission-guardrails.ts` (the evaluator the
  * spine's admission pipeline calls on every deploy-shaped mutation).
@@ -245,11 +246,15 @@ export async function setStackEnv(
 
 // ── Recent decisions (AuditLog query — swarmy's queryable history) ────────────
 
-/** Audit actions that represent an admission decision worth surfacing. */
+/**
+ * Audit actions the Recent-decisions feed surfaces: refusals and overrides.
+ * Warned and would-have-blocked receipts are counted (`guardrails.tally`), not
+ * listed, so the feed stays the decisions a person made or hit.
+ */
 export const DECISION_ACTIONS = [
-  'guardrails.deploy.blocked',
-  'stack.deploy.override',
-  'service.deploy.override',
+  ADMISSION_ACTIONS.blocked,
+  ADMISSION_ACTIONS.stackOverride,
+  ADMISSION_ACTIONS.serviceOverride,
 ] as const;
 
 /** Coerce an audit row's `metadata.violations` into typed violations. */
