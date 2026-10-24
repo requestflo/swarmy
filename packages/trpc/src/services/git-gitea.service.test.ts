@@ -8,13 +8,15 @@ import { reportCommitStatus, upsertPrComment } from './git-feedback.service';
 import { completeGiteaOAuth, createGiteaConnection, testGiteaConnection } from './git-gitea.service';
 import type { FetchLike } from './git-providers';
 
-const prevKey = process.env.SWARMY_SECRET_KEY;
-beforeAll(() => {
-  process.env.SWARMY_SECRET_KEY = 'test-vault-key-0123456789abcdef';
-  process.env.CONTROLLER_PUBLIC_URL = 'https://swarmy.test';
-});
+const ENV = { SWARMY_SECRET_KEY: 'test-vault-key-0123456789abcdef', CONTROLLER_PUBLIC_URL: 'https://swarmy.test' };
+const prevEnv = Object.fromEntries(Object.keys(ENV).map((k) => [k, process.env[k]]));
+beforeAll(() => Object.assign(process.env, ENV));
 afterAll(() => {
-  process.env.SWARMY_SECRET_KEY = prevKey;
+  // Put the env back exactly (unset stays unset) — later test files read it.
+  for (const [k, v] of Object.entries(prevEnv)) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
   setGitFetchForTests(null);
 });
 
