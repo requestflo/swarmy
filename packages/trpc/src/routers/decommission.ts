@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { orgProcedure, adminProcedure, router } from '../trpc';
-import { abacProcedure, resolveNode } from '../abac';
+import { abacProcedure, resolveNode, resolveService, type ResolveResource } from '../abac';
 import { commandRejected } from '../errors';
 import {
   decommissionStatus,
@@ -13,10 +13,17 @@ import { deleteOldCopy, moveServiceData, planServiceMove } from '../services/vol
 
 /**
  * Volume mobility (plans/epic-volume-mobility.md): retire a server, move one
- * service's data, and the old copies a move keeps. Retiring and deleting are
- * `node.remove`-gated (the same bar as removing a server) and audited in the
- * service layer.
+ * service's data, and the old copies a move keeps. Retiring is `node.remove`-
+ * gated (the same bar as removing a server); deleting an old copy is
+ * `data.destroy` on the service it belonged to (its live labels, so a
+ * production rule applies). Both are audited in the service layer.
  */
+
+/** The service an old copy belongs to (`{ service }`), resolved live like `resolveService`. */
+const resolveCopyService: ResolveResource = (ctx, input) => {
+  const service = (input as { service?: unknown } | null | undefined)?.service;
+  return typeof service === 'string' && service ? resolveService(ctx, { id: service }) : null;
+};
 export const decommissionRouter = router({
   /** The drain plan for a server: steps, blockers, warnings, one-sentence summary. */
   plan: abacProcedure('node.remove', resolveNode)
@@ -43,8 +50,8 @@ export const decommissionRouter = router({
     .input(z.object({ id: z.string() }))
     .query(({ ctx, input }) => oldCopiesOnNode(ctx, input.id)),
 
-  /** Delete an old copy — only ever on an explicit owner request. */
-  deleteOldCopy: adminProcedure
+  /** Delete an old copy — only ever on an explicit owner request. `data.destroy`, owner/admin by default. */
+  deleteOldCopy: abacProcedure('data.destroy', resolveCopyService)
     .input(z.object({ service: z.string(), nodeId: z.string(), volume: z.string() }))
     .mutation(({ ctx, input }) => deleteOldCopy(ctx, input)),
 

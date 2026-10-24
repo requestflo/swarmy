@@ -24,11 +24,19 @@ const CASES: Array<[Action, Resource, boolean]> = [
   ['webhook.remove', row('webhookEndpoint'), false],
   ['backup.remove', row('backupSchedule'), false],
   ['secret.delete', row('aiProvider'), false],
+  // The last role-gated deletes: saved queries were orgProcedure, the rest admin-only.
+  ['savedquery.remove', row('studioSavedQuery'), true],
+  ['rum.remove', row('rumSession'), false],
+  ['rum.remove', row('rumUser'), false],
+  ['mesh.revoke', row('meshRoute'), false],
+  ['mesh.revoke', row('meshPeer'), false],
+  ['data.destroy', { type: 'service', id: 'svc', orgId: 'o1', labels: {} }, false],
 ];
 
 describe('config-level delete actions (owner/admin keep all; members keep what they had)', () => {
   it('are registered and catalogued', () => {
-    for (const a of ['alert.remove', 'statuspage.remove', 'webhook.remove', 'job.remove', 'ai.remove'] as const) {
+    const added = ['alert.remove', 'statuspage.remove', 'webhook.remove', 'job.remove', 'ai.remove', 'savedquery.remove', 'rum.remove', 'mesh.revoke'] as const;
+    for (const a of added) {
       expect(ACTIONS).toContain(a);
       expect(ACTION_CATALOG.some((c) => c.id === a)).toBe(true);
     }
@@ -62,10 +70,11 @@ describe('config-level delete actions (owner/admin keep all; members keep what t
   });
 
   it('read as plain words in the rules editor', () => {
-    const [config, inbound] = CONFIG_REMOVE_SPECS;
+    const [config, inbound, saved] = CONFIG_REMOVE_SPECS;
     expect(describePolicy(config!.effect, config!.doc)).toBe(
       'Members can remove alerts, remove status pages, remove scheduled jobs and revoke AI keys and routes.',
     );
     expect(describePolicy(inbound!.effect, inbound!.doc)).toBe('Members can remove webhooks on inbound webhooks.');
+    expect(describePolicy(saved!.effect, saved!.doc)).toBe('Members can remove saved queries.');
   });
 });

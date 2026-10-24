@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { FILTER_OPS } from '@swarmy/core/studio';
 import { StudioEngine } from '@swarmy/core/protocol';
 import { orgProcedure, router } from '../trpc';
+import { abacProcedure } from '../abac';
+import { resolveConfigRow } from '../abac-config';
 import {
   executeStudio,
   listSavedQueries,
@@ -20,12 +22,13 @@ import {
 } from '../services/studio.service';
 
 /**
- * Database studio, mounted as `studio`. Every procedure is `orgProcedure` on
- * purpose: the policy action depends on the STATEMENT (read → `data.read`,
+ * Database studio, mounted as `studio`. The statement procedures are
+ * `orgProcedure` on purpose: the policy action depends on the STATEMENT (read → `data.read`,
  * write → `data.write`, destructive → `data.destroy` + typed confirm), so the
  * service classifies first and then gates through the same `evaluateAccess` /
  * `authorize` seam `abacProcedure` uses, with the DB service as the resource.
- * Every run is audited as `studio.query`.
+ * Every run is audited as `studio.query`. Removing a saved query is a plain
+ * `abacProcedure` (`savedquery.remove`).
  */
 const ref = { stack: z.string().min(1), target: z.string().min(1) };
 const database = z.string().regex(/^[A-Za-z0-9_.$-]{1,128}$/).nullish();
@@ -128,6 +131,9 @@ export const studioRouter = router({
         }),
       )
       .mutation(({ ctx, input }) => saveQuery(ctx, input)),
-    remove: orgProcedure.input(z.object({ stack: z.string().min(1), id: z.string().min(1) })).mutation(({ ctx, input }) => removeSavedQuery(ctx, input)),
+    /** `savedquery.remove` — members keep it by default. */
+    remove: abacProcedure('savedquery.remove', resolveConfigRow('studioSavedQuery'))
+      .input(z.object({ stack: z.string().min(1), id: z.string().min(1) }))
+      .mutation(({ ctx, input }) => removeSavedQuery(ctx, input)),
   }),
 });

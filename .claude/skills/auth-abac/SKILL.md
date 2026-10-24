@@ -199,6 +199,10 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
   down from the dashboard (`apps.teardownPreview`) is `stack.remove` on the
   preview's live stack (`resolvePreviewStack` in `routers/apps.ts`; an
   unknown preview is `NOT_FOUND`, never "authorize as the org").
+  So are the last role-gated deletes: RUM GDPR erase (`rum.remove`), mesh
+  people revoke/revokeDevice (`mesh.revoke`), a moved volume's old copy
+  (`data.destroy` on its live service) — all admin-only by default — and
+  saved studio queries (`savedquery.remove`, members keep it).
 - **`abacProcedure` sits BEFORE `.input()`**, so tRPC gives the middleware no
   parsed input — it resolves the resource from `opts.getRawInput()`. Resolvers
   must read input defensively (they already `typeof`-check and re-look-up the

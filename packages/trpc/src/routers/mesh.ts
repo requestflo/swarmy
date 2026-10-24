@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { adminProcedure, orgProcedure, router } from '../trpc';
+import { abacProcedure } from '../abac';
+import { resolveConfigRow } from '../abac-config';
 import {
   enrollNode,
   getConfig,
@@ -120,8 +122,13 @@ export const meshRouter = router({
         }),
       )
       .mutation(({ ctx, input }) => grantPerson(ctx, input)),
-    revoke: adminProcedure.input(z.object({ grantId: z.string() })).mutation(({ ctx, input }) => revokePersonGrant(ctx, input.grantId)),
-    /** Disconnect one device now (it must sign in again). */
-    revokeDevice: adminProcedure.input(z.object({ peerId: z.string() })).mutation(({ ctx, input }) => revokePersonPeer(ctx, input.peerId)),
+    /** Take a person's grant away (`mesh.revoke`, owner/admin by default). */
+    revoke: abacProcedure('mesh.revoke', resolveConfigRow('meshRoute', 'grantId'))
+      .input(z.object({ grantId: z.string() }))
+      .mutation(({ ctx, input }) => revokePersonGrant(ctx, input.grantId)),
+    /** Disconnect one device now (it must sign in again). `mesh.revoke`. */
+    revokeDevice: abacProcedure('mesh.revoke', resolveConfigRow('meshPeer', 'peerId'))
+      .input(z.object({ peerId: z.string() }))
+      .mutation(({ ctx, input }) => revokePersonPeer(ctx, input.peerId)),
   }),
 });

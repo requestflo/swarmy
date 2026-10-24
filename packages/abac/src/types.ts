@@ -40,7 +40,7 @@ export const ACTIONS = [
   // owner/admin-only in the seeded defaults (the `*` superuser permits cover
   // them; no member policy names them), so an org — including one whose
   // defaults were persisted before these existed — never locks its admins out.
-  /** Destroy managed data: DB/cache/search/vector/queue teardown, bucket/key delete, store disable. */
+  /** Destroy managed data: DB/cache/search/vector/queue teardown, bucket/key delete, store disable, a moved volume's old copy. */
   'data.destroy',
   /** Restore over live data: volume/DB/cache/search snapshot restore, controller/mirror restore. */
   'data.restore',
@@ -119,6 +119,15 @@ export const ACTIONS = [
   'job.remove',
   /** AI gateway: revoke a virtual key or an app's grant, remove a route. */
   'ai.remove',
+  // The last role-gated deletes (2026-10). Owner/admin-only by default, except
+  // saved studio queries, which members could always remove (`defaults-config.ts`).
+  // Deleting a moved volume's old copy rides `data.destroy`.
+  /** GDPR: erase a visitor session, or everything tied to a user id (analytics + replays). */
+  'rum.remove',
+  /** Revoke a person's private-network grant, or disconnect one of their devices. */
+  'mesh.revoke',
+  /** Delete a saved database-studio query. */
+  'savedquery.remove',
 ] as const;
 
 export type Action = (typeof ACTIONS)[number];

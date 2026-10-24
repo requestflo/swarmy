@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { RUM_ROUTE_MODES, RumSettingsSchema } from '@swarmy/rum';
 import { adminProcedure, orgProcedure, router } from '../trpc';
+import { abacProcedure } from '../abac';
+import { resolveConfigRow } from '../abac-config';
 import { applyNow } from '../services/ingress.service';
 import { getRumSettings, setRumRoute, setRumSettings } from '../services/rum/rum-settings.service';
 import { analytics, deleteSession, deleteUser, footprint, getReplay, listReplays } from '../services/rum/rum-query';
@@ -53,11 +55,13 @@ export const rumRouter = router({
   /** One replay with its synced timeline (requests, logs, server errors). Audited: replays are personal data. */
   replay: orgProcedure.input(z.object({ stack, sessionId })).query(({ ctx, input }) => getReplay(ctx, input)),
 
-  /** GDPR: erase one session (replay chunks, replay index, its analytics rows). */
-  deleteSession: adminProcedure.input(z.object({ stack, sessionId })).mutation(({ ctx, input }) => deleteSession(ctx, input)),
+  /** GDPR: erase one session (replay chunks, replay index, its analytics rows). `rum.remove`, owner/admin by default. */
+  deleteSession: abacProcedure('rum.remove', resolveConfigRow('rumSession', 'sessionId'))
+    .input(z.object({ stack, sessionId }))
+    .mutation(({ ctx, input }) => deleteSession(ctx, input)),
 
-  /** GDPR: erase everything tied to a user id (one app, or every app when `stack` is omitted). */
-  deleteUser: adminProcedure
+  /** GDPR: erase everything tied to a user id (one app, or every app when `stack` is omitted). `rum.remove`. */
+  deleteUser: abacProcedure('rum.remove', resolveConfigRow('rumUser', 'userId'))
     .input(z.object({ stack: stack.optional(), userId: z.string().min(1).max(200) }))
     .mutation(({ ctx, input }) => deleteUser(ctx, input)),
 });

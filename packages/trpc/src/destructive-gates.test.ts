@@ -161,6 +161,14 @@ const GATES: Array<[string, unknown, string]> = [
   ['ai.removeRoute', { name: 'smart' }, 'ai.remove'],
   ['ai.revokeStackAccess', { stack: 'shop' }, 'ai.remove'],
   ['ai.removeProvider', { kind: 'openai' }, 'secret.delete'],
+  // The last role-gated deletes (2026-10): saved studio queries were
+  // orgProcedure (members keep them); the rest were adminProcedure.
+  ['rum.deleteSession', { stack: 'shop', sessionId: 'abcdef0123456789' }, 'rum.remove'],
+  ['rum.deleteUser', { stack: 'shop', userId: 'u_1' }, 'rum.remove'],
+  ['decommission.deleteOldCopy', { service: 'svc', nodeId: 'n1', volume: 'shop_data' }, 'data.destroy'],
+  ['mesh.people.revoke', { grantId: 'mr1' }, 'mesh.revoke'],
+  ['mesh.people.revokeDevice', { peerId: 'peer1' }, 'mesh.revoke'],
+  ['studio.saved.remove', { stack: 'shop', id: 'q1' }, 'savedquery.remove'],
 ];
 
 /** Member-allowed today (orgProcedure before the sweep) — must stay allowed. Actions or paths. */
@@ -176,6 +184,7 @@ const MEMBER_KEEPS = new Set([
   'statuspage.remove',
   'job.remove',
   'ai.remove',
+  'savedquery.remove',
   // `webhook.remove` is member-permitted on inbound endpoints only (by type).
   'inboundWebhooks.removeEndpoint',
 ]);
