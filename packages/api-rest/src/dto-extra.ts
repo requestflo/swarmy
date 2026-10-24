@@ -227,3 +227,67 @@ export const RegisterVolumeBody = z
     service_id: z.string().optional(),
   })
   .openapi('RegisterVolumeRequest');
+
+// ── App connections ("connect apps") + internal endpoints ─────────────────────
+
+const EndpointScopeDto = z.enum(['app', 'connected', 'attached']).openapi('StackEndpointScope', {
+  description:
+    'Who can resolve the name: services of this app (`app`), of a connected app (`connected`), or the app services attached to a managed resource (`attached`). Open enum: new values may be added.',
+});
+
+export const StackEndpointNameDto = z
+  .object({
+    host: z.string().openapi({ description: 'The DNS name swarm answers: `web`, `shop_web`, `tasks.web`, `web.shop`.' }),
+    port: z.number().int().nullable().openapi({ description: 'The port to pair with it — set when the service has exactly one known port.' }),
+    scope: EndpointScopeDto,
+    reachable_from: z.array(z.string()).openapi({
+      description: 'For `connected`: the peer apps that can use this name. Empty for `app`.',
+    }),
+  })
+  .openapi('StackEndpointName');
+
+export const StackServiceEndpointsDto = z
+  .object({
+    service: z.string().openapi({ description: 'The swarm service name (`<app>_<short>`).' }),
+    short_name: z.string().openapi({ description: 'The compose service name.' }),
+    ports: z.array(z.number().int()).openapi({ description: 'Container ports swarmy knows about (routes + published targets).' }),
+    names: z.array(StackEndpointNameDto),
+  })
+  .openapi('StackServiceEndpoints');
+
+export const StackResourceEndpointDto = z
+  .object({
+    kind: z.enum(['postgres', 'cache', 'search', 'vector', 'object-storage']).openapi({
+      description: 'Open enum: new kinds may be added.',
+    }),
+    name: z.string().openapi({ description: 'The resource: cluster, instance or bucket name.' }),
+    host: z.string(),
+    port: z.number().int(),
+    role: z.string().nullable().openapi({ description: '`primary`, `replica`, `sentinel`… for resources with roles.' }),
+    attached: z.array(z.string()).openapi({ description: "This app's services wired to it — they alone share its network." }),
+  })
+  .openapi('StackResourceEndpoint');
+
+export const StackEndpointsDto = z
+  .object({
+    stack: z.string(),
+    connected_apps: z.array(z.string()).openapi({ description: 'Apps (stack names) this one is connected to.' }),
+    services: z.array(StackServiceEndpointsDto),
+    resources: z.array(StackResourceEndpointDto),
+  })
+  .openapi('StackEndpoints');
+
+export const StackConnectionDto = z
+  .object({
+    stack: z.string().openapi({ description: 'This app (stack name).' }),
+    peer: z.string().openapi({ description: 'The other app (stack name).' }),
+    network: z.string().openapi({ description: 'The private overlay for exactly this pair (`swarmy-link-<hash>`).' }),
+    services: z.array(z.string()).openapi({
+      description: 'Services this call rolled onto (or off) the pair network; empty when nothing changed.',
+    }),
+  })
+  .openapi('StackConnection');
+
+export const ConnectStackBody = z
+  .object({ peer: z.string().min(1).openapi({ description: 'The app to connect to: its stack id or name.' }) })
+  .openapi('ConnectStackRequest');

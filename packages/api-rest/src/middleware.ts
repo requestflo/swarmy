@@ -95,6 +95,41 @@ export function requireAction(
 }
 
 /**
+ * Two-resource policy gate — the REST twin of tRPC's `abacProcedureAll(action,
+ * resolvers)` (e.g. connecting two apps checks BOTH stacks). Every resolver
+ * that finds a resource is authorized (one `authz.*` audit row each); when
+ * none does, the org itself is. The first deny refuses the request.
+ */
+export function requireActionAll(
+  action: Parameters<typeof authorize>[1],
+  resolvers: ResolveResource[],
+  fromBody?: (body: Record<string, unknown>) => Record<string, unknown>,
+): MiddlewareHandler<RestEnv> {
+  return async (c, next) => {
+    const ctx = c.get('orgCtx');
+    try {
+      let input: Record<string, unknown> = c.req.param();
+      if (fromBody) {
+        const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown> | null;
+        input = { ...input, ...fromBody(body && typeof body === 'object' ? body : {}) };
+      }
+      let authorized = false;
+      for (const resolve of resolvers) {
+        const resourceInput = await resolve(ctx, input);
+        if (!resourceInput) continue;
+        await authorize(ctx, action, resourceInput);
+        authorized = true;
+      }
+      if (!authorized) await authorize(ctx, action, null);
+    } catch (e) {
+      const p = trpcErrorToProblem(e, c.req.path);
+      return c.json(p, p.status as 403, { 'content-type': PROBLEM_CONTENT_TYPE });
+    }
+    await next();
+  };
+}
+
+/**
  * REST twin of tRPC's `adminProcedure` (`role !== 'member'`): the key acts as
  * its creator's CURRENT role (resolved per request in `apiKeyContext`), so a
  * member-minted key can't do over REST what the dashboard refuses a member.

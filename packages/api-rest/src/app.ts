@@ -6,6 +6,7 @@ import { PROBLEM_CONTENT_TYPE, problem, trpcErrorToProblem } from './problem';
 import { registerNodeRoutes } from './routes/nodes';
 import { registerServiceRoutes } from './routes/services';
 import { registerStackRoutes } from './routes/stacks';
+import { registerStackConnectionRoutes } from './routes/stack-connections';
 import { registerIngressRoutes } from './routes/ingress';
 import { registerApiKeyRoutes } from './routes/api-keys';
 import { registerNodeActionRoutes } from './routes/node-actions';
@@ -66,6 +67,7 @@ function buildResourceApp(deps: RestDeps, withAuth = true): OpenAPIHono<RestEnv>
   registerNodeActionRoutes(app);
   registerServiceRoutes(app);
   registerStackRoutes(app);
+  registerStackConnectionRoutes(app);
   registerIngressRoutes(app);
   registerApiKeyRoutes(app);
   registerDnsRecordRoutes(app);

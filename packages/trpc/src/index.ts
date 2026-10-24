@@ -45,6 +45,10 @@ export {
 } from './services/service.service';
 export { deployFromCompose, getStack, listStacks, removeStack } from './services/stack.service';
 export type { StackSummary, StackDetail } from './services/stack.service';
+// "Connect apps" + internal endpoints — the services behind stacks.endpoints /
+// connect / disconnect, reused by REST /stacks/{id}/endpoints|connections.
+export { stackEndpointsFor } from './services/stack.service';
+export { connectStacks, disconnectStacks } from './services/stack-links.service';
 export {
   addDomain,
   listDomains,

@@ -30,6 +30,8 @@ type AppRule =
   | { kind: 'allow' }
   /** Resolve the target app before the handler; null = not an app's resource. */
   | { kind: 'target'; app: (ctx: OrgContext, params: Params, c: Context<RestEnv>) => Promise<string | null> }
+  /** A request that changes SEVERAL apps (connect two apps): the key must reach every one. */
+  | { kind: 'targets'; apps: (ctx: OrgContext, params: Params, c: Context<RestEnv>) => Promise<(string | null)[]> }
   /** An org-wide list: keep only `data[]` items whose app the key reaches. */
   | { kind: 'filter'; app: (ctx: OrgContext, item: Record<string, unknown>) => string | null }
   /** A read whose app is in the response body. */
@@ -61,6 +63,19 @@ export const APP_ROUTES: Record<string, AppRule> = {
   'PUT /stacks/{id}/telemetry': stackParam,
   'GET /stacks/{id}/errors': stackParam,
   'POST /stacks/{id}/errors/rotate-key': stackParam,
+  'GET /stacks/{id}/endpoints': stackParam,
+  // Connecting two apps changes both: the key must reach this app AND the peer.
+  'POST /stacks/{id}/connections': {
+    kind: 'targets',
+    apps: async (ctx, p, c) => {
+      const peer = await bodyField(c, 'peer');
+      return [await stackNameForId(ctx, p.id ?? ''), peer ? await stackNameForId(ctx, peer) : null];
+    },
+  },
+  'DELETE /stacks/{id}/connections/{peer}': {
+    kind: 'targets',
+    apps: async (ctx, p) => [await stackNameForId(ctx, p.id ?? ''), await stackNameForId(ctx, p.peer ?? '')],
+  },
 
   'GET /services': { kind: 'filter', app: (_ctx, s) => (typeof s.stack_id === 'string' ? s.stack_id : null) },
   'GET /services/{id}': serviceParam,
@@ -125,6 +140,11 @@ export function appScopeGate(): MiddlewareHandler<RestEnv> {
     if (rule.kind === 'target') {
       const app = await rule.app(ctx, params, c).catch(() => null);
       if (!keyReachesApp(allowed, app)) return refuse(c, 404, 'Not found');
+      return next();
+    }
+    if (rule.kind === 'targets') {
+      const apps = await rule.apps(ctx, params, c).catch(() => [null]);
+      if (!apps.every((app) => keyReachesApp(allowed, app))) return refuse(c, 404, 'Not found');
       return next();
     }
     await next();

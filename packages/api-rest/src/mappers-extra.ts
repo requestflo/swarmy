@@ -199,4 +199,62 @@ export function clusterVolumeToDto(v: ClusterVolumeViewShape) {
   };
 }
 
+// ── App connections + internal endpoints ──────────────────────────────────────
+
+export interface StackEndpointsViewShape {
+  stack: string;
+  connectedApps: string[];
+  services: {
+    service: string;
+    short: string;
+    ports: number[];
+    names: { host: string; port?: number; scope: 'app' | 'connected' | 'attached'; from?: string[] }[];
+  }[];
+  resources: {
+    kind: 'postgres' | 'cache' | 'search' | 'vector' | 'object-storage';
+    name: string;
+    host: string;
+    port: number;
+    role?: string;
+    attached: string[];
+  }[];
+}
+
+export function stackEndpointsToDto(e: StackEndpointsViewShape) {
+  return {
+    stack: e.stack,
+    connected_apps: e.connectedApps,
+    services: e.services.map((s) => ({
+      service: s.service,
+      short_name: s.short,
+      ports: s.ports,
+      names: s.names.map((n) => ({
+        host: n.host,
+        port: n.port ?? null,
+        scope: n.scope,
+        reachable_from: n.from ?? [],
+      })),
+    })),
+    resources: e.resources.map((r) => ({
+      kind: r.kind,
+      name: r.name,
+      host: r.host,
+      port: r.port,
+      role: r.role ?? null,
+      attached: r.attached,
+    })),
+  };
+}
+
+export interface StackLinkResultShape {
+  stack: string;
+  peer: string;
+  network: string;
+  services: string[];
+}
+
+export function stackConnectionToDto(r: StackLinkResultShape) {
+  return { stack: r.stack, peer: r.peer, network: r.network, services: r.services };
+}
+
 // ── Mesh routes ───────────────────────────────────────────────────────────────
