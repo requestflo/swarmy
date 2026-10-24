@@ -39,7 +39,8 @@ const ADMIN_ROUTES: Array<[string, string, unknown, string]> = [
   ['PATCH', '/registry-credentials/rc1', { username: 'u' }, 'registryCredentials.update'],
   ['POST', '/registry-credentials/rc1/test', {}, 'registryCredentials.test'],
   ['POST', '/volumes', { name: 'v', driver: 'csi' }, 'volumes.registerCluster'],
-  ['POST', '/git/connections', { kind: 'gitlab', mode: 'token', token: 'glpat-12345678' }, 'gitConnections.create'],
+  // A loopback base URL that refuses at once: the token check never leaves the machine.
+  ['POST', '/git/connections', { kind: 'gitlab', mode: 'token', token: 'glpat-12345678', base_url: 'http://127.0.0.1:9' }, 'gitConnections.create'],
   ['POST', '/git/repos', { url: 'https://x/y.git', branch: 'main' }, 'gitConnections.linkRepo'],
   ['PATCH', '/git/repos/gr1', { branch: 'main' }, 'gitConnections.updateRepo'],
   ['PUT', '/apps/gr1/require-approval', { require_approval: true }, 'apps.setRequireApproval'],
