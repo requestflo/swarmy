@@ -8,6 +8,7 @@ import { Skip } from '../lib/report';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { assert, Fatal, log, must, poll, q, run, secret } from '../lib/util';
+import { ensureReplicated, followController } from '../lib/controller';
 
 // ── 1. install ─────────────────────────────────────────────────────────────
 export async function install(ctx: Ctx) {
@@ -246,34 +247,9 @@ export async function controllerMove(ctx: Ctx) {
   { timeoutMs: 3 * 60_000, intervalMs: 5000 });
 
   // 2. Replicate the controller store to the built-in object store (Garage).
-  await ctx.m('storage.enable', undefined, 5 * 60_000).catch((e) => {
-    if (!/already/i.test((e as Error).message)) throw e;
-  });
-  await poll('object store up', async () => (await ctx.q<{ enabled: boolean; endpoint: string | null }>('storage.status'))?.enabled, {
-    timeoutMs: 8 * 60_000,
-    intervalMs: 10_000,
-  });
-  await poll('controllerStore.enableReplication accepted', async () => (await ctx.m('controllerStore.enableReplication', { target: { kind: 'garage' } }), true), {
-    timeoutMs: 8 * 60_000,
-    intervalMs: 10_000,
-  });
-  // enableReplication restarts the controller with Litestream on.
-  let st: any;
-  await poll(
-    'store replicating and caught up',
-    async () => {
-      try {
-        st = await ctx.q('controllerStore.status');
-      } catch {
-        await ctx.connect(ctx.password || undefined).catch(() => {});
-        return null;
-      }
-      return st?.mode === 'replicated' && st?.replicating && st?.lagSeconds === 0 ? st : null;
-    },
-    { timeoutMs: 10 * 60_000, intervalMs: 5000 },
-  );
-  log(`replicating to ${JSON.stringify(st.target)}; epoch ${st.epoch}; on ${st.hostname}`);
-  const mv = (st.managers ?? []).find((m: any) => m.hostname === targetHost);
+  const st = await ensureReplicated(ctx);
+  log(`replicating to ${JSON.stringify(st.target)}`);
+  const mv = (st.managers ?? []).find((m) => m.hostname === targetHost);
   assert(mv && !mv.blocked, `move target ${targetHost} not offered: ${JSON.stringify(st.managers)}`);
 
   // 3. Move, then find the controller on the target node.
@@ -286,12 +262,10 @@ export async function controllerMove(ctx: Ctx) {
     { timeoutMs: 10 * 60_000, intervalMs: 5000 },
   );
   // Host-mode publish: the API now answers on the target's address.
-  c.controllerUrl = `http://${await c.provider.hostEndpoint(target.name, 3021)}`;
-  await poll('controller healthy on the new node', () => c.controllerHealthy(), { timeoutMs: 5 * 60_000, intervalMs: 3000 });
+  await followController(ctx, target);
   const movedIn = Math.round((Date.now() - t0) / 1000);
 
   // 4. Everything survived: login, the SAME API key, the stack, the nodes.
-  await ctx.connect(ctx.password || undefined);
   const stacks = (await ctx.sdk.stacks.list({ limit: 200 })).data;
   assert(stacks.some((x) => x.name === stack), `stack ${stack} missing after the move`);
   await poll('all nodes online after the move', async () => (await ctx.sdk.nodes.list({ limit: 100 })).data.every((n) => n.status === 'online'), {

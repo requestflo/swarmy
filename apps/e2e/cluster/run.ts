@@ -14,7 +14,7 @@
  *   --keep                 leave nodes up (teardown step is skipped)
  *   --only a,b             run only these steps against the existing cluster
  *   --skip a,b             skip these steps
- *   --enable a,b           force flagged steps on (controller-move, upgrade)
+ *   --enable a,b           force flagged steps on (upgrade, controller-drain, controller-partition)
  *   --reuse                don't delete an existing cluster before install
  *   --source head|tree|REF build from `git archive HEAD` (default), the working tree, or a git ref
  *   --no-build             reuse images already built (skip docker build)
@@ -27,7 +27,11 @@
  *   --report-dir DIR       report.json, junit.xml, summary.txt, diagnostics/
  *
  * Steps: install login servers templates compose-secret dns postgres
- *        mariadb-redis reschedule controller-move upgrade teardown
+ *        mariadb-redis reschedule controller-move controller-drain
+ *        controller-partition upgrade teardown
+ *
+ *   P3 drills (both promote every node to a manager; 3 nodes needed):
+ *   bash scripts/e2e-cluster.sh --keep --enable controller-drain,controller-partition
  */
 import { mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -40,6 +44,7 @@ import { Ctx, type Options } from './context';
 import * as platform from './steps/platform';
 import * as apps from './steps/apps';
 import * as data from './steps/data';
+import * as drills from './steps/controller-drills';
 
 interface StepDef {
   id: string;
@@ -60,6 +65,9 @@ const STEPS: StepDef[] = [
   { id: 'mariadb-redis', title: 'MariaDB + Redis logical dump and restore', fn: data.mariadbRedis },
   { id: 'reschedule', title: 'kill a worker → tasks reschedule, node rejoins', fn: platform.reschedule },
   { id: 'controller-move', title: 'controller move to another node (SQLite + Litestream)', fn: platform.controllerMove },
+  // P3 done-gate drills: disruptive, so they Skip unless --enable names them.
+  { id: 'controller-drain', title: 'drill: drain the controller node → restore from Garage, agents re-adopt', fn: drills.controllerDrain },
+  { id: 'controller-partition', title: 'drill: partition the controller node → it self-fences, one controller after', fn: drills.controllerPartition },
   { id: 'upgrade', title: 'platform upgrade previous → current', fn: platform.upgrade },
   { id: 'teardown', title: 'teardown', fn: platform.teardown },
 ];
