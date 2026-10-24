@@ -39,7 +39,8 @@ import { recordDeployRelease, stackErrorsEnabled } from './errors/errors.service
 import { DEPLOY_SAFETY_LABEL, DEPLOY_STRATEGY_LABEL, recordRelease } from './releases.service';
 import { INGRESS_ROUTES_LABEL, readRoutes } from './ingress-routes';
 import { carryManagedAttachments } from './attachment-carry';
-import { carrySecretVars } from '@swarmy/core';
+import { augmentSpecsForContainerLogs, carrySecretVars } from '@swarmy/core';
+import { containerLogsActive } from './observability-agent.service';
 import { overlayOptionsFor } from './platform-networks';
 import { carryLinks, stackPeers } from './stack-links.service';
 import { stackEndpoints, type StackEndpoints } from './service-endpoints';
@@ -585,12 +586,18 @@ export async function deployFromCompose(
   // `errors: true`, a template) or on the live stack binds SENTRY_DSN.
   const errorsOn = specsRequestErrors(specs) || stackErrorsEnabled(ctx, stack.name);
   const errorsDsn = errorsOn ? (await ensureProject(ctx, stack.name).catch(() => null))?.dsn || null : null;
+  // Container output: while the org collects it, each task container carries
+  // its stack/service as labels Docker writes into every json-file line.
+  const logsOn = await containerLogsActive(ctx);
   const finalSpecs = augmentSpecsForErrors(
-    augmentSpecsForStack(specs, {
-      telemetryEnabled: stackTelemetryEnabled(ctx, stack.name),
-      orgId: ctx.activeOrgId,
-      stack: stack.name,
-    }),
+    augmentSpecsForContainerLogs(
+      augmentSpecsForStack(specs, {
+        telemetryEnabled: stackTelemetryEnabled(ctx, stack.name),
+        orgId: ctx.activeOrgId,
+        stack: stack.name,
+      }),
+      { enabled: logsOn, stack: stack.name },
+    ),
     { enabled: errorsOn, dsn: errorsDsn },
   ).map((spec) => {
     const labelled = withStackLabels(spec, stack.name);
@@ -690,11 +697,14 @@ export async function prepareStackServiceSpec(
   const errorsOn = stackErrorsEnabled(ctx, stack);
   const errorsDsn = errorsOn ? (await ensureProject(ctx, stack).catch(() => null))?.dsn || null : null;
   const [out] = augmentSpecsForErrors(
-    augmentSpecsForStack([spec], {
-      telemetryEnabled: stackTelemetryEnabled(ctx, stack),
-      orgId: ctx.activeOrgId,
-      stack,
-    }),
+    augmentSpecsForContainerLogs(
+      augmentSpecsForStack([spec], {
+        telemetryEnabled: stackTelemetryEnabled(ctx, stack),
+        orgId: ctx.activeOrgId,
+        stack,
+      }),
+      { enabled: await containerLogsActive(ctx), stack },
+    ),
     { enabled: errorsOn, dsn: errorsDsn },
   ).map((s) => withStackLabels(s, stack));
   return out!;

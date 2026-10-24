@@ -19,6 +19,7 @@
  */
 import {
   clickhouseClient,
+  containerLogsOn,
   parseClickhouseDsn,
   type TelemetryForecastView,
   type TelemetryPipelineView,
@@ -28,6 +29,8 @@ import {
 import type { OrgContext } from '../context';
 import { writeAudit } from './audit.service';
 import { observabilityConfigRepo, type ObservabilityConfigRow } from './observability-config.repo';
+import { reconcileContainerLogsAgent } from './observability-agent.service';
+import { logAgentStatus } from './observability-agent-status';
 import {
   desiredConfigs,
   latestStoreProbe,
@@ -101,6 +104,7 @@ function auditSummary(s: TelemetrySettings) {
     restPercent: s.sampling.restPercent,
     retention: s.retention,
     redaction: s.redaction.map((r) => `${r.id}:${r.enabled ? 'on' : 'off'}`),
+    containerLogs: containerLogsOn(s),
   };
 }
 
@@ -124,6 +128,8 @@ export async function setTelemetrySettings(
   });
   if (storeDsn(row)) {
     await reconcileObservabilitySuite(ctx, { force: true });
+    // Container output on/off: deploy or remove the per-server log agents now.
+    await reconcileContainerLogsAgent(ctx).catch(() => undefined);
     // Tables can be missing on a fresh store — the worker retries until all exist.
     await reconcileObservabilityRetention(ctx).catch(() => undefined);
   }
@@ -239,5 +245,6 @@ export async function telemetryPipeline(ctx: OrgContext): Promise<TelemetryPipel
       bytesUsed: probe?.reachable ? Number(probe.diskUsedBytes) : null,
       reachable,
     },
+    logAgents: logAgentStatus(ctx, row),
   };
 }

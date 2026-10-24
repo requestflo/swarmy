@@ -340,6 +340,19 @@ export interface TelemetryPipelineView {
     bytesUsed: number | null;
     reachable: boolean;
   };
+  /** The per-server agents tailing container output (absent on older controllers). */
+  logAgents?: TelemetryLogAgentsView;
+}
+
+/** The node log agents: one per server while the org collects container output. */
+export interface TelemetryLogAgentsView {
+  /** Suite on AND the container-output setting on. */
+  collecting: boolean;
+  status: TelemetryServiceStatus;
+  /** Servers with a running agent task. */
+  running: number;
+  /** Servers in the swarm (online). */
+  servers: number;
 }
 
 export interface TelemetrySettingsView {

@@ -43,6 +43,7 @@ import { mapDispatchError, notFound } from '../errors';
 import { resolveManagerNode } from './dispatch.service';
 import { ensureControlNetwork } from './platform-networks';
 import { OTEL_ENABLED_LABEL } from './otel-injection';
+import { reconcileContainerLogsAgent, removeLogAgent } from './observability-agent.service';
 import {
   collectorServiceSpec,
   clickhouseServiceSpec,
@@ -272,6 +273,8 @@ export async function setEnabled(
   try {
     markSuiteDeploy(ctx.activeOrgId, false);
     await deployStore(ctx, dsnPlain);
+    // A re-enable with container output already on brings the log agents back.
+    await reconcileContainerLogsAgent(ctx).catch(() => undefined);
     // Dispatched, not yet running: the view derives RUNNING from live tasks.
     const row = await ensureConfig(ctx);
     await writeAudit(ctx, {
@@ -730,6 +733,8 @@ async function applyInitDdl(dsnPlain: string, sql: string): Promise<void> {
 async function teardownStore(ctx: OrgContext): Promise<void> {
   const node = await resolveManagerNode(ctx).catch(() => null);
   if (!node) return;
+  // The per-server log agents first: they forward to the collector.
+  await removeLogAgent(ctx, node.id);
   for (const name of [COLLECTOR_SERVICE, CLICKHOUSE_SERVICE]) {
     await ctx.hub.dispatch(node.id, 'service.remove', { service: name }).catch(() => undefined);
   }

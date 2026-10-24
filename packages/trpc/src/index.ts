@@ -95,6 +95,8 @@ export {
 } from './services/observability.service';
 // Per-signal retention TTLs (observability-reconcile worker, signature-gated).
 export { reconcileObservabilityRetention } from './services/observability-telemetry.service';
+// Node log agents tailing container output (observability-reconcile worker, signature-gated).
+export { reconcileContainerLogsAgent, type AgentReconcileResult } from './services/observability-agent.service';
 // RUM (web analytics + session replay): the public /_rum ingest + retention sweep + replay links.
 export { handleRumRequest, type RumIngestDeps } from './services/rum/rum-ingest';
 export { sweepRumRetentionForOrg, type RetentionSweepResult } from './services/rum/rum-retention';
