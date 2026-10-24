@@ -89,7 +89,7 @@ and a worker is what continuously drives Docker toward the labels.
 | Central registration (`startWorkers` + stop fns) | `apps/api/src/workers/index.ts` |
 | Reference worker (compose→signature→push, org-from-DB, converge cadence) | `apps/api/src/workers/dns-reconcile.ts` |
 | Managed-service reference (pure `.core.ts` + system-actor audit/alerts) | `apps/api/src/workers/manageddb-reconcile.ts` + `manageddb-reconcile.core.ts` |
-| Docker-truth loop, org-from-`store.nodeOrg`, no DB | `apps/api/src/workers/scale-to-zero.ts` |
+| Docker-truth loop, org-from-`store.nodeOrg`, no DB | `apps/api/src/workers/scale-to-zero.ts` (pure `sleepDecision` / `lastEdgeRequestMs` in `scale-to-zero.core.ts`: idle = neither the activator nor the hub's `EdgeTrafficRing` saw a request to one of the service's routed hosts for the idle window) |
 | Materialise siblings + signature-gated ingress re-render | `apps/api/src/workers/region-reconcile.ts` |
 | Diff/render in trpc, worker holds only the per-org last-set | `apps/api/src/workers/ingress-reconcile.ts` |
 | Data-plane converge + `INFO`-stat stamping + alerts | `apps/api/src/workers/{cache,search,vector,queue}-reconcile.ts` |

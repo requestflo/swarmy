@@ -188,6 +188,16 @@ Four ideas, one story:
   or rolls back on an error-rate breach. Promote does a full-spec swap rebuilt from
   the live `service.inspect` so nothing is stripped; abort restores 100% stable,
   untouched.
+- **Sleep when idle counts real traffic.** A service with
+  `swarmy.scaleToZero.enabled` is scaled to 0 once neither the activator (which
+  wakes a sleeping service on its first request) nor the edge has seen a
+  request to one of its routed hosts for its idle window
+  (`swarmy.scaleToZero.idleSeconds`, default 300). Once the service is awake the
+  edge routes straight to it and the activator sees nothing more, so the edge's
+  per-host request counts keep a busy service awake. (Before 2026-10 only the
+  activator counted, and a busy service went back to sleep one idle window
+  after every wake.) The counts are per host, not per path, so a host shared by
+  several services keeps all of them awake: it errs towards awake.
 - **Blueprints & previews.** Blueprints are a parameterised catalog (gallery →
   dry-run plan → sequential deploy through existing services). Previews are
   swarmy.yaml preview environments (PR, branch or trial deploy) torn down on
