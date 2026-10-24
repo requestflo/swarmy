@@ -6,13 +6,15 @@ import type { DemoStore, DomainResolvers } from '../types';
  * poll read from the same plans. It parses clean with the real
  * @swarmy/app-config parser (source-demo.test.ts keeps it that way) and
  * describes the demo stack: web, api, checkout and worker over Postgres,
- * Valkey, Meilisearch and a bucket, with the Jobs tab's three schedules.
+ * Valkey, Meilisearch and a bucket, with the Jobs tab's three schedules, and
+ * the staging environment `apps.list` names (one copy each, debug logs).
  */
 export const STOREFRONT_YAML = `# yaml-language-server: $schema=https://swarmy.dev/schema/swarmy.v1.json
 version: 1
 app: storefront
 env:
   NODE_ENV: production
+  LOG_LEVEL: info
   SHOP_CURRENCY: GBP
 
 services:
@@ -88,6 +90,16 @@ jobs:
     retries: 2
 
 previews: { enabled: true, ttl: 48h, base_domain: preview.northwind.dev }
+
+environments:
+  staging:
+    branch: staging
+    env: { LOG_LEVEL: debug }
+    services:
+      web: { replicas: 1, domains: [staging.shop.northwind.dev] }
+      api: { replicas: 1 }
+      checkout: { replicas: 1 }
+      worker: { replicas: 1 }
 `;
 
 interface PlanLike {

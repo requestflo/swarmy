@@ -18,6 +18,7 @@ export function EnvLane({
   drift,
   here,
   action,
+  note,
 }: {
   env: AppEnvironment;
   services: LaneService[] | undefined;
@@ -26,6 +27,8 @@ export function EnvLane({
   /** This lane is the stack whose page this is. */
   here: boolean;
   action?: React.ReactNode;
+  /** A line under the status (a cloned environment's declaration + secrets). */
+  note?: React.ReactNode;
 }): React.JSX.Element {
   const latest = env.latest;
   const st = latest ? planStatus(latest.status) : null;
@@ -48,6 +51,7 @@ export function EnvLane({
         {latest ? <span className="text-muted-foreground font-mono text-[11px]">{`${sha7(latest.sha)} · ${relTime(latest.appliedAt ?? latest.createdAt)}`}</span> : null}
         {drift > 0 ? <span className="text-tone-warn text-xs">Changed here — the next push puts git back</span> : null}
       </div>
+      {note}
       {services === undefined ? (
         <div aria-hidden className="shimmer-line h-16 rounded-lg" />
       ) : services.length === 0 ? (

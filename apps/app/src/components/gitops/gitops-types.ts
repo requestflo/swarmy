@@ -74,6 +74,16 @@ export interface AppEnvironment {
   latest: AppPlan | null;
   /** Removed Postgres clusters whose data is still on disk — the only source for "Delete data permanently". */
   keptVolumes: Array<{ resource: string; volumes: string[] }>;
+  /** Declared from the dashboard (Clone as a new environment) — lives there until swarmy.yaml names it. */
+  dashboard?: { from: string; data?: { mask: boolean }; secretSlots: SecretSlot[] };
+}
+
+/** A clone's secret: empty until filled, write-only, its own family (`stripe-key.qa`). */
+export interface SecretSlot {
+  family: string;
+  envFamily: string;
+  consumers: Array<{ service: string; envName?: string }>;
+  filled: boolean;
 }
 
 export interface AppPreview {

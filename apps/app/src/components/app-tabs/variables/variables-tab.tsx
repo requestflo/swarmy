@@ -13,6 +13,7 @@ import { collectVariables, variablesCode } from './variables-model';
 import { VariablesActivity } from './variables-activity';
 import { VariablesNext } from './variables-next';
 import { VariablesSection } from './variables-section';
+import { SharedVariablesSection } from './shared-variables-section';
 
 /** Variables & secrets: every setting the app runs with, secrets write-only. Boards AppVariables · RSecrets · EnvPaste. */
 export function VariablesTab({ stack }: { stack: string }): React.JSX.Element {
@@ -77,6 +78,7 @@ export function VariablesTab({ stack }: { stack: string }): React.JSX.Element {
     >
       {ready ? <VariablesNext families={families} rows={rows} onAddSecret={keepSecret} /> : null}
       <VariablesSection stack={stack} preset={preset} />
+      <SharedVariablesSection stack={stack} />
       <VariablesActivity stack={stack} services={services} families={secrets.data?.families} />
       <Depth at="controls">
         <OrphansCard orphans={secrets.data?.orphans ?? []} />

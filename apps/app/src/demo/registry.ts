@@ -75,6 +75,7 @@ import { appEnvironments } from './resolvers/app-environments';
 import { appPreviews } from './resolvers/app-previews';
 import { edgeGeoip } from './resolvers/edge-geoip';
 import { appsConfigFile } from './resolvers/apps-config-file';
+import { appClone } from './resolvers/app-clone';
 
 /**
  * Assembles every per-domain resolver module into flat lookup tables for the demo
@@ -159,6 +160,8 @@ const MODULES: DomainResolvers[] = [
   appPreviews,
   edgeGeoip,
   appsConfigFile,
+  // Wraps apps' apps.list (clones marked as the dashboard's), so it comes after it.
+  appClone,
 ];
 
 export const HANDLERS: Record<string, DemoHandler> = Object.assign(

@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Section } from '@/components/calm';
 import { useTRPC } from '@/integrations/trpc';
 import { canPromote, findStackApp } from '../gitops-types';
+import { CloneEnvSheet } from './clone-env-sheet';
+import { DashboardEnvNote } from './dashboard-env-note';
 import { EnvLane } from './env-lane';
 import { imagesOf, laneServices } from './lanes-model';
 import { PromoteSheet } from './promote-sheet';
@@ -10,15 +12,16 @@ import { PromoteSheet } from './promote-sheet';
 /**
  * Environments side by side (board Environments): the same app, one stack
  * per branch — each lane's live services and the image each runs, blue
- * where production differs, and Promote → production on the ones that can.
- * Only for a git app with more than one environment.
+ * where production differs, Promote → production on the ones that can, and
+ * Clone as a new environment from the one this page is. For every environment
+ * of a swarmy.yaml app (never a preview) — with only production, it's the way to a second.
  */
 export function EnvironmentLanes({ stack }: { stack: string }): React.JSX.Element | null {
   const trpc = useTRPC();
   const apps = useQuery({ ...trpc.apps.list.queryOptions(), refetchInterval: 15_000 });
   const inventory = useQuery({ ...trpc.inventory.get.queryOptions(), refetchInterval: 4_000 });
   const match = apps.data ? findStackApp(apps.data, stack) : null;
-  if (!match || match.app.environments.length < 2) return null;
+  if (!match || match.kind !== 'env') return null;
   const { app } = match;
   const envs = [...app.environments].sort((a, b) => (a.environment === 'production' ? -1 : b.environment === 'production' ? 1 : 0));
   const prod = envs.find((e) => e.environment === 'production');
@@ -27,8 +30,18 @@ export function EnvironmentLanes({ stack }: { stack: string }): React.JSX.Elemen
   const drift = (env: string): number => app.drift?.environments.find((d) => d.environment === env)?.changes ?? 0;
 
   return (
-    <Section title="Environments" count={envs.length} hint="the same app, one stack per branch · environments: in swarmy.yaml">
+    <Section
+      title="Environments"
+      count={envs.length}
+      hint="the same app, one stack per branch · environments: in swarmy.yaml"
+      action={<CloneEnvSheet app={app} from={match.env} />}
+    >
       <div className={envs.length > 2 ? 'grid gap-3 lg:grid-cols-3' : 'grid gap-3 lg:grid-cols-2'}>
+        {envs.length === 1 ? (
+          <p className="text-muted-foreground self-center text-[13.5px] lg:order-last">
+            Only production so far. Clone it as a new environment to run a branch beside it, with its own database and secrets.
+          </p>
+        ) : null}
         {envs.map((e) => (
           <EnvLane
             key={e.stack}
@@ -37,6 +50,7 @@ export function EnvironmentLanes({ stack }: { stack: string }): React.JSX.Elemen
             drift={drift(e.environment)}
             services={live ? laneServices(e.stack, live, e === prod ? null : prodImages) : undefined}
             action={canPromote(e) ? <PromoteSheet repoId={app.repoId} env={e} prodImages={prodImages} /> : null}
+            note={e.dashboard ? <DashboardEnvNote env={e} /> : null}
           />
         ))}
       </div>
