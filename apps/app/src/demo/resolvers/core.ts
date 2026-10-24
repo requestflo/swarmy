@@ -405,6 +405,8 @@ export const core: DomainResolvers = {
       return { id, removed: true as const, deleteData, volumesDeleted: [], volumesKept: [] };
     },
     'stacks.deployFromCompose': () => ({ ok: true as const, deploymentId: 'dep-demo', warnings: [] }),
+    // The app header's Redeploy: the stored compose again (nothing changes in the demo).
+    'stacks.redeploy': (i) => ({ id: (i as { id: string }).id, deploymentId: 'dep-demo', releaseId: null, services: [], warnings: [], migrated: [] }),
   },
 };
 

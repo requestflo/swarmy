@@ -1,12 +1,13 @@
 import * as React from 'react';
-import { Link } from '@tanstack/react-router';
 import { ArrowUpRightIcon } from 'lucide-react';
-import { Button } from '@swarmy/ui';
 import { Say, SayHeader, type Tone } from '@/components/calm';
 import { plural } from '@/components/apps/app-words';
 import type { AppItem } from '@/components/apps/use-apps';
 import { TextSkeleton } from '@/components/states';
+import { AppHeaderActions } from './app-header-actions';
+import { AppHeaderMeta } from './app-header-meta';
 import { StackTabStrip } from './stack-tab-strip';
+import { useAppHeaderFacts } from './use-app-header-facts';
 
 const CLAUSE: Record<Tone, { text: string; tone: Tone | null }> = {
   ok: { text: 'is online.', tone: null },
@@ -31,38 +32,43 @@ function Title({ app }: { app: AppItem }): React.JSX.Element {
   );
 }
 
+/** "App · shop.northwind.dev ↗": the address opens the site. */
+function Eyebrow({ host }: { host: string | null }): React.JSX.Element {
+  if (!host) return <>App</>;
+  return (
+    <>
+      App ·{' '}
+      <a
+        href={`https://${host}`}
+        target="_blank"
+        rel="noreferrer"
+        className="hover:text-foreground inline-flex items-center gap-1 pointer-coarse:-my-3.5 pointer-coarse:py-3.5"
+      >
+        {host} <ArrowUpRightIcon aria-hidden className="size-3" />
+        <span className="sr-only">(opens the site)</span>
+      </a>
+    </>
+  );
+}
+
 /**
- * The one header every app tab shares: eyebrow (App · address), the sentence
- * headline and two quiet actions, then the tab strip. Identical on every tab,
- * so nothing jumps when you switch. The sentence waits for the inventory.
+ * The one header every app tab shares (as on every app board): the address,
+ * the sentence, then a quiet line — environment · managed by swarmy.yaml @
+ * branch · sha · newest release and its age — with Rewind and Redeploy, then
+ * the tab strip. Identical on every tab, so nothing jumps when you switch.
+ * The sentence waits for the inventory; each fact waits for its own read.
  */
 export function StackHeader({ stack, app }: { stack: string; app: AppItem | undefined }): React.JSX.Element {
   const system = app?.stat.system ?? false;
-  const host = app?.host ?? null;
+  const facts = useAppHeaderFacts(stack);
   return (
     <header className="flex flex-col gap-5">
       <SayHeader
-        eyebrow={system ? 'Platform · managed by swarmy' : host ? `App · ${host}` : 'App'}
+        eyebrow={system ? 'Platform · managed by swarmy' : <Eyebrow host={app?.host ?? null} />}
         size="md"
         title={app ? <Title app={app} /> : <TextSkeleton className="h-8 w-80 max-w-full" />}
-        actions={
-          system ? undefined : (
-            <>
-              {host ? (
-                <Button asChild variant="outline">
-                  <a href={`https://${host}`} target="_blank" rel="noreferrer">
-                    Open the site <ArrowUpRightIcon aria-hidden className="size-4" />
-                  </a>
-                </Button>
-              ) : null}
-              <Button asChild variant="outline">
-                <Link to="/stacks/$name/releases" params={{ name: stack }}>
-                  Deploy a change
-                </Link>
-              </Button>
-            </>
-          )
-        }
+        lede={!system && (facts.env || facts.git || facts.release) ? <AppHeaderMeta facts={facts} /> : undefined}
+        actions={system ? undefined : <AppHeaderActions stack={stack} stackId={facts.stackId} />}
       />
       <StackTabStrip stack={stack} />
     </header>
