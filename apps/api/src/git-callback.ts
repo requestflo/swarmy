@@ -4,6 +4,7 @@
  *   GET /git/github/manifest/callback?code&state   — App registered → install it
  *   GET /git/github/setup?code&installation_id&state — installed → bind to the org
  *   GET /git/gitlab/callback?code&state             — GitLab OAuth grant
+ *   GET /git/gitea/callback?code&state              — Gitea / Forgejo OAuth grant
  *
  * These run with NO session (the browser is coming back from the provider);
  * authority comes entirely from the signed, expiring `state` minted when the
@@ -12,7 +13,12 @@
  */
 import { Hono } from 'hono';
 import { prisma } from '@swarmy/db';
-import { completeGithubManifest, completeGithubSetup, completeGitlabOAuth } from '@swarmy/trpc';
+import {
+  completeGiteaOAuth,
+  completeGithubManifest,
+  completeGithubSetup,
+  completeGitlabOAuth,
+} from '@swarmy/trpc';
 import { authRegistry } from '@swarmy/auth';
 import { hub } from './gateway';
 
@@ -78,6 +84,23 @@ gitCallbackApp.get('/gitlab/callback', async (c) => {
     const { connectionId } = await completeGitlabOAuth(deps(), { code, state });
     return c.redirect(
       dashboard('/ci', { git: 'connected', kind: 'gitlab', connection: connectionId }),
+    );
+  } catch (e) {
+    return c.redirect(fail(e));
+  }
+});
+
+gitCallbackApp.get('/gitea/callback', async (c) => {
+  const code = c.req.query('code');
+  const state = c.req.query('state');
+  if (!code || !state)
+    return c.redirect(
+      fail(c.req.query('error_description') ?? 'Gitea / Forgejo did not authorize swarmy.'),
+    );
+  try {
+    const { connectionId } = await completeGiteaOAuth(deps(), { code, state });
+    return c.redirect(
+      dashboard('/ci', { git: 'connected', kind: 'gitea', connection: connectionId }),
     );
   } catch (e) {
     return c.redirect(fail(e));

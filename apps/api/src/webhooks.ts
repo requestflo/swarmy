@@ -47,6 +47,7 @@ import {
   type PrWebhookEvent,
   type WebhookProvider,
 } from './webhook-verify';
+import { normalizeGiteaHook } from './webhook-gitea';
 
 export const webhooksApp = new Hono();
 
@@ -362,8 +363,16 @@ webhooksApp.post('/git/:repoId', async (c) => {
   // Payload dialect: Gitea/generic speak GitHub's push/PR shape.
   const dialect: WebhookProvider = kind === 'gitlab' ? 'gitlab' : 'github';
 
+  // Gitea / Forgejo: push, pull_request and branch delete only, in GitHub's dialect.
+  let hookEvent = event ?? null;
+  if (kind === 'gitea') {
+    const g = normalizeGiteaHook(c.req.header('x-gitea-event') ?? event, body);
+    if ('ignore' in g) return c.json({ ok: true, ignored: g.ignore });
+    ({ event: hookEvent, body } = g);
+  }
+
   // PR / MR → preview (same verification already applied).
-  const pr = parsePrWebhookEvent(dialect, event ?? null, body);
+  const pr = parsePrWebhookEvent(dialect, hookEvent, body);
   if (pr) {
     if (
       pr.action !== 'closed' &&
@@ -387,6 +396,8 @@ webhooksApp.post('/git/:repoId', async (c) => {
     }
     return c.json({ ok: true, ignored: 'branch', ref });
   }
+  // A deleted deploy branch has no commit to plan; the app keeps running as it is.
+  if (ref && isBranchDelete(body)) return c.json({ ok: true, ignored: 'branch deleted', ref });
   const buildRef = ref ?? repo.branch;
   kickPush(repo, buildRef, parseCommitSha(dialect, body), pushChangedPaths(body));
   return c.json({ ok: true, accepted: true, ref: buildRef }, 202);

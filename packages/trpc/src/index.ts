@@ -126,6 +126,7 @@ export {
   removeConnection,
   updateRepo,
 } from './services/git-connections.service';
+export { completeGiteaOAuth } from './services/git-gitea.service';
 export type {
   CreateConnectionInput,
   GitConnectionKind,
