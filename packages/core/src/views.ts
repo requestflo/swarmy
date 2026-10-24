@@ -1966,6 +1966,30 @@ export interface GuardrailDecisionView {
   reason?: string;
 }
 
+/** One rule's or check's record over the window, counted from the admission audit rows. */
+export interface AdmissionRuleTally {
+  /** The violation rule key (`guardrails/no-latest-tag-in-prod`, `images/unsigned`). */
+  rule: string;
+  blocked: number;
+  warned: number;
+  overridden: number;
+  /** Deploys that went ahead which this rule would have refused at Block (it was Warn or Off). */
+  wouldBlock: number;
+  /** Up to three apps it touched, newest first. */
+  stacks: string[];
+}
+
+/** Every admission decision in the window, counted per rule or check (the receipts). */
+export interface AdmissionTallyView {
+  days: number;
+  since: string;
+  /** The window held more rows than one read takes, so every count is a floor. */
+  capped: boolean;
+  /** Admission runs by outcome (`allowed` = went ahead clean, but a Warn/Off rule would have refused it). */
+  totals: { blocked: number; warned: number; overridden: number; allowed: number };
+  rules: AdmissionRuleTally[];
+}
+
 // ── Audit pack (slice E5) — timeline, facets, export, retention ───────────────
 
 /** Who performed an audited action. */

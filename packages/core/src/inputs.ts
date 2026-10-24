@@ -1096,6 +1096,12 @@ export const GuardrailDecisionsInput = z.object({
 });
 export type GuardrailDecisionsInput = z.infer<typeof GuardrailDecisionsInput>;
 
+/** Admission receipts: every decision of the last `days` (default 30), counted per rule. */
+export const AdmissionTallyInput = z.object({
+  days: z.number().int().min(1).max(90).optional(),
+});
+export type AdmissionTallyInput = z.infer<typeof AdmissionTallyInput>;
+
 // ── Audit pack (slice E5) — query / export / retention ───────────────────────
 
 /** Who performed an audited action (mirrors audit.service.ts AuditActorType). */
