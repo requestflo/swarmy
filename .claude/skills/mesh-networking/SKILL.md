@@ -86,6 +86,12 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
   the live peer map via `reconcileMeshPeer` (`packages/trpc/src/services/mesh-peers.ts`;
   a no-op for an unknown node unless it reports connected with an IP). Pure mapping
   lives in `reconcilePeerState` / `reconcileFromControlPlane` (`reconcile.ts`).
+- **Relayed is reported, never guessed.** `meshState.relayed` (this node
+  reaches some peer through a relay; still end-to-end encrypted) rides into
+  `LiveMeshPeer.relayed` and `MeshPeerView.relayed`. It is `null` until an
+  agent reports it, and a report without the field (an old agent) keeps what
+  was known: never read a missing value as "direct". It is per SERVER, not per
+  link, so the map draws every link of a relayed server through the relay.
 
 ## File map
 
@@ -118,7 +124,8 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
 | 30 s reconcile worker | `apps/api/src/workers/mesh-people-reconcile.ts` |
 | Installer `--mesh swarmy` (starts NetBird before `swarm init`) | `scripts/install-swarmy.sh` (`ensure_mesh_control`) |
 | e2e on Lima (install, join, person connects/denied/revoked) | `scripts/e2e-mesh-people.ts` |
-| Networking UI (driver/enroll/control-plane/peers) + per-app laptop access on the Access tab | `apps/app/src/routes/_authed/networking.tsx`, `routes/_authed/stacks/$name.access.tsx`, `apps/app/src/components/networking/*` |
+| Networking UI: the private network as a map (NAT'd servers behind the router, direct vs relayed links, who's joining) + per-app laptop access on the Access tab | `apps/app/src/routes/_authed/networking.tsx` → `components/networking/private-network-page.tsx` (`mesh-graph{,-model}.ts(x)` pure + tested, `use-nat-nodes.ts` reads `swarmy.node.reachability`), `routes/_authed/stacks/$name.access.tsx` |
+| Mesh settings: NetBird or None (typed "turn off" confirm naming the NAT'd servers that drop off), every peer's last word, the laptop grants | `routes/_authed/networking_.settings.tsx` → `components/networking/{mesh-settings-page,mesh-driver-pick,turn-off-mesh,mesh-peers-section,direct-connect-section}.tsx`; driver labels in `mesh-format.ts` |
 
 ## Adding a mesh driver (the recipe)
 
@@ -136,8 +143,9 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
 4. **Agent apply** (only if the client is a new shape): most providers reuse the
    NetBird sidecar or the tailscale-client sidecar in `applyMesh` — don't add a provider branch to the agent unless the client is
    genuinely new, and gate any new privileged path behind `SWARMY_ALLOW_MESH`.
-5. **UI**: the driver appears in `mesh-driver-card.tsx` via `DRIVER_LABELS`; add a
-   label + copy.
+5. **UI**: add the id to `MeshDriverId` and `DRIVER_LABELS` in
+   `components/networking/mesh-format.ts`, and a pick + copy in
+   `mesh-driver-pick.tsx` (Mesh settings).
 
 For a whole cross-stack feature (db → protocol → service → router → UI) see
 `skill("add-feature-slice")`; this skill is the mesh-specific slice of it.

@@ -20,7 +20,9 @@ private encrypted network between them should be one toggle and one paste:
    setup key**, the agent installs the WireGuard client, and the node joins —
    *no inbound ports, no firewall edits, and the key never touches disk.*
 4. The peer appears in the list: hostname, **mesh IP** (`100.92.0.x`), last
-   handshake, `connected`. The headline flips to *"4 peers meshed."*
+   handshake, `connected`. The headline flips to *"4 peers meshed."* The
+   **Private network** page draws it as a map: servers behind NAT sit behind
+   their router, and each link reads direct or through a relay.
 5. Later, someone needs Postgres from their laptop. On the app's **Access** tab
    they're granted access (optionally with a TTL), sign in with their swarmy
    account on the NetBird client, and hit the database on its real port — no
@@ -100,14 +102,23 @@ Four ideas, one story:
   `listPeers`. swarmy never mirrors what it can ask the control plane.
 - **The peer's live liveness is agent-pushed telemetry, not a command.** The
   agent samples `netbird status --json` / `wg show` and pushes `meshState`;
-  reads never dispatch a command (same rule as list/inspect/stats).
+  reads never dispatch a command (same rule as list/inspect/stats). That push
+  also says whether the server reaches any peer through a relay (still
+  end-to-end encrypted). The dashboard shows "not reported" until an agent
+  says, so an older agent never reads as "direct". Relayed is known per
+  server, not per link, so every link of a relayed server is drawn through
+  the relay.
 
 ## Mesh behaviour (what the product promise commits us to)
 
 - **`none` is the default and does nothing.** A fresh org is `driver = none`,
   `enabled = false` — no new process, no interface, no control plane. Turning
   mesh off later renders `action: 'leave'` and tears the client down. "swarmy
-  stays out of the way" is the literal `none` driver summary.
+  stays out of the way" is the literal `none` driver summary. In **Mesh
+  settings**, picking None on a live network first names the servers behind
+  NAT that can't be reached any other way, then an admin types "turn off". It
+  turns the network off first (refused while a server runs the swarm over
+  it), and only then sets the driver to none.
 - **NetBird is the default once mesh is enabled**, with a self-hostable
   (`managed-by-swarmy`) or `external` control plane. Headscale is the one
   advanced alternative behind the same `MeshDriver` interface (your own
@@ -142,7 +153,7 @@ Four ideas, one story:
 | `applyMesh` fails on the node | The live peer is marked `FAILED` and `mesh.peer.enrollFailed` is audited; the error surfaces to the admin. No half-joined ghost. |
 | Node opts out of mesh (`SWARMY_ALLOW_MESH=false`) | The executor rejects `applyMesh` with `E_MESH_DISABLED`; the rest of the agent is unaffected. |
 | Agent silent but control plane knows | Reconcile can fall back to `reconcileFromControlPlane` (NetBird `/api/peers`) so liveness isn't lost when the node's own reporter is quiet. |
-| Direct route TTL elapses | `expiresAt` records the bound, but TTL is optional and nothing sweeps expired routes yet — revoke is what tears down the control-plane policy and deletes the rows. Enforced expiry is an open gap (`plans/ROADMAP.md`). |
+| A person's access grant TTL elapses | The TTL is optional. An expired grant stops counting at once (the access checks skip it), and the 30 s people-access reconcile deletes it, audits `mesh.access.grant.expired`, and re-renders the routers. |
 
 ## Explicitly rejected
 
@@ -180,6 +191,7 @@ control-plane client (`packages/mesh/src/control-plane/netbird.ts`),
 `apps/agent/src/handlers/mesh.ts` (sidecar apply + `meshState` sampler),
 `apps/api/src/gateway/protocol-handlers.ts` (`meshState` reconcile),
 `packages/db/prisma/schema/mesh.prisma` (`MeshConfig`/`MeshRoute`),
-`packages/trpc/src/services/mesh-peers.ts` (the live peer map), and `apps/app/src/routes/_authed/networking.tsx` (the Networking UI).
+`packages/trpc/src/services/mesh-peers.ts` (the live peer map), and `apps/app/src/routes/_authed/networking.tsx` (the Networking UI: the map) with
+`routes/_authed/networking_.settings.tsx` (Mesh settings).
 The pluggable-driver pattern is shared with the `scaffold-ingress-driver` skill;
 the agent contract with the `agent-handlers` skill.
