@@ -82,7 +82,13 @@ state belongs see `skill("docker-native-storage")`.
     default. Never widen that window. Promotion is `SELECT pg_promote()`; the repoint
     redeploys every other member under a fresh `SWARMY_PG_REJOIN` epoch, and
     the boot layer moves a demoted ex-writer's PGDATA ASIDE
-    (`pgdata.diverged-<utc>`) before re-cloning — never deletes it.
+    (`pgdata.diverged-<utc>`) before re-cloning — never deletes it. The
+    Postgres page's "Simulate `<region>` outage" imports the SAME
+    `decideFailover` and runs it on the copies outside the outage, three ways
+    (caught up / one byte behind / no reading), because the dashboard never
+    sees LSNs (`components/pgdetail/pg-failover-sim.ts`). Never give the
+    dashboard its own copy of the rule. A restore over a live cluster saves it
+    first (`skill("backups-dr")` invariant 13).
 12. **Official images + swarmy's boot layer, never a vendor repackaging.**
     Managed Postgres runs `pgvector/pgvector:pg17` (official `postgres:17` +
     pgvector) with `@swarmy/core` `manageddb-pg` as the service `command`
@@ -144,7 +150,10 @@ state belongs see `skill("docker-native-storage")`.
 | Input schemas + engine/topology enums | `packages/core/src/inputs.ts`, `packages/core/src/views.ts` |
 | StorageCluster model | `packages/db/prisma/schema/backups.prisma` |
 | Cluster volumes (live `volume.list`, no table) | `packages/trpc/src/services/clusterVolume.service.ts` |
-| Data surfaces | per stack: `apps/app/src/routes/_authed/stacks/$name.data.tsx` → `components/stacks/managed-db-panel.tsx`, `components/{cache,searchsvc,vector}/*`; buckets: `routes/_authed/data_.buckets.tsx` |
+| Data surfaces | per stack: `apps/app/src/routes/_authed/stacks/$name.data.index.tsx` → `components/stack-data/data-tab-page.tsx` (Postgres HA choices `pg-ha-section.tsx`, `pg-choices.ts`), cache/search as blocks (`components/cache/{cache-section,cache-block,cache-settings,cache-words}.ts(x)`, `components/searchsvc/{search-section,search-block}.tsx`: the shape, "If `<server>` dies", what swarmy fixes), `components/vector/*`; buckets: `routes/_authed/data_.buckets.tsx` |
+| Postgres per-database page (a layout that morphs with the mode, `db.setTopology`; where copies run; the switch-over rule simulated; connect + rotate password; pgvector) | `routes/_authed/stacks/$name.data.$cluster.tsx` → `components/pgdetail/*` (`pg-topology.ts`, `pg-failover-sim.ts`; `pg-detail.test.ts`) |
+| Data by app (`/data`): each app's stores, who can reach each bucket, drag a bucket onto an app (attach preview, Undo) | `routes/_authed/data.tsx` → `components/data/*` (`data-board-model.ts`), attach plan `components/buckets/attach-plan.ts` (mirrors `ATTACH_ENV_KEYS`) |
+| Bucket page: reach rings (Internal ⊂ Private network ⊂ Public), size, copies, who uses it, keys shown once, the delete rule | `routes/_authed/data_.buckets_.$name.tsx` → `components/buckets/bucket-page.tsx` (+ `reach-model.ts`, `bucket-facts.ts`); reach is `services/bucket-access.service.ts` (`buckets.setAccess`, enforced at the edge) |
 | Postgres boot layer (entrypoint script, env contract, `applyPgBoot`) | `packages/core/src/manageddb-pg.ts` (+ `.test.ts`) |
 | HA templates (`postgres-ha` streaming + manual promotion, `redis-ha` Valkey Sentinel; no gallery UI yet) | `packages/trpc/src/services/templates.ts`, `routers/templates.ts` |
 

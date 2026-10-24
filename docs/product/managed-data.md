@@ -86,8 +86,9 @@ Four ideas, one story:
 - **Secrets are Docker secrets.** Passwords and keys live in Docker secrets
   (`swarmy-search-<stack>_<name>-key`, cache password secret, per-attach bucket
   key secret), mounted as files. The `REDIS_URL` gets a `REDIS_PASSWORD_FILE`
-  companion; the DB password is the one env exception the Postgres image
-  reads (`POSTGRES_PASSWORD`), a documented tradeoff.
+  companion; the Postgres password is a Docker secret too, read by the official
+  image through `POSTGRES_PASSWORD_FILE`, and a person sees it only through an
+  audited reveal.
 - **Bucket/key state is Garage's, not ours.** For object storage the Garage
   admin API is the source of truth for every bucket, key, quota, and grant.
   swarmy reaches it by running a one-shot `container.runOnce` curl on the
@@ -183,6 +184,31 @@ Four ideas, one story:
   asynchronous scheme; only synchronous replication closes it (not offered in
   the base slice).
 
+- **Each Postgres database has its own page** (an app's Data tab → the
+  database). The page shows the database's shape, which redraws as you pick
+  another mode and applies through `db.setTopology` (the same readiness rules
+  as above). It also shows which servers the copies run on, how to connect
+  (endpoints, and rotating the password), and pgvector. **Simulate an
+  outage** takes the main copy's region (or its server, when servers have no
+  region) away and runs the worker's own `decideFailover` on the copies that
+  survive. The dashboard never sees replay positions, so it shows the rule's
+  answer three ways: the best copy has every change, it trails by one byte, or
+  swarmy has no reading of the main copy. Seconds of lag only order the
+  candidates. There is one rule, shared, and no second copy of it in the
+  dashboard.
+- **Caches and search read the same way.** Each is drawn as its shape, with
+  "If `<server>` dies: …" worked out from its members and the servers they run
+  on, and the settings swarmy fixes for you (eviction and persistence are fixed
+  today, not settings).
+- **Data, by app.** The Data page groups every store under the app that uses it
+  and says who can reach each bucket. Dragging a bucket onto an app previews
+  which of its services get it and the variables each gains (`S3_*`), then
+  attaches it, with Undo. Each bucket has a page: who can reach it (Internal ⊂
+  Private network ⊂ Public, enforced at the edge; every request still needs a
+  key or a signed link), its size and copies, who uses it, keys (the secret
+  shown once), and the rule that refuses a delete while it holds objects or is
+  attached.
+
 ## Failure modes (designed, not accidental)
 
 | Failure | Behaviour |
@@ -237,5 +263,7 @@ storage/volume handler (`apps/agent/src/handlers/storage.ts`) and its protocol
 (`packages/core/src/protocol/storage.ts`), the `StorageCluster` model
 (`packages/db/prisma/schema/backups.prisma`), the live cluster-volume listing
 (`packages/trpc/src/services/clusterVolume.service.ts`), and the Data surfaces —
-per stack in `apps/app/src/routes/_authed/stacks/$name.data.tsx`, object storage
-at `routes/_authed/data_.buckets.tsx`.
+per stack in `apps/app/src/routes/_authed/stacks/$name.data.index.tsx`, a
+Postgres database at `stacks/$name.data.$cluster.tsx`, data by app at
+`routes/_authed/data.tsx`, object storage at `routes/_authed/data_.buckets.tsx`
+and a bucket at `data_.buckets_.$name.tsx`.
