@@ -1,6 +1,11 @@
 # Getting two local test nodes healthy required repeated manual SSH/swarm surgery — that's the failure
 
-**Status:** Open — meta-finding, supersedes the framing of the individual bugs below.
+**Status:** Open, waiting on live re-verification. As of 2026-10, every item below is fixed or
+mitigated in code, with unit tests. None has been re-run on real VMs through the product surface,
+which is this issue's bar. Item 3 can only be fully cleared by a swarm rebuild. See "Audit
+(2026-10)" at the end.
+
+Original status: meta-finding, supersedes the framing of the individual bugs below.
 
 ## Why this is its own issue
 
@@ -63,3 +68,25 @@ meta-lesson is a testing-methodology correction, not just a bug list:
 - The installer's REPAIR-mode env-merge logic needs a regression test: re-running the install
   command with a fresh token + fresh mesh key on a node that already has an installation must
   fully replace the mesh config, not silently drop it.
+
+## Audit (2026-10): each item against today's code
+
+| # | Item | State | Where | Needs a real VM for |
+|---|---|---|---|---|
+| 1 | `rejoin --force` hangs and wedges the sole manager | **Mitigated** in 78b1314e | `apps/agent/src/cli/rejoin.ts` `forceManagerReform()`: node ls, reform, leave and the docker restart are all time-boxed; stale peers are probed first; dockerd is restarted before the reform when wedged or stale; one retry after a deadline. Pure helpers + tests in `cli/rejoin-plan.ts` / `rejoin-plan.test.ts`. | the reform against a real stale-peer raft state |
+| 2 | Worker auto-rejoin forms its own one-node swarm | **Fixed** in 78b1314e, b449de17, e7ef3373, ec5d3ceb | `packages/trpc/src/services/swarm.service.ts` `planSwarmMembership()`: never `init` while a connected org node is a live manager. Join tokens and address are read live from that manager. A failed join retries with backoff. A node stuck in a dead foreign swarm reads degraded (QA-065). Covered by `swarm.service.test.ts` ("worker rejoin with NO row but a live manager joins it — never a standalone init"). | the force-a-worker-off integration test (the e2e harness's `reschedule` step covers kill → rejoin, not a reformed manager) |
+| 3 | The stale manager address survives and breaks overlay networking (`no VNI provided`) | **Mitigated**: warned after a reform (78b1314e); now flagged by `doctor` (ff0a6a8e) | `apps/agent/src/cli/checks.ts` swarm rung → `stalePeerFinding()` in `cli/rejoin-plan.ts` (tested). The probe is shared with rejoin (`cli/swarm-peers.ts`). It says whether the dead address is this node's own record (only a rebuild clears it) or another manager's (demote and remove it). The node-recovery guide has the matching symptom entry. | clearing it: Docker has no API to rewrite the address; a leave + init rebuild path has to be designed and tested on VMs |
+| 4 | Test VMs run out of disk | **Fixed** in 7f15b829 | `scripts/local-vms.sh`: 20 GiB default disks plus a hygiene step (journald 100M, no apt cache, no kernel headers, old kernels removed). See [[vm-disk-chronically-full]] (resolved). | a session on real Lima VMs |
+| 5 | A REPAIR re-enroll drops the mesh setup key, silently | **Fixed** in 2d090d63, 72224078, de920728 | The installer now salvages mesh config as one unit (a fresh key replaces URL, driver and CA; a bare re-run keeps them all; `SWARMY_ALLOW_MESH` and the driver are no longer reset). It warns when a key will be ignored: `apps/api/src/install/repair-env-sh.ts`, regression test `repair-env-sh.test.ts`. The agent logs why it skipped the mesh-first join, and doctor warns on a key ignored by `SWARMY_ALLOW_MESH=false` (`apps/agent/src/mesh-startup.ts`). `local-vms.sh` no longer defaults the agent's mesh gate to false while passing a key, and gives each VM its own single-use token and key. Earlier: the printed one-liners carry a key (fb2e6103, 12397d5f / QA-062). | a repair one-liner with a fresh token and key on a mesh-joined VM |
+
+The exact trigger of item 5 in July was never captured. The paths above are every way found to
+end up with no mesh key or no mesh client. One remains:
+
+- The legacy `GET /install.sh` (`apps/api/src/install-script.ts`) is still served. It is
+  container-only and has no repair mode.
+- It re-creates the agent with only the env it was given, so a bare re-run there drops the mesh
+  key.
+- It also passes the join token and mesh key with `docker run -e`.
+- It is still printed by `scripts/seed-dev.ts` and shown in `docs/LOCAL-SWARM.md`. The dashboard
+  uses `/install/loader.sh`.
+- Retiring it, or serving the loader there, is a separate change.
