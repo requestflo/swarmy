@@ -3,7 +3,7 @@
   "info": {
     "title": "swarmy API",
     "version": "1.0.0",
-    "description": "Public, versioned REST API for swarmy. Authenticate with an org-scoped API key: `Authorization: Bearer swk_…`."
+    "description": "Public, versioned REST API for swarmy. Authenticate with an org-scoped API key: `Authorization: Bearer swk_…`.\n\n`/api/v1` only grows: fields and operations are added, never removed or repurposed, and enums are open (new values may appear). A breaking change ships as a new version; the v1 operation it replaces is marked `deprecated: true` with `x-swarmy-deprecated: { since, sunset, successor?, link? }`, and every response it sends carries `Deprecation` (RFC 9745) and `Sunset` (RFC 8594) headers, plus a `Link` to its successor, until it is removed after the sunset date."
   },
   "servers": [
     {
@@ -16,7 +16,7 @@
         "type": "http",
         "scheme": "bearer",
         "bearerFormat": "swk",
-        "description": "swarmy API key (`Authorization: Bearer swk_…`), or an OAuth access token swarmy issued for its APIs (scopes `swarmy:read` / `swarmy:write`)."
+        "description": "swarmy API key (`Authorization: Bearer swk_…`), or an OAuth access token swarmy issued for its APIs (scopes `swarmy:read` / `swarmy:write`). Key scopes: `read` (every GET), `deploy` (ship and roll back: deploy stacks/services, change env, scale, restart, promote, preview), `write` (every mutation; implies `deploy`), `secrets.read` (reveal secret values). A key limited to some apps (`stack_names`) reaches only those apps; org-wide endpoints answer 403 and other apps 404."
       }
     },
     "schemas": {
@@ -278,11 +278,81 @@
           },
           "deployment_id": {
             "type": "string"
+          },
+          "deploy_id": {
+            "type": "string",
+            "description": "A traced deploy: its step-by-step events at GET /deploys/{id}/events (30 min)."
           }
         },
         "required": [
           "id",
           "deployment_id"
+        ]
+      },
+      "AdmissionViolation": {
+        "type": "object",
+        "properties": {
+          "rule": {
+            "type": "string",
+            "description": "The rule that refused it: a guardrail (`no-latest-tag-in-prod`), an exposure or image-policy rule, or the platform wall (`network.control-plane`, `label.system`). Open set."
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "block",
+              "warn"
+            ],
+            "description": "`block` needs an admin/owner override in the dashboard; `warn` needs a confirmation there. The API never overrides."
+          },
+          "message": {
+            "type": "string"
+          },
+          "resource": {
+            "type": "string",
+            "description": "The service (or cluster) it is about."
+          }
+        },
+        "required": [
+          "rule",
+          "severity",
+          "message"
+        ]
+      },
+      "GuardrailProblem": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "number"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "swarmy_code": {
+            "type": "string",
+            "description": "`POLICY_DENIED` when admission refused the deploy."
+          },
+          "violations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdmissionViolation"
+            },
+            "description": "Every rule the deploy broke."
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "violations"
         ]
       },
       "CreateServiceRequest": {
@@ -331,6 +401,159 @@
           "name",
           "image"
         ]
+      },
+      "ServiceEnvVarInput": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^[A-Z_][A-Z0-9_]*$"
+          },
+          "value": {
+            "type": "string"
+          },
+          "secret": {
+            "type": "boolean",
+            "description": "A secret variable, stored as a Docker secret rather than in the service spec. Write-only: an empty `value` keeps the current secret, a non-empty one rotates it."
+          },
+          "delivery": {
+            "type": "string",
+            "enum": [
+              "env",
+              "file"
+            ],
+            "description": "How a secret reaches the process: `env` (default) or `file` (`<KEY>_FILE` points at it)."
+          }
+        },
+        "required": [
+          "key",
+          "value"
+        ]
+      },
+      "ServiceResourceSide": {
+        "type": "object",
+        "properties": {
+          "cpus": {
+            "type": "number",
+            "minimum": 0,
+            "exclusiveMinimum": true,
+            "maximum": 512,
+            "description": "CPU cores per copy (fractions allowed).",
+            "format": "double"
+          },
+          "memory_bytes": {
+            "type": "integer",
+            "minimum": 4194304,
+            "description": "Memory per copy, in bytes."
+          }
+        },
+        "description": "One side of the resources. A key left out is cleared; `{}` clears the side."
+      },
+      "ServiceResources": {
+        "type": "object",
+        "properties": {
+          "limits": {
+            "$ref": "#/components/schemas/ServiceResourceSide"
+          },
+          "reservations": {
+            "$ref": "#/components/schemas/ServiceResourceSide"
+          }
+        },
+        "description": "CPU/memory per copy. A side left out keeps its live value."
+      },
+      "ServiceRestartPolicy": {
+        "type": "object",
+        "properties": {
+          "condition": {
+            "type": "string",
+            "enum": [
+              "on-failure",
+              "any",
+              "none"
+            ]
+          },
+          "max_attempts": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "delay_seconds": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 3600,
+            "format": "double"
+          }
+        },
+        "required": [
+          "condition"
+        ],
+        "description": "What Swarm does when a copy exits, merged over the live policy."
+      },
+      "UpdateServiceRequest": {
+        "type": "object",
+        "properties": {
+          "image": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replicas": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "command": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Override argv. `[]` goes back to the image default."
+          },
+          "env": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ServiceEnvVarInput"
+            },
+            "description": "The plain variables, as a whole: a plain key left out is removed. Secret variables not named here are kept (remove one with `remove_secret_keys`); a secret key sent as plain becomes plain. To change a few keys and keep the rest, use PATCH /services/{id}/env."
+          },
+          "remove_secret_keys": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Z_][A-Z0-9_]*$"
+            },
+            "description": "Secret variables to stop mounting."
+          },
+          "resources": {
+            "$ref": "#/components/schemas/ServiceResources"
+          },
+          "restart_policy": {
+            "$ref": "#/components/schemas/ServiceRestartPolicy"
+          },
+          "update_order": {
+            "type": "string",
+            "enum": [
+              "start-first",
+              "stop-first"
+            ],
+            "description": "During a deploy: start the new copy first, or stop the old one first."
+          },
+          "set_labels": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 4096
+            },
+            "description": "Service labels to set, merged over the live set."
+          },
+          "remove_labels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Service labels to remove (before `set_labels` is merged). swarmy’s own `swarmy.managed` and the stack label are kept."
+          }
+        }
       },
       "ScaleServiceRequest": {
         "type": "object",
@@ -406,6 +629,238 @@
           "compose_source"
         ]
       },
+      "StackRemoved": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "removed": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "delete_data": {
+            "type": "boolean",
+            "description": "Whether the app's data (named volumes + its blueprint's generated secrets) was deleted too."
+          },
+          "volumes_deleted": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Named volumes deleted on every server."
+          },
+          "volumes_kept": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Named volumes left on the servers (all of them unless delete_data; else any that could not be removed)."
+          }
+        },
+        "required": [
+          "id",
+          "removed",
+          "delete_data",
+          "volumes_deleted",
+          "volumes_kept"
+        ]
+      },
+      "StackEndpointScope": {
+        "type": "string",
+        "enum": [
+          "app",
+          "connected",
+          "attached"
+        ],
+        "description": "Who can resolve the name: services of this app (`app`), of a connected app (`connected`), or the app services attached to a managed resource (`attached`). Open enum: new values may be added."
+      },
+      "StackEndpointName": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "type": "string",
+            "description": "The DNS name swarm answers: `web`, `shop_web`, `tasks.web`, `web.shop`."
+          },
+          "port": {
+            "type": "integer",
+            "nullable": true,
+            "description": "The port to pair with it — set when the service has exactly one known port."
+          },
+          "scope": {
+            "$ref": "#/components/schemas/StackEndpointScope"
+          },
+          "reachable_from": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "For `connected`: the peer apps that can use this name. Empty for `app`."
+          }
+        },
+        "required": [
+          "host",
+          "port",
+          "scope",
+          "reachable_from"
+        ]
+      },
+      "StackServiceEndpoints": {
+        "type": "object",
+        "properties": {
+          "service": {
+            "type": "string",
+            "description": "The swarm service name (`<app>_<short>`)."
+          },
+          "short_name": {
+            "type": "string",
+            "description": "The compose service name."
+          },
+          "ports": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "Container ports swarmy knows about (routes + published targets)."
+          },
+          "names": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StackEndpointName"
+            }
+          }
+        },
+        "required": [
+          "service",
+          "short_name",
+          "ports",
+          "names"
+        ]
+      },
+      "StackResourceEndpoint": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "postgres",
+              "cache",
+              "search",
+              "vector",
+              "object-storage"
+            ],
+            "description": "Open enum: new kinds may be added."
+          },
+          "name": {
+            "type": "string",
+            "description": "The resource: cluster, instance or bucket name."
+          },
+          "host": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          },
+          "role": {
+            "type": "string",
+            "nullable": true,
+            "description": "`primary`, `replica`, `sentinel`… for resources with roles."
+          },
+          "attached": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "This app's services wired to it — they alone share its network."
+          }
+        },
+        "required": [
+          "kind",
+          "name",
+          "host",
+          "port",
+          "role",
+          "attached"
+        ]
+      },
+      "StackEndpoints": {
+        "type": "object",
+        "properties": {
+          "stack": {
+            "type": "string"
+          },
+          "connected_apps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Apps (stack names) this one is connected to."
+          },
+          "services": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StackServiceEndpoints"
+            }
+          },
+          "resources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StackResourceEndpoint"
+            }
+          }
+        },
+        "required": [
+          "stack",
+          "connected_apps",
+          "services",
+          "resources"
+        ]
+      },
+      "StackConnection": {
+        "type": "object",
+        "properties": {
+          "stack": {
+            "type": "string",
+            "description": "This app (stack name)."
+          },
+          "peer": {
+            "type": "string",
+            "description": "The other app (stack name)."
+          },
+          "network": {
+            "type": "string",
+            "description": "The private overlay for exactly this pair (`swarmy-link-<hash>`)."
+          },
+          "services": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Services this call rolled onto (or off) the pair network; empty when nothing changed."
+          }
+        },
+        "required": [
+          "stack",
+          "peer",
+          "network",
+          "services"
+        ]
+      },
+      "ConnectStackRequest": {
+        "type": "object",
+        "properties": {
+          "peer": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The app to connect to: its stack id or name."
+          }
+        },
+        "required": [
+          "peer"
+        ]
+      },
       "IngressWwwMode": {
         "type": "string",
         "nullable": true,
@@ -425,6 +880,157 @@
           "active",
           "error"
         ]
+      },
+      "DomainDnsResolver": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Catalogue id (`cloudflare`, `quad9`, …), `system`, `swarmy-dns`, or a custom resolver host."
+          },
+          "name": {
+            "type": "string"
+          },
+          "operator": {
+            "type": "string",
+            "nullable": true
+          },
+          "city": {
+            "type": "string",
+            "nullable": true,
+            "description": "The operator’s home city. Public resolvers are anycast: this is not where the answer came from."
+          },
+          "region": {
+            "type": "string",
+            "nullable": true
+          },
+          "lat": {
+            "type": "number",
+            "nullable": true,
+            "format": "double"
+          },
+          "lon": {
+            "type": "number",
+            "nullable": true,
+            "format": "double"
+          },
+          "tier": {
+            "type": "string",
+            "enum": [
+              "local",
+              "public"
+            ]
+          },
+          "format": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "json",
+              "wire"
+            ],
+            "description": "`json` = DoH JSON API; `wire` = RFC 8484 `application/dns-message`."
+          },
+          "url": {
+            "type": "string",
+            "nullable": true
+          },
+          "anchor": {
+            "type": "boolean",
+            "description": "1.1.1.1 or 8.8.8.8 — must be among the agreeing resolvers when configured."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "agrees",
+              "cached",
+              "no_answer",
+              "error"
+            ],
+            "description": "`agrees` points at your edges; `cached` still returns another (usually old) answer and does not block; `no_answer`/`error` are left out of the count."
+          },
+          "ips": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "cname": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "nxdomain": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "operator",
+          "city",
+          "region",
+          "lat",
+          "lon",
+          "tier",
+          "format",
+          "url",
+          "anchor",
+          "state",
+          "ips",
+          "cname",
+          "nxdomain",
+          "error"
+        ]
+      },
+      "DomainDnsGate": {
+        "type": "object",
+        "nullable": true,
+        "properties": {
+          "basis": {
+            "type": "string",
+            "enum": [
+              "public",
+              "local",
+              "none"
+            ]
+          },
+          "agreeing": {
+            "type": "integer"
+          },
+          "answering": {
+            "type": "integer"
+          },
+          "needed": {
+            "type": "integer"
+          },
+          "anchors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "anchors_agree": {
+            "type": "boolean"
+          },
+          "pass": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "basis",
+          "agreeing",
+          "answering",
+          "needed",
+          "anchors",
+          "anchors_agree",
+          "pass"
+        ],
+        "description": "The go-live gate: at least 3 of every 4 public resolvers that answered point at your edges, with 1.1.1.1 and 8.8.8.8 (when configured) among them. With no public answer, the controller’s own resolver and swarmy-dns decide (`basis: local`)."
       },
       "IngressDomainStatus": {
         "type": "object",
@@ -492,13 +1098,24 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "resolvers": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/DomainDnsResolver"
+                }
+              },
+              "gate": {
+                "$ref": "#/components/schemas/DomainDnsGate"
               }
             },
             "required": [
               "a",
               "aaaa",
               "cname",
-              "matched"
+              "matched",
+              "resolvers",
+              "gate"
             ]
           },
           "certificate": {
@@ -777,6 +1394,16 @@
           "www"
         ]
       },
+      "ApiKeyScope": {
+        "type": "string",
+        "enum": [
+          "read",
+          "deploy",
+          "write",
+          "secrets.read"
+        ],
+        "description": "`read` every GET; `deploy` ship and roll back (deploy, env, scale, restart, promote, preview; implies read); `write` every mutation (implies deploy); `secrets.read` reveal secret values. Open enum: new values may be added."
+      },
       "ApiKey": {
         "type": "object",
         "properties": {
@@ -792,15 +1419,32 @@
           "scopes": {
             "type": "array",
             "items": {
-              "type": "string",
-              "enum": [
-                "read",
-                "write",
-                "secrets.read"
-              ]
+              "$ref": "#/components/schemas/ApiKeyScope"
             }
           },
+          "preset": {
+            "type": "string",
+            "enum": [
+              "read",
+              "deploy",
+              "admin",
+              "custom"
+            ],
+            "description": "The dashboard preset the scopes match (Read-only / Deploy / Admin), or `custom`."
+          },
+          "stack_names": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "type": "string"
+            },
+            "description": "Apps (stack names) the key may reach; null = every app in the org."
+          },
           "last_used_at": {
+            "type": "string",
+            "nullable": true
+          },
+          "expires_at": {
             "type": "string",
             "nullable": true
           },
@@ -819,7 +1463,8 @@
             "type": "string",
             "enum": [
               "active",
-              "revoked"
+              "revoked",
+              "expired"
             ]
           }
         },
@@ -828,7 +1473,10 @@
           "name",
           "prefix",
           "scopes",
+          "preset",
+          "stack_names",
           "last_used_at",
+          "expires_at",
           "created_at",
           "created_by_id",
           "revoked_at",
@@ -879,16 +1527,39 @@
             "type": "string",
             "minLength": 1
           },
+          "preset": {
+            "type": "string",
+            "enum": [
+              "read",
+              "deploy",
+              "admin"
+            ],
+            "description": "Read-only = [read]; Deploy = [read, deploy]; Admin = [read, write, secrets.read]. Wins over `scopes`."
+          },
           "scopes": {
             "type": "array",
             "items": {
-              "type": "string",
-              "enum": [
-                "read",
-                "write",
-                "secrets.read"
-              ]
+              "$ref": "#/components/schemas/ApiKeyScope"
             }
+          },
+          "stack_names": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Limit the key to these apps (stack names). Omit or null for every app."
+          },
+          "expiry": {
+            "type": "string",
+            "enum": [
+              "30d",
+              "90d",
+              "1y",
+              "never"
+            ],
+            "description": "When the key stops working. Default `never`."
           }
         },
         "required": [
@@ -912,6 +1583,218 @@
           "id",
           "revoked"
         ]
+      },
+      "JoinToken": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string",
+            "nullable": true
+          },
+          "profile": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "edge",
+              "storage",
+              "database",
+              "private-mesh"
+            ],
+            "description": "The label bundle a node enrolls with (null = the default profile). Open enum: new values may be added."
+          },
+          "token_prefix": {
+            "type": "string",
+            "description": "Tells tokens apart; the token itself is never returned again."
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string",
+            "nullable": true
+          },
+          "max_uses": {
+            "type": "integer",
+            "nullable": true
+          },
+          "used_count": {
+            "type": "integer"
+          },
+          "revoked_at": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "expired",
+              "exhausted",
+              "revoked"
+            ],
+            "description": "Open enum."
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "profile",
+          "token_prefix",
+          "created_at",
+          "expires_at",
+          "max_uses",
+          "used_count",
+          "revoked_at",
+          "status"
+        ]
+      },
+      "JoinTokenList": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JoinToken"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor"
+        ]
+      },
+      "JoinTokenMesh": {
+        "type": "object",
+        "nullable": true,
+        "properties": {
+          "setup_key": {
+            "type": "string",
+            "description": "One-use mesh setup key the node joins the mesh with before it registers."
+          },
+          "management_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "driver": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "setup_key",
+          "management_url",
+          "driver"
+        ],
+        "description": "Set when the org runs a mesh: the node joins it with this key first, so the token is single-use."
+      },
+      "JoinTokenInstall": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "The controller base URL the install one-liner should use."
+          },
+          "loopback": {
+            "type": "boolean",
+            "description": "The URL points at loopback, so remote nodes cannot reach it (set CONTROLLER_PUBLIC_URL on the controller)."
+          },
+          "warning": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "url",
+          "loopback",
+          "warning"
+        ]
+      },
+      "JoinTokenIssued": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string",
+            "description": "Plaintext `swt_…` join token. Only its hash is stored; it is never returned again."
+          },
+          "label": {
+            "type": "string",
+            "nullable": true
+          },
+          "profile": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "edge",
+              "storage",
+              "database",
+              "private-mesh"
+            ],
+            "description": "The label bundle a node enrolls with (null = the default profile). Open enum: new values may be added."
+          },
+          "expires_at": {
+            "type": "string"
+          },
+          "max_uses": {
+            "type": "integer"
+          },
+          "mesh": {
+            "$ref": "#/components/schemas/JoinTokenMesh"
+          },
+          "install": {
+            "$ref": "#/components/schemas/JoinTokenInstall"
+          }
+        },
+        "required": [
+          "id",
+          "token",
+          "label",
+          "profile",
+          "expires_at",
+          "max_uses",
+          "mesh",
+          "install"
+        ]
+      },
+      "CreateJoinTokenRequest": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "ttl_seconds": {
+            "type": "integer",
+            "minimum": 60,
+            "maximum": 604800,
+            "description": "Lifetime in seconds; default 3600, at most 7 days."
+          },
+          "max_uses": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "How many nodes may join with it; default 1. Forced to 1 while the org runs a mesh."
+          },
+          "profile": {
+            "type": "string",
+            "enum": [
+              "default",
+              "edge",
+              "storage",
+              "database",
+              "private-mesh"
+            ]
+          }
+        }
       },
       "DnsZone": {
         "type": "object",
@@ -1535,156 +2418,6 @@
         "required": [
           "name",
           "csi_driver"
-        ]
-      },
-      "MeshRoute": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "kind": {
-            "type": "string"
-          },
-          "target_service_id": {
-            "type": "string",
-            "nullable": true
-          },
-          "target_stack_id": {
-            "type": "string",
-            "nullable": true
-          },
-          "cidr": {
-            "type": "string",
-            "nullable": true
-          },
-          "port": {
-            "type": "number",
-            "nullable": true
-          },
-          "principal_type": {
-            "type": "string"
-          },
-          "principal_id": {
-            "type": "string"
-          },
-          "expires_at": {
-            "type": "string",
-            "nullable": true
-          },
-          "created_at": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "kind",
-          "target_service_id",
-          "target_stack_id",
-          "cidr",
-          "port",
-          "principal_type",
-          "principal_id",
-          "expires_at",
-          "created_at"
-        ]
-      },
-      "MeshRouteList": {
-        "type": "object",
-        "properties": {
-          "data": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/MeshRoute"
-            }
-          },
-          "next_cursor": {
-            "type": "string",
-            "nullable": true
-          }
-        },
-        "required": [
-          "data",
-          "next_cursor"
-        ]
-      },
-      "MeshConnect": {
-        "type": "object",
-        "properties": {
-          "driver": {
-            "type": "string"
-          },
-          "address": {
-            "type": "string"
-          },
-          "join_snippet": {
-            "type": "string"
-          },
-          "setup_key": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "driver",
-          "address",
-          "join_snippet"
-        ]
-      },
-      "GrantMeshRouteResult": {
-        "type": "object",
-        "properties": {
-          "route": {
-            "$ref": "#/components/schemas/MeshRoute"
-          },
-          "connect": {
-            "$ref": "#/components/schemas/MeshConnect"
-          }
-        },
-        "required": [
-          "route",
-          "connect"
-        ]
-      },
-      "GrantMeshRouteRequest": {
-        "type": "object",
-        "properties": {
-          "service_id": {
-            "type": "string"
-          },
-          "stack_id": {
-            "type": "string"
-          },
-          "principal_type": {
-            "type": "string",
-            "enum": [
-              "peer",
-              "group",
-              "member"
-            ]
-          },
-          "principal_id": {
-            "type": "string",
-            "minLength": 1
-          },
-          "port": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 65535
-          },
-          "proto": {
-            "type": "string",
-            "enum": [
-              "tcp",
-              "udp"
-            ]
-          },
-          "ttl_sec": {
-            "type": "integer",
-            "minimum": 0
-          }
-        },
-        "required": [
-          "principal_id"
         ]
       },
       "NotifyQueued": {
@@ -3404,7 +4137,7 @@
         "properties": {
           "action": {
             "type": "string",
-            "description": "deployed, torn-down, skipped (open set)."
+            "description": "deployed, skipped or failed (open set)."
           },
           "stack": {
             "type": "string",
@@ -3530,6 +4263,123 @@
           "store_enabled",
           "project",
           "pending_redeploy"
+        ]
+      },
+      "DeployEvent": {
+        "type": "object",
+        "properties": {
+          "seq": {
+            "type": "integer"
+          },
+          "at": {
+            "type": "integer",
+            "description": "Epoch ms."
+          },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "pull",
+              "data",
+              "start",
+              "route",
+              "health"
+            ],
+            "description": "Open set."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "started",
+              "progress",
+              "done",
+              "failed"
+            ]
+          },
+          "node": {
+            "type": "string",
+            "description": "The server it happened on (`swarmy` for the controller’s own steps)."
+          },
+          "service": {
+            "type": "string",
+            "nullable": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "layers_total": {
+                "type": "integer"
+              },
+              "layers_done": {
+                "type": "integer"
+              },
+              "bytes_total": {
+                "type": "integer"
+              },
+              "bytes_done": {
+                "type": "integer"
+              },
+              "digest": {
+                "type": "string"
+              },
+              "image": {
+                "type": "string"
+              },
+              "replicas_running": {
+                "type": "integer"
+              },
+              "replicas_desired": {
+                "type": "integer"
+              },
+              "host": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "required": [
+          "seq",
+          "at",
+          "stage",
+          "status",
+          "node",
+          "service",
+          "message",
+          "detail"
+        ]
+      },
+      "DeployEvents": {
+        "type": "object",
+        "properties": {
+          "deploy_id": {
+            "type": "string"
+          },
+          "stack": {
+            "type": "string"
+          },
+          "started_at": {
+            "type": "integer"
+          },
+          "done": {
+            "type": "boolean",
+            "description": "Live, failed, or no longer watched: no more events will come."
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeployEvent"
+            }
+          }
+        },
+        "required": [
+          "deploy_id",
+          "stack",
+          "started_at",
+          "done",
+          "data"
         ]
       }
     },
@@ -3931,6 +4781,16 @@
                 }
               }
             }
+          },
+          "412": {
+            "description": "Admission refused the deploy — guardrails, exposure, image policy or the platform network wall. `violations` lists every rule it broke; over the API any violation refuses (`warn` included), since confirming a warning or overriding a block happens in the dashboard.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuardrailProblem"
+                }
+              }
+            }
           }
         }
       }
@@ -3973,6 +4833,89 @@
               "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Services"
+        ],
+        "summary": "Update a running service (async deploy)",
+        "description": "Changes the fields sent (image, replicas, command, env, resources, restart policy, update order, labels) on the service's full live spec; everything else is kept. Runs the same admission checks as a deploy, so a guardrail can refuse it (412). Policy: `service.configure` on the service. Poll the returned deployment to a terminal phase.",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateServiceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted — the update is rolling out",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentRef"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Admission refused the deploy — guardrails, exposure, image policy or the platform network wall. `violations` lists every rule it broke; over the API any violation refuses (`warn` included), since confirming a warning or overriding a block happens in the dashboard.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuardrailProblem"
                 }
               }
             }
@@ -4195,6 +5138,26 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Admission refused the deploy — guardrails, exposure, image policy or the platform network wall. `violations` lists every rule it broke; over the API any violation refuses (`warn` included), since confirming a warning or overriding a block happens in the dashboard.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuardrailProblem"
+                }
+              }
+            }
           }
         }
       }
@@ -4248,6 +5211,66 @@
           "Stacks"
         ],
         "summary": "Remove a stack",
+        "description": "Stops and removes every service in the stack. Its data — the named volumes on every server and the secrets its blueprint generated — is KEPT unless `delete_data=true`, so redeploying the same name picks the old data back up. Audited.",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "description": "Also delete the app's data (default false)."
+            },
+            "required": false,
+            "name": "delete_data",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StackRemoved"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/stacks/{id}/endpoints": {
+      "get": {
+        "tags": [
+          "Stacks"
+        ],
+        "summary": "How to reach an app's services and managed resources from inside the cluster",
+        "description": "The internal DNS names swarm answers for each service (`web` in-app, `shop_web`, `tasks.web`, `web.shop` from a connected app) and the host:port of each managed resource, with who can use each. Read from live Docker state.",
         "security": [
           {
             "bearerApiKey": []
@@ -4265,11 +5288,171 @@
         ],
         "responses": {
           "200": {
-            "description": "Removed",
+            "description": "Endpoints",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Removed"
+                  "$ref": "#/components/schemas/StackEndpoints"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/stacks/{id}/connections": {
+      "post": {
+        "tags": [
+          "Stacks"
+        ],
+        "summary": "Connect two apps over one private network",
+        "description": "Creates a private overlay for exactly this pair and rolls every app service of both onto it, aliased `<service>.<app>` — so this app reaches `api.billing:8080`. A third app sees neither; managed databases are not shared. Idempotent: an existing connection is a no-op. Policy: `stack.deploy` on both apps.",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectStackRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Connected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StackConnection"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/stacks/{id}/connections/{peer}": {
+      "delete": {
+        "tags": [
+          "Stacks"
+        ],
+        "summary": "Disconnect two apps",
+        "description": "Every service of both apps leaves the pair network and stops resolving the other. A peer that no longer exists is fine — the remaining side is detached. Policy: `stack.deploy` on both apps.",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The other app: its stack id or name."
+            },
+            "required": true,
+            "name": "peer",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Disconnected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StackConnection"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
                 }
               }
             }
@@ -4688,6 +5871,150 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Revoked"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/join-tokens": {
+      "get": {
+        "tags": [
+          "Join tokens"
+        ],
+        "summary": "List join tokens (never the token itself)",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Join tokens, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinTokenList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Join tokens"
+        ],
+        "summary": "Create a join token (plaintext returned once)",
+        "description": "Admins and owners only. Pass `token` to the agent installer as `SWARMY_JOIN_TOKEN` on the new server.",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateJoinTokenRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created — carries the plaintext token (shown once)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinTokenIssued"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/join-tokens/{id}": {
+      "delete": {
+        "tags": [
+          "Join tokens"
+        ],
+        "summary": "Revoke a join token",
+        "description": "A revoked token enrolls nothing, and no longer re-adopts a server that joined with it (a reinstall needs a fresh token). Policy: `token.revoke`.",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Revoked"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
                 }
               }
             }
@@ -5408,138 +6735,6 @@
         }
       }
     },
-    "/mesh/routes": {
-      "get": {
-        "tags": [
-          "Mesh"
-        ],
-        "summary": "List mesh routes",
-        "security": [
-          {
-            "bearerApiKey": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Routes",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MeshRouteList"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Problem",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "Mesh"
-        ],
-        "summary": "Grant a direct mesh route to a service/stack",
-        "security": [
-          {
-            "bearerApiKey": []
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/GrantMeshRouteRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Granted — carries connection info",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GrantMeshRouteResult"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Problem",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Problem",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/mesh/routes/{id}": {
-      "delete": {
-        "tags": [
-          "Mesh"
-        ],
-        "summary": "Revoke a mesh route",
-        "security": [
-          {
-            "bearerApiKey": []
-          }
-        ],
-        "parameters": [
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "name": "id",
-            "in": "path"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Removed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Removed"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Problem",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/audit/export": {
       "get": {
         "tags": [
@@ -5676,8 +6871,8 @@
         "tags": [
           "Notifications"
         ],
-        "summary": "Send an email via the org’s configured provider",
-        "description": "Queues the message on the org’s notification outbox; the dispatch worker delivers it (with retries) via the provider configured in Settings → Notifications.",
+        "summary": "Send an email through the org’s Email service",
+        "description": "Hands the message to the org’s Email service (direct delivery or the domain’s relay, as set on the Email page). Needs Email turned on with a verified domain.",
         "security": [
           {
             "bearerApiKey": []
@@ -5694,7 +6889,7 @@
         },
         "responses": {
           "202": {
-            "description": "Queued for delivery",
+            "description": "Accepted for delivery",
             "content": {
               "application/json": {
                 "schema": {
@@ -7385,6 +8580,16 @@
                 }
               }
             }
+          },
+          "412": {
+            "description": "Admission refused the deploy — guardrails, exposure, image policy or the platform network wall. `violations` lists every rule it broke; over the API any violation refuses (`warn` included), since confirming a warning or overriding a block happens in the dashboard.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuardrailProblem"
+                }
+              }
+            }
           }
         }
       }
@@ -7581,7 +8786,7 @@
           "Developer"
         ],
         "summary": "Preview a branch (trial deploy)",
-        "description": "Builds the branch and deploys it as its own preview stack, the same machinery as a pull-request preview. Torn down by the app’s preview TTL.",
+        "description": "Plans the branch’s swarmy.yaml and deploys it as a preview environment with its own stack and URL, the same machinery as a branch or pull-request preview. Torn down by `previews.ttl` or when the branch is deleted.",
         "security": [
           {
             "bearerApiKey": []
@@ -7827,6 +9032,52 @@
             }
           },
           "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/deploys/{id}/events": {
+      "get": {
+        "tags": [
+          "Stacks"
+        ],
+        "summary": "A deploy’s progress events (poll while it runs)",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The `deploy_id` from POST /stacks."
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Events so far",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeployEvents"
+                }
+              }
+            }
+          },
+          "404": {
             "description": "Problem",
             "content": {
               "application/problem+json": {
