@@ -208,6 +208,23 @@ try {
     fail('node shell: no demo notice after Open node shell');
   }
 
+  // Board 24: Link & scan a folder with no swarmy.yaml → what its code needs + a valid generated swarmy.yaml.
+  try {
+    const before = pageErrors.length;
+    await page.goto(`${BASE}/deploy?source=git`, { waitUntil: 'networkidle' });
+    await page.getByRole('button', { name: /northwind\/platform/ }).first().click();
+    await page.locator('section[aria-label="Folder"] button', { hasText: 'orders' }).first().click();
+    await page.getByRole('button', { name: /Link & scan/ }).first().click();
+    await page.getByText('Here’s what we found').first().waitFor({ timeout: 10_000 });
+    await page.getByText('valid · v1').first().waitFor({ timeout: 10_000 });
+    await page.getByRole('checkbox', { name: 'Include S3 object storage' }).click();
+    await page.waitForFunction(() => !document.querySelector('pre[aria-label$="generated"]')?.textContent?.includes('S3_BUCKET'), null, { timeout: 5_000 });
+    if (pageErrors.length > before) fail(`git scan board: ${pageErrors.slice(before).join(' | ')}`);
+    else console.log('✓ git wizard: Link & scan → what we found, unticking rewrites the swarmy.yaml');
+  } catch (e) {
+    fail(`git scan board: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`);
+  }
+
   // The banner links back out.
   await page.goto(`${BASE}/`, { waitUntil: 'networkidle' });
   const links = await page

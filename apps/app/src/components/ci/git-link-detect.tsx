@@ -37,7 +37,7 @@ export function GitLinkDetect({
         <p className="text-muted-foreground">
           Couldn’t read the repo yet: {inspect.error.message}. It still builds on the next push.
         </p>
-        <Button variant="outline" size="sm" onClick={() => inspect.mutate({ repoId: linked.id })}>
+        <Button variant="outline" size="sm" onClick={() => inspect.mutate({ repoId: linked.id, scan: true })}>
           Try again
         </Button>
       </div>
@@ -89,7 +89,7 @@ export function GitLinkDetect({
               : `Add ${linked.configPath} to the repo and push.`}
         </p>
       )}
-      {detected ? <GitBuildDetected detected={detected} showStarter={configPaths.length === 0 && !compose} /> : null}
+      {detected ? <GitBuildDetected detected={detected} showStarter={configPaths.length === 0 && !compose && !inspect.data.found} /> : null}
     </div>
   );
 }

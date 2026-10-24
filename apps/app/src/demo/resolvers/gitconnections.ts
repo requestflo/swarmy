@@ -1,5 +1,6 @@
 import type { DemoStore, DomainResolvers } from '../types';
 import { DEMO_APP_NAME, demoManifest, isPreviewCall } from './gitconnections-manifest';
+import { demoDraft, demoScan } from './gitscan';
 
 /**
  * Git-provider connection demo resolvers (router `gitConnections`) — the
@@ -197,16 +198,16 @@ function mirrorIntoCicd(
 }
 
 /** A believable repo tree by name: `…/platform` is a monorepo, `…/legacy-billing` predates swarmy. */
-function fakeInspect(name: string, configPath: string) {
+function fakeInspect(name: string, configPath: string, scan = false) {
   // Only the notable files git.inspect lists (NOTABLE_FILE_RE).
   const monorepo = name.endsWith('/platform');
   const tree = monorepo
     ? [
         'package.json',
         'packages/ui/package.json',
+        // services/orders has no swarmy.yaml yet: Link & scan shows what its code needs (board 24).
         'services/orders/Dockerfile',
         'services/orders/package.json',
-        'services/orders/swarmy.yaml',
         'services/payments/Dockerfile',
         'services/payments/go.mod',
         'services/payments/swarmy.yaml',
@@ -271,7 +272,8 @@ function fakeInspect(name: string, configPath: string) {
           ],
         }
       : null;
-  return { sha: sha(), files, tree, configPaths, detected, composeDraft };
+  const found = scan ? demoScan(name, configPath) : undefined;
+  return { sha: sha(), files, tree, configPaths, detected, composeDraft, ...(found ? { found } : {}) };
 }
 
 export const gitconnections: DomainResolvers = {
@@ -435,10 +437,12 @@ export const gitconnections: DomainResolvers = {
     },
 
     'gitConnections.inspect': (i, s) => {
-      const { repoId } = i as { repoId: string };
+      const { repoId, scan } = i as { repoId: string; scan?: boolean };
       const row = state(s).linked[repoId];
-      return fakeInspect(row?.fullName ?? '', row?.configPath ?? 'swarmy.yaml');
+      return fakeInspect(row?.fullName ?? '', row?.configPath ?? 'swarmy.yaml', scan);
     },
+
+    'gitConnections.draftConfig': (i) => demoDraft(i as Parameters<typeof demoDraft>[0]),
 
     'gitConnections.inspectSource': (i) => {
       const { cloneUrl, paths } = i as { cloneUrl: string; paths?: string[] };

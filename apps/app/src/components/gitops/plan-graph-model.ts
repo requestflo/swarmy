@@ -12,6 +12,8 @@ export interface PlanNode {
   key: string;
   label: string;
   meta?: string;
+  /** A third mono line ("wired to db · cache"). */
+  note?: string;
   diff: Diff;
   gate?: Gate;
 }

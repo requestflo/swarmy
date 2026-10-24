@@ -32,11 +32,13 @@ function Box({ n }: { n: PlanNode }): React.JSX.Element {
         {n.label}
       </span>
       {n.meta ? <span className="text-muted-foreground block truncate font-mono text-[10.5px]">{n.meta}</span> : null}
+      {n.note ? <span className="text-muted-foreground block truncate font-mono text-[10.5px]">{n.note}</span> : null}
     </li>
   );
 }
 
-function Column({ title, nodes }: { title: string; nodes: PlanNode[] }): React.JSX.Element | null {
+/** One column of plan boxes (also "The app it will create" in the git wizard). */
+export function PlanColumn({ title, nodes }: { title: string; nodes: PlanNode[] }): React.JSX.Element | null {
   if (!nodes.length) return null;
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-2">
@@ -66,9 +68,9 @@ export function PlanGraph({ stack, actions }: { stack: string; actions: PlanActi
   return (
     <figure className="flex flex-col gap-2" aria-label={`Plan graph: ${counts || 'no changes'}`}>
       <div className="flex flex-col gap-4 rounded-xl border bg-[radial-gradient(var(--border)_1px,transparent_1px)] [background-size:16px_16px] p-4 sm:flex-row">
-        <Column title="Front door" nodes={g.front} />
-        <Column title="Services" nodes={g.services} />
-        <Column title="Data" nodes={g.data} />
+        <PlanColumn title="Front door" nodes={g.front} />
+        <PlanColumn title="Services" nodes={g.services} />
+        <PlanColumn title="Data" nodes={g.data} />
       </div>
       <figcaption className="text-muted-foreground flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10.5px]">
         <span className="text-tone-ok">╌ add</span>

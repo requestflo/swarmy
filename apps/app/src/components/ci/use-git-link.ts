@@ -25,7 +25,7 @@ export function useGitLink() {
     trpc.gitConnections.linkRepo.mutationOptions({
       onSuccess: (res) => {
         setLinked(res);
-        inspect.mutate({ repoId: res.id });
+        inspect.mutate({ repoId: res.id, scan: true });
         toast.success(`${res.fullName ?? res.url} is linked.`);
         refresh();
       },
