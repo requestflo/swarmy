@@ -19,6 +19,12 @@
  * (`reconcileObservabilityRetention`, signature-gated), so this worker never
  * deletes telemetry — ClickHouse drops expired parts at its next merge.
  *
+ * It also converges the per-server log agents that tail container output
+ * (`reconcileContainerLogsAgent`): deployed while the org's settings collect
+ * it, removed when they stop. Signature-gated — the last dispatched
+ * signature is held per org and re-armed after {@link AGENT_REARM_MS}, so a
+ * steady tick sends nothing yet a hand-removed agent still comes back.
+ *
  * `ObservabilityConfig` is read from each org's swarm-kv document.
  */
 import { prisma } from '@swarmy/db';
@@ -27,6 +33,7 @@ import { clickhouseClient, type ClickhouseClient } from '@swarmy/core';
 import { decryptSecret } from '@swarmy/core/crypto';
 import {
   observabilityConfigRepo,
+  reconcileContainerLogsAgent,
   reconcileObservabilityRetention,
   reconcileObservabilitySuite,
   recordStoreProbe,
@@ -35,6 +42,15 @@ import {
 import { hub } from '../gateway';
 
 const TICK_MS = 60_000;
+/** A dispatched agent signature stops gating after this long (self-heal). */
+const AGENT_REARM_MS = 10 * 60_000;
+const lastAgent = new Map<string, { signature: string; at: number }>();
+
+/** The signature still gating this org's agent converge, if any. */
+function agentGate(orgId: string, now: number): string | undefined {
+  const last = lastAgent.get(orgId);
+  return last && now - last.at < AGENT_REARM_MS ? last.signature : undefined;
+}
 
 interface ObsConfigRow {
   orgId: string;
@@ -79,6 +95,10 @@ async function tick(): Promise<void> {
     await reconcileObservabilitySuite(ctx).catch(() => undefined);
     // Per-signal TTLs (signature-gated: a steady tick sends no ALTER).
     await reconcileObservabilityRetention(ctx).catch(() => undefined);
+    // Node log agents (container output), signature-gated.
+    const now = Date.now();
+    const agent = await reconcileContainerLogsAgent(ctx, { lastSignature: agentGate(cfg.orgId, now) }).catch(() => null);
+    if (agent && !agent.skipped) lastAgent.set(cfg.orgId, { signature: agent.signature, at: now });
     await reconcileOrg(cfg).catch(() => undefined);
   }
 }
