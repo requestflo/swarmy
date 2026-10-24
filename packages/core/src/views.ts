@@ -3,6 +3,7 @@
  * (no Zod) — these are controller→browser shapes, distinct from the wire
  * protocol's agent→controller frames.
  */
+import type { AgentSkew } from './protocol/skew';
 
 export type NodeRole = 'manager' | 'worker';
 // `degraded`: the agent is connected but the node is not a working swarm member
@@ -65,6 +66,8 @@ export interface NodeSummary {
   agentCommit: string | null;
   /** This controller holds a different agent build than the node runs. */
   agentUpdateAvailable: boolean;
+  /** Version skew against this controller, judged at the agent's last register (null = not seen). */
+  agentSkew?: AgentSkew | null;
   lastSeenAt: string | null;
   /** Most recent live snapshot, if the node is connected. */
   live: { cpuPercent: number; memPercent: number } | null;

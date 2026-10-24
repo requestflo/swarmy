@@ -6,6 +6,13 @@
 /** Bumped on breaking wire changes. Pinned in the `swarmy.vN` subprotocol. */
 export const PROTOCOL_VERSION = 1 as const;
 
+/**
+ * Every protocol version this controller can speak. An agent whose
+ * `protocolVersions` share none of these is incompatible (`agentSkew`).
+ * Widen this, never narrow it, when a new version lands beside the old one.
+ */
+export const SUPPORTED_PROTOCOL_VERSIONS: readonly number[] = [PROTOCOL_VERSION];
+
 /** WebSocket subprotocol advertised by the agent and required by the gateway. */
 export const SUBPROTOCOL = `swarmy.v${PROTOCOL_VERSION}`;
 
