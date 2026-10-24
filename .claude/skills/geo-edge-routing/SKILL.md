@@ -92,6 +92,44 @@ invariants that must survive every change, and where everything lives.
   and it fills an otherwise empty A answer. It is the wildcard base
   `wildcardBaseFrom` returns first, so apps get `<svc>-<stack>.<ip>.<zone>`
   (DNS-gated); sslip.io is only the fallback with no cluster zone.
+- **Auto-address base precedence** (`autoAddressBaseInfo` in
+  `auto-address.service.ts`): a delegated own zone (`<svc>-<stack>.<zone>`) ›
+  the cluster zone › the org's `autoAddressBase` (swarm-kv ingress settings,
+  `ingress.setAutoAddressBase`) › `SWARMY_AUTO_ADDRESS_BASE` (controller-wide,
+  `auto-address-base.service.ts`) › sslip.io (`DEFAULT_AUTO_ADDRESS_BASE`; the
+  dashboard's "public convenience name"). The pure halves are
+  `wildcardBaseFrom` and `@swarmy/ingress` `autoAddressBaseFor`
+  (`auto-address-base.ts`). Only own-zone and cluster-zone hosts go through the
+  DNS gate; a custom wildcard base never does. Changing the base re-hosts
+  existing automatic addresses on the next domain-verify tick.
+- **Which driver carries a route** is one pure rule, `routeChannel`
+  (`packages/ingress/src/route-channel.ts`): the service's declared exposure
+  (`swarmy.expose`, copied onto each route by the controller) first — private
+  and mesh are withheld from every driver, tunnel never renders on the Caddy
+  edge — then `route.driver` (`cloudflared` moves it to the tunnel, `none`
+  leaves it, `caddy` or a removed driver stays on the org's). A Caddy org with
+  a tunnel renders both halves (`tunnelSideConfig`). Withheld routes are
+  `validate()` warnings, never errors.
+- **Edge country DB**: the edge image bundles DB-IP Country Lite at
+  `/usr/share/swarmy/geoip/dbip-country-lite.mmdb` (fetched by
+  `docker/caddy-swarmy/geoip/bundle-dbip-country.sh`, the script the
+  swarmy-dns image uses too: one edition, one NOTICE). The org setting
+  `settings.geoip` (bundled | path | off) resolves through the pure
+  `resolveEdgeGeoip` (`packages/ingress/src/edge-geoip.ts`) into
+  `extraConfig.geoipMmdbPath`; with none, country rules render as nothing.
+- **Edge traffic → latency and blocked**: the edge agent
+  (`apps/agent/src/handlers/edge-traffic.ts`) scrapes Caddy's
+  `caddy_http_request_duration_seconds` per host (`metrics { per_host }`):
+  per-bucket duration deltas plus 403/429 counts off the histogram's `code`
+  label (`@swarmy/core` `edge-traffic-caddy.ts`), as optional fields on
+  `metrics.edge` (older controllers drop them, older agents omit them). The
+  controller keeps BUCKET COUNTS in the hub's 1-minute ring and the 5-minute
+  `EdgeTrafficRollup` rows (`telemetry.db`, 7 days; the coverage row carries
+  each edge's whole histogram). p50/p95 come only from merged buckets
+  (`edge-latency.ts` `mergeLatency`), never an average of percentiles.
+  `traffic.now` / `traffic.series` (`traffic.service.ts`, `traffic-series.ts`,
+  narrowable to one `host` or `nodeId`) serve them. Requests a protection
+  `abort`s never reach Caddy's metrics and are not counted.
 - **Edge Caddy spec**: `caddyEdgeSpec(opts)` exported from
   `ingress-controller.ts` is THE spec; the swarmy-stack composition must
   consume it, never hand-roll (topology/ports/mounts single-sourced).
@@ -146,6 +184,11 @@ invariants that must survive every change, and where everything lives.
 | Agent: applyDns, public-ip detect | `apps/agent/src/handlers/dns.ts`, `apps/agent/src/public-ip.ts` |
 | Region-aware Caddy render | `packages/ingress/src/render/caddyfile.ts` (+ `types.ts` RegionUpstream/localRegion) |
 | Region sibling discovery | `packages/trpc/src/services/ingress-regions.ts` |
+| Cluster zone: synthesis, lifecycle, install-time seed | `packages/dns/src/synth.ts` (+ `answer-records.ts`), `packages/trpc/src/services/cluster-zone{,.service}.ts`, `apps/api/src/bootstrap/cluster-zone.ts`; UI `apps/app/src/components/geo/cluster-zone-card.tsx` |
+| Auto-address base (configured / env / sslip.io) | `packages/ingress/src/auto-address-base.ts`, `packages/trpc/src/services/{auto-address,auto-address-base}.service.ts` |
+| Route channel (declared exposure + per-route driver) | `packages/ingress/src/route-channel.ts` |
+| Edge country DB setting | `packages/ingress/src/edge-geoip.ts`, `packages/trpc/src/services/edge-geoip.service.ts` |
+| Edge traffic: scrape, latency buckets, ring/rollups, reads | `apps/agent/src/handlers/edge-traffic.ts`, `packages/core/src/edge-{traffic,traffic-caddy,traffic-hosts,traffic-extras,latency}.ts`, `packages/trpc/src/services/{traffic.service,traffic-series}.ts`, worker `apps/api/src/workers/edge-traffic.ts` |
 | Edge Caddy service spec / topology | `packages/trpc/src/services/ingress-controller.ts` |
 | DNS UI: Network › Geo-DNS (ask from anywhere, one records table, delegation, steering; zones, nameserver picks and server regions at Controls) | `routes/_authed/network_.geo-dns.tsx` → `apps/app/src/components/geo/geodns-page.tsx` (`ask-model.ts`: the continents `regionCoord` places, so `geodns.previewResolution` steers from the point the map draws; `zone-records-model.ts`; `delegation-section.tsx`; `steering-section.tsx`). `components/geo/*` also serves Network › Domains (`components/network/*`) and the app Domains tab |
 
@@ -160,7 +203,8 @@ invariants that must survive every change, and where everything lives.
 - Serving truth for the UI is `geodns.getConfig().runtime`
   (`dns-runtime.ts`: task error + per-node push outcome), never `enabled`.
 - DB-IP attribution ("IP geolocation by DB-IP, CC BY 4.0") is a license
-  requirement — keep it in the UI when geoip source is dbip.
+  requirement — keep it in the UI when geoip source is dbip, and on the
+  Countries protection card for the edge's bundled copy.
 - `dig` verification: `dig @<node> -p 53 <host> +subnet=196.25.0.0/16` (ZA),
   `+tcp` for TCP framing, `NS`/`SOA`/`MX` for zone completeness. Local server:
   run `apps/dns` with `SWARMY_DNS_PORT=5300 SWARMY_DNS_LISTEN=127.0.0.1` (auto

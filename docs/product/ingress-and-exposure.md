@@ -122,9 +122,14 @@ Four ideas, one story:
   observed is itself a violation (declared `tunnel` served by a non-cloudflared
   driver included), and "declared public but unreachable" surfaces as a warning.
   The inferred classifier stays — it is the *observed* half of the comparison.
-  Open: the background exposure-audit worker doesn't yet alert on
-  declared-vs-observed drift (the Safety page's Exposure section does), and the ingress renderer
-  doesn't consult `swarmy.expose` — see `plans/ROADMAP.md`.
+  The renderers consult the intent too: the controller copies a service's mode
+  onto each of its routes and one pure rule (`routeChannel`) decides which
+  driver may carry it. A `private` or `mesh` service gets no public route from
+  any driver, and a `tunnel` one never lands on the public Caddy edge;
+  `validate()` warns about every withheld route, and the audit reports it as a
+  warning, not a violation. The exposure-audit worker alerts on
+  declared-vs-observed drift (signal `exposure-drift`) and resolves the event
+  once the service conforms.
 
 ## Ingress & exposure behaviour
 
@@ -150,10 +155,33 @@ Four ideas, one story:
   (it is high-volume). This is the standard defence against the ACME-exhaustion
   abuse vector.
 - **Per-route protections render into driver syntax, best-effort.** Rate limit
-  (sliding window, keyed by IP or header), IP allow/deny CIDRs, body-size cap,
-  bot/scanner blocking, required headers. Renderers translate what they can and
-  `validate()` *warns* about what a given driver can't express — render never
-  throws.
+  (sliding window, keyed by IP or header), IP allow/deny CIDRs, country rules,
+  body-size cap, bot/scanner blocking, required headers, and a password.
+  Renderers translate what they can and `validate()` *warns* about what a given
+  driver can't express — render never throws.
+- **Country rules work out of the box.** swarmy's Caddy build bundles DB-IP
+  Country Lite (CC BY 4.0, attributed in the UI). An org setting
+  (`ingress.setEdgeGeoip`, admin, audited) picks the bundled file, an mmdb path
+  inside the edge container, or off; with a stock image or off, country rules
+  render as nothing and `validate()` warns.
+- **Require a password on a route.** A route's `basicAuth` lists users. The
+  label holds only each user name and an `rpw_…` reference: the controller
+  bcrypt-hashes a new password and seals the hash in the org's ingress document
+  (swarm-kv), so no password reaches a label, plain or hashed. Caddy checks it
+  after the other rules and before swarmy sign-in, password routes are never
+  cached, and a reference the controller can't resolve fails closed (503). A
+  Cloudflare Tunnel doesn't enforce it, and validation says so.
+- **One route can override the driver.** `route.driver` picks which of the
+  remaining drivers carries a host, after the declared exposure: `cloudflared`
+  moves it off the public edge onto the tunnel, `none` leaves it to you, and
+  `caddy` (or a removed driver on an old label) stays on the org's driver. A
+  Caddy org with a tunnel configured runs both halves, and a tunnel-only host is
+  checked against the tunnel's CNAME instead of the edge IPs. It has no UI yet
+  (API and label only).
+- **The config preview never shows a secret.** `ingress.previewConfig` is open
+  to every member, so it seals password hashes, tunnel run tokens and
+  owner-only (0600) files, keeping names, references and paths. Only the render
+  dispatched to the agent carries them.
 - **Two Caddy topologies, one spec.** `controller` runs a replicated Caddy behind
   the routing mesh; `edge-per-node` runs a **GLOBAL host-mode** Caddy on every
   `swarmy.node.ingress` node with per-node region-aware upstreams (the mode geo
@@ -239,7 +267,7 @@ honest lifecycle, shown on the row in plain words:
   a 308 redirect site; the companion host gets its own DNS check and cert. An
   explicit route for the companion always wins.
 - **Apex + www redirects.** Caddy renders a 308 redirect site (goldens in
-  `packages/ingress/src/render/www.test.ts`).
+  `packages/ingress/src/www.test.ts`).
 - **Wildcard certificates, from your own nameservers.** `*.acme.com` can only
   be issued over ACME DNS-01. When the zone is served by swarmy-dns (NS
   delegated to the ingress+outlet nodes), the edge's `dns swarmy` Caddy module
@@ -267,8 +295,15 @@ honest lifecycle, shown on the row in plain words:
   until public NS already points at swarmy, sticky afterwards) and apps get
   `<service>-<stack>.<zone>` answered by swarmy-dns instead; existing sslip.io
   addresses re-host onto it (through the DNS gate, so the certificate is
-  ordered once the name resolves). sslip.io is only the fallback when no zone
-  is delegated. Private/mesh/tunnel
+  ordered once the name resolves). Next comes the org's **cluster zone**
+  (installer `--zone`, or Network › Geo-DNS › Cluster zone): swarmy-dns answers
+  `<a-b-c-d>.<zone>` itself, so apps get `<service>-<stack>.<edge-ip>.<zone>`
+  with no public wildcard service (`edge-network.md`). Then a configured
+  wildcard-IP base: the org's own setting (`ingress.setAutoAddressBase`), else
+  `SWARMY_AUTO_ADDRESS_BASE` for the whole controller; changing it re-hosts
+  existing addresses on the next domain-verify tick. sslip.io, which the
+  dashboard calls the "public convenience name", is only the last fallback.
+  Private/mesh/tunnel
   intent, managed data and swarmy's own services never get one — an automatic
   address never widens exposure.
 - **Where the state lives.** Check results + the gate are controller
@@ -311,8 +346,11 @@ Least privilege, by network:
 - **The API tells you what to type.** `stacks.endpoints` lists each service's
   and managed resource's internal names and who can use them — the UI's
   "reach this at `db:5432` from inside storefront".
-- **Over the mesh, overlays fit the tunnel.** New overlays get an MTU sized for
-  WireGuard (1230, 1170 encrypted) so large packets don't stall across nodes.
+- **Over the mesh, overlays fit the tunnel.** New overlays get the tunnel's MTU
+  as Docker's option (1280; Docker takes VXLAN and IPsec off itself, so
+  containers see 1230, or 1204 on an encrypted overlay), so large packets don't
+  stall across nodes. An existing overlay can't change in place: Mesh settings
+  says which networks are too big and the manual fix.
 - **Known residual:** services on the shared `swarmy` network (routed,
   observed, bucket-attached) can reach each other's VIPs by full name. The fix
   is per-org edge networks, which needs a per-org (or merged-render) Caddy
@@ -330,6 +368,8 @@ Least privilege, by network:
 | Custom domain added before its DNS record exists | Withheld from the render and denied by `/ingress/ask` until public DNS points at an edge; the row says exactly which record to create. No failed ACME orders, no rate-limit burn. |
 | Cloudflare Tunnel: connector or CF blips | Connector dials out and reconnects; no inbound port to fail. Routing rules are declarative server-side, re-pushed idempotently on the next sync. |
 | A driver can't express a protection (e.g. rate limit on `none`) | `validate()` warns; `render` still emits a working config for what it *can* do. Degraded, never broken. |
+| A route's password reference can't be resolved | The route answers 503 (fail closed), never open. |
+| A service declared `private`/`mesh` still has a route | No driver renders it; `validate()` warns and the exposure page shows a warning until the route is removed. |
 | Managed database publishes a port | Audited as a `public-port` violation, alerted on the Safety page, and (if enforce is on) the next deploy is refused — but the running port is left in place for the operator to remove. |
 
 ## Explicitly rejected
@@ -370,7 +410,13 @@ topology, region-aware rendering, and node public-IP labels are the
 
 Key homes: driver registry + pure drivers `packages/ingress/src/{registry,types}.ts`
 and `packages/ingress/src/drivers/{none,caddy,cloudflared}.ts`;
-render helpers `packages/ingress/src/render/*`; wire types (RenderedConfig,
+render helpers `packages/ingress/src/render/*`; the route channel (declared
+exposure + per-route driver) `packages/ingress/src/route-channel.ts`; the
+password gate `packages/ingress/src/basic-auth.ts` +
+`packages/trpc/src/services/ingress-basic-auth.ts`; the preview sealing
+`packages/ingress/src/redact.ts`; the edge country DB `edge-geoip.ts`; the
+address base `auto-address-base.ts` +
+`packages/trpc/src/services/{auto-address-base,cluster-zone}.service.ts`; wire types (RenderedConfig,
 connector, HaStorage, TunnelOptions, DomainRoute, RouteProtection)
 `packages/core/src/protocol/ingress.ts` and `packages/ingress/src/types.ts`;
 controller services `packages/trpc/src/services/{ingress.service,ingress-controller,

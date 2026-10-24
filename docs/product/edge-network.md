@@ -99,7 +99,30 @@ Three layers, one story:
   optionally downloads the DB-IP Lite city database (the `dbip` default),
   an optional MaxMind GeoLite2 license key adds accuracy, and file mode takes an
   operator mmdb. A failed download keeps the last-good/bundled copy; a missing
-  DB never breaks resolution — answers just lose geo preference.
+  DB never breaks resolution — answers just lose geo preference. The edge
+  Caddy image bundles the same DB-IP Country Lite, so per-route country rules
+  work with no download either.
+- **The edge says how fast it answers, and what it refused.** Each edge's
+  agent reads Caddy's request-duration histogram per host and the 403 and 429
+  answers in it. The controller keeps the bucket counts (in memory, then
+  5-minute rollups in `telemetry.db`) and computes p50/p95 from the merged
+  buckets, per edge, region, address and the estate, never by averaging
+  percentiles. Network shows p50 on each edge; a Domains row says "Blocked N a
+  minute" (403 + 429). Requests a protection drops with `abort` (IP, country,
+  bot and required-header rules) never reach Caddy's metrics, so they aren't
+  counted, and an app's own 403s and 429s are.
+- **A cluster zone gives every app an address without sslip.io.** One
+  swarmy-ns zone per org can be the cluster zone (installer `--zone
+  apps.example.com`, which prints the NS + glue records for the registrar, or
+  Network › Geo-DNS › Cluster zone once delegation is live). swarmy-dns then
+  synthesises `<a-b-c-d>.<zone>` and any name under it to `a.b.c.d` itself, so
+  automatic app addresses become `<service>-<stack>.<edge-ip>.<zone>`. It
+  answers only for the cluster's own public IPv4s (private and reserved
+  addresses are refused), A records only (AAAA gets an empty answer), and a
+  real record in the zone always wins. Without a cluster zone apps fall back to
+  a configured wildcard base (`SWARMY_AUTO_ADDRESS_BASE`) or sslip.io. The
+  dashboard keeps its first-boot name, because it has to work before
+  swarmy-dns can answer.
 - **Survives the controller dying.** The controller pushes zone snapshots to
   every DNS node (agent-mediated, versioned); nodes persist the last snapshot
   and keep answering from it. DNS is a data plane, not a control plane.
@@ -161,4 +184,10 @@ homes: `packages/dns` (pure DNS logic: steer/compose/answer/wire),
 `apps/dns` (the swarmy-dns server), `packages/core/src/protocol/dns.ts`
 (snapshot push protocol), `packages/trpc/src/services/dns-*.ts` (controller),
 `packages/ingress` (region-aware Caddy rendering), `apps/agent` (applyDns,
-public-IP detection, local Caddy reload).
+public-IP detection, local Caddy reload, the edge traffic scrape). Cluster
+zone: `packages/dns/src/synth.ts`,
+`packages/trpc/src/services/cluster-zone{,.service}.ts`,
+`apps/api/src/bootstrap/cluster-zone.ts`. Edge latency and blocked answers:
+`packages/core/src/{edge-latency,edge-traffic-caddy}.ts`,
+`apps/agent/src/handlers/edge-traffic.ts`,
+`packages/trpc/src/services/{traffic.service,traffic-series}.ts`.
