@@ -1,11 +1,19 @@
-import type { SearchIndexListView, SearchIndexSettingsView, SearchIndexView, SearchInstanceView, SearchQueryView } from '@swarmy/core';
+import type {
+  SearchIndexListView,
+  SearchIndexSettingsView,
+  SearchIndexView,
+  SearchInstanceView,
+  SearchQueryView,
+  SearchSettingsResult,
+  SetIndexSettingsInput,
+} from '@swarmy/core';
 import type { DemoStore, DomainResolvers } from '../types';
 import { seedIndexes, type DemoIndex } from './searchsvc-indexes-seed';
 import { demoQuery } from './searchsvc-query';
 
 /**
  * Demo resolvers for a search instance's indexes (board 41): the list, one
- * index's settings, "Try it". Shapes are the @swarmy/core views search-indexes.service
+ * index's settings, "Try it", editing settings. Shapes are the @swarmy/core views search-indexes.service
  * returns. State lives in `store.extra.searchidx` (`<stack>/<name>` → indexes);
  * an instance made in the demo starts with none, as a real one does.
  */
@@ -78,6 +86,27 @@ export const searchsvcIndexes: DomainResolvers = {
       const ix = indexOf(s, i);
       const { q } = i as { q: string };
       return { index: ix.uid, q, ...demoQuery(ix, q) };
+    },
+
+    'search.setIndexSettings': (i, s): SearchSettingsResult => {
+      const ix = indexOf(s, i);
+      const b = i as SetIndexSettingsInput;
+      const changed: SearchSettingsResult['changed'] = [];
+      if (b.searchable) {
+        ix.searchable = b.searchable.length ? b.searchable : ['*'];
+        changed.push('searchable');
+      }
+      if (b.filterable) {
+        ix.filterable = b.filterable;
+        changed.push('filterable');
+      }
+      if (b.synonyms) {
+        ix.synonyms = b.synonyms;
+        changed.push('synonyms');
+      }
+      ix.updatedAt = new Date().toISOString();
+      // A big index is still re-indexing when swarmy stops waiting, as in life.
+      return { index: ix.uid, taskUid: 8800 + changed.length, status: ix.docs > 10_000 ? 'processing' : 'succeeded', error: null, changed };
     },
   },
 };

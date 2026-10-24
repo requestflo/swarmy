@@ -1,5 +1,12 @@
 import { z } from 'zod';
-import { AttachSearchInput, ProvisionSearchInput, SearchIndexRef, SearchInstanceRef, SearchQueryInput } from '@swarmy/core';
+import {
+  AttachSearchInput,
+  ProvisionSearchInput,
+  SearchIndexRef,
+  SearchInstanceRef,
+  SearchQueryInput,
+  SetIndexSettingsInput,
+} from '@swarmy/core';
 import { orgProcedure, router } from '../trpc';
 import { abacProcedure, resolveStackByName, resolveStackService } from '../abac';
 import {
@@ -15,6 +22,7 @@ import {
   searchStats,
 } from '../services/search.service';
 import { searchIndex, searchIndexes, searchQuery } from '../services/search-indexes.service';
+import { setSearchIndexSettings } from '../services/search-index-settings.service';
 
 const stackName = z
   .string()
@@ -94,6 +102,15 @@ export const managedSearchRouter = router({
    * records one `search.query` audit row (the deciding policy included).
    */
   query: orgProcedure.input(SearchQueryInput).query(({ ctx, input }) => searchQuery(ctx, input)),
+
+  /**
+   * Edit an index's searchable fields, filters and synonyms (only the lists
+   * given). Changes how the app's search behaves, so it is gated like a
+   * deploy (`stack.deploy` on the stack); audited `search.index.settings`.
+   */
+  setIndexSettings: abacProcedure('stack.deploy', resolveStackByName)
+    .input(SetIndexSettingsInput)
+    .mutation(({ ctx, input }) => setSearchIndexSettings(ctx, input)),
 
   /** Snapshots for this instance (restic catalog filtered by the search tag). */
   listBackups: orgProcedure

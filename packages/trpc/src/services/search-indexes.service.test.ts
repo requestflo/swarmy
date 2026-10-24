@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import type { OrgContext } from '../context';
-import { seedKv, useMemoryKv } from './swarm-kv.service';
 import { searchIndexes, searchQuery } from './search-indexes.service';
+import { ctxWith } from './search-testing';
 
 /**
  * Service wiring over a fake hub: every index call is ONE `exec` in the
@@ -9,54 +8,6 @@ import { searchIndexes, searchQuery } from './search-indexes.service';
  * no key and no user text, reads are audited, and "Try it" runs the
  * `data.read` gate before it touches the engine.
  */
-
-const engine = {
-  id: 'svc-search', name: 'shop_main-search', image: 'getmeili/meilisearch:v1.12', mode: 'replicated',
-  replicas: 1, runningReplicas: 1, desiredReplicas: 1,
-  labels: { 'com.docker.stack.namespace': 'shop', 'swarmy.search.engine': 'meilisearch', 'swarmy.search.cluster': 'main' },
-  networks: [], env: [], ports: [], createdAt: 0, updatedAt: 0,
-};
-const container = {
-  id: 'ctr-search', name: 'shop_main-search.1', image: engine.image, state: 'running', status: 'Up',
-  serviceId: 'svc-search', labels: { 'com.docker.swarm.service.id': 'svc-search' },
-};
-
-type Exec = { cmd: string[] };
-export function ctxWith(role: 'owner' | 'member', answer: (script: string) => Array<[number, unknown]>, labels: Record<string, string> = {}) {
-  const audit: { action: string; metadata: Record<string, unknown> }[] = [];
-  const sent: { node: string; cmd: string; payload: Exec }[] = [];
-  const hub = {
-    liveInventory: () => ({ services: [{ ...engine, labels: { ...engine.labels, ...labels } }], containers: [container] }),
-    onlineNodeIds: () => ['node-a'],
-    latestContainers: () => [container],
-    managerNode: () => 'node-a',
-    nodeInfoFor: () => undefined,
-    dispatch: async (node: string, cmd: string, payload: Exec) => {
-      sent.push({ node, cmd, payload });
-      const script = payload.cmd[2] ?? '';
-      const marker = /-w '\\n(@@[a-z0-9]+) /.exec(script)?.[1] ?? '';
-      const output = answer(script).map(([status, body]) => `${JSON.stringify(body)}\n${marker} ${status}\n`).join('');
-      return { exitCode: 0, output };
-    },
-  };
-  useMemoryKv(hub as never);
-  seedKv(hub as never, 'org1', 'stack', 'st1', { name: 'shop', ingressDriver: null });
-  const ctx = {
-    activeOrgId: 'org1',
-    user: { id: 'u1' },
-    session: { id: 's1' },
-    membership: { role, orgId: 'org1' },
-    reqHeaders: new Headers(),
-    db: {
-      member: { findFirst: async () => ({ id: 'mem1', role, organizationId: 'org1', attributes: {} }) },
-      policy: { findMany: async () => [] },
-      resourceGrant: { findMany: async () => [] },
-      auditLog: { create: async ({ data }: { data: { action: string; metadata: Record<string, unknown> } }) => void audit.push(data) },
-    },
-    hub,
-  } as unknown as OrgContext;
-  return { ctx, audit, sent };
-}
 
 describe('search indexes service', () => {
   it('lists indexes with one exec in the engine container and audits the read', async () => {
@@ -74,7 +25,7 @@ describe('search indexes service', () => {
   });
 
   it('a Typesense instance says unsupported without touching the engine', async () => {
-    const { ctx, sent } = ctxWith('owner', () => [], { 'swarmy.search.engine': 'typesense' });
+    const { ctx, sent } = ctxWith('owner', () => [], { labels: { 'swarmy.search.engine': 'typesense' } });
     expect(await searchIndexes(ctx, { stack: 'shop', name: 'main' })).toMatchObject({ supported: false, indexes: [] });
     expect(sent).toHaveLength(0);
   });
@@ -94,7 +45,7 @@ describe('search indexes service', () => {
   });
 
   it('a member is refused Try it on a production stack — audited, the engine never asked', async () => {
-    const { ctx, audit, sent } = ctxWith('member', () => [], { 'swarmy.env': 'production' });
+    const { ctx, audit, sent } = ctxWith('member', () => [], { labels: { 'swarmy.env': 'production' } });
     await expect(searchQuery(ctx, { stack: 'shop', name: 'main', index: 'products', q: 'mug' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
     expect(sent).toHaveLength(0);
     expect(audit.map((a) => a.action)).toEqual(['authz.deny:data.read']);

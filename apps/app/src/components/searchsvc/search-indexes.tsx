@@ -85,7 +85,7 @@ export function SearchIndexes({ v }: { v: SearchInstanceView }): React.JSX.Eleme
       >
         <span className="text-[13px] font-semibold">{indexLine(current)}</span>
       </Kv>
-      <SearchIndexDetail v={v} uid={current.uid} />
+      <SearchIndexDetail key={current.uid} v={v} uid={current.uid} />
       {current.primaryKey ? <Tech className="pt-1">primary key {current.primaryKey}</Tech> : null}
     </div>
   );

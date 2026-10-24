@@ -92,6 +92,7 @@ const GATES: Array<[string, unknown, string]> = [
   ['backups.appDb.restore', {}, 'data.restore'],
   ['search.destroy', {}, 'data.destroy'],
   ['search.restore', {}, 'data.restore'],
+  ['search.setIndexSettings', { stack: 'shop', name: 'main', index: 'products' }, 'stack.deploy'],
   ['vector.destroy', {}, 'data.destroy'],
   ['buckets.deleteBucket', {}, 'data.destroy'],
   ['buckets.deleteKey', {}, 'data.destroy'],
