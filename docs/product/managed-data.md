@@ -196,10 +196,56 @@ Four ideas, one story:
   swarmy has no reading of the main copy. Seconds of lag only order the
   candidates. There is one rule, shared, and no second copy of it in the
   dashboard.
+- **Postgres extensions are a switch.** `pg_stat_statements` and `postgis` are
+  toggled on the database page (`db.setExtension`, `stack.deploy`, audited).
+  The toggle only rewrites the primary's `swarmy.db.extensions` label; the
+  reconcile then converges one step per tick: replicas restart with the new
+  `shared_preload_libraries` first and are checked, then the writer restarts
+  in place (the failover alarm is held, nothing is promoted), then
+  `CREATE EXTENSION` runs on the primary. The default image has no postgis, so
+  the page says it needs a postgis image instead of pretending.
+- **Slow queries over 24 hours.** With `pg_stat_statements` on, a worker
+  snapshots it every 5 minutes (an audited, read-only system query) and keeps
+  per-statement deltas in `telemetry.db`. The studio's insights show calls,
+  mean time and an estimated p95 per statement (estimated from the
+  per-snapshot means, and labelled so).
 - **Caches and search read the same way.** Each is drawn as its shape, with
   "If `<server>` dies: …" worked out from its members and the servers they run
-  on, and the settings swarmy fixes for you (eviction and persistence are fixed
-  today, not settings).
+  on. A cache's "when full" (eviction) and persistence (off, RDB snapshots,
+  AOF) are settings: swarmy applies them live with `CONFIG SET` and records
+  them only once they are on disk; a queue's store always keeps `noeviction`.
+- **A search instance shows its indexes.** The Data tab lists each
+  Meilisearch index (documents, size, last change) and its searchable,
+  filterable and sortable fields and synonyms, read from inside the engine's
+  container (the master key stays in its secret file). The fields and synonyms
+  are edited there (`stack.deploy`); **Try it** runs a query against the
+  index and shows the top hits, behind the same `data.read` gate as the
+  database studio. **Rotate** mints a new master key, shown once: the engine
+  and every attached app move to the new secret version at the same file path
+  (the instance records which in `swarmy.search.keySecret`), the old versions
+  are removed once nothing mounts them, and a compose redeploy keeps an app on
+  the rotated key.
+- **History for caches, queues and buckets.** The reconciles keep one sample
+  per resource per 5 minutes in `telemetry.db` for 7 days, so the pages show a
+  cache's hit rate, a queue's depth and workers, a job's throughput and a
+  bucket's growth over time.
+- **A bucket carries its own browser and age rules.** CORS (which websites a
+  browser may fetch from, the methods, and how long a preflight is cached;
+  `data.configure`) and lifecycle (delete files under a prefix after N days,
+  clear unfinished uploads after N days; `data.destroy`, because expiry deletes
+  for good) are written to the bucket in Garage through its S3 API, audited
+  with the rules before and after. Garage supports only those lifecycle
+  actions; wildcard origins need a Garage v2 engine. An attached app also gets
+  `S3_PUBLIC_ENDPOINT` (the public S3 hostname) when the org has one, so the
+  presigned links it makes for browsers work outside the swarm.
+- **The database studio fails closed.** It classifies every statement before
+  it runs, and the agent runs the same check again. A statement that reads
+  differently under a server's non-default string mode (MySQL `ANSI_QUOTES` or
+  `NO_BACKSLASH_ESCAPES`, Postgres `standard_conforming_strings=off`) is at
+  least a write, and several statements under any mode is blocked. A Redis
+  command that starts with `-` is refused, since `redis-cli` would read it as
+  its own option. The audit row keeps a statement's shape with every literal
+  replaced by `?`, never the values.
 - **Data, by app.** The Data page groups every store under the app that uses it
   and says who can reach each bucket. Dragging a bucket onto an app previews
   which of its services get it and the variables each gains (`S3_*`), then
@@ -208,6 +254,10 @@ Four ideas, one story:
   key or a signed link), its size and copies, who uses it, keys (the secret
   shown once), and the rule that refuses a delete while it holds objects or is
   attached.
+- **Restore as a copy makes its own database.** Restoring a Postgres backup
+  "as a copy" creates `<cluster>-restore-<mmdd>` beside the source (same image
+  and database, one copy) and restores into it; nothing is wired to an app
+  until you switch it (see `resilience-and-dr.md`).
 
 ## Failure modes (designed, not accidental)
 
@@ -253,7 +303,8 @@ Four ideas, one story:
 The invariants, label schemes, and file map live in the `managed-data-services`
 skill (`.claude/skills/managed-data-services/SKILL.md`) — how a cluster is
 declared, reconciled, and attached. Key homes: the per-domain routers
-(`packages/trpc/src/routers/{manageddb,cache,search,vector,buckets,storage,volumes}.ts`),
+(`packages/trpc/src/routers/{manageddb,cache,search,vector,buckets,storage}.ts`;
+cluster volumes are REST only, `packages/api-rest/src/routes/volumes.ts`),
 their services
 (`packages/trpc/src/services/{manageddb,cache,search,vector,buckets}.service.ts`,
 plus `garage-render.ts`, `replicatedStore.service.ts`, `clusterVolume.service.ts`),
@@ -266,4 +317,16 @@ storage/volume handler (`apps/agent/src/handlers/storage.ts`) and its protocol
 per stack in `apps/app/src/routes/_authed/stacks/$name.data.index.tsx`, a
 Postgres database at `stacks/$name.data.$cluster.tsx`, data by app at
 `routes/_authed/data.tsx`, object storage at `routes/_authed/data_.buckets.tsx`
-and a bucket at `data_.buckets_.$name.tsx`.
+and a bucket at `data_.buckets_.$name.tsx`. Newer homes: Postgres extensions
+(`packages/core/src/manageddb-extensions{,-plan}.ts`,
+`packages/trpc/src/services/manageddb-extensions.service.ts`,
+`apps/api/src/workers/manageddb-extensions.ts`), slow queries
+(`packages/core/src/studio/slow-queries.ts`, `services/studio-slow.service.ts`,
+`apps/api/src/workers/pg-slow-queries.ts`), search indexes and key rotation
+(`services/search-{indexes,index-settings,key}.service.ts`), data history
+(`services/data-history-{record,sample,grid}.ts`,
+`{cache,queue,bucket}-history.ts`), bucket rules
+(`services/bucket-{cors,lifecycle}.service.ts`, `bucket-s3-call.ts`,
+`routers/bucket-rules.ts`), the public S3 endpoint (`services/public-s3.ts`),
+and the studio's classifier and audit shape
+(`packages/core/src/studio/{classify,sql-modes,redact}.ts`).

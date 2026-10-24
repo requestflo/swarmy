@@ -1,6 +1,6 @@
 ---
 name: managed-data-services
-description: Invariants, label schemes, and file map for swarmy's managed data plane — Postgres clusters (swarmy.db.*), caches (swarmy.cache.*), search (swarmy.search.*), vectors (swarmy.vector.* + in-place pgvector), and Garage object-storage buckets. Load before touching packages/trpc/src/routers/{manageddb,cache,search,vector,buckets,storage,volumes}.ts, their *.service.ts, the *-reconcile.ts workers, apps/agent/src/handlers/storage.ts, protocol/storage.ts, the StorageCluster model, or the cluster-volume (`volume.list`) path. Product rationale lives in docs/product/managed-data.md.
+description: Invariants, label schemes, and file map for swarmy's managed data plane — Postgres clusters (swarmy.db.*), caches (swarmy.cache.*), search (swarmy.search.*), vectors (swarmy.vector.* + in-place pgvector), and Garage object-storage buckets. Load before touching packages/trpc/src/routers/{manageddb,cache,search,vector,buckets,bucket-rules,storage}.ts, their *.service.ts, the *-reconcile.ts workers, apps/agent/src/handlers/storage.ts, protocol/storage.ts, the StorageCluster model, or the cluster-volume (`volume.list`) path. Product rationale lives in docs/product/managed-data.md.
 ---
 
 # Managed data services: declare on labels, reconcile, attach by env
@@ -54,7 +54,15 @@ state belongs see `skill("docker-native-storage")`.
    `http://swarmy-garage:3903/v1`, admin token as container ENV — never argv,
    never disk. The store publishes NO ports (`networks` on the render ⇒ agent
    sets `ports: []`). Prisma holds only the `StorageCluster`
-   pointer + token ref.
+   pointer + token ref. A bucket's CORS and lifecycle rules have no admin-API
+   endpoint, so they go through Garage's S3 API (`swarmy-garage:3900`) the
+   same way: one `container.runOnce` curl on the store overlay, with a URL the
+   controller presigned for that single call (platform key `swarmy-presign`,
+   granted on the bucket on demand; `bucket-s3-call.ts`). CORS is written one
+   rule per origin (Garage v1 joins a rule's origins with commas, which
+   browsers reject) and wildcard origins need a v2 engine; lifecycle is only
+   Expiration + AbortIncompleteMultipartUpload (what Garage implements), and
+   rules set outside swarmy are read and kept on save.
 8. **pgvector is enable-in-place, not a new instance.** On an existing managed
    Postgres, exec `CREATE EXTENSION IF NOT EXISTS vector` on the primary and
    stamp `swarmy.vector.pgvector=true`; apps reuse their existing `DATABASE_URL`.
@@ -104,6 +112,44 @@ state belongs see `skill("docker-native-storage")`.
     storage driver. `register`/`removeVolume` ride `volume.provision`/
     `volume.remove` agent commands with `cluster:true`; restic backups
     (the `backups-dr` domain) layer on top — availability ≠ recoverability.
+    There is no tRPC volumes router (removed 2026-09); REST
+    `packages/api-rest/src/routes/volumes.ts` keeps the service.
+13. **Postgres extensions are a label, converged writer-last.**
+    `db.setExtension` (`stack.deploy`, audited `db.extension.enable|disable`)
+    only rewrites `swarmy.db.extensions` on the primary. The boot layer writes
+    `SWARMY_PG_PRELOAD` as `shared_preload_libraries` on every start, and
+    `manageddb-reconcile` takes ONE signature-gated step of the pure
+    `planPgExtensions` (`@swarmy/core` `manageddb-extensions-plan.ts`) per
+    tick: drop, restart standbys, verify (`SHOW shared_preload_libraries`),
+    restart writers in place under `swarmy.db.restart.planned` (holds the
+    failover alarm; never a promotion), verify, `CREATE EXTENSION`. Never
+    restart a writer before its standbys. The image is probed once for postgis
+    (`pgvector/pgvector:pg17` has none) and the view says so.
+14. **A rotated search key moves everyone at the same path.**
+    `search.rotateKey` (`secret.delete`, as `db.rotatePassword`) mints
+    `<family>__v<n>`, redeploys the engine, then each attached app, at the
+    unchanged `/run/secrets/<family>` path; old versions go once nothing mounts
+    them, and the key is returned once. The instance records the mounted
+    version in `swarmy.search.keySecret`: attach mounts that version, detach
+    and destroy match every version, and `carryManagedAttachments` takes the
+    version the live app mounts. Index reads/edits/queries exec inside the
+    engine container with the key on stdin and the query as `$1`, never
+    spliced into the script.
+15. **History is telemetry, one row per resource per 5 minutes.** Cache
+    INFO counters, queue depth/workers and bucket sizes are sampled by their
+    reconciles into `telemetry.db` (`CacheStatSample`/`QueueStatSample`/
+    `BucketStatSample`, unique per resource × bucket, 7 days, pruned by the
+    retention worker); `pg_stat_statements` deltas land in
+    `PgQuerySample`/`PgQueryText` via the `pg-slow-queries` worker (5 min,
+    an audited system read through the studio's bounded query path). Never
+    put history in `control.db` or on a label.
+16. **The studio fails closed, and its audit keeps shape, not values.**
+    `classifySql` (`@swarmy/core/studio`) re-reads every statement under each
+    non-default server string mode (`sql-modes.ts`): several statements under
+    any mode → blocked, any other difference → at least a write. A Redis
+    command starting with `-` is blocked (redis-cli has no `--`). The agent
+    runs the same classifier again. `studio.query` audit rows store
+    `redact.ts`'s shape (literals → `?`, ≤ 1000 chars), never the statement.
 
 ## Contracts between the layers
 
@@ -144,7 +190,14 @@ state belongs see `skill("docker-native-storage")`.
 | Buckets: Garage admin curl, keys, quotas, attach `S3_*` | `packages/trpc/src/services/buckets.service.ts` (router `routers/buckets.ts`) |
 | Garage render (toml/layout/ports) | `packages/trpc/src/services/garage-render.ts` |
 | Estate-wide store cluster (StorageCluster) | `packages/trpc/src/services/replicatedStore.service.ts` (router `routers/storage.ts`) |
-| Swarm CSI cluster volumes | `packages/trpc/src/services/clusterVolume.service.ts` (router `routers/volumes.ts`) |
+| Swarm CSI cluster volumes | `packages/trpc/src/services/clusterVolume.service.ts` (REST `packages/api-rest/src/routes/volumes.ts`; no tRPC router) |
+| Postgres extensions (label codec, rolling-restart plan, toggle, view, converge step) | `packages/core/src/manageddb-extensions{,-plan}.ts`, `packages/trpc/src/services/manageddb-extensions{.service,-view}.ts`, `apps/api/src/workers/manageddb-extensions.ts` (called from `manageddb-reconcile`) |
+| Slow queries (snapshot deltas, 24 h read) | `apps/api/src/workers/pg-slow-queries.ts`, `packages/core/src/studio/slow-queries.ts`, `packages/trpc/src/services/studio-slow.service.ts` (`studio.slowQueries`) |
+| Search indexes, settings, Try it, key rotation | `packages/core/src/search-{indexes,synonyms}.ts`, `packages/trpc/src/services/search-{indexes.core,indexes.parse,indexes.service,index-settings.service,key.service,gate}.ts` |
+| Data history (cache hit rate, queue depth/workers, bucket growth) | `packages/core/src/data-history.ts`, `packages/trpc/src/services/data-history-{record,sample,grid}.ts`, `{cache,queue,bucket}-history.ts`; models in `packages/db/prisma/telemetry/schema.prisma` |
+| Bucket CORS + lifecycle (S3 API one-shots) and the public S3 endpoint | `packages/core/src/bucket-{cors,lifecycle}.ts`, `packages/trpc/src/services/bucket-{cors,lifecycle}{.service,-xml}.ts`, `bucket-s3-call.ts`, `s3-xml.ts`, `public-s3.ts` (`S3_PUBLIC_ENDPOINT`, `presignTarget`), router `routers/bucket-rules.ts` |
+| Restore as a copy (a new `<cluster>-restore-<mmdd>`) | `packages/core/src/db-restore-copy.ts`, `packages/trpc/src/services/dbRestoreCopy{.service,.into,.placement}.ts` (`skill("backups-dr")`) |
+| Database studio: classifier, string modes, audit shape | `packages/core/src/studio/{classify,sql-lex,sql-modes,redact}.ts`, `packages/trpc/src/services/studio.service.ts`, agent `apps/agent/src/handlers/studio.ts` |
 | Agent: applyStorageNode, provisionVolume, removeVolume | `apps/agent/src/handlers/storage.ts` |
 | Storage/volume protocol messages | `packages/core/src/protocol/storage.ts` |
 | Input schemas + engine/topology enums | `packages/core/src/inputs.ts`, `packages/core/src/views.ts` |
@@ -155,7 +208,6 @@ state belongs see `skill("docker-native-storage")`.
 | Data by app (`/data`): each app's stores, who can reach each bucket, drag a bucket onto an app (attach preview, Undo) | `routes/_authed/data.tsx` → `components/data/*` (`data-board-model.ts`), attach plan `components/buckets/attach-plan.ts` (mirrors `ATTACH_ENV_KEYS`) |
 | Bucket page: reach rings (Internal ⊂ Private network ⊂ Public), size, copies, who uses it, keys shown once, the delete rule | `routes/_authed/data_.buckets_.$name.tsx` → `components/buckets/bucket-page.tsx` (+ `reach-model.ts`, `bucket-facts.ts`); reach is `services/bucket-access.service.ts` (`buckets.setAccess`, enforced at the edge) |
 | Postgres boot layer (entrypoint script, env contract, `applyPgBoot`) | `packages/core/src/manageddb-pg.ts` (+ `.test.ts`) |
-| HA templates (`postgres-ha` streaming + manual promotion, `redis-ha` Valkey Sentinel; no gallery UI yet) | `packages/trpc/src/services/templates.ts`, `routers/templates.ts` |
 
 ## Adding a managed-data type (the recipe)
 
