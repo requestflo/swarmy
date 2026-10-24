@@ -5,6 +5,7 @@ import { Depth } from '@/components/calm';
 import { useTRPC } from '@/integrations/trpc';
 import { bytes } from '@/lib/format';
 import { Kv } from './cache-kv';
+import { CacheHitHistory } from './cache-hit-history';
 import { CachePolicyRows } from './cache-policy-rows';
 import type { CacheView } from './cache-words';
 
@@ -77,6 +78,7 @@ export function CacheSettings({ v }: { v: CacheView }): React.JSX.Element {
           ) : s ? 'No lookups yet' : 'Not sampled yet'}
           {s ? <span className="text-muted-foreground"> · {s.opsPerSec.toLocaleString()} ops/s · {s.keys.toLocaleString()} keys right now</span> : null}
         </span>
+        <CacheHitHistory v={v} />
       </Kv>
     </div>
   );

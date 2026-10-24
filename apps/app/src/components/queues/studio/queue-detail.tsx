@@ -6,6 +6,7 @@ import { useTRPC } from '@/integrations/trpc';
 import { JobList } from './job-list';
 import { QueueAutoscale } from './queue-autoscale';
 import { QueueCleanBar } from './queue-clean';
+import { QueueDepthHistory } from './queue-depth-history';
 import { QueuePausedNote } from './queue-paused-note';
 import { QueueRates } from './queue-rates';
 import { QueueWriteAccess } from './queue-write-access';
@@ -76,6 +77,8 @@ export function QueueDetail({ studio, queue }: { studio: StudioRef; queue: Studi
       {queue.isPaused ? (
         <QueuePausedNote name={queue.name} busy={pause.isPending} onResume={() => pause.mutate({ ...ref, paused: false })} />
       ) : null}
+
+      <QueueDepthHistory studio={studio} queue={queue.name} />
 
       <QueueAutoscale studio={studio} queue={queue.name} />
 

@@ -6,6 +6,7 @@ import { CalmRow, Section, SectionLink } from '@/components/calm';
 import { useTRPC } from '@/integrations/trpc';
 import { RowsSkeleton } from '../tab-body';
 import { useStackServices } from '../use-stack-services';
+import { WorkerToday } from './worker-today';
 import { workerRows, type WorkerRow } from './workers-model';
 
 const copies = (c: { desired: number; running: number }): string =>
@@ -13,7 +14,8 @@ const copies = (c: { desired: number; running: number }): string =>
 
 /**
  * Workers (board AppJobs): parts with no address — and every queue's worker —
- * with copies and, where a queue exists, its live depth (`queues.stats`).
+ * with copies and, where a queue exists, its live depth (`queues.stats`) and
+ * the jobs it finished today (`queues.depthHistory`).
  */
 export function WorkersSection({ stack }: { stack: string }): React.JSX.Element {
   const trpc = useTRPC();
@@ -67,6 +69,7 @@ function WorkerLine({ r, depth }: { r: WorkerRow; depth: Map<string, QueueDepthS
       sub={r.queues.length ? `${r.queues.length} queue${r.queues.length === 1 ? '' : 's'}` : 'no queue'}
       say={[copies(r.copies), ...queueWords].join(' · ')}
       tech={r.queues.length ? r.queues.map((q) => `${q.name} ${q.convention} on ${q.cacheName} · ${q.minWorkers}–${q.maxWorkers} copies, 1 per ${q.scalePerJobs} waiting`).join(' · ') : `${r.service} · no published port, no route`}
+      trailing={r.queues.length ? <WorkerToday queues={r.queues} /> : undefined}
       word={short ? 'Short' : asleep ? 'Asleep' : 'Running'}
       wordTone={short ? 'warn' : asleep ? 'idle' : 'ok'}
     />
