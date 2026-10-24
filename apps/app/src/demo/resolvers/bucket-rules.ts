@@ -1,14 +1,26 @@
-import { CORS_ALLOWED_HEADERS, CORS_EXPOSE_HEADERS, checkCorsOrigin, foldCorsRules, type CorsRuleView } from '@swarmy/core';
+import {
+  CORS_ALLOWED_HEADERS,
+  CORS_EXPOSE_HEADERS,
+  LifecycleRuleInput,
+  checkCorsOrigin,
+  foldCorsRules,
+  nameLifecycleRules,
+  type CorsRuleView,
+  type LifecycleRuleView,
+} from '@swarmy/core';
 import type { DemoStore, DomainResolvers } from '../types';
 
 /**
- * A bucket's own rules in demo mode — `buckets.getCors` / `setCors`. Mirrors
- * `bucket-cors.service.ts`: one stored rule per origin, folded back into one
- * policy, on a v2 engine (wildcard origins allowed). Keyed by bucket name.
+ * A bucket's own rules in demo mode — `buckets.getCors` / `setCors` and
+ * `getLifecycle` / `setLifecycle`. Mirrors `bucket-cors.service.ts` (one
+ * stored rule per origin, folded back into one policy, on a v2 engine:
+ * wildcard origins allowed) and `bucket-lifecycle.service.ts` (rules named
+ * swarmy-<n>). Keyed by bucket name.
  */
 
 interface RulesState {
   cors: Record<string, CorsRuleView[]>;
+  lifecycle: Record<string, LifecycleRuleView[]>;
 }
 
 const corsRule = (origin: string, methods: string[], maxAgeSeconds: number | null): CorsRuleView => ({
@@ -25,6 +37,13 @@ function state(store: DemoStore): RulesState {
       'storefront-media': ['https://shop.northwind.dev', 'https://*.northwind.dev', 'http://localhost:3000'].map((o) =>
         corsRule(o, ['GET', 'HEAD', 'PUT'], 3600),
       ),
+    },
+    lifecycle: {
+      'storefront-media': nameLifecycleRules([
+        LifecycleRuleInput.parse({ prefix: 'tmp/', expireAfterDays: 7 }),
+        LifecycleRuleInput.parse({ prefix: 'exports/', expireAfterDays: 30 }),
+        LifecycleRuleInput.parse({ abortUploadsAfterDays: 7 }),
+      ]),
     },
   } satisfies RulesState;
   return store.extra.bucketRules as RulesState;
@@ -64,6 +83,20 @@ export const bucketRules: DomainResolvers = {
       const rules = origins.map((o) => corsRule(o, methods, maxAge));
       state(s).cors[name] = rules;
       return corsView(input.bucketId, name, rules);
+    },
+
+    'buckets.getLifecycle': (i, s) => {
+      const { bucketId } = i as { bucketId: string };
+      const name = bucketName(s, bucketId);
+      return { bucketId, bucket: name, rules: state(s).lifecycle[name] ?? [] };
+    },
+
+    'buckets.setLifecycle': (i, s) => {
+      const input = i as { bucketId: string; rules: unknown[] };
+      const name = bucketName(s, input.bucketId);
+      const rules = nameLifecycleRules(input.rules.map((r) => LifecycleRuleInput.parse(r)));
+      state(s).lifecycle[name] = rules;
+      return { bucketId: input.bucketId, bucket: name, rules };
     },
   },
 };

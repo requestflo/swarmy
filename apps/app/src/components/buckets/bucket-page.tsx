@@ -9,6 +9,7 @@ import { BucketCopiesSection } from './bucket-copies-section';
 import { BucketCorsSection } from './bucket-cors-section';
 import { BucketDelete } from './bucket-delete';
 import { BucketKeysPanel } from './bucket-keys-panel';
+import { BucketLifecycleSection } from './bucket-lifecycle-section';
 import { BucketMoreControls } from './bucket-more-controls';
 import { BucketReachAside } from './bucket-reach-aside';
 import { BucketSizeSection } from './bucket-size-section';
@@ -74,6 +75,7 @@ export function BucketPage({ name }: { name: string }): React.JSX.Element {
       <BucketCopiesSection copies={p.copies} members={p.members} />
       <BucketAttachedSection bucket={b} store={p.store} />
       <BucketKeysPanel bucket={b} endpoint={p.store?.endpoint ?? null} />
+      <BucketLifecycleSection bucketId={b.id} access={p.access} />
       <BucketCorsSection bucketId={b.id} access={p.access} />
       <BucketMoreControls bucket={b} />
       <BucketDelete bucket={b} />

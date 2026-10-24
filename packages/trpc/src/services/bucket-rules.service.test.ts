@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'bun:test';
 import { TRPCError } from '@trpc/server';
+import { LifecycleRuleInput } from '@swarmy/core';
 import { encryptSecret } from '@swarmy/core/crypto';
 import type { OrgContext } from '../context';
 import { buildCorsXml, parseCorsXml } from './bucket-cors-xml';
 import { getBucketCors, setBucketCors } from './bucket-cors.service';
+import { buildLifecycleXml, parseLifecycleXml } from './bucket-lifecycle-xml';
+import { getBucketLifecycle, prepareLifecycleRules, setBucketLifecycle } from './bucket-lifecycle.service';
 import { buildS3Script } from './bucket-s3-call';
 import { STATUS_MARKER } from './buckets.service';
 import { seedKv, useMemoryKv } from './swarm-kv.service';
@@ -186,5 +189,68 @@ describe('buckets.getCors / setCors against a fake Garage', () => {
     expect(await refusal(setBucketCors(g.ctx, wild))).toMatch(/Garage v1/);
     expect(await refusal(setBucketCors(g.ctx, { ...wild, origins: ['https://a.dev'], methods: [] }))).toMatch(/at least one method/);
     expect(g.calls.some((c) => c.startsWith('S3 PUT'))).toBe(false);
+  });
+});
+
+const rule = (r: Parameters<typeof LifecycleRuleInput.parse>[0]) => LifecycleRuleInput.parse(r);
+
+describe('lifecycle documents (golden)', () => {
+  it('a prefix + days rule, and a whole-bucket upload clean-up (no Filter)', () => {
+    const xml = buildLifecycleXml([
+      rule({ id: 'tmp', prefix: 'tmp/', expireAfterDays: 7 }),
+      rule({ id: 'uploads', abortUploadsAfterDays: 3, enabled: false }),
+    ]);
+    expect(xml).toBe(
+      '<?xml version="1.0" encoding="UTF-8"?><LifecycleConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">' +
+        '<Rule><ID>tmp</ID><Status>Enabled</Status><Filter><Prefix>tmp/</Prefix></Filter><Expiration><Days>7</Days></Expiration></Rule>' +
+        '<Rule><ID>uploads</ID><Status>Disabled</Status><AbortIncompleteMultipartUpload><DaysAfterInitiation>3</DaysAfterInitiation></AbortIncompleteMultipartUpload></Rule>' +
+        '</LifecycleConfiguration>',
+    );
+  });
+
+  it('several conditions are wrapped in <And> (Garage refuses them bare); round-trips', () => {
+    const r = rule({ id: 'big-logs', prefix: 'logs/<x>&', sizeGreaterThan: 1_000_000, expireAfterDays: 30 });
+    const xml = buildLifecycleXml([r]);
+    expect(xml).toContain('<Filter><And><Prefix>logs/&lt;x&gt;&amp;</Prefix><ObjectSizeGreaterThan>1000000</ObjectSizeGreaterThan></And></Filter>');
+    expect(parseLifecycleXml(xml)).toEqual([r]);
+  });
+
+  it('keeps a date expiry set outside swarmy', () => {
+    const r = rule({ id: 'q4', prefix: 'promo/', expireOnDate: '2027-01-01T00:00:00Z' });
+    expect(parseLifecycleXml(buildLifecycleXml([r]))).toEqual([r]);
+  });
+
+  it('refuses two rules with one name, names the rest', () => {
+    expect(prepareLifecycleRules([rule({ expireAfterDays: 1 })]).map((r) => r.id)).toEqual(['swarmy-1']);
+    expect(() => prepareLifecycleRules([rule({ id: 'a', expireAfterDays: 1 }), rule({ id: 'a', expireAfterDays: 2 })])).toThrow(/unique/);
+  });
+});
+
+describe('buckets.getLifecycle / setLifecycle against a fake Garage', () => {
+  it('none configured reads as no rules on v1 (204) and v2 (404)', async () => {
+    for (const engineImage of [null, 'dxflrs/garage:v2.4.1']) {
+      const v = await getBucketLifecycle(fakeGarageS3({ engineImage }).ctx, FAKE_BUCKET_ID);
+      expect(v).toEqual({ bucketId: FAKE_BUCKET_ID, bucket: 'storefront-media', rules: [] });
+    }
+  });
+
+  it('the signing key gets read + write, never owner', async () => {
+    const g = fakeGarageS3();
+    await getBucketLifecycle(g.ctx, FAKE_BUCKET_ID);
+    expect(g.grants.get('GKpresign')).toEqual({ read: true, write: true, owner: false });
+  });
+
+  it('set writes the rules, audits from → to; none deletes them', async () => {
+    const g = fakeGarageS3();
+    const v = await setBucketLifecycle(g.ctx, { bucketId: FAKE_BUCKET_ID, rules: [rule({ prefix: 'tmp/', expireAfterDays: 7 })] });
+    expect(v.rules[0]).toMatchObject({ id: 'swarmy-1', prefix: 'tmp/', expireAfterDays: 7 });
+    expect(parseLifecycleXml(g.docs.lifecycle!)).toEqual(v.rules);
+    expect(g.audits.at(-1)).toEqual({
+      action: 'buckets.setLifecycle',
+      metadata: { bucket: 'storefront-media', from: [], to: ['tmp/ · delete 7d'] },
+    });
+    await setBucketLifecycle(g.ctx, { bucketId: FAKE_BUCKET_ID, rules: [] });
+    expect(g.calls).toContain('S3 DELETE /storefront-media?lifecycle');
+    expect(g.audits.at(-1)?.metadata).toEqual({ bucket: 'storefront-media', from: ['tmp/ · delete 7d'], to: [] });
   });
 });
