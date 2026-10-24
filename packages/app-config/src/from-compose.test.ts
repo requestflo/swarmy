@@ -58,9 +58,16 @@ describe('composeToAppConfig', () => {
     expect(cfg.services.worker?.replicas).toBe(2);
   });
 
-  it('says what it dropped', () => {
-    expect(r.notes.some((n) => n.includes('bind mount ./local'))).toBe(true);
-    expect(r.notes.some((n) => n.includes('depends_on'))).toBe(true);
+  it('says what it dropped, each with why, and what changed shape', () => {
+    const local = r.untranslated.find((g) => g.key === 'volumes: ./local:/app/local');
+    expect(local).toMatchObject({ service: 'web' });
+    expect(local?.reason).toContain('a folder on one server');
+    expect(r.untranslated.find((g) => g.key === 'depends_on')).toMatchObject({ service: 'web', handled: true });
+    expect(r.untranslated.find((g) => g.key === 'ports: 8080:3000')?.reason).toContain('address');
+    // Every gap is also a plain-words note; changes are notes too.
+    expect(r.notes.some((n) => n.startsWith("web: volumes: ./local:/app/local isn't carried over"))).toBe(true);
+    expect(r.changes).toContain('web: DATABASE_URL now binds to ${{ db.url }} (swarmy fills in the real address and password).');
+    expect(r.notes).toEqual(expect.arrayContaining(r.changes));
   });
 
   it('refuses junk', () => {
