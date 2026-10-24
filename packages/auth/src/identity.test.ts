@@ -2,7 +2,6 @@ import { describe, expect, it } from 'bun:test';
 import {
   displayEmail,
   groupsFromClaim,
-  idpPlaceholderEmail,
   invitePlaceholderEmail,
   isLinkInviteEmail,
   isPlaceholderEmail,
@@ -10,6 +9,7 @@ import {
   readCookie,
   usernamePlaceholderEmail,
 } from './identity';
+import { idpPlaceholderEmail } from './identity-idp';
 
 describe('placeholder emails (email is optional)', () => {
   it('builds stable, reserved-TLD addresses', () => {

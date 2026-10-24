@@ -9,11 +9,11 @@ import {
   groupsFromClaim,
   isLinkInviteEmail,
   INVITE_COOKIE,
-  idpPlaceholderEmail,
   mapGroups,
   readCookie,
   usernamePlaceholderEmail,
 } from './identity';
+import { idpPlaceholderEmail } from './identity-idp';
 import type { ResolvedAuthConfig, ResolvedSsoProvider } from './config';
 import { isInviteLinkToken } from './invite-links';
 

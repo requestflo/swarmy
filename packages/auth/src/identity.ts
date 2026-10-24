@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto';
-
 /**
  * Email is optional on swarmy (owner decision 2026-09-24): people sign in with
  * SSO, a social account, or a username, and some of them have no email at all.
@@ -13,7 +11,8 @@ import { createHash } from 'node:crypto';
  *
  *  - `alice@user.swarmy.invalid`: a username account created without email;
  *  - `<hash>@<provider>.idp.swarmy.invalid`: an IdP that returned no email,
- *    keyed by a hash of the exact provider id + subject;
+ *    keyed by a hash of the exact provider id + subject (identity-idp.ts:
+ *    server-only, it needs node:crypto and this file reaches the browser);
  *  - `invite-<token>@invite.swarmy.invalid`: a link-only invitation.
  */
 
@@ -27,31 +26,14 @@ function localPart(raw: string): string {
   return (cleaned || 'user').slice(0, 64);
 }
 
-function hostPart(raw: string): string {
+/** A readable DNS-label hint for an IdP's placeholder host. */
+export function hostPart(raw: string): string {
   return raw.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'idp';
 }
 
 /** A username account's placeholder address. */
 export function usernamePlaceholderEmail(username: string): string {
   return `${localPart(username)}@user.${PLACEHOLDER_EMAIL_TLD}`;
-}
-
-/**
- * The placeholder for an IdP account (`sub`) that came back without email.
- * The local part is a hash of the exact `providerId` + `sub`, so two
- * identities can never share an address (sanitising them did: `acme.corp`
- * and `acme_corp`, or subjects `a:1` and `a-1`, collided, and a shared
- * address is what Better Auth falls back to matching on). The host part is
- * only a readable hint.
- *
- * Accounts created before this rule keep their old `<sub>@<provider>.sso.…`
- * address: Better Auth finds a returning IdP identity by its account row
- * (providerId + accountId), never by the address, and the `.idp.` namespace
- * means a new address can't land on an old one.
- */
-export function idpPlaceholderEmail(providerId: string, subject: string): string {
-  const id = createHash('sha256').update(JSON.stringify([providerId, subject])).digest('hex').slice(0, 32);
-  return `${id}@${hostPart(providerId)}.idp.${PLACEHOLDER_EMAIL_TLD}`;
 }
 
 /** A link-only invitation's placeholder address (the invitation is the credential). */

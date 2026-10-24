@@ -69,7 +69,6 @@ export type { Auth, Session, AuthUser, SendMagicLink, BuildAuthOptions, ExtraPlu
 export {
   PLACEHOLDER_EMAIL_TLD,
   usernamePlaceholderEmail,
-  idpPlaceholderEmail,
   invitePlaceholderEmail,
   isPlaceholderEmail,
   isLinkInviteEmail,
@@ -78,6 +77,7 @@ export {
   groupsFromClaim,
   mapGroups,
 } from './identity';
+export { idpPlaceholderEmail } from './identity-idp';
 export {
   redeemInvitation,
   needsAppGrant,
