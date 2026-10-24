@@ -47,7 +47,8 @@ describe('installer bootstrap mesh key (QA-062)', () => {
 
   it('the bootstrap line uses the retrying mint and warns when it has no key', () => {
     const script = readFileSync(SCRIPT, 'utf8');
-    const block = script.slice(script.indexOf('# With a mesh, the bootstrap line'), script.indexOf("printf '  Add a node:  curl"));
+    const block = script.slice(script.indexOf('# With a mesh, the bootstrap line'), script.indexOf('write_secret_file "$ADD_NODE_OUT"'));
+    expect(block.length).toBeGreaterThan(0);
     expect(block).toContain("nb_setup_key_retry reusable 5 86400 'swarmy bootstrap one-liner'");
     expect(block).not.toMatch(/\$\(nb_setup_key reusable/);
     expect(block).toContain('no mesh key for the line below');

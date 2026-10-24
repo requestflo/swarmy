@@ -80,7 +80,8 @@ Then, in the dashboard:
 
 1. **Add a node** (**Nodes → Add a node**): paste the one-liner it shows, as
    root, on any other Linux box. The same one-liner repairs a node that has gone
-   dark. The one printed by the installer works for 24 hours / 5 nodes; after
+   dark. The one the installer saves to `/var/lib/swarmy/install/add-node.txt`
+   (root-only; it carries a join token) works for 24 hours / 5 nodes; after
    that, mint one in the dashboard.
 2. **Deploy**: a blueprint, a compose file, or a single image.
 3. **Add a domain**: point DNS at the edge node (a manager — node #1 — by

@@ -43,10 +43,19 @@ When it finishes it prints:
 - **Dashboard**: `http://<server-ip>:3021`. On a server with a public IP, the
   dashboard also gets `swarmy.<ip-with-dashes>.sslip.io` with a Let's Encrypt
   certificate.
-- **Login**: your admin email, plus the password if the installer generated it.
-  Save it.
-- **Add a node**: a one-liner for your next server. It is valid for 24 hours or 5
-  nodes.
+- **Login**: your admin email. If the installer generated the password, it
+  doesn't print it. It saves it to `/var/lib/swarmy/install/admin-password`
+  (mode `600`, readable by root only) and prints that path. Read it with `sudo cat`,
+  sign in, then delete the file.
+- **Add a node**: the path of a one-liner for your next server,
+  `/var/lib/swarmy/install/add-node.txt` (mode `600`). It is valid for 24 hours
+  or 5 nodes.
+
+Secrets stay out of the output because install output gets copied to places
+that outlive the session and that more people can read: terminal scrollback,
+`tee`'d logs, CI logs, `/var/log/cloud-init-output.log`. The files sit in the
+root-only directory that already holds `state.env`, so they add no new place a
+secret can leak from.
 
 Each step is recorded in `/var/lib/swarmy/install/state.env`. Running the script
 again picks up where it left off and does not duplicate anything.

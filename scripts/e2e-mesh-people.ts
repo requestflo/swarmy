@@ -349,13 +349,15 @@ curl -fsSL http://host.lima.internal:5078/scripts/install-swarmy.sh | bash -s --
     });
 
     labCa = await vm(N1, 'cat /root/lab-ca.pem');
+    // The installer saves the bootstrap "Add a node" line root-only instead of printing it (it carries the join token).
+    const addNodeLine = (await vm(N1, 'cat /var/lib/swarmy/install/add-node.txt')).trim();
     // (--skip-install re-attaches to a cluster that already handed over.)
     if (!args.has('--skip-install')) await step('TLS handover: NetBird booted plain, a peer joined before the edge exists', async () => {
       const out = await vm(N1, `docker exec swarmy-mesh-control grep -o '"exposedAddress": "[^"]*"' /run/swarmy-mesh/config.yaml
 docker exec swarmy-netbird netbird status | grep -E '^(Management|Signal):'`);
       if (!/http:\/\/mesh-[\d-]+\.sslip\.io:8081/.test(out)) throw new Error(`not in bootstrap mode: ${out}`);
       if (!/Management: Connected/.test(out) || !/Signal: Connected/.test(out)) throw new Error(`node1 before the handover: ${out}`);
-      if (!installOut.includes('SWARMY_MESH_MANAGEMENT_URL=http://mesh-')) throw new Error('the join line should carry the bootstrap URL before the handover');
+      if (!addNodeLine.includes('SWARMY_MESH_MANAGEMENT_URL=http://mesh-')) throw new Error('the join line should carry the bootstrap URL before the handover');
       return 'exposed on :8081, node1 connected (management + signal)';
     });
     if (!args.has('--skip-install')) await step('TLS handover: the edge serves the mesh domain → NetBird re-renders to edge, pre-handover peers stay up', async () => {
@@ -432,10 +434,10 @@ docker network inspect ingress --format '{{(index .IPAM.Config 0).Subnet}}'`,
     });
 
     await step('node2 joins through the printed one-liner, on its mesh IP', async () => {
-      const line = installOut.split('\n').find((l) => l.includes('Add a node:'));
-      if (!line) throw new Error('no Add-a-node line printed');
+      if (!installOut.includes('Add a node:  sudo cat /var/lib/swarmy/install/add-node.txt')) throw new Error('no Add-a-node pointer printed');
+      if (!addNodeLine.startsWith('curl ')) throw new Error(`no Add-a-node line saved: ${addNodeLine.slice(0, 80)}`);
       // Before the lab cert is trusted by agents, join over the direct origin (the installer says so too).
-      const cmd = line.replace(/^.*Add a node:\s*/, '').replaceAll(base, direct);
+      const cmd = addNodeLine.replaceAll(base, direct);
       if (!cmd.includes('SWARMY_MESH_SETUP_KEY=')) throw new Error('the join line carries no mesh key');
       await vm(N2, `command -v curl >/dev/null || apt-get install -y curl >/dev/null; ${cmd}`, 900_000);
       const joined = async () => {

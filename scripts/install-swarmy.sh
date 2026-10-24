@@ -95,6 +95,9 @@ SWARMY_RAW_BASE="${SWARMY_RAW_BASE:-https://raw.githubusercontent.com/requestflo
 STACK_NAME="swarmy"
 STATE_DIR="/var/lib/swarmy/install"
 STATE_FILE="$STATE_DIR/state.env"
+# Secrets the end-of-install summary points at instead of printing (0600, root-only dir).
+ADMIN_PASSWORD_OUT="$STATE_DIR/admin-password"   # only when the installer generated it
+ADD_NODE_OUT="$STATE_DIR/add-node.txt"           # the bootstrap "Add a node" one-liner (join token, mesh key)
 OVERLAY_NET="swarmy"                           # SHARED platform overlay: edge ↔ routed apps, collector, Garage
 CONTROL_NET="swarmy-control"                   # PRIVATE control plane: controller + its DB (external in the stack file)
 INTEGRATIONS_NET="swarmy-integrations"         # controller → in-swarm integration targets only (AI engines, alert/webhook targets)
@@ -325,6 +328,12 @@ direct_url_note() {
   printf 'node-local: answers only on the server running the controller, and changes if the controller moves'
 }
 
+# add_node_command SHARE_URL MESH_ENV JOIN_TOKEN → the bootstrap "Add a node"
+# one-liner (MESH_ENV is empty or `KEY=value … ` with a trailing space).
+add_node_command() {
+  printf 'curl -fsSL %s/install/loader.sh | %sSWARMY_JOIN_TOKEN=%s sh -s -- --controller %s' "$1" "$2" "$3" "$1"
+}
+
 # ── state helpers ───────────────────────────────────────────────────────────
 # shellcheck source=/dev/null
 state_load() { [ -f "$STATE_FILE" ] && . "$STATE_FILE" || true; }
@@ -350,6 +359,15 @@ with_public_umask() {
   umask "$old"; return "$rc"
 }
 marker_done() { state_load; local v; eval "v=\${MARK_$1:-}"; [ "$v" = "1" ]; }
+# write_secret_file FILE VALUE — VALUE + newline into FILE, 0600 in the root-only
+# state dir, atomically (mktemp: never a readable window, never a partial file).
+write_secret_file() {
+  local tmp
+  state_dir
+  tmp="$(mktemp "$STATE_DIR/.secret.XXXXXX")"
+  printf '%s\n' "$2" > "$tmp"
+  chmod 600 "$tmp"; mv "$tmp" "$1"
+}
 
 # Restore settings the first install recorded (CFG_*) unless given this run,
 # then record the effective values for the next re-run.
@@ -886,6 +904,9 @@ ensure_secrets() {  # persist-once into state.env (NEVER regenerate)
   [ -n "${SWARMY_SECRET_KEY:-}" ]   || state_set SWARMY_SECRET_KEY "$(gen_secret)"
   [ -n "${BETTER_AUTH_SECRET:-}" ]  || state_set BETTER_AUTH_SECRET "$(gen_secret)"
   state_set ADMIN_PASSWORD "$ADMIN_PASSWORD"
+  # A generated password is never printed (install output ends up in scrollback,
+  # tee'd logs, CI and cloud-init logs): it goes to a root-only file instead.
+  [ "${GENERATED_PW:-0}" != 1 ] || write_secret_file "$ADMIN_PASSWORD_OUT" "$ADMIN_PASSWORD"
   if [ -z "${BOOTSTRAP_JOIN_TOKEN:-}" ]; then
     state_set BOOTSTRAP_JOIN_TOKEN "swt_$(openssl rand -hex 2)_$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=')"
   fi
@@ -1676,7 +1697,10 @@ finalize() {
     printf '              %s\n' "${c_dim}($(direct_url_note); add --domain for an address that follows it)${c_reset}"
   fi
   printf '  Login:      %s\n' "$ADMIN_EMAIL"
-  if [ "${GENERATED_PW:-0}" = 1 ]; then printf '  Password:   %s   %s\n' "$ADMIN_PASSWORD" "${c_yellow}(generated — save it now)${c_reset}"; fi
+  if [ -f "$ADMIN_PASSWORD_OUT" ]; then
+    printf '  Password:   sudo cat %s\n' "$ADMIN_PASSWORD_OUT"
+    printf '              %s\n' "${c_yellow}(generated and saved root-only, never printed: delete the file once you have signed in)${c_reset}"
+  fi
   if [ -n "$DOMAIN" ] && [ -z "$DASHBOARD_DOMAIN" ]; then
     printf '  Domain:     https://%s  %s\n' "$DOMAIN" "${c_dim}(active once ingress is applied in the dashboard)${c_reset}"
   fi
@@ -1705,12 +1729,16 @@ finalize() {
   # H17: the node installer is served over HTTPS only (see add_node_mode).
   case "$(add_node_mode "$share" "$ALLOW_INSECURE_INSTALL")" in
     refused)
+      rm -f "$ADD_NODE_OUT"   # a line from an earlier run would no longer be served
       printf '  Add a node:  %s\n' "${c_yellow}nodes install over HTTPS only, and this dashboard has no HTTPS address.${c_reset}"
       printf '               %s\n' "${c_dim}Re-run with --domain <name> (an A record to this server), or — only on a network you trust — --allow-insecure-install.${c_reset}"
       ;;
     *)
-      printf '  Add a node:  curl -fsSL %s/install/loader.sh | %sSWARMY_JOIN_TOKEN=%s sh -s -- --controller %s\n' \
-        "$share" "$mesh_env" "$BOOTSTRAP_JOIN_TOKEN" "$share"
+      # The line carries the bootstrap join token (and a mesh key): a credential,
+      # so it goes to a root-only file, not into the install log.
+      write_secret_file "$ADD_NODE_OUT" "$(add_node_command "$share" "$mesh_env" "$BOOTSTRAP_JOIN_TOKEN")"
+      printf '  Add a node:  sudo cat %s\n' "$ADD_NODE_OUT"
+      printf '               %s\n' "${c_dim}(the one-liner for your next server: it carries a join token, so it is saved root-only, not printed)${c_reset}"
       if [ -n "$DASHBOARD_DOMAIN" ] && [ "$HTTPS_READY" != 1 ]; then
         printf '               %s\n' "${c_dim}(the installer is served over HTTPS only: run this once the certificate is issued, in about a minute)${c_reset}"
       fi

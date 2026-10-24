@@ -35,8 +35,12 @@ deploys the controller, and enrols this server as node #1. When it finishes it
 prints:
 
 - **Dashboard** — `http://<server-ip>:3021`
-- **Login** — your admin email, and the password if it generated one (save it)
-- **Add a node** — a one-liner for your next server (valid for 24 hours / 5 nodes)
+- **Login** — your admin email. A generated password is not printed: read it
+  with `sudo cat /var/lib/swarmy/install/admin-password`, then delete the file
+  once you've signed in
+- **Add a node** — where the one-liner for your next server is saved
+  (`sudo cat /var/lib/swarmy/install/add-node.txt`; valid for 24 hours / 5
+  nodes). It carries a join token, so it is kept root-only instead of printed
 
 Then **back up `/var/lib/swarmy/install/state.env`** somewhere off the server.
 It holds `SWARMY_SECRET_KEY`, which encrypts every credential swarmy stores. If
