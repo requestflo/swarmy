@@ -16,13 +16,18 @@
  */
 import {
   NETBIRD_CLIENT_IMAGE_PINNED,
+  PEER_LOGIN_EXPIRY_DEFAULT_HOURS,
   accessGroup,
   applyPeopleAccessPlan,
+  applyPeopleLoginExpiry,
+  bootstrapControlPlane,
   applyUserSync,
   buildPeopleAccessPlan,
   declaredPorts,
   grantGroup,
   listPeoplePeers,
+  loginExpiryHours,
+  loginExpirySec,
   pruneGroups,
   routerGroup,
   serviceFqdn,
@@ -54,13 +59,14 @@ export interface PeopleAccessSettings {
   loginExpiryHours: number;
 }
 
-const DEFAULTS: PeopleAccessSettings = { enabled: false, loginExpiryHours: 12 };
+const DEFAULTS: PeopleAccessSettings = { enabled: false, loginExpiryHours: PEER_LOGIN_EXPIRY_DEFAULT_HOURS };
 
 export function peopleSettings(settings: Record<string, unknown> | null | undefined): PeopleAccessSettings {
   const raw = (settings?.peopleAccess ?? {}) as Partial<PeopleAccessSettings>;
   return {
     enabled: raw.enabled === true,
-    loginExpiryHours: typeof raw.loginExpiryHours === 'number' && raw.loginExpiryHours > 0 ? raw.loginExpiryHours : DEFAULTS.loginExpiryHours,
+    // Clamped to 1 h .. 30 d (`@swarmy/mesh` login-expiry); absent/invalid = 12 h.
+    loginExpiryHours: raw.loginExpiryHours === undefined ? DEFAULTS.loginExpiryHours : loginExpiryHours(raw.loginExpiryHours),
   };
 }
 
@@ -321,6 +327,8 @@ export async function reconcilePeopleAccess(ctx: OrgContext): Promise<PeopleReco
   const changes: SyncChange[] = [];
   changes.push(...(await applyPeopleAccessPlan(api, plan)).changes);
   changes.push(...(await applyUserSync(api, { cluster: intent.cluster, people: intent.people })).changes);
+  // A person's device never escapes the login expiry (servers/routers untouched).
+  changes.push(...(await applyPeopleLoginExpiry(api).catch(() => ({ changes: [] }))).changes);
   steps.push(...(await tearDownRouters(ctx, api, plan)));
   changes.push(...(await pruneGroups(api, plan)).changes);
 
@@ -357,12 +365,11 @@ export async function setPeopleAccess(ctx: OrgContext, input: Partial<PeopleAcce
   });
   const next = peopleSettings(row.settings);
   await writeAudit(ctx, { action: 'mesh.access.settings', targetType: 'meshConfig', targetId: ctx.activeOrgId, metadata: { ...next } });
-  // The login expiry lives in NetBird's account settings (bootstrap), the rest in the next tick.
-  const { api } = await requireManaged(ctx);
-  const acct = await api.getAccount();
-  if (acct.settings.peer_login_expiration !== next.loginExpiryHours * 3600) {
-    await api.updateAccountSettings(acct.id, { ...acct.settings, peer_login_expiration: next.loginExpiryHours * 3600, peer_login_expiration_enabled: true });
-  }
+  // The login expiry lives in NetBird's account settings: the same bootstrap
+  // the control-plane reconcile re-asserts (so the two never disagree); the
+  // rest converges in the next tick.
+  const { m, api } = await requireManaged(ctx);
+  await bootstrapControlPlane(api, { cluster: m.cluster, peerLoginExpirationSec: loginExpirySec(next.loginExpiryHours) });
   void reconcilePeopleAccess(ctx).catch(() => undefined);
   return next;
 }

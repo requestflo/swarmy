@@ -90,6 +90,10 @@ export interface NbPeerFull {
   last_seen?: string;
   last_login?: string;
   login_expired?: boolean;
+  /** Per-peer switches (`PUT /api/peers/{id}` requires all three back). */
+  login_expiration_enabled?: boolean;
+  inactivity_expiration_enabled?: boolean;
+  ssh_enabled?: boolean;
   user_id?: string;
   os?: string;
   version?: string;
@@ -140,6 +144,7 @@ export interface NetbirdAdminApi {
   listUsers(): Promise<NbUser[]>;
   updateUser(id: string, u: { role: string; auto_groups: string[]; is_blocked: boolean }): Promise<NbUser>;
   listPeersFull(): Promise<NbPeerFull[]>;
+  updatePeer(id: string, p: { name: string; ssh_enabled: boolean; login_expiration_enabled: boolean; inactivity_expiration_enabled: boolean }): Promise<NbPeerFull>;
   deletePeer(id: string): Promise<void>;
 
   createSetupKey(k: {
@@ -255,6 +260,8 @@ export class NetbirdAdmin implements NetbirdAdminApi {
   listUsers = async () => (await this.list<NbUser>('/users')).map((u) => ({ ...u, auto_groups: u.auto_groups ?? [] }));
   updateUser = (id: string, u: { role: string; auto_groups: string[]; is_blocked: boolean }) => this.put<NbUser>(`/users/${id}`, u);
   listPeersFull = () => this.list<NbPeerFull>('/peers');
+  updatePeer = (id: string, p: { name: string; ssh_enabled: boolean; login_expiration_enabled: boolean; inactivity_expiration_enabled: boolean }) =>
+    this.put<NbPeerFull>(`/peers/${id}`, p);
   deletePeer = (id: string) => this.del(`/peers/${id}`);
 
   createSetupKey = (k: {

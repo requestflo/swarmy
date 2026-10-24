@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PEER_LOGIN_EXPIRY_MAX_HOURS, PEER_LOGIN_EXPIRY_MIN_HOURS } from '@swarmy/mesh';
 import { adminProcedure, orgProcedure, router } from '../trpc';
 import { abacProcedure } from '../abac';
 import { resolveConfigRow } from '../abac-config';
@@ -98,7 +99,12 @@ export const meshRouter = router({
     card: orgProcedure.query(({ ctx }) => getPeopleAccessCard(ctx)),
     /** On/off (off by default) + the login expiry for people's devices. */
     setSettings: adminProcedure
-      .input(z.object({ enabled: z.boolean().optional(), loginExpiryHours: z.number().int().min(1).max(24 * 30).optional() }))
+      .input(
+        z.object({
+          enabled: z.boolean().optional(),
+          loginExpiryHours: z.number().int().min(PEER_LOGIN_EXPIRY_MIN_HOURS).max(PEER_LOGIN_EXPIRY_MAX_HOURS).optional(),
+        }),
+      )
       .mutation(({ ctx, input }) => setPeopleAccess(ctx, input)),
     /** "Connect from your laptop" on an app: commands, what you reach, and why. */
     connectInfo: orgProcedure.input(z.object({ stack: z.string().min(1) })).query(({ ctx, input }) => connectInfo(ctx, input.stack)),

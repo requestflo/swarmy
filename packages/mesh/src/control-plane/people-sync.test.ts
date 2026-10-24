@@ -159,6 +159,12 @@ class FakeNetbird implements NetbirdAdminApi {
     return cur;
   };
   listPeersFull = async () => structuredClone(this.peers);
+  updatePeer = async (id: string, b: { name: string; ssh_enabled: boolean; login_expiration_enabled: boolean; inactivity_expiration_enabled: boolean }) => {
+    const cur = this.peers.find((p) => p.id === id)!;
+    this.w(`peer~ ${cur.name}`);
+    Object.assign(cur, b);
+    return cur;
+  };
   deletePeer = async (id: string) => {
     this.w(`peer- ${this.peers.find((p) => p.id === id)!.name}`);
     this.peers = this.peers.filter((p) => p.id !== id);

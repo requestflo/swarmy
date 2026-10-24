@@ -9,7 +9,7 @@
  * hosting node's `meshState.control` telemetry (mesh-peers.ts), never stored.
  *
  * The reconcile (workers/mesh-people-reconcile.ts, 30 s) converges, in order:
- *   1. the bootstrap policy set (Default policy gone, nodes ↔ nodes, 12 h login expiry)
+ *   1. the bootstrap policy set (Default policy gone, nodes ↔ nodes, the org's people login expiry)
  *   2. swarmy as the ONE connector (confidential OIDC client `swarmy-mesh`)
  *   3. `localAuthDisabled` once the connector exists (break-glass flips it back)
  *   4. Litestream to Garage bucket `swarmy-mesh` once object storage is on
@@ -25,9 +25,11 @@ import {
   NetbirdAdmin,
   bootstrapControlPlane,
   ensureSwarmyConnector,
+  loginExpirySec,
   meshControlOidcCallback,
   meshControlPublicUrl,
   netbirdLitestreamDbs,
+  peopleLoginExpiryHours,
   renderLitestreamConfig,
   renderMeshControlConfig,
   type MeshControlTls,
@@ -345,7 +347,10 @@ export async function reconcileMeshControl(ctx: OrgContext, opts: { force?: bool
   // 1. Bootstrap policy set (cheap, but not every 30 s).
   if (api && (opts.force || !m.bootstrappedAt || Date.now() - m.bootstrappedAt > BOOTSTRAP_EVERY_MS)) {
     try {
-      const r = await bootstrapControlPlane(api, { cluster: m.cluster });
+      // The org's people login expiry, not NetBird's or a hard-coded 12 h: the
+      // bootstrap re-asserts it every 5 min, so a constant here undid the setting.
+      const peerLoginExpirationSec = loginExpirySec(peopleLoginExpiryHours(row.settings as Record<string, unknown> | null));
+      const r = await bootstrapControlPlane(api, { cluster: m.cluster, peerLoginExpirationSec });
       if (r.changes.length) {
         steps.push(`bootstrap: ${r.changes.map((c) => `${c.op} ${c.kind} ${c.name}`).join(', ')}`);
         await writeAudit(ctx, { action: 'mesh.control.bootstrap', targetType: 'meshConfig', targetId: ctx.activeOrgId, metadata: { changes: r.changes } });
