@@ -75,6 +75,7 @@ import {
 } from './apps/dashboard-envs';
 import { appliedCommits, staleCommitReason } from './apps/stale-commit';
 import { withExistingOwnSecrets } from './apps/own-secrets';
+import { planDashboardPush, type DashboardPushInput } from './apps/dashboard-push';
 import { reportCommitStatus, upsertPrComment } from './git-feedback.service';
 import { controllerPublicUrl } from './git-credentials';
 import { deployFromCompose } from './stack.service';
@@ -2095,11 +2096,19 @@ export async function pollApp(ctx: OrgContext, repoId: string): Promise<PlanComm
     repo: repo.externalRepoId && repo.provider === 'GITLAB' ? repo.externalRepoId : repoRef,
   }).catch(() => []);
   const out: PlanCommitResult[] = [];
+  const dashboard = await dashboardEnvironments(ctx.db, repo.id);
   for (const branch of [repo.branch, ...stringArray(repo.envBranches)]) {
     const head = heads.find((h) => h.name === branch);
     if (!head) continue;
+    // A clone tracking this branch planning the head (its webhook) is not the file's environment planning it.
     const seen = await ctx.db.appPlan.findFirst({
-      where: { repoId: repo.id, sha: head.sha, prNumber: 0 },
+      where: {
+        repoId: repo.id,
+        sha: head.sha,
+        prNumber: 0,
+        status: { not: REMOVED },
+        NOT: { environment: { in: dashboard.map((e) => e.environment) } },
+      },
       select: { id: true },
     });
     if (seen) continue;
@@ -2109,7 +2118,7 @@ export async function pollApp(ctx: OrgContext, repoId: string): Promise<PlanComm
     );
   }
   // Dashboard environments track their branch too (even production's branch).
-  for (const e of await dashboardEnvironments(ctx.db, repo.id)) {
+  for (const e of dashboard) {
     const head = heads.find((h) => h.name === e.marker.branch);
     if (!head) continue;
     const seen = await ctx.db.appPlan.findFirst({
@@ -2138,6 +2147,11 @@ export function planCommitForRepo(deps: Deps, orgId: string, input: PlanCommitIn
   return planCommit(systemContext(deps, orgId), input);
 }
 
+/** A push: plan every dashboard environment tracking the branch (apps/dashboard-push.ts). */
+export function planDashboardPushForRepo(deps: Deps, orgId: string, input: DashboardPushInput) {
+  return planDashboardPush(systemContext(deps, orgId), input, planCommit);
+}
+
 export function teardownAppPreviewForRepo(
   deps: Deps,
   orgId: string,
@@ -2155,7 +2169,7 @@ export function teardownAppPreviewForRepo(
 export async function handleBranchPush(
   deps: Deps,
   orgId: string,
-  input: { repoId: string; ref: string; sha: string | null; deleted: boolean },
+  input: { repoId: string; ref: string; sha: string | null; deleted: boolean; before?: string | null },
 ): Promise<PlanCommitResult | { status: 'torn-down' | 'ignored'; stack: string | null }> {
   const ctx = systemContext(deps, orgId);
   if (input.deleted) {
@@ -2165,10 +2179,9 @@ export async function handleBranchPush(
     });
     return { status: res.stack ? 'torn-down' : 'ignored', stack: res.stack };
   }
-  // A dashboard environment tracking this branch deploys it (it is long-lived, never torn down here).
-  const tracked = (await dashboardEnvironments(ctx.db, input.repoId)).find((e) => e.marker.branch === input.ref);
-  if (tracked)
-    return planCommit(ctx, { repoId: input.repoId, ref: input.ref, sha: input.sha, trigger: 'push', environment: tracked.environment });
+  // Dashboard environments tracking this branch deploy it (long-lived, never torn down here).
+  const tracked = await planDashboardPush(ctx, { repoId: input.repoId, ref: input.ref, sha: input.sha, before: input.before ?? null }, planCommit);
+  if (tracked.tracked.length) return tracked.results[0] ?? { status: 'ignored', stack: null };
   const prod = (
     await ctx.db.appPlan.findMany({
       where: { repoId: input.repoId, environment: PRODUCTION, prNumber: 0 },

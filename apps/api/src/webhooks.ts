@@ -25,6 +25,7 @@ import {
   handleBranchPush,
   isAppBinding,
   planCommitForRepo,
+  planDashboardPushForRepo,
   previewCommentBody,
   teardownAppPreviewForRepo,
   triggerBuildForRepo,
@@ -121,9 +122,9 @@ function isBranchDelete(body: unknown): boolean {
   return b?.deleted === true || (typeof b?.after === 'string' && /^0+$/.test(b.after));
 }
 
-/** A push to a non-deploy branch of an app: branch preview (or teardown on delete). */
-function kickBranch(r: RepoHookRow, ref: string, sha: string | null, deleted: boolean): void {
-  void handleBranchPush(deps(), r.orgId, { repoId: r.id, ref, sha, deleted }).catch(
+/** A push to a non-deploy branch of an app: a clone tracking it, else a branch preview (or teardown on delete). */
+function kickBranch(r: RepoHookRow, ref: string, sha: string | null, deleted: boolean, before: string | null): void {
+  void handleBranchPush(deps(), r.orgId, { repoId: r.id, ref, sha, deleted, before }).catch(
     (e: unknown) => {
       console.warn(
         `[webhooks] branch preview for ${r.url}@${ref} failed: ${e instanceof Error ? e.message : String(e)}`,
@@ -140,6 +141,10 @@ function kickPush(
   before: string | null,
 ): void {
   if (!isAppBinding(r)) return kickBuild(r, ref, sha);
+  // Clones tracking a deploy branch (even production's) redeploy on the push, not only on the poll.
+  void planDashboardPushForRepo(deps(), r.orgId, { repoId: r.id, ref, sha, before }).catch((e: unknown) => {
+    console.warn(`[webhooks] cloned environments for ${r.url}@${ref} failed: ${e instanceof Error ? e.message : String(e)}`);
+  });
   void planCommitForRepo(deps(), r.orgId, {
     repoId: r.id,
     ref,
@@ -270,7 +275,7 @@ webhooksApp.post('/github', async (c) => {
     const deleted = body.deleted === true;
     // Branches no deploy watches: maybe a branch preview (or its teardown).
     for (const r of repos.filter((x) => isAppBinding(x) && !deploysFrom(x, ref)))
-      kickBranch(r, ref, sha, deleted);
+      kickBranch(r, ref, sha, deleted, parsePushBefore(body));
     if (deleted) return c.json({ ok: true, ignored: 'branch deleted' });
     const matched = repos.filter((r) => deploysFrom(r, ref));
     const changed = pushChangedPaths(body);
@@ -397,7 +402,7 @@ webhooksApp.post('/git/:repoId', async (c) => {
   // Only build the watched branch (defensive — providers can be configured broadly).
   if (ref && repo.branch && !deploysFrom(repo, ref)) {
     if (isAppBinding(repo)) {
-      kickBranch(repo, ref, parseCommitSha(dialect, body), isBranchDelete(body));
+      kickBranch(repo, ref, parseCommitSha(dialect, body), isBranchDelete(body), parsePushBefore(body));
       return c.json({ ok: true, branch: ref, accepted: true }, 202);
     }
     return c.json({ ok: true, ignored: 'branch', ref });

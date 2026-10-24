@@ -167,6 +167,7 @@ export {
   purgeAppData,
   setEnforceDrift,
   planCommitForRepo,
+  planDashboardPushForRepo,
   replan,
   setRequireApproval,
   teardownAppPreviewForRepo,
