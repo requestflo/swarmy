@@ -13,6 +13,7 @@
  *   2. swarmy as the ONE connector (confidential OIDC client `swarmy-mesh`)
  *   3. `localAuthDisabled` once the connector exists (break-glass flips it back)
  *   4. Litestream to Garage bucket `swarmy-mesh` once object storage is on
+ *   4b. relays on edges (mesh-relay.service), when switched on
  *   5. the rendered config on the hosting node (applyMeshControl when it drifts)
  */
 import { createHash } from 'node:crypto';
@@ -32,6 +33,7 @@ import {
   peopleLoginExpiryHours,
   renderLitestreamConfig,
   renderMeshControlConfig,
+  sameRelays,
   type MeshControlTls,
   type NetbirdAdminApi,
 } from '@swarmy/mesh';
@@ -45,6 +47,8 @@ import { meshConfigRepo, type MeshConfigRow } from './mesh-config.repo';
 import { meshControlLive, meshPeers } from './mesh-peers';
 import { isMeshCidr } from './mesh-onmesh';
 import { objectStoreState, provisionSystemBucketKey, retireSupersededSystemKeys } from './buckets.service';
+import { reconcileEdgeRelays, relayCard, relayVhostsFor, relaysWanted } from './mesh-relay.service';
+import { meshRelayLive } from './mesh-relay-live';
 
 /** The swarmy OIDC client NetBird's Dex uses as its connector (confidential). */
 export const MESH_OIDC_CLIENT_ID = 'swarmy-mesh';
@@ -95,6 +99,17 @@ export interface ManagedControlPlane {
   adminUrl?: string;
   /** Last time the bootstrap policy set was asserted (ms). */
   bootstrappedAt?: number;
+  /**
+   * Relays on edges (installer `--mesh-relay-on-edges`, Mesh settings):
+   * NetBird's relay + STUN move to `swarmy-mesh-relay` on every public edge.
+   */
+  relaysOnEdges?: boolean;
+  /**
+   * What the rendered config lists under `relays`/`stuns`, set by the relay
+   * reconcile (absent = NetBird runs its own relay + STUN). Persisted so the
+   * render stays pure and a controller restart never flaps the config.
+   */
+  relays?: { addresses: string[]; stuns: string[]; since: number };
 }
 
 interface ControlPlaneDoc {
@@ -197,6 +212,8 @@ export function renderControlSpec(m: ManagedControlPlane): MeshControlSpec {
     // Connector first, then the flag (the server refuses to start otherwise).
     localAuthDisabled: Boolean(m.connector) && !m.breakGlass,
     trustedProxies: m.trustedProxies,
+    // Only behind the edge: the relays are reached through its vhosts.
+    externalRelays: m.relays && effectiveTls(m).mode === 'edge' ? { addresses: m.relays.addresses, stuns: m.relays.stuns } : null,
   });
   let litestream: MeshControlSpec['litestream'] = null;
   if (m.litestream) {
@@ -260,6 +277,8 @@ export interface ControlPlaneCardView {
   backup: { configured: boolean; running: boolean; bucket: string | null };
   peers: { total: number; servers: number };
   tls: MeshControlTls['mode'] | null;
+  /** Relays on edges: switched on, listed in NetBird's config, and each edge relay's live state. */
+  relays: { enabled: boolean; active: boolean; edges: { hostname: string; address: string; running: boolean; healthy: boolean }[] };
   /** One line per thing that needs attention, in plain words. */
   warnings: string[];
 }
@@ -283,6 +302,7 @@ export async function getControlPlaneCard(ctx: OrgContext): Promise<ControlPlane
       backup: { configured: false, running: false, bucket: null },
       peers: { total: servers, servers },
       tls: null,
+      relays: { enabled: false, active: false, edges: [] },
       warnings: [],
     };
   }
@@ -304,6 +324,10 @@ export async function getControlPlaneCard(ctx: OrgContext): Promise<ControlPlane
     );
   }
   if (m.breakGlass) warnings.push('Break-glass is on: the local NetBird owner can sign in. Turn it off when you are done.');
+  const relays = await relayCard(ctx, m);
+  if (m.relaysOnEdges && m.tls.mode !== 'edge') warnings.push("Relays on edges needs swarmy's edge in front of NetBird; NetBird keeps its own relay.");
+  else if (m.relaysOnEdges && relaysWanted(m) && !relays.edges.length) warnings.push('Relays on edges is on, but no edge has a public IPv4 yet; NetBird keeps its own relay.');
+  else if (relays.enabled && !relays.active && relays.edges.length) warnings.push('Starting the edge relays; NetBird hands relaying to them once one answers.');
   let total = servers;
   const api = managedAdmin(row);
   if (api) total = (await api.listPeersFull().catch(() => [])).length || servers;
@@ -320,6 +344,7 @@ export async function getControlPlaneCard(ctx: OrgContext): Promise<ControlPlane
     backup: { configured: Boolean(m.litestream), running: Boolean(status?.litestream?.running), bucket: m.litestream?.bucket ?? null },
     peers: { total, servers },
     tls: effectiveTls(m).mode,
+    relays,
     warnings,
   };
 }
@@ -446,6 +471,29 @@ export async function reconcileMeshControl(ctx: OrgContext, opts: { force?: bool
     }
   }
 
+  // 4b. Relays on edges: converge the relays, then the list NetBird carries
+  // (step 5 applies it). Skipped entirely while never switched on.
+  let relaysChanged = false;
+  const relayStep = async (cur: ManagedControlPlane): Promise<ManagedControlPlane> => {
+    const authSecret = dec(cur.authSecretEnc);
+    if (!authSecret || (!cur.relaysOnEdges && !cur.relays && !meshRelayLive.all(ctx.activeOrgId).length)) return cur;
+    const cp = meshControlLive.get(ctx.activeOrgId);
+    const controlRunsExternal = Boolean(cur.relays) && cp?.status.configHash === configHash(renderControlSpec(cur)) && Boolean(cp?.status.running);
+    const r = await reconcileEdgeRelays(ctx, cur, { authSecret, controlNodeId: await controlNode(ctx, cur), controlRunsExternal });
+    steps.push(...r.steps);
+    if (sameRelays(cur.relays ?? null, r.next)) return cur;
+    const next = await patchManaged(ctx, { relays: r.next ? { ...r.next, since: Date.now() } : undefined });
+    relaysChanged = true;
+    steps.push(r.next ? `relays on edges: NetBird lists ${r.next.addresses.length}` : 'relays on edges off: NetBird runs its own relay again');
+    await writeAudit(ctx, { action: 'mesh.control.relays', targetType: 'meshConfig', targetId: ctx.activeOrgId, metadata: { relays: r.next } });
+    return next;
+  };
+  const before = m;
+  m = await relayStep(m).catch((e: unknown) => {
+    steps.push(`relays failed: ${e instanceof Error ? e.message : String(e)}`);
+    return before;
+  });
+
   // 5. The config on the hosting node.
   const nodeId = await controlNode(ctx, m);
   if (nodeId && !m.controlNodeId) m = await patchManaged(ctx, { controlNodeId: nodeId });
@@ -468,6 +516,8 @@ export async function reconcileMeshControl(ctx: OrgContext, opts: { force?: bool
       }
     }
   }
+  // NetBird just let go of (or took back) STUN on its node: re-send that relay's spec now, not in 30 s.
+  if (relaysChanged) await relayStep(m).catch(() => undefined);
   row = await meshConfigRepo.get(ctx, ctx.activeOrgId);
   return { managed: true, steps };
 }
@@ -476,6 +526,18 @@ export async function reconcileMeshControl(ctx: OrgContext, opts: { force?: bool
 export async function setBreakGlass(ctx: OrgContext, on: boolean): Promise<ControlPlaneCardView> {
   await patchManaged(ctx, { breakGlass: on });
   await writeAudit(ctx, { action: on ? 'mesh.control.breakGlass.on' : 'mesh.control.breakGlass.off', targetType: 'meshConfig', targetId: ctx.activeOrgId, metadata: {} });
+  await reconcileMeshControl(ctx, { force: true });
+  return getControlPlaneCard(ctx);
+}
+
+/** Relays on edges on/off (admin, audited). The reconcile does the rest, in a safe order. */
+export async function setRelaysOnEdges(ctx: OrgContext, on: boolean): Promise<ControlPlaneCardView> {
+  const cur = managedOf(await meshConfigRepo.get(ctx, ctx.activeOrgId));
+  if (on && cur && cur.tls.mode !== 'edge') {
+    throw new TRPCError({ code: 'PRECONDITION_FAILED', message: "relays on edges needs swarmy's edge (Caddy) in front of NetBird" });
+  }
+  await patchManaged(ctx, { relaysOnEdges: on });
+  await writeAudit(ctx, { action: on ? 'mesh.control.relaysOnEdges.on' : 'mesh.control.relaysOnEdges.off', targetType: 'meshConfig', targetId: ctx.activeOrgId, metadata: {} });
   await reconcileMeshControl(ctx, { force: true });
   return getControlPlaneCard(ctx);
 }
@@ -503,6 +565,13 @@ export async function moveControlPlane(ctx: OrgContext, targetNodeId: string): P
   if (from === targetNodeId) return getControlPlaneCard(ctx);
   if (from && ctx.hub.isOnline(from)) {
     await ctx.hub.dispatch(from, 'mesh.control', { action: 'stop' }, { timeoutMs: 60_000 });
+  }
+  // An edge relay with STUN on the target holds UDP 3478, which NetBird takes
+  // when it runs its own relay: stop it first (the relay reconcile re-adds it).
+  const targetRelay = meshRelayLive.get(ctx.activeOrgId, targetNodeId)?.status;
+  if (!m.relays && targetRelay?.running && targetRelay.stun !== false) {
+    await ctx.hub.dispatch(targetNodeId, 'mesh.relay', { action: 'stop' }, { timeoutMs: 60_000 });
+    meshRelayLive.forget(ctx.activeOrgId, targetNodeId);
   }
   const spec = renderControlSpec(m);
   const st = await ctx.hub.dispatch<MeshControlStatus>(targetNodeId, 'mesh.control', { action: 'restore', spec }, { timeoutMs: 300_000 });
@@ -545,6 +614,8 @@ export async function meshControlVhosts(ctx: OrgContext): Promise<
     : undefined;
   return [
     { domain: m.meshDomain, upstream: meshControlUpstream(m.tls.listen, meshIp), targetPath: '/', kind: 'mesh-control', tls: 'auto' },
+    // Relays on edges: one vhost per relay name, proxying /relay to that edge's relay.
+    ...(await relayVhostsFor(ctx, m).catch(() => [])),
   ];
 }
 

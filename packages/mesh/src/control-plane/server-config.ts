@@ -39,6 +39,11 @@ export interface MeshControlConfigInput {
   stunPort?: number;
   /** CIDRs whose X-Forwarded-For is trusted (the edge's networks). */
   trustedProxies?: string[];
+  /**
+   * Relays on edges (`relays.ts`): NetBird then runs no relay and no STUN of
+   * its own, so both lists are required together. The relays share `authSecret`.
+   */
+  externalRelays?: { addresses: string[]; stuns: string[] } | null;
   logLevel?: 'info' | 'debug' | 'warn';
 }
 
@@ -62,6 +67,8 @@ export const MESH_CONTROL_METRICS_PORT = 9090;
  * and the mesh itself.
  */
 export const MESH_CONTROL_PRIVATE_PORTS = [MESH_CONTROL_HEALTH_PORT, MESH_CONTROL_METRICS_PORT, MESH_CONTROL_GRPC_LEGACY_PORT] as const;
+/** Relay token lifetime (NetBird's default), for `server.relays`. */
+const MESH_RELAY_TTL = '12h';
 /** Default listen port behind the edge / in lab mode. */
 export const MESH_CONTROL_HTTP_PORT = 8081;
 
@@ -154,6 +161,14 @@ export function renderMeshControlConfig(input: MeshControlConfigInput): string {
         ...(tls.email ? { email: tls.email } : {}),
       },
     };
+  }
+  const ext = input.externalRelays;
+  if (ext && ext.addresses.length) {
+    if (!ext.stuns.length) throw new Error('external relays need STUN servers: NetBird runs no STUN of its own with them');
+    if (ext.addresses.some((a) => !/^rels?:\/\/[^\s]+$/.test(a))) throw new Error('relay addresses must be rel:// or rels://');
+    if (ext.stuns.some((u) => !/^stun:[^\s]+$/.test(u))) throw new Error('STUN servers must be stun: URIs');
+    server.relays = { addresses: [...ext.addresses].sort(), secret: input.authSecret, credentialsTTL: MESH_RELAY_TTL };
+    server.stuns = [...ext.stuns].sort().map((uri) => ({ uri, proto: 'udp' }));
   }
   if (input.trustedProxies?.length) {
     server.reverseProxy = { trustedHTTPProxies: [...input.trustedProxies].sort() };

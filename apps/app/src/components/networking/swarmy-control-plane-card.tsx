@@ -17,6 +17,7 @@ import {
   toast,
 } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
+import { EdgeRelaysRow } from './edge-relays-row';
 
 function ago(iso: string | null): string {
   if (!iso) return 'never';
@@ -102,6 +103,8 @@ export function SwarmyControlPlaneCard(): React.JSX.Element {
             <dd>{d.peers.servers}</dd>
           </div>
         </dl>
+
+        <EdgeRelaysRow relays={d.relays} behindEdge={d.tls === 'edge'} />
 
         {d.warnings.length > 0 && (
           <ul className="bg-accent/40 grid gap-1 rounded-xl px-4 py-3 text-sm">

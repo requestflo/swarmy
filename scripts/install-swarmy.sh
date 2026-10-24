@@ -63,6 +63,9 @@
 #                                (default mesh.<dashboard domain>, else mesh-<ip>.sslip.io)
 #   --mesh-tls letsencrypt|edge|none   SWARMY_MESH_TLS (default: edge behind swarmy's
 #                                Caddy, letsencrypt on a public box without it, else none)
+#   --mesh-relay-on-edges        SWARMY_MESH_RELAYS=edges — NetBird's relay + STUN run on
+#                                every public edge instead of only here (needs --mesh-tls
+#                                edge; seeds a fresh install, later it is a Mesh setting)
 #   --cluster-name <slug>        SWARMY_CLUSTER_NAME — namespaces this cluster's mesh objects
 #   SWARMY_MESH_EXTRA_CA=<pem>   a private CA the mesh control plane must trust for
 #                                swarmy's https address (it only accepts https issuers)
@@ -189,6 +192,7 @@ MESH="${SWARMY_MESH:-swarmy}"
 MESH_EXPLICIT=0; [ -n "${SWARMY_MESH:-}" ] && MESH_EXPLICIT=1
 MESH_DOMAIN="${SWARMY_MESH_DOMAIN:-}"
 MESH_TLS="${SWARMY_MESH_TLS:-}"
+MESH_RELAYS="${SWARMY_MESH_RELAYS:-}"
 CLUSTER_NAME="${SWARMY_CLUSTER_NAME:-}"
 # PEM file of a private CA that swarmy's https address uses (NetBird must trust it).
 MESH_EXTRA_CA="${SWARMY_MESH_EXTRA_CA:-}"
@@ -243,6 +247,7 @@ while [ $# -gt 0 ]; do
     --mesh) MESH="${2:?}"; MESH_EXPLICIT=1; shift ;;
     --mesh-domain) MESH_DOMAIN="${2:?}"; shift ;;
     --mesh-tls) MESH_TLS="${2:?}"; shift ;;
+    --mesh-relay-on-edges) MESH_RELAYS=edges ;;
     --cluster-name) CLUSTER_NAME="${2:?}"; shift ;;
     --default-addr-pool) ADDR_POOL="${2:?}"; shift ;;
     --image) IMAGE="${2:?}"; EXPLICIT="${EXPLICIT}IMAGE "; shift ;;
@@ -574,6 +579,13 @@ mesh_tls_env() {
     edge) printf 'edge=%s%s;bootstrap=none:%s' "$2" "${3:+@$3}" "$MESH_CONTROL_HTTP_PORT" ;;
     *) printf 'letsencrypt' ;;
   esac
+}
+# mesh_relays_env MESH TLS RELAYS → SWARMY_MESH_RELAYS for the controller: `edges`
+#   only for --mesh swarmy behind swarmy's edge (the relays are served by its
+#   vhosts), else empty. The controller seeds the managed doc with it once.
+mesh_relays_env() {
+  [ "$1" = swarmy ] && [ "$2" = edge ] && [ "$3" = edges ] && printf 'edges'
+  return 0
 }
 # mesh_addr_pool SEED → 10.<200..249>.0.0/16, stable per seed: uncommon (clear of
 # the 10.0.x home/office LANs laptops sit on) and distinct per cluster.
@@ -1012,6 +1024,7 @@ wizard() {
     case "$MESH_TLS" in letsencrypt|edge|none) : ;; *) die "--mesh-tls must be letsencrypt, edge or none (got $MESH_TLS)." ;; esac
     CLUSTER_NAME="$(printf '%s' "${CLUSTER_NAME:-${CFG_CLUSTER_NAME:-swarmy}}" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-' | sed 's/-*$//' | cut -c1-32)"
     state_set CFG_MESH_DOMAIN "$MESH_DOMAIN"; state_set CFG_MESH_TLS "$MESH_TLS"; state_set CFG_CLUSTER_NAME "$CLUSTER_NAME"
+    [ "${MESH_RELAYS:-}" != edges ] || [ "$MESH_TLS" = edge ] || warn "--mesh-relay-on-edges needs --mesh-tls edge (swarmy's Caddy in front of NetBird); NetBird keeps its own relay."
     NB_MANAGEMENT_URL="$(mesh_public_url "$MESH_DOMAIN" "$MESH_TLS")"
   fi
   ok "ingress=${INGRESS} mesh=${MESH}${MESH_DOMAIN:+ (${MESH_DOMAIN}, tls ${MESH_TLS})} login=${LOGIN_URL}${DASHBOARD_DOMAIN:+ https=https://$DASHBOARD_DOMAIN}${DOMAIN:+ domain=$DOMAIN}"
@@ -1674,6 +1687,7 @@ deploy_stack() {
   SWARMY_MESH_DOMAIN="${MESH_DOMAIN:-}" \
   SWARMY_MESH_TLS="$mesh_tls_env" \
   SWARMY_MESH_CLUSTER="${CLUSTER_NAME:-}" \
+  SWARMY_MESH_RELAYS="$(mesh_relays_env "$MESH" "${MESH_TLS:-}" "${MESH_RELAYS:-}")" \
   SWARMY_MESH_CONTROL_HOSTNAME="${NODE_HOSTNAME:-}" \
   SWARMY_MESH_ADMIN_URL="$( [ "$MESH" = swarmy ] && [ "$MESH_TLS" = edge ] && printf 'http://%s' "${MESH_LISTEN:-}" )" \
     docker stack deploy --with-registry-auth -c "$f" "$STACK_NAME" >/dev/null \

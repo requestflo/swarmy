@@ -76,6 +76,8 @@ services:
       SWARMY_MESH_DOMAIN: ${SWARMY_MESH_DOMAIN:-}
       SWARMY_MESH_TLS: ${SWARMY_MESH_TLS:-}
       SWARMY_MESH_CLUSTER: ${SWARMY_MESH_CLUSTER:-}
+      # --mesh-relay-on-edges: NetBird's relay + STUN on every public edge (seeds the managed doc).
+      SWARMY_MESH_RELAYS: ${SWARMY_MESH_RELAYS:-}
       SWARMY_MESH_CONTROL_HOSTNAME: ${SWARMY_MESH_CONTROL_HOSTNAME:-}
       # Behind the edge: NetBird's plain listener on the control-plane node's
       # docker0, tried first by the controller (falls back to the public URL).

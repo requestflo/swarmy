@@ -37,6 +37,7 @@ export const gaps: DomainResolvers = {
       backup: { configured: false, running: false, bucket: null },
       peers: { total: 0, servers: 0 },
       tls: null,
+      relays: { enabled: false, active: false, edges: [] },
       warnings: [],
     }),
     // mesh.people.card / mesh.people.connected live in mesh.ts (two laptops online).

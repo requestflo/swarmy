@@ -134,6 +134,10 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
 | Controller: managed control plane (card, reconcile, connector, break-glass, move, edge vhost) | `packages/trpc/src/services/mesh-control.service.ts` |
 | Controller: people access (intent, routers, sync, connect info, who's connected, grants) | `packages/trpc/src/services/mesh-people.service.ts` |
 | 30 s reconcile worker | `apps/api/src/workers/mesh-people-reconcile.ts` |
+| Relays on edges: names `relay.<a-b-c-d>.<base>`, the plan + one reconcile decision (pure) | `packages/mesh/src/control-plane/{relays,relay-plan}.ts`, `server-config.ts` (`externalRelays`) |
+| Agent: `swarmy-mesh-relay` supervisor (tmpfs env, its own `SWARMY-MESH-RELAY` firewall chain) | `apps/agent/src/handlers/mesh-relay{,-spec}.ts` (+ the 10 s tick in `daemon.ts`), protocol `packages/core/src/protocol/mesh-relay.ts` |
+| Controller: relay reconcile (control-plane step 4b), relay vhosts, the card's relays | `packages/trpc/src/services/mesh-relay{.service,-live}.ts` |
+| People login expiry (12 h default, clamp, per-peer floor) | `packages/mesh/src/login-expiry.ts`, `control-plane/login-expiry-sync.ts` |
 | Grant TTL sweeper (expired personal grants → `revokePersonGrant`, system actor) | `packages/mesh/src/grant-ttl.ts` (pure), `packages/trpc/src/services/mesh-grant-ttl.service.ts`, `apps/api/src/workers/mesh-grant-ttl.ts` |
 | Installer `--mesh swarmy` (starts NetBird before `swarm init`) | `scripts/install-swarmy.sh` (`ensure_mesh_control`) |
 | e2e on Lima (install, join, person connects/denied/revoked) | `scripts/e2e-mesh-people.ts` |
@@ -185,6 +189,19 @@ For a whole cross-stack feature (db → protocol → service → router → UI) 
   (Before=docker) pins the mesh IP/prefix on dummy `swarmy-mesh0` (metric 4242);
   the agent installs/re-asserts it (`handlers/mesh-pin.ts`) and self-heals
   mis-keyed IPsec SAs with one dockerd restart. Never remove the pin.
+- **Relays on edges** (`relaysOnEdges`, installer `--mesh-relay-on-edges`, needs
+  `tls: edge`): NetBird's combined server runs its own relay + STUN unless
+  `server.relays` is set, and then NEITHER. So `relays` and `stuns` are always
+  rendered together, the switch waits for one healthy edge relay, and the list
+  is identity (planned edges), not health. The control node's own relay runs
+  STUN only once NetBird there runs the external config (its STUN holds UDP
+  3478 until then); on the way back the relays stop BEFORE NetBird restarts.
+  Relays listen plain on :33080 behind the edge vhost `relay.<a-b-c-d>.<base>`
+  (health 33081 loopback, metrics 33082, firewalled).
+- People's devices log in again after the org's `loginExpiryHours` (12 h,
+  1 h .. 30 d): the bootstrap asserts the org's value (never a constant), and
+  the people sync turns a person's peer back onto expiry. Setup-key peers
+  (servers, routers) never expire.
 - People access is off until an admin enables it; revoke converges at once, the
   worker every 30 s; personal grants expire by `MeshRoute.expiresAt` (left out
   of the plan at once; the `mesh-grant-ttl` worker revokes the row, audited as

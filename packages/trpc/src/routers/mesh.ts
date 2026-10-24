@@ -14,7 +14,7 @@ import {
 import { nodesOnMesh } from '../services/mesh-onmesh';
 import { getMeshMtuCheck } from '../services/mesh-mtu.service';
 import { commandRejected } from '../errors';
-import { getControlPlaneCard, moveControlPlane, reconcileMeshControl, setBreakGlass } from '../services/mesh-control.service';
+import { getControlPlaneCard, moveControlPlane, reconcileMeshControl, setBreakGlass, setRelaysOnEdges } from '../services/mesh-control.service';
 import {
   connectInfo,
   getPeopleAccessCard,
@@ -91,6 +91,8 @@ export const meshRouter = router({
     breakGlass: adminProcedure.input(z.object({ on: z.boolean() })).mutation(({ ctx, input }) => setBreakGlass(ctx, input.on)),
     /** Move to another manager: fence, restore from Litestream, start there. */
     move: adminProcedure.input(z.object({ nodeId: z.string() })).mutation(({ ctx, input }) => moveControlPlane(ctx, input.nodeId)),
+    /** Relays on edges: NetBird's relay + STUN move to every public edge (needs swarmy's edge in front). */
+    relays: adminProcedure.input(z.object({ on: z.boolean() })).mutation(({ ctx, input }) => setRelaysOnEdges(ctx, input.on)),
   }),
 
   // ── People on the mesh ─────────────────────────────────────────────────

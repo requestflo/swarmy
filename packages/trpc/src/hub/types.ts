@@ -51,6 +51,7 @@ export type CommandName =
   | 'node.hygiene' // disk hygiene: prune stopped one-shots, unused images, build cache
   | 'mesh.control' // self-hosted NetBird control plane (swarmy-mesh-control, agent-supervised)
   | 'mesh.accessRouter' // people access: a stack's routing peer (swarmy-access-<stackId>)
+  | 'mesh.relay' // relays on edges: NetBird's standalone relay + STUN (swarmy-mesh-relay, agent-supervised)
   | 'swarm.join' // node-onboarding P2: init/join the org's Docker Swarm
   | 'swarm.autolock' // WS2 quorum recovery: toggle AutoLockManagers (returns the unlock key on enable)
   | 'swarm.rotateTokens' // WS2 quorum recovery: rotate worker/manager join tokens
@@ -116,6 +117,7 @@ export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
   'node.hygiene': 'nodeHygiene',
   'mesh.control': 'applyMeshControl',
   'mesh.accessRouter': 'applyAccessRouter',
+  'mesh.relay': 'applyMeshRelay',
   'swarm.join': 'swarmJoin',
   'swarm.autolock': 'swarmSetAutolock',
   'swarm.rotateTokens': 'swarmRotateTokens',

@@ -13,6 +13,8 @@ export * from './grant-ttl';
 export * from './login-expiry';
 export * from './control-plane/server-config';
 export * from './control-plane/litestream';
+export * from './control-plane/relays';
+export * from './control-plane/relay-plan';
 export * from './control-plane/netbird-admin';
 export * from './control-plane/people-sync';
 export * from './control-plane/login-expiry-sync';

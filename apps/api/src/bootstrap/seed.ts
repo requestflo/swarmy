@@ -259,6 +259,8 @@ function managedMeshFromEnv(): Record<string, unknown> | null {
     ...(secrets.ownerEmail ? { ownerEmail: secrets.ownerEmail } : {}),
     ...(secrets.ownerPassword ? { ownerPasswordEnc: encryptSecret(secrets.ownerPassword) } : {}),
     ...(secrets.extraCaPem ? { extraCaPem: secrets.extraCaPem } : {}),
+    // --mesh-relay-on-edges (a fresh install only: an existing doc keeps its own setting).
+    ...(process.env.SWARMY_MESH_RELAYS === 'edges' ? { relaysOnEdges: true } : {}),
   };
 }
 

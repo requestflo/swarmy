@@ -13,7 +13,8 @@
  * revokes a peer by a remembered id), so it lives here too: no node label.
  */
 import { reconcilePeerState, type MeshPeerStatus, type MeshStateReport } from '@swarmy/mesh';
-import type { MeshControlStatus } from '@swarmy/core/protocol';
+import type { MeshControlStatus, MeshRelayStatus } from '@swarmy/core/protocol';
+import { meshRelayLive } from './mesh-relay-live';
 
 /** `ENROLLING` while `applyMesh` is in flight; the rest mirror `reconcilePeerState`. */
 export type LiveMeshPeerStatus = MeshPeerStatus;
@@ -99,10 +100,11 @@ export const meshPeers = new MeshPeerStore();
 export function reconcileMeshPeer(
   orgId: string,
   nodeId: string,
-  report: MeshStateReport & { control?: MeshControlStatus; relayed?: boolean },
+  report: MeshStateReport & { control?: MeshControlStatus; relay?: MeshRelayStatus; relayed?: boolean },
   store: MeshPeerStore = meshPeers,
 ): LiveMeshPeer | null {
   if (report.control) meshControlLive.report(orgId, nodeId, report.control);
+  if (report.relay) meshRelayLive.report(orgId, nodeId, report.relay);
   if (!store.get(nodeId) && !(report.connected && report.meshIp)) return null;
   const update = reconcilePeerState(report);
   return store.upsert(orgId, nodeId, {
