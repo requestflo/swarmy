@@ -153,6 +153,7 @@ Four ideas, one story:
 | `applyMesh` fails on the node | The live peer is marked `FAILED` and `mesh.peer.enrollFailed` is audited; the error surfaces to the admin. No half-joined ghost. |
 | Node opts out of mesh (`SWARMY_ALLOW_MESH=false`) | The executor rejects `applyMesh` with `E_MESH_DISABLED`; the rest of the agent is unaffected. |
 | Agent silent but control plane knows | Reconcile can fall back to `reconcileFromControlPlane` (NetBird `/api/peers`) so liveness isn't lost when the node's own reporter is quiet. |
+| The node that runs the self-hosted control plane dies | Established tunnels keep working. With **relays on front doors** on (Mesh settings, or `--mesh-relay-on-edges`), every public edge runs NetBird's relay + STUN, so pairs that need a relay keep it too; otherwise they lose it until the control plane is moved. |
 | A person's access grant TTL elapses | The TTL is optional. An expired grant stops counting at once (the access checks skip it), and the 30 s people-access reconcile deletes it, audits `mesh.access.grant.expired`, and re-renders the routers. |
 
 ## Explicitly rejected
