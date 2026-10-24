@@ -17,7 +17,7 @@ export function SignInSection({ methods }: { methods: SignInMethod[] | undefined
       </RowList>
       <Depth at="controls">
         <div className="flex flex-col gap-5 pt-3 pb-3">
-          <h3 className="calm-eyebrow">Company sign-in (OIDC)</h3>
+          <h3 className="calm-eyebrow">Company sign-in (OIDC or SAML)</h3>
           <SsoTab />
           <h3 className="calm-eyebrow">Google, Microsoft, GitHub, GitLab and passwordless</h3>
           <ProvidersTab />
