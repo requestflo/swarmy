@@ -1,5 +1,8 @@
 /** Map internal `@swarmy/core` views / service results → public REST DTOs. */
+import type { z } from '@hono/zod-openapi';
+import type { UpdateServiceInput } from '@swarmy/core';
 import type { NodeSummary, ServiceSummary } from '@swarmy/core/views';
+import type { UpdateServiceBody } from './dto';
 import type { StackSummary } from '@swarmy/trpc';
 import type { DomainDetailView, DomainStatusView, DomainView } from '@swarmy/trpc';
 
@@ -116,4 +119,56 @@ export function domainToDto(d: DomainView) {
  */
 export function deploymentRefToDto(r: { id: string; deploymentId: string; deployId?: string }) {
   return { id: r.id, deployment_id: r.deploymentId, ...(r.deployId ? { deploy_id: r.deployId } : {}) };
+}
+
+type ResourceSideBody = { cpus?: number; memory_bytes?: number };
+const resourceSide = (s: ResourceSideBody) => ({
+  ...(s.cpus !== undefined ? { cpus: s.cpus } : {}),
+  ...(s.memory_bytes !== undefined ? { memoryBytes: s.memory_bytes } : {}),
+});
+
+/**
+ * PATCH /services/{id} body → `services.update` input. Only the fields the
+ * caller sent are passed, so everything else is carried from the live spec.
+ */
+export function updateServiceBodyToInput(id: string, b: z.infer<typeof UpdateServiceBody>): UpdateServiceInput {
+  const r = b.resources;
+  const p = b.restart_policy;
+  return {
+    id,
+    ...(b.image !== undefined ? { image: b.image } : {}),
+    ...(b.replicas !== undefined ? { replicas: b.replicas } : {}),
+    ...(b.command !== undefined ? { command: b.command } : {}),
+    ...(b.env !== undefined
+      ? {
+          env: b.env.map((e) => ({
+            key: e.key,
+            value: e.value,
+            ...(e.secret !== undefined ? { secret: e.secret } : {}),
+            ...(e.delivery !== undefined ? { delivery: e.delivery } : {}),
+          })),
+        }
+      : {}),
+    ...(b.remove_secret_keys !== undefined ? { removeSecretKeys: b.remove_secret_keys } : {}),
+    ...(r
+      ? {
+          resources: {
+            ...(r.limits !== undefined ? { limits: resourceSide(r.limits) } : {}),
+            ...(r.reservations !== undefined ? { reservations: resourceSide(r.reservations) } : {}),
+          },
+        }
+      : {}),
+    ...(p
+      ? {
+          restartPolicy: {
+            condition: p.condition,
+            ...(p.max_attempts !== undefined ? { maxAttempts: p.max_attempts } : {}),
+            ...(p.delay_seconds !== undefined ? { delaySeconds: p.delay_seconds } : {}),
+          },
+        }
+      : {}),
+    ...(b.update_order !== undefined ? { updateOrder: b.update_order } : {}),
+    ...(b.set_labels !== undefined ? { setLabels: b.set_labels } : {}),
+    ...(b.remove_labels !== undefined ? { removeLabels: b.remove_labels } : {}),
+  };
 }

@@ -44,6 +44,7 @@ export {
   removeService,
   restartService,
   scaleService,
+  updateService,
 } from './services/service.service';
 export { deployFromCompose, getStack, listStacks, removeStack } from './services/stack.service';
 export type { StackSummary, StackDetail } from './services/stack.service';

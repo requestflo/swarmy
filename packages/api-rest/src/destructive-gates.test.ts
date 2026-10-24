@@ -65,6 +65,7 @@ const ROUTES: Array<[method: string, path: string, action: string, body?: unknow
   ['DELETE', '/services/svc', 'service.remove'],
   ['POST', '/services/svc/scale', 'service.scale', { replicas: 0 }],
   ['POST', '/services/svc/restart', 'service.restart'],
+  ['PATCH', '/services/svc', 'service.configure', { image: 'nginx:1.27' }],
   ['DELETE', '/stacks/st1', 'stack.remove'],
   ['POST', '/nodes/n1/drain', 'node.drain'],
   ['POST', '/nodes/n1/cordon', 'node.drain'],
@@ -86,6 +87,7 @@ const ROUTES: Array<[method: string, path: string, action: string, body?: unknow
 const MEMBER_KEEPS = new Set([
   'service.scale',
   'service.restart',
+  'service.configure',
   'node.drain',
   'ingress.write',
   'service.deploy',

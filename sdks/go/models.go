@@ -131,6 +131,42 @@ type CreateServiceRequest struct {
 	NodeID   string   `json:"node_id,omitempty"`
 }
 
+type ServiceEnvVarInput struct {
+	Key      string `json:"key"`
+	Value    string `json:"value"`
+	Secret   bool   `json:"secret,omitempty"`
+	Delivery string `json:"delivery,omitempty"`
+}
+
+type ServiceResourceSide struct {
+	Cpus        float64 `json:"cpus,omitempty"`
+	MemoryBytes int     `json:"memory_bytes,omitempty"`
+}
+
+type ServiceResources struct {
+	Limits       *ServiceResourceSide `json:"limits,omitempty"`
+	Reservations *ServiceResourceSide `json:"reservations,omitempty"`
+}
+
+type ServiceRestartPolicy struct {
+	Condition    string  `json:"condition"`
+	MaxAttempts  int     `json:"max_attempts,omitempty"`
+	DelaySeconds float64 `json:"delay_seconds,omitempty"`
+}
+
+type UpdateServiceRequest struct {
+	Image            string                `json:"image,omitempty"`
+	Replicas         int                   `json:"replicas,omitempty"`
+	Command          []string              `json:"command,omitempty"`
+	Env              []ServiceEnvVarInput  `json:"env,omitempty"`
+	RemoveSecretKeys []string              `json:"remove_secret_keys,omitempty"`
+	Resources        *ServiceResources     `json:"resources,omitempty"`
+	RestartPolicy    *ServiceRestartPolicy `json:"restart_policy,omitempty"`
+	UpdateOrder      string                `json:"update_order,omitempty"`
+	SetLabels        map[string]any        `json:"set_labels,omitempty"`
+	RemoveLabels     []string              `json:"remove_labels,omitempty"`
+}
+
 type ScaleServiceRequest struct {
 	Replicas int `json:"replicas"`
 }
@@ -246,18 +282,18 @@ type IngressDomainStatus struct {
 }
 
 type IngressDomain struct {
-	ID              string              `json:"id"`
-	Host            string              `json:"host"`
-	ServiceID       string              `json:"service_id"`
-	ServiceName     string              `json:"service_name"`
-	TargetPort      int                 `json:"target_port"`
-	TLS             string              `json:"tls"`
-	PathPrefix      *string             `json:"path_prefix"`
-	Www             string              `json:"www,omitempty"`
-	CompanionHost   *string             `json:"companion_host"`
-	Auto            bool                `json:"auto,omitempty"`
-	Status          IngressDomainStatus `json:"status,omitempty"`
-	CompanionStatus IngressDomainStatus `json:"companion_status,omitempty"`
+	ID              string               `json:"id"`
+	Host            string               `json:"host"`
+	ServiceID       string               `json:"service_id"`
+	ServiceName     string               `json:"service_name"`
+	TargetPort      int                  `json:"target_port"`
+	TLS             string               `json:"tls"`
+	PathPrefix      *string              `json:"path_prefix"`
+	Www             string               `json:"www,omitempty"`
+	CompanionHost   *string              `json:"companion_host"`
+	Auto            bool                 `json:"auto,omitempty"`
+	Status          *IngressDomainStatus `json:"status,omitempty"`
+	CompanionStatus *IngressDomainStatus `json:"companion_status,omitempty"`
 }
 
 type IngressDomainList struct {

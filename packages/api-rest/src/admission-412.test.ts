@@ -12,7 +12,7 @@ import { trpcErrorToProblem } from './problem';
  */
 
 /** The routes whose service runs `enforceAdmission` (createService / deployFromCompose / updateService). */
-const ADMISSION_ROUTES = ['post /services', 'post /stacks', 'patch /services/{id}/env'];
+const ADMISSION_ROUTES = ['post /services', 'post /stacks', 'patch /services/{id}', 'patch /services/{id}/env'];
 
 function appFor(audit: string[]) {
   const db = new Proxy(

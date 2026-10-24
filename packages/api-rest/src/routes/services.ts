@@ -8,6 +8,7 @@ import {
   resolveService,
   restartService,
   scaleService,
+  updateService,
 } from '@swarmy/trpc';
 import type { RestEnv } from '../middleware';
 import { requireAction, requireScope } from '../middleware';
@@ -19,9 +20,10 @@ import {
   RemovedDto,
   ScaleBody,
   ServiceDto,
+  UpdateServiceBody,
   listEnvelope,
 } from '../dto';
-import { deploymentRefToDto, serviceToDto } from '../mappers';
+import { deploymentRefToDto, serviceToDto, updateServiceBodyToInput } from '../mappers';
 import { run } from '../respond';
 
 const ServiceList = listEnvelope(ServiceDto, 'ServiceList');
@@ -109,6 +111,39 @@ export function registerServiceRoutes(app: OpenAPIHono<RestEnv>): void {
             nodeId: b.node_id,
           }));
         },
+        202,
+      ),
+  );
+
+  app.openapi(
+    createRoute({
+      method: 'patch',
+      path: '/services/{id}',
+      tags: ['Services'],
+      summary: 'Update a running service (async deploy)',
+      description:
+        'Changes the fields sent (image, replicas, command, env, resources, restart policy, update order, labels) on the service\'s full live spec; everything else is kept. Runs the same admission checks as a deploy, so a guardrail can refuse it (412). Policy: `service.configure` on the service. Poll the returned deployment to a terminal phase.',
+      security: [{ bearerApiKey: [] }],
+      middleware: [requireScope('deploy'), requireAction('service.configure', resolveService)] as const,
+      request: { params: idParam, body: jsonBody(UpdateServiceBody) },
+      responses: {
+        202: {
+          content: { 'application/json': { schema: DeploymentRefDto } },
+          description: 'Accepted — the update is rolling out',
+        },
+        400: problemRes,
+        403: problemRes,
+        404: problemRes,
+        412: admissionRefusedRes,
+      },
+    }),
+    (c) =>
+      run(
+        c,
+        async () =>
+          deploymentRefToDto(
+            await updateService(c.get('orgCtx'), updateServiceBodyToInput(c.req.param('id'), c.req.valid('json'))),
+          ),
         202,
       ),
   );

@@ -262,6 +262,64 @@ class GuardrailProblem:
 
 
 @dataclass
+class ServiceEnvVarInput:
+    key: str
+    value: str
+    secret: Optional[bool] = None
+    delivery: Optional[str] = None
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "ServiceEnvVarInput":
+        return cls(
+            key=d.get("key"),
+            value=d.get("value"),
+            secret=d.get("secret"),
+            delivery=d.get("delivery"),
+        )
+
+
+@dataclass
+class ServiceResourceSide:
+    cpus: Optional[float] = None
+    memory_bytes: Optional[int] = None
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "ServiceResourceSide":
+        return cls(
+            cpus=d.get("cpus"),
+            memory_bytes=d.get("memory_bytes"),
+        )
+
+
+@dataclass
+class ServiceResources:
+    limits: Optional[ServiceResourceSide] = None
+    reservations: Optional[ServiceResourceSide] = None
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "ServiceResources":
+        return cls(
+            limits=d.get("limits"),
+            reservations=d.get("reservations"),
+        )
+
+
+@dataclass
+class ServiceRestartPolicy:
+    condition: str
+    max_attempts: Optional[int] = None
+    delay_seconds: Optional[float] = None
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "ServiceRestartPolicy":
+        return cls(
+            condition=d.get("condition"),
+            max_attempts=d.get("max_attempts"),
+            delay_seconds=d.get("delay_seconds"),
+        )
+
+
+@dataclass
 class Stack:
     id: str
     name: str

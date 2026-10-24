@@ -100,6 +100,42 @@ export interface CreateServiceRequest {
   node_id?: string;
 }
 
+export interface ServiceEnvVarInput {
+  key: string;
+  value: string;
+  secret?: boolean;
+  delivery?: 'env' | 'file';
+}
+
+export interface ServiceResourceSide {
+  cpus?: number;
+  memory_bytes?: number;
+}
+
+export interface ServiceResources {
+  limits?: ServiceResourceSide;
+  reservations?: ServiceResourceSide;
+}
+
+export interface ServiceRestartPolicy {
+  condition: 'on-failure' | 'any' | 'none';
+  max_attempts?: number;
+  delay_seconds?: number;
+}
+
+export interface UpdateServiceRequest {
+  image?: string;
+  replicas?: number;
+  command?: string[];
+  env?: ServiceEnvVarInput[];
+  remove_secret_keys?: string[];
+  resources?: ServiceResources;
+  restart_policy?: ServiceRestartPolicy;
+  update_order?: 'start-first' | 'stop-first';
+  set_labels?: {  };
+  remove_labels?: string[];
+}
+
 export interface ScaleServiceRequest {
   replicas: number;
 }

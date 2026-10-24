@@ -389,8 +389,10 @@ function genGo(): string {
         arrayItem = `[]${nestedName}`;
       }
       let t = arrayItem ?? goType(propSchema, nestedName, !!propSchema.nullable);
-      // A nullable reference to a named object schema decodes `null` as nil.
-      if (propSchema.$ref && propSchema.nullable && schemas[refName(propSchema.$ref)]?.type === 'object') {
+      // A nullable reference to a named object schema decodes `null` as nil;
+      // an optional one is a pointer too, so an unset request field is really
+      // omitted (omitempty never drops a struct value).
+      if (propSchema.$ref && (propSchema.nullable || !required) && schemas[refName(propSchema.$ref)]?.type === 'object') {
         t = `*${t}`;
       }
       // A nullable/optional nested object is a pointer, so `null` decodes and an

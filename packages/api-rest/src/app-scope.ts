@@ -79,6 +79,7 @@ export const APP_ROUTES: Record<string, AppRule> = {
 
   'GET /services': { kind: 'filter', app: (_ctx, s) => (typeof s.stack_id === 'string' ? s.stack_id : null) },
   'GET /services/{id}': serviceParam,
+  'PATCH /services/{id}': serviceParam,
   'POST /services/{id}/scale': serviceParam,
   'POST /services/{id}/restart': serviceParam,
   'DELETE /services/{id}': serviceParam,

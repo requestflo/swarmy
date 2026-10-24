@@ -267,6 +267,72 @@ export const ScaleBody = z
   .object({ replicas: z.number().int().min(0).max(1000) })
   .openapi('ScaleServiceRequest');
 
+const EnvKey = z.string().regex(/^[A-Z_][A-Z0-9_]*$/, 'UPPER_SNAKE_CASE, starting with a letter or underscore');
+
+export const ServiceEnvVarInputDto = z
+  .object({
+    key: EnvKey,
+    value: z.string(),
+    secret: z.boolean().optional().openapi({
+      description:
+        'A secret variable, stored as a Docker secret rather than in the service spec. Write-only: an empty `value` keeps the current secret, a non-empty one rotates it.',
+    }),
+    delivery: z.enum(['env', 'file']).optional().openapi({
+      description: 'How a secret reaches the process: `env` (default) or `file` (`<KEY>_FILE` points at it).',
+    }),
+  })
+  .openapi('ServiceEnvVarInput');
+
+const ServiceResourceSideDto = z
+  .object({
+    cpus: z.number().positive().max(512).optional().openapi({ format: 'double', description: 'CPU cores per copy (fractions allowed).' }),
+    memory_bytes: z.number().int().min(4 * 1024 * 1024).optional().openapi({ description: 'Memory per copy, in bytes.' }),
+  })
+  .openapi('ServiceResourceSide', { description: 'One side of the resources. A key left out is cleared; `{}` clears the side.' });
+
+export const ServiceResourcesBody = z
+  .object({
+    limits: ServiceResourceSideDto.optional(),
+    reservations: ServiceResourceSideDto.optional(),
+  })
+  .openapi('ServiceResources', { description: 'CPU/memory per copy. A side left out keeps its live value.' });
+
+export const ServiceRestartPolicyBody = z
+  .object({
+    condition: z.enum(['on-failure', 'any', 'none']),
+    max_attempts: z.number().int().min(0).max(1000).optional(),
+    delay_seconds: z.number().min(0).max(3600).optional().openapi({ format: 'double' }),
+  })
+  .openapi('ServiceRestartPolicy', { description: 'What Swarm does when a copy exits, merged over the live policy.' });
+
+/**
+ * PATCH /services/{id}. Every field is optional; a field left out keeps its
+ * live value (the update patches the service's full live spec).
+ */
+export const UpdateServiceBody = z
+  .object({
+    image: z.string().min(1).optional(),
+    replicas: z.number().int().min(0).max(1000).optional(),
+    command: z.array(z.string()).optional().openapi({ description: 'Override argv. `[]` goes back to the image default.' }),
+    env: z.array(ServiceEnvVarInputDto).optional().openapi({
+      description:
+        'The plain variables, as a whole: a plain key left out is removed. Secret variables not named here are kept (remove one with `remove_secret_keys`); a secret key sent as plain becomes plain. To change a few keys and keep the rest, use PATCH /services/{id}/env.',
+    }),
+    remove_secret_keys: z.array(EnvKey).optional().openapi({ description: 'Secret variables to stop mounting.' }),
+    resources: ServiceResourcesBody.optional(),
+    restart_policy: ServiceRestartPolicyBody.optional(),
+    update_order: z.enum(['start-first', 'stop-first']).optional().openapi({
+      description: 'During a deploy: start the new copy first, or stop the old one first.',
+    }),
+    set_labels: z.record(z.string().min(1).max(255), z.string().max(4096)).optional().openapi({
+      description: 'Service labels to set, merged over the live set.',
+    }),
+    remove_labels: z.array(z.string().min(1)).optional().openapi({
+      description: 'Service labels to remove (before `set_labels` is merged). swarmy’s own `swarmy.managed` and the stack label are kept.',
+    }),
+  })
+  .openapi('UpdateServiceRequest');
+
 export const DeployStackBody = z
   .object({ name: z.string(), compose_source: z.string() })
   .openapi('DeployStackRequest');

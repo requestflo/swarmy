@@ -402,6 +402,159 @@
           "image"
         ]
       },
+      "ServiceEnvVarInput": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^[A-Z_][A-Z0-9_]*$"
+          },
+          "value": {
+            "type": "string"
+          },
+          "secret": {
+            "type": "boolean",
+            "description": "A secret variable, stored as a Docker secret rather than in the service spec. Write-only: an empty `value` keeps the current secret, a non-empty one rotates it."
+          },
+          "delivery": {
+            "type": "string",
+            "enum": [
+              "env",
+              "file"
+            ],
+            "description": "How a secret reaches the process: `env` (default) or `file` (`<KEY>_FILE` points at it)."
+          }
+        },
+        "required": [
+          "key",
+          "value"
+        ]
+      },
+      "ServiceResourceSide": {
+        "type": "object",
+        "properties": {
+          "cpus": {
+            "type": "number",
+            "minimum": 0,
+            "exclusiveMinimum": true,
+            "maximum": 512,
+            "description": "CPU cores per copy (fractions allowed).",
+            "format": "double"
+          },
+          "memory_bytes": {
+            "type": "integer",
+            "minimum": 4194304,
+            "description": "Memory per copy, in bytes."
+          }
+        },
+        "description": "One side of the resources. A key left out is cleared; `{}` clears the side."
+      },
+      "ServiceResources": {
+        "type": "object",
+        "properties": {
+          "limits": {
+            "$ref": "#/components/schemas/ServiceResourceSide"
+          },
+          "reservations": {
+            "$ref": "#/components/schemas/ServiceResourceSide"
+          }
+        },
+        "description": "CPU/memory per copy. A side left out keeps its live value."
+      },
+      "ServiceRestartPolicy": {
+        "type": "object",
+        "properties": {
+          "condition": {
+            "type": "string",
+            "enum": [
+              "on-failure",
+              "any",
+              "none"
+            ]
+          },
+          "max_attempts": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "delay_seconds": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 3600,
+            "format": "double"
+          }
+        },
+        "required": [
+          "condition"
+        ],
+        "description": "What Swarm does when a copy exits, merged over the live policy."
+      },
+      "UpdateServiceRequest": {
+        "type": "object",
+        "properties": {
+          "image": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replicas": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "command": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Override argv. `[]` goes back to the image default."
+          },
+          "env": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ServiceEnvVarInput"
+            },
+            "description": "The plain variables, as a whole: a plain key left out is removed. Secret variables not named here are kept (remove one with `remove_secret_keys`); a secret key sent as plain becomes plain. To change a few keys and keep the rest, use PATCH /services/{id}/env."
+          },
+          "remove_secret_keys": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Z_][A-Z0-9_]*$"
+            },
+            "description": "Secret variables to stop mounting."
+          },
+          "resources": {
+            "$ref": "#/components/schemas/ServiceResources"
+          },
+          "restart_policy": {
+            "$ref": "#/components/schemas/ServiceRestartPolicy"
+          },
+          "update_order": {
+            "type": "string",
+            "enum": [
+              "start-first",
+              "stop-first"
+            ],
+            "description": "During a deploy: start the new copy first, or stop the old one first."
+          },
+          "set_labels": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 4096
+            },
+            "description": "Service labels to set, merged over the live set."
+          },
+          "remove_labels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Service labels to remove (before `set_labels` is merged). swarmy’s own `swarmy.managed` and the stack label are kept."
+          }
+        }
+      },
       "ScaleServiceRequest": {
         "type": "object",
         "properties": {
@@ -4468,6 +4621,89 @@
               "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Services"
+        ],
+        "summary": "Update a running service (async deploy)",
+        "description": "Changes the fields sent (image, replicas, command, env, resources, restart policy, update order, labels) on the service's full live spec; everything else is kept. Runs the same admission checks as a deploy, so a guardrail can refuse it (412). Policy: `service.configure` on the service. Poll the returned deployment to a terminal phase.",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateServiceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted — the update is rolling out",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentRef"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Admission refused the deploy — guardrails, exposure, image policy or the platform network wall. `violations` lists every rule it broke; over the API any violation refuses (`warn` included), since confirming a warning or overriding a block happens in the dashboard.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuardrailProblem"
                 }
               }
             }
