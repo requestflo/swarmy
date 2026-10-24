@@ -45,6 +45,7 @@ import { dbRestoreCopy } from './resolvers/db-restore-copy';
 import { dbPitrWindow } from './resolvers/db-pitr-window';
 import { controllerstore } from './resolvers/controllerstore';
 import { platform } from './resolvers/platform';
+import { swarmkv } from './resolvers/swarmkv';
 import { blueprints } from './resolvers/blueprints';
 import { searchsvc } from './resolvers/searchsvc';
 import { searchsvcIndexes } from './resolvers/searchsvc-indexes';
@@ -134,6 +135,7 @@ const MODULES: DomainResolvers[] = [
   dbPitrWindow,
   controllerstore,
   platform,
+  swarmkv,
   blueprints,
   searchsvc,
   searchsvcIndexes,

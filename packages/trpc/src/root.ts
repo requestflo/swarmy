@@ -23,6 +23,7 @@ import { geodnsRouter } from './routers/geodns';
 import { apiKeysRouter } from './routers/apiKeys';
 import { controllerBackupRouter } from './routers/controllerBackup';
 import { controllerStoreRouter } from './routers/controllerStore';
+import { swarmKvRouter } from './routers/swarmKv';
 import { storageRouter } from './routers/storage';
 import { platformRouter } from './routers/platform';
 import { decommissionRouter } from './routers/decommission';
@@ -97,6 +98,7 @@ export const appRouter = router({
   apiKeys: apiKeysRouter,
   controllerBackup: controllerBackupRouter,
   controllerStore: controllerStoreRouter,
+  swarmKv: swarmKvRouter,
   storage: storageRouter,
   platform: platformRouter,
   backupSchedules: backupSchedulesRouter,

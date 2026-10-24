@@ -2,6 +2,7 @@ import * as React from 'react';
 import { CodeView, Depth } from '@/components/calm';
 import { ErrorState, SkeletonBody } from '@/components/states';
 import { RowPage } from '@/components/rowpage/row-page';
+import { ClusterConfigCard } from './cluster-config-card';
 import { ControllerBackupCard } from './controller-backup-card';
 import { ImportReleaseButton } from './import-release-button';
 import { platformTitle } from './platform-title';
@@ -55,6 +56,7 @@ export function PlatformPage(): React.JSX.Element {
               <PolicyCard admin={admin} />
               <RunHistory />
             </div>
+            {admin ? <ClusterConfigCard /> : null}
           </Depth>
         </>
       ) : null}

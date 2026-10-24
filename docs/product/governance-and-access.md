@@ -206,7 +206,7 @@ Four ideas, one story:
   | `service.scale` / `service.restart` / `node.drain` | scale (incl. to 0), restart, drain/cordon |
   | `data.destroy` | managed cache/search/vector/queue teardown or drain, bucket/key delete, a bucket's lifecycle (expiry) rules, object store disable, cluster-volume deregister, a moved volume's old copy |
   | `data.configure` | a bucket's CORS rules (which websites a browser may fetch it from) |
-  | `data.restore` | volume, DB, cache, search and controller restores (they overwrite live data) |
+  | `data.restore` | volume, DB, cache, search and controller restores (they overwrite live data); putting back an earlier version of a cluster config document (`swarmKv.revert`) |
   | `data.failover` | confirming a managed-DB failover that may lose the last writes (see `managed-data.md`) |
   | `backup.remove` | removing a backup target or a backup schedule |
   | `node.disk.format` | formatting a blank added disk on a server (typed last 4 of the serial; also off per server with `swarmy.node.diskFormat=false`) |
