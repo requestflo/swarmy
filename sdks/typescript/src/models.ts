@@ -71,6 +71,24 @@ export interface ServiceList {
 export interface DeploymentRef {
   id: string;
   deployment_id: string;
+  deploy_id?: string;
+}
+
+export interface AdmissionViolation {
+  rule: string;
+  severity: 'block' | 'warn';
+  message: string;
+  resource?: string;
+}
+
+export interface GuardrailProblem {
+  type: string;
+  title: string;
+  status: number;
+  detail?: string;
+  instance?: string;
+  swarmy_code?: string;
+  violations: AdmissionViolation[];
 }
 
 export interface CreateServiceRequest {
@@ -112,6 +130,76 @@ export interface StackRemoved {
   volumes_kept: string[];
 }
 
+export interface StackEndpointName {
+  host: string;
+  port: number | null;
+  scope: 'app' | 'connected' | 'attached';
+  reachable_from: string[];
+}
+
+export interface StackServiceEndpoints {
+  service: string;
+  short_name: string;
+  ports: number[];
+  names: StackEndpointName[];
+}
+
+export interface StackResourceEndpoint {
+  kind: 'postgres' | 'cache' | 'search' | 'vector' | 'object-storage';
+  name: string;
+  host: string;
+  port: number;
+  role: string | null;
+  attached: string[];
+}
+
+export interface StackEndpoints {
+  stack: string;
+  connected_apps: string[];
+  services: StackServiceEndpoints[];
+  resources: StackResourceEndpoint[];
+}
+
+export interface StackConnection {
+  stack: string;
+  peer: string;
+  network: string;
+  services: string[];
+}
+
+export interface ConnectStackRequest {
+  peer: string;
+}
+
+export interface DomainDnsResolver {
+  id: string;
+  name: string;
+  operator: string | null;
+  city: string | null;
+  region: string | null;
+  lat: number | null;
+  lon: number | null;
+  tier: 'local' | 'public';
+  format: 'json' | 'wire' | null;
+  url: string | null;
+  anchor: boolean;
+  state: 'agrees' | 'cached' | 'no_answer' | 'error';
+  ips: string[];
+  cname: string[];
+  nxdomain: boolean;
+  error: string | null;
+}
+
+export interface DomainDnsGate {
+  basis: 'public' | 'local' | 'none';
+  agreeing: number;
+  answering: number;
+  needed: number;
+  anchors: string[];
+  anchors_agree: boolean;
+  pass: boolean;
+}
+
 export interface IngressDomainStatus {
   host: string;
   state: 'waiting_dns' | 'verified' | 'issuing' | 'active' | 'error';
@@ -122,7 +210,7 @@ export interface IngressDomainStatus {
   verified_manually: boolean;
   last_checked_at: string | null;
   next_check_at: string | null;
-  dns: { a: string[]; aaaa: string[]; cname: string[]; matched: string[] } | null;
+  dns: { a: string[]; aaaa: string[]; cname: string[]; matched: string[]; resolvers: DomainDnsResolver[]; gate: DomainDnsGate } | null;
   certificate: { issuer: string; expires_at: string; error: string; edges: { ip: string; ok: boolean; error?: string }[]; checked_at: string } | null;
 }
 
@@ -171,12 +259,15 @@ export interface ApiKey {
   id: string;
   name: string;
   prefix: string;
-  scopes: 'read' | 'write' | 'secrets.read'[];
+  scopes: 'read' | 'deploy' | 'write' | 'secrets.read'[];
+  preset: 'read' | 'deploy' | 'admin' | 'custom';
+  stack_names: string[] | null;
   last_used_at: string | null;
+  expires_at: string | null;
   created_at: string;
   created_by_id: string | null;
   revoked_at: string | null;
-  status: 'active' | 'revoked';
+  status: 'active' | 'revoked' | 'expired';
 }
 
 export interface ApiKeyList {
@@ -186,7 +277,10 @@ export interface ApiKeyList {
 
 export interface CreateApiKeyRequest {
   name: string;
-  scopes?: 'read' | 'write' | 'secrets.read'[];
+  preset?: 'read' | 'deploy' | 'admin';
+  scopes?: 'read' | 'deploy' | 'write' | 'secrets.read'[];
+  stack_names?: string[] | null;
+  expiry?: '30d' | '90d' | '1y' | 'never';
 }
 
 export interface Revoked {
@@ -772,4 +866,23 @@ export interface StackErrorsStatus {
   store_enabled: boolean;
   project: ErrorProject;
   pending_redeploy: string[];
+}
+
+export interface DeployEvent {
+  seq: number;
+  at: number;
+  stage: 'pull' | 'data' | 'start' | 'route' | 'health';
+  status: 'started' | 'progress' | 'done' | 'failed';
+  node: string;
+  service: string | null;
+  message: string;
+  detail: { layers_total?: number; layers_done?: number; bytes_total?: number; bytes_done?: number; digest?: string; image?: string; replicas_running?: number; replicas_desired?: number; host?: string } | null;
+}
+
+export interface DeployEvents {
+  deploy_id: string;
+  stack: string;
+  started_at: number;
+  done: boolean;
+  data: DeployEvent[];
 }

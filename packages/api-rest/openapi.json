@@ -3,7 +3,7 @@
   "info": {
     "title": "swarmy API",
     "version": "1.0.0",
-    "description": "Public, versioned REST API for swarmy. Authenticate with an org-scoped API key: `Authorization: Bearer swk_…`."
+    "description": "Public, versioned REST API for swarmy. Authenticate with an org-scoped API key: `Authorization: Bearer swk_…`.\n\n`/api/v1` only grows: fields and operations are added, never removed or repurposed, and enums are open (new values may appear). A breaking change ships as a new version; the v1 operation it replaces is marked `deprecated: true` with `x-swarmy-deprecated: { since, sunset, successor?, link? }`, and every response it sends carries `Deprecation` (RFC 9745) and `Sunset` (RFC 8594) headers, plus a `Link` to its successor, until it is removed after the sunset date."
   },
   "servers": [
     {
@@ -289,6 +289,72 @@
           "deployment_id"
         ]
       },
+      "AdmissionViolation": {
+        "type": "object",
+        "properties": {
+          "rule": {
+            "type": "string",
+            "description": "The rule that refused it: a guardrail (`no-latest-tag-in-prod`), an exposure or image-policy rule, or the platform wall (`network.control-plane`, `label.system`). Open set."
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "block",
+              "warn"
+            ],
+            "description": "`block` needs an admin/owner override in the dashboard; `warn` needs a confirmation there. The API never overrides."
+          },
+          "message": {
+            "type": "string"
+          },
+          "resource": {
+            "type": "string",
+            "description": "The service (or cluster) it is about."
+          }
+        },
+        "required": [
+          "rule",
+          "severity",
+          "message"
+        ]
+      },
+      "GuardrailProblem": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "number"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "swarmy_code": {
+            "type": "string",
+            "description": "`POLICY_DENIED` when admission refused the deploy."
+          },
+          "violations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdmissionViolation"
+            },
+            "description": "Every rule the deploy broke."
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "violations"
+        ]
+      },
       "CreateServiceRequest": {
         "type": "object",
         "properties": {
@@ -449,6 +515,199 @@
           "volumes_kept"
         ]
       },
+      "StackEndpointScope": {
+        "type": "string",
+        "enum": [
+          "app",
+          "connected",
+          "attached"
+        ],
+        "description": "Who can resolve the name: services of this app (`app`), of a connected app (`connected`), or the app services attached to a managed resource (`attached`). Open enum: new values may be added."
+      },
+      "StackEndpointName": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "type": "string",
+            "description": "The DNS name swarm answers: `web`, `shop_web`, `tasks.web`, `web.shop`."
+          },
+          "port": {
+            "type": "integer",
+            "nullable": true,
+            "description": "The port to pair with it — set when the service has exactly one known port."
+          },
+          "scope": {
+            "$ref": "#/components/schemas/StackEndpointScope"
+          },
+          "reachable_from": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "For `connected`: the peer apps that can use this name. Empty for `app`."
+          }
+        },
+        "required": [
+          "host",
+          "port",
+          "scope",
+          "reachable_from"
+        ]
+      },
+      "StackServiceEndpoints": {
+        "type": "object",
+        "properties": {
+          "service": {
+            "type": "string",
+            "description": "The swarm service name (`<app>_<short>`)."
+          },
+          "short_name": {
+            "type": "string",
+            "description": "The compose service name."
+          },
+          "ports": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "Container ports swarmy knows about (routes + published targets)."
+          },
+          "names": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StackEndpointName"
+            }
+          }
+        },
+        "required": [
+          "service",
+          "short_name",
+          "ports",
+          "names"
+        ]
+      },
+      "StackResourceEndpoint": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "postgres",
+              "cache",
+              "search",
+              "vector",
+              "object-storage"
+            ],
+            "description": "Open enum: new kinds may be added."
+          },
+          "name": {
+            "type": "string",
+            "description": "The resource: cluster, instance or bucket name."
+          },
+          "host": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          },
+          "role": {
+            "type": "string",
+            "nullable": true,
+            "description": "`primary`, `replica`, `sentinel`… for resources with roles."
+          },
+          "attached": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "This app's services wired to it — they alone share its network."
+          }
+        },
+        "required": [
+          "kind",
+          "name",
+          "host",
+          "port",
+          "role",
+          "attached"
+        ]
+      },
+      "StackEndpoints": {
+        "type": "object",
+        "properties": {
+          "stack": {
+            "type": "string"
+          },
+          "connected_apps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Apps (stack names) this one is connected to."
+          },
+          "services": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StackServiceEndpoints"
+            }
+          },
+          "resources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StackResourceEndpoint"
+            }
+          }
+        },
+        "required": [
+          "stack",
+          "connected_apps",
+          "services",
+          "resources"
+        ]
+      },
+      "StackConnection": {
+        "type": "object",
+        "properties": {
+          "stack": {
+            "type": "string",
+            "description": "This app (stack name)."
+          },
+          "peer": {
+            "type": "string",
+            "description": "The other app (stack name)."
+          },
+          "network": {
+            "type": "string",
+            "description": "The private overlay for exactly this pair (`swarmy-link-<hash>`)."
+          },
+          "services": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Services this call rolled onto (or off) the pair network; empty when nothing changed."
+          }
+        },
+        "required": [
+          "stack",
+          "peer",
+          "network",
+          "services"
+        ]
+      },
+      "ConnectStackRequest": {
+        "type": "object",
+        "properties": {
+          "peer": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The app to connect to: its stack id or name."
+          }
+        },
+        "required": [
+          "peer"
+        ]
+      },
       "IngressWwwMode": {
         "type": "string",
         "nullable": true,
@@ -468,6 +727,157 @@
           "active",
           "error"
         ]
+      },
+      "DomainDnsResolver": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Catalogue id (`cloudflare`, `quad9`, …), `system`, `swarmy-dns`, or a custom resolver host."
+          },
+          "name": {
+            "type": "string"
+          },
+          "operator": {
+            "type": "string",
+            "nullable": true
+          },
+          "city": {
+            "type": "string",
+            "nullable": true,
+            "description": "The operator’s home city. Public resolvers are anycast: this is not where the answer came from."
+          },
+          "region": {
+            "type": "string",
+            "nullable": true
+          },
+          "lat": {
+            "type": "number",
+            "nullable": true,
+            "format": "double"
+          },
+          "lon": {
+            "type": "number",
+            "nullable": true,
+            "format": "double"
+          },
+          "tier": {
+            "type": "string",
+            "enum": [
+              "local",
+              "public"
+            ]
+          },
+          "format": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "json",
+              "wire"
+            ],
+            "description": "`json` = DoH JSON API; `wire` = RFC 8484 `application/dns-message`."
+          },
+          "url": {
+            "type": "string",
+            "nullable": true
+          },
+          "anchor": {
+            "type": "boolean",
+            "description": "1.1.1.1 or 8.8.8.8 — must be among the agreeing resolvers when configured."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "agrees",
+              "cached",
+              "no_answer",
+              "error"
+            ],
+            "description": "`agrees` points at your edges; `cached` still returns another (usually old) answer and does not block; `no_answer`/`error` are left out of the count."
+          },
+          "ips": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "cname": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "nxdomain": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "operator",
+          "city",
+          "region",
+          "lat",
+          "lon",
+          "tier",
+          "format",
+          "url",
+          "anchor",
+          "state",
+          "ips",
+          "cname",
+          "nxdomain",
+          "error"
+        ]
+      },
+      "DomainDnsGate": {
+        "type": "object",
+        "nullable": true,
+        "properties": {
+          "basis": {
+            "type": "string",
+            "enum": [
+              "public",
+              "local",
+              "none"
+            ]
+          },
+          "agreeing": {
+            "type": "integer"
+          },
+          "answering": {
+            "type": "integer"
+          },
+          "needed": {
+            "type": "integer"
+          },
+          "anchors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "anchors_agree": {
+            "type": "boolean"
+          },
+          "pass": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "basis",
+          "agreeing",
+          "answering",
+          "needed",
+          "anchors",
+          "anchors_agree",
+          "pass"
+        ],
+        "description": "The go-live gate: at least 3 of every 4 public resolvers that answered point at your edges, with 1.1.1.1 and 8.8.8.8 (when configured) among them. With no public answer, the controller’s own resolver and swarmy-dns decide (`basis: local`)."
       },
       "IngressDomainStatus": {
         "type": "object",
@@ -535,13 +945,24 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "resolvers": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/DomainDnsResolver"
+                }
+              },
+              "gate": {
+                "$ref": "#/components/schemas/DomainDnsGate"
               }
             },
             "required": [
               "a",
               "aaaa",
               "cname",
-              "matched"
+              "matched",
+              "resolvers",
+              "gate"
             ]
           },
           "certificate": {
@@ -3995,6 +4416,16 @@
                 }
               }
             }
+          },
+          "412": {
+            "description": "Admission refused the deploy — guardrails, exposure, image policy or the platform network wall. `violations` lists every rule it broke; over the API any violation refuses (`warn` included), since confirming a warning or overriding a block happens in the dashboard.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuardrailProblem"
+                }
+              }
+            }
           }
         }
       }
@@ -4259,6 +4690,26 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Admission refused the deploy — guardrails, exposure, image policy or the platform network wall. `violations` lists every rule it broke; over the API any violation refuses (`warn` included), since confirming a warning or overriding a block happens in the dashboard.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuardrailProblem"
+                }
+              }
+            }
           }
         }
       }
@@ -4348,6 +4799,212 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/StackRemoved"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/stacks/{id}/endpoints": {
+      "get": {
+        "tags": [
+          "Stacks"
+        ],
+        "summary": "How to reach an app's services and managed resources from inside the cluster",
+        "description": "The internal DNS names swarm answers for each service (`web` in-app, `shop_web`, `tasks.web`, `web.shop` from a connected app) and the host:port of each managed resource, with who can use each. Read from live Docker state.",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Endpoints",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StackEndpoints"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/stacks/{id}/connections": {
+      "post": {
+        "tags": [
+          "Stacks"
+        ],
+        "summary": "Connect two apps over one private network",
+        "description": "Creates a private overlay for exactly this pair and rolls every app service of both onto it, aliased `<service>.<app>` — so this app reaches `api.billing:8080`. A third app sees neither; managed databases are not shared. Idempotent: an existing connection is a no-op. Policy: `stack.deploy` on both apps.",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectStackRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Connected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StackConnection"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/stacks/{id}/connections/{peer}": {
+      "delete": {
+        "tags": [
+          "Stacks"
+        ],
+        "summary": "Disconnect two apps",
+        "description": "Every service of both apps leaves the pair network and stops resolving the other. A peer that no longer exists is fine — the remaining side is detached. Policy: `stack.deploy` on both apps.",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The other app: its stack id or name."
+            },
+            "required": true,
+            "name": "peer",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Disconnected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StackConnection"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
                 }
               }
             }
@@ -7328,6 +7985,16 @@
               "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Admission refused the deploy — guardrails, exposure, image policy or the platform network wall. `violations` lists every rule it broke; over the API any violation refuses (`warn` included), since confirming a warning or overriding a block happens in the dashboard.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuardrailProblem"
                 }
               }
             }

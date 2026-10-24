@@ -210,12 +210,54 @@ class Service:
 class DeploymentRef:
     id: str
     deployment_id: str
+    deploy_id: Optional[str] = None
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "DeploymentRef":
         return cls(
             id=d.get("id"),
             deployment_id=d.get("deployment_id"),
+            deploy_id=d.get("deploy_id"),
+        )
+
+
+@dataclass
+class AdmissionViolation:
+    rule: str
+    severity: str
+    message: str
+    resource: Optional[str] = None
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "AdmissionViolation":
+        return cls(
+            rule=d.get("rule"),
+            severity=d.get("severity"),
+            message=d.get("message"),
+            resource=d.get("resource"),
+        )
+
+
+@dataclass
+class GuardrailProblem:
+    type: str
+    title: str
+    status: float
+    violations: List[AdmissionViolation]
+    detail: Optional[str] = None
+    instance: Optional[str] = None
+    swarmy_code: Optional[str] = None
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "GuardrailProblem":
+        return cls(
+            type=d.get("type"),
+            title=d.get("title"),
+            status=d.get("status"),
+            detail=d.get("detail"),
+            instance=d.get("instance"),
+            swarmy_code=d.get("swarmy_code"),
+            violations=d.get("violations"),
         )
 
 
@@ -254,6 +296,159 @@ class StackRemoved:
             delete_data=d.get("delete_data"),
             volumes_deleted=d.get("volumes_deleted"),
             volumes_kept=d.get("volumes_kept"),
+        )
+
+
+@dataclass
+class StackEndpointName:
+    host: str
+    port: Optional[int]
+    scope: str
+    reachable_from: List[str]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "StackEndpointName":
+        return cls(
+            host=d.get("host"),
+            port=d.get("port"),
+            scope=d.get("scope"),
+            reachable_from=d.get("reachable_from"),
+        )
+
+
+@dataclass
+class StackServiceEndpoints:
+    service: str
+    short_name: str
+    ports: List[int]
+    names: List[StackEndpointName]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "StackServiceEndpoints":
+        return cls(
+            service=d.get("service"),
+            short_name=d.get("short_name"),
+            ports=d.get("ports"),
+            names=d.get("names"),
+        )
+
+
+@dataclass
+class StackResourceEndpoint:
+    kind: str
+    name: str
+    host: str
+    port: int
+    role: Optional[str]
+    attached: List[str]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "StackResourceEndpoint":
+        return cls(
+            kind=d.get("kind"),
+            name=d.get("name"),
+            host=d.get("host"),
+            port=d.get("port"),
+            role=d.get("role"),
+            attached=d.get("attached"),
+        )
+
+
+@dataclass
+class StackEndpoints:
+    stack: str
+    connected_apps: List[str]
+    services: List[StackServiceEndpoints]
+    resources: List[StackResourceEndpoint]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "StackEndpoints":
+        return cls(
+            stack=d.get("stack"),
+            connected_apps=d.get("connected_apps"),
+            services=d.get("services"),
+            resources=d.get("resources"),
+        )
+
+
+@dataclass
+class StackConnection:
+    stack: str
+    peer: str
+    network: str
+    services: List[str]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "StackConnection":
+        return cls(
+            stack=d.get("stack"),
+            peer=d.get("peer"),
+            network=d.get("network"),
+            services=d.get("services"),
+        )
+
+
+@dataclass
+class DomainDnsResolver:
+    id: str
+    name: str
+    operator: Optional[str]
+    city: Optional[str]
+    region: Optional[str]
+    lat: Optional[float]
+    lon: Optional[float]
+    tier: str
+    format: Optional[str]
+    url: Optional[str]
+    anchor: bool
+    state: str
+    ips: List[str]
+    cname: List[str]
+    nxdomain: bool
+    error: Optional[str]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "DomainDnsResolver":
+        return cls(
+            id=d.get("id"),
+            name=d.get("name"),
+            operator=d.get("operator"),
+            city=d.get("city"),
+            region=d.get("region"),
+            lat=d.get("lat"),
+            lon=d.get("lon"),
+            tier=d.get("tier"),
+            format=d.get("format"),
+            url=d.get("url"),
+            anchor=d.get("anchor"),
+            state=d.get("state"),
+            ips=d.get("ips"),
+            cname=d.get("cname"),
+            nxdomain=d.get("nxdomain"),
+            error=d.get("error"),
+        )
+
+
+@dataclass
+class DomainDnsGate:
+    basis: str
+    agreeing: int
+    answering: int
+    needed: int
+    anchors: List[str]
+    anchors_agree: bool
+    pass_: bool
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "DomainDnsGate":
+        return cls(
+            basis=d.get("basis"),
+            agreeing=d.get("agreeing"),
+            answering=d.get("answering"),
+            needed=d.get("needed"),
+            anchors=d.get("anchors"),
+            anchors_agree=d.get("anchors_agree"),
+            pass_=d.get("pass"),
         )
 
 
@@ -346,7 +541,10 @@ class ApiKey:
     name: str
     prefix: str
     scopes: List[str]
+    preset: str
+    stack_names: Optional[List[str]]
     last_used_at: Optional[str]
+    expires_at: Optional[str]
     created_at: str
     created_by_id: Optional[str]
     revoked_at: Optional[str]
@@ -359,7 +557,10 @@ class ApiKey:
             name=d.get("name"),
             prefix=d.get("prefix"),
             scopes=d.get("scopes"),
+            preset=d.get("preset"),
+            stack_names=d.get("stack_names"),
             last_used_at=d.get("last_used_at"),
+            expires_at=d.get("expires_at"),
             created_at=d.get("created_at"),
             created_by_id=d.get("created_by_id"),
             revoked_at=d.get("revoked_at"),
@@ -1482,5 +1683,49 @@ class StackErrorsStatus:
             store_enabled=d.get("store_enabled"),
             project=d.get("project"),
             pending_redeploy=d.get("pending_redeploy"),
+        )
+
+
+@dataclass
+class DeployEvent:
+    seq: int
+    at: int
+    stage: str
+    status: str
+    node: str
+    service: Optional[str]
+    message: str
+    detail: Optional[Dict[str, Any]]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "DeployEvent":
+        return cls(
+            seq=d.get("seq"),
+            at=d.get("at"),
+            stage=d.get("stage"),
+            status=d.get("status"),
+            node=d.get("node"),
+            service=d.get("service"),
+            message=d.get("message"),
+            detail=d.get("detail"),
+        )
+
+
+@dataclass
+class DeployEvents:
+    deploy_id: str
+    stack: str
+    started_at: int
+    done: bool
+    data: List[DeployEvent]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "DeployEvents":
+        return cls(
+            deploy_id=d.get("deploy_id"),
+            stack=d.get("stack"),
+            started_at=d.get("started_at"),
+            done=d.get("done"),
+            data=d.get("data"),
         )
 

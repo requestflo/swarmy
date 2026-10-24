@@ -102,6 +102,24 @@ type ServiceList struct {
 type DeploymentRef struct {
 	ID           string `json:"id"`
 	DeploymentID string `json:"deployment_id"`
+	DeployID     string `json:"deploy_id,omitempty"`
+}
+
+type AdmissionViolation struct {
+	Rule     string `json:"rule"`
+	Severity string `json:"severity"`
+	Message  string `json:"message"`
+	Resource string `json:"resource,omitempty"`
+}
+
+type GuardrailProblem struct {
+	Type       string               `json:"type"`
+	Title      string               `json:"title"`
+	Status     int                  `json:"status"`
+	Detail     string               `json:"detail,omitempty"`
+	Instance   string               `json:"instance,omitempty"`
+	SwarmyCode string               `json:"swarmy_code,omitempty"`
+	Violations []AdmissionViolation `json:"violations"`
 }
 
 type CreateServiceRequest struct {
@@ -141,6 +159,76 @@ type StackRemoved struct {
 	DeleteData     bool     `json:"delete_data"`
 	VolumesDeleted []string `json:"volumes_deleted"`
 	VolumesKept    []string `json:"volumes_kept"`
+}
+
+type StackEndpointName struct {
+	Host          string   `json:"host"`
+	Port          *int     `json:"port"`
+	Scope         string   `json:"scope"`
+	ReachableFrom []string `json:"reachable_from"`
+}
+
+type StackServiceEndpoints struct {
+	Service   string              `json:"service"`
+	ShortName string              `json:"short_name"`
+	Ports     []int               `json:"ports"`
+	Names     []StackEndpointName `json:"names"`
+}
+
+type StackResourceEndpoint struct {
+	Kind     string   `json:"kind"`
+	Name     string   `json:"name"`
+	Host     string   `json:"host"`
+	Port     int      `json:"port"`
+	Role     *string  `json:"role"`
+	Attached []string `json:"attached"`
+}
+
+type StackEndpoints struct {
+	Stack         string                  `json:"stack"`
+	ConnectedApps []string                `json:"connected_apps"`
+	Services      []StackServiceEndpoints `json:"services"`
+	Resources     []StackResourceEndpoint `json:"resources"`
+}
+
+type StackConnection struct {
+	Stack    string   `json:"stack"`
+	Peer     string   `json:"peer"`
+	Network  string   `json:"network"`
+	Services []string `json:"services"`
+}
+
+type ConnectStackRequest struct {
+	Peer string `json:"peer"`
+}
+
+type DomainDnsResolver struct {
+	ID       string   `json:"id"`
+	Name     string   `json:"name"`
+	Operator *string  `json:"operator"`
+	City     *string  `json:"city"`
+	Region   *string  `json:"region"`
+	Lat      *float64 `json:"lat"`
+	Lon      *float64 `json:"lon"`
+	Tier     string   `json:"tier"`
+	Format   *string  `json:"format"`
+	URL      *string  `json:"url"`
+	Anchor   bool     `json:"anchor"`
+	State    string   `json:"state"`
+	Ips      []string `json:"ips"`
+	Cname    []string `json:"cname"`
+	Nxdomain bool     `json:"nxdomain"`
+	Error    *string  `json:"error"`
+}
+
+type DomainDnsGate struct {
+	Basis        string   `json:"basis"`
+	Agreeing     int      `json:"agreeing"`
+	Answering    int      `json:"answering"`
+	Needed       int      `json:"needed"`
+	Anchors      []string `json:"anchors"`
+	AnchorsAgree bool     `json:"anchors_agree"`
+	Pass         bool     `json:"pass"`
 }
 
 type IngressDomainStatus struct {
@@ -203,7 +291,10 @@ type ApiKey struct {
 	Name        string   `json:"name"`
 	Prefix      string   `json:"prefix"`
 	Scopes      []string `json:"scopes"`
+	Preset      string   `json:"preset"`
+	StackNames  []string `json:"stack_names"`
 	LastUsedAt  *string  `json:"last_used_at"`
+	ExpiresAt   *string  `json:"expires_at"`
 	CreatedAt   string   `json:"created_at"`
 	CreatedByID *string  `json:"created_by_id"`
 	RevokedAt   *string  `json:"revoked_at"`
@@ -216,8 +307,11 @@ type ApiKeyList struct {
 }
 
 type CreateApiKeyRequest struct {
-	Name   string   `json:"name"`
-	Scopes []string `json:"scopes,omitempty"`
+	Name       string   `json:"name"`
+	Preset     string   `json:"preset,omitempty"`
+	Scopes     []string `json:"scopes,omitempty"`
+	StackNames []string `json:"stack_names"`
+	Expiry     string   `json:"expiry,omitempty"`
 }
 
 type Revoked struct {
@@ -803,4 +897,23 @@ type StackErrorsStatus struct {
 	StoreEnabled    bool         `json:"store_enabled"`
 	Project         ErrorProject `json:"project"`
 	PendingRedeploy []string     `json:"pending_redeploy"`
+}
+
+type DeployEvent struct {
+	Seq     int            `json:"seq"`
+	At      int            `json:"at"`
+	Stage   string         `json:"stage"`
+	Status  string         `json:"status"`
+	Node    string         `json:"node"`
+	Service *string        `json:"service"`
+	Message string         `json:"message"`
+	Detail  map[string]any `json:"detail"`
+}
+
+type DeployEvents struct {
+	DeployID  string        `json:"deploy_id"`
+	Stack     string        `json:"stack"`
+	StartedAt int           `json:"started_at"`
+	Done      bool          `json:"done"`
+	Data      []DeployEvent `json:"data"`
 }
