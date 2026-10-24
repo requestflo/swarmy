@@ -5,7 +5,6 @@ import {
   autoLabelFor,
   pickHttpPort,
   planAutoAddresses,
-  sslipBaseFor,
   type AutoAddressCandidate,
 } from './auto-address';
 
@@ -20,18 +19,6 @@ const cand = (over: Partial<AutoAddressCandidate> = {}): AutoAddressCandidate =>
   ...over,
 });
 const BASE = '203-0-113-10.sslip.io';
-
-describe('sslipBaseFor', () => {
-  it('reuses the installer dashboard base (dashed or dotted)', () => {
-    expect(sslipBaseFor({ dashboardDomain: 'swarmy.203-0-113-10.sslip.io', edgeIps: ['198.51.100.1'] })).toBe(BASE);
-    expect(sslipBaseFor({ dashboardDomain: 'swarmy.203.0.113.10.nip.io', edgeIps: [] })).toBe('203-0-113-10.nip.io');
-  });
-  it('falls back to the first edge IPv4, then IPv6; null with no IP', () => {
-    expect(sslipBaseFor({ dashboardDomain: 'swarmy.acme.com', edgeIps: ['2001:db8::1', '203.0.113.10'] })).toBe(BASE);
-    expect(sslipBaseFor({ edgeIps: ['2001:db8::1'] })).toBe('2001-db8--1.sslip.io');
-    expect(sslipBaseFor({ edgeIps: [] })).toBeNull();
-  });
-});
 
 describe('autoLabelFor', () => {
   it('<service>-<stack>, stack prefix dropped; standalone = service', () => {

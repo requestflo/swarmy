@@ -6,7 +6,7 @@
  * in the org's OWN zone served by swarmy-dns (flagged with
  * `geodns.setZoneAutoAddresses`, which requires live NS delegation) — no third
  * party in the path. Fallback when no zone is delegated:
- * `<service>-<stack>.<edge-ip>.sslip.io`
+ * `<service>-<stack>.<edge-ip>.<base>`, base = sslip.io unless configured
  * (sslip.io answers any `<anything>.<a-b-c-d>.sslip.io` with `a.b.c.d`, so the
  * name points at the edge by construction — no DNS step, instantly verified).
  * Public IPs get a real Let's Encrypt certificate (sslip.io is on the Public
@@ -41,24 +41,6 @@ const NON_HTTP_PORTS = new Set([
 ]);
 /** Preferred HTTP ports, in order, when a service offers several. */
 const HTTP_PREFERENCE = [80, 8080, 3000, 8000, 5000, 4000, 8888, 3001, 5173, 4200, 9000, 1337, 8081];
-
-/** The sslip.io base for this org's edge, or null when no address can be formed. */
-export function sslipBaseFor(input: { dashboardDomain?: string | null; edgeIps: readonly string[] }): string | null {
-  const d = input.dashboardDomain?.trim().toLowerCase().replace(/\.$/, '');
-  if (d) {
-    // The installer's `swarmy.<a-b-c-d>.sslip.io` (dashed or dotted, sslip or nip).
-    const dashed = d.match(/(?:^|\.)(\d{1,3}-\d{1,3}-\d{1,3}-\d{1,3})\.(sslip\.io|nip\.io)$/);
-    if (dashed) return `${dashed[1]}.${dashed[2]}`;
-    const dotted = d.match(/(?:^|\.)(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(sslip\.io|nip\.io)$/);
-    if (dotted) return `${dotted.slice(1, 5).join('-')}.${dotted[5]}`;
-  }
-  const ips = [...input.edgeIps].sort();
-  const v4 = ips.find((ip) => /^\d+\.\d+\.\d+\.\d+$/.test(ip));
-  if (v4) return `${v4.replace(/\./g, '-')}.sslip.io`;
-  const v6 = ips.find((ip) => ip.includes(':'));
-  if (v6) return `${v6.toLowerCase().replace(/:/g, '-')}.sslip.io`;
-  return null;
-}
 
 /** Short stable hash (FNV-1a, base36) — collision suffixes and long-label truncation. */
 function hash6(s: string): string {

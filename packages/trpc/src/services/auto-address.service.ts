@@ -15,8 +15,8 @@
 import {
   AUTO_ADDRESS_HOST_LABEL,
   autoLabelFor,
+  autoAddressBaseFor,
   planAutoAddresses,
-  sslipBaseFor,
   type AutoAddressAction,
   type AutoAddressCandidate,
 } from '@swarmy/ingress';
@@ -33,6 +33,7 @@ import { isAutoAddressZone } from './dns-zones.service';
 import { readIngressSettingsRaw } from './domain-checks.store';
 import { INGRESS_ROUTES_LABEL, listRoutesForOrg, readRoutes, serializeRoutes, type Route } from './ingress-routes';
 import { ingressConfigRepo } from './ingress-config.repo';
+import { wildcardBaseFrom } from './auto-address-base.service';
 
 const INGRESS_ENABLED_LABEL = 'swarmy.ingress';
 
@@ -48,23 +49,33 @@ export async function autoAddressZone(ctx: OrgContext): Promise<string | null> {
 /**
  * The base this org's apps get addresses under: the org's OWN zone served by
  * swarmy-dns when one is delegated and flagged (`<label>.<zone>` — no third
- * party in the path), else the sslip.io fallback `<label>.<edge-ip>.sslip.io`.
- * Null when neither can be formed (no edge IP yet, or behind a tunnel).
+ * party in the path, `ownZone`), else the wildcard-IP fallback
+ * `<label>.<edge-ip>.<base>` (sslip.io unless the org setting or
+ * `SWARMY_AUTO_ADDRESS_BASE` says otherwise). Null when neither can be
+ * formed (no edge IP yet, or behind a tunnel).
  */
-export async function autoAddressBase(ctx: OrgContext): Promise<string | null> {
+export async function autoAddressBaseInfo(ctx: OrgContext): Promise<{ base: string; ownZone: boolean } | null> {
   const settings = await readIngressSettingsRaw(ctx);
   const expected = await expectedTarget(ctx);
   if (expected.tunnelCname) return null; // behind a tunnel there is no public edge IP to embed
   const zone = await autoAddressZone(ctx);
-  if (zone) return zone;
-  return sslipBaseFor({
+  if (zone) return { base: zone, ownZone: true };
+  const base = autoAddressBaseFor({
     dashboardDomain: typeof settings.dashboardDomain === 'string' ? settings.dashboardDomain : null,
     edgeIps: expected.ips,
+    base: wildcardBaseFrom(settings),
   });
+  return base ? { base, ownZone: false } : null;
+}
+
+/** {@link autoAddressBaseInfo}'s base alone. */
+export async function autoAddressBase(ctx: OrgContext): Promise<string | null> {
+  return (await autoAddressBaseInfo(ctx))?.base ?? null;
 }
 
 /**
- * The automatic address a service gets: `<service>-<stack>.<edge-ip>.sslip.io`.
+ * The automatic address a service gets: `<service>-<stack>.<zone>` or
+ * `<service>-<stack>.<edge-ip>.<base>` (see {@link autoAddressBaseInfo}).
  * `serviceName` may be the full swarm name (`shop_web`) or the compose key
  * (`web`). Null when no edge IP is known (or the org runs behind a tunnel).
  */
@@ -101,13 +112,13 @@ export async function reconcileAutoAddressesOrg(ctx: OrgContext, now = Date.now(
   if (!row.enabled || row.driver !== 'CADDY') return [];
   const manager = ctx.hub.managerNode(ctx.activeOrgId);
   if (!manager) return [];
-  const base = await autoAddressBase(ctx);
-  if (!base) return [];
-  // sslip.io names embed the edge IP (correct by construction — observed, never
-  // gated). A name in the org's own zone resolves only once swarmy-dns has the
-  // derived record: register it through the DNS gate so Caddy orders its
-  // certificate after the name verifiably points at the edge, not before.
-  const ownZone = !/\.(sslip|nip)\.io$/.test(base);
+  const info = await autoAddressBaseInfo(ctx);
+  if (!info) return [];
+  // Wildcard-IP names embed the edge IP (correct by construction — observed,
+  // never gated). A name in the org's own zone resolves only once swarmy-dns
+  // has the derived record: register it through the DNS gate so Caddy orders
+  // its certificate after the name verifiably points at the edge, not before.
+  const { base, ownZone } = info;
 
   const { services, containers } = ctx.hub.liveInventory(ctx.activeOrgId);
   const inv = buildInventory(services, containers).services;

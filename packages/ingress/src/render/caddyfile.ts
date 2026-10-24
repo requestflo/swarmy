@@ -360,16 +360,29 @@ const LOCAL_SUFFIXES = ['.local', '.lan', '.internal', '.home.arpa', '.test', '.
 
 /**
  * True when no public ACME CA could ever validate `host`: a LAN-only name, or a
- * wildcard-DNS name (sslip.io / nip.io style) that embeds a private IPv4. Such
- * hosts get Caddy's local CA (`tls internal`) instead of a Let's Encrypt order
- * that retries forever while HTTPS stays dead.
+ * wildcard-DNS name (sslip.io / nip.io style — plus any configured automatic-
+ * address base) that embeds a private IPv4. Such hosts get Caddy's local CA
+ * (`tls internal`) instead of a Let's Encrypt order that retries forever while
+ * HTTPS stays dead.
  */
-export function isPrivateHost(host: string): boolean {
+export function isPrivateHost(host: string, wildcardBases: readonly string[] = []): boolean {
   const h = host.toLowerCase().replace(/\.$/, '');
   if (h === 'localhost' || LOCAL_SUFFIXES.some((s) => h.endsWith(s))) return true;
   if (/^\d+\.\d+\.\d+\.\d+$/.test(h)) return PRIVATE_V4.test(h);
   const embedded = h.match(/(?:^|[.-])(\d{1,3})[.-](\d{1,3})[.-](\d{1,3})[.-](\d{1,3})\.(?:sslip\.io|nip\.io)$/);
-  return embedded ? PRIVATE_V4.test(embedded.slice(1, 5).join('.')) : false;
+  if (embedded) return PRIVATE_V4.test(embedded.slice(1, 5).join('.'));
+  for (const base of wildcardBases) {
+    if (!h.endsWith(`.${base}`)) continue;
+    const ip = h.slice(0, -base.length - 1).match(/(?:^|[.-])(\d{1,3})[.-](\d{1,3})[.-](\d{1,3})[.-](\d{1,3})$/);
+    if (ip) return PRIVATE_V4.test(ip.slice(1, 5).join('.'));
+  }
+  return false;
+}
+
+/** The configured automatic-address base the controller threads in (`extraConfig.autoAddressBase`). */
+function wildcardBasesOf(config: IngressConfig): string[] {
+  const b = (config.globalOptions.extraConfig as Record<string, unknown>).autoAddressBase;
+  return typeof b === 'string' && b ? [b.toLowerCase()] : [];
 }
 
 /** TLS directive lines for a site address (shared by service and redirect sites). */
@@ -381,7 +394,7 @@ function siteTls(host: string, tls: DomainRoute['tls'], config: IngressConfig): 
     const material = certs?.[host];
     return material ? [`  tls ${material.cert} ${material.key}`] : [];
   }
-  if (tls === 'auto' && isPrivateHost(host)) return ['  tls internal'];
+  if (tls === 'auto' && isPrivateHost(host, wildcardBasesOf(config))) return ['  tls internal'];
   // Wildcards: DNS-01 through swarmy's own nameservers (or a BYO provider).
   const dns = tls === 'auto' ? caddyDnsTlsLines(host, config.dnsChallenge) : null;
   if (dns) return dns;

@@ -6,6 +6,7 @@ export * from './www';
 export * from './domain-verify';
 export * from './doh';
 export * from './auto-address';
+export * from './auto-address-base';
 export * from './dns-challenge';
 export * from './app-auth';
 export * from './rum';

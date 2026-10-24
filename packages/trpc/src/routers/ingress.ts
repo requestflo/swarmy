@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { TlsMode } from '@swarmy/core';
 import { EdgeGeoipSettingSchema, RouteProtectionSchema, WwwModeSchema } from '@swarmy/ingress';
 import { getEdgeGeoip, setEdgeGeoip } from '../services/edge-geoip.service';
+import { getAutoAddressBase, setAutoAddressBase } from '../services/auto-address-base.service';
 import { adminProcedure, orgProcedure, router } from '../trpc';
 import { BYO_DNS_PROVIDERS } from '@swarmy/ingress';
 import { getDnsChallengeView, setByoDnsProvider } from '../services/acme-dns.service';
@@ -133,6 +134,13 @@ export const ingressRouter = router({
   setEdgeGeoip: adminProcedure
     .input(EdgeGeoipSettingSchema.refine((v) => v.mode !== 'file' || Boolean(v.path), { message: 'a file path is required', path: ['path'] }))
     .mutation(({ ctx, input }) => setEdgeGeoip(ctx, input, reapply)),
+
+  /** The wildcard-IP base automatic addresses fall back to (sslip.io unless set). */
+  autoAddressBase: orgProcedure.query(({ ctx }) => getAutoAddressBase(ctx)),
+  /** Set it for this workspace (`null` = back to SWARMY_AUTO_ADDRESS_BASE / sslip.io). */
+  setAutoAddressBase: adminProcedure
+    .input(z.object({ base: z.string().max(253).nullable() }))
+    .mutation(({ ctx, input }) => setAutoAddressBase(ctx, input.base)),
 
   setTopology: adminProcedure
     .input(z.object({ topology: z.enum(['controller', 'edge-per-node']) }))
