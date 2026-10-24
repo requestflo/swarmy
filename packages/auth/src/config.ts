@@ -70,6 +70,10 @@ export interface ResolvedSsoProvider {
   authorizationUrl?: string | null;
   tokenUrl?: string | null;
   userInfoUrl?: string | null;
+  /** SAML: the IdP's sign-on URL (HTTP-Redirect). `issuer` is its entity id. */
+  entryPoint?: string | null;
+  /** SAML: the IdP's signing certificate (base64 body or PEM). */
+  cert?: string | null;
   clientId?: string | null;
   clientSecret?: string | null;
   scopes?: string[];
@@ -219,6 +223,8 @@ export async function loadSsoProviders(db: DB): Promise<ResolvedSsoProvider[]> {
       authorizationUrl: typeof meta.authorizationUrl === 'string' ? meta.authorizationUrl : null,
       tokenUrl: typeof meta.tokenUrl === 'string' ? meta.tokenUrl : null,
       userInfoUrl: typeof meta.userInfoUrl === 'string' ? meta.userInfoUrl : null,
+      entryPoint: typeof meta.entryPoint === 'string' ? meta.entryPoint : null,
+      cert: typeof meta.cert === 'string' ? meta.cert : null,
       clientId: row.clientId,
       clientSecret: safeDecrypt(row.encryptedSecret) ?? null,
       scopes: Array.isArray(meta.scopes) ? (meta.scopes as string[]) : ['openid', 'email', 'profile'],

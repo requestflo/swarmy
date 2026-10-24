@@ -23,6 +23,8 @@ import { trustedOriginsNow } from './origins';
 import { mfaAssurance, swarmyTwoFactor } from './two-factor';
 import { OIDC_DISABLED_PATHS, swarmyOidcProvider } from './oidc-provider';
 import { onSessionDeleted } from './token-revocation';
+import { samlProviderIdFromPath, samlUserEmail } from './saml';
+import { swarmySaml } from './saml-plugin';
 import {
   allowedDomainsFor,
   inviteIdFromRequest,
@@ -170,8 +172,8 @@ export function buildAuth(
     };
   }
 
-  // Enterprise SSO (OIDC) goes through genericOAuth; SAML providers are stored
-  // but skipped here (no SAML plugin in this Better Auth version — see INTEGRATION).
+  // Enterprise SSO: OIDC goes through genericOAuth, SAML through
+  // @better-auth/sso (saml-plugin.ts, which skips rows not yet complete).
   // A provider id that collides with a built-in/social account kind is never
   // registered (account-linking.ts: it would share those accounts' providerId).
   const oidcSso = (config.sso ?? []).filter(
@@ -199,6 +201,7 @@ export function buildAuth(
   if (oidcSso.length) {
     optional.push(genericOAuth({ config: oidcSso.map(ssoToGenericOAuth) }) as BetterAuthPlugin);
   }
+  optional.push(...swarmySaml(config.sso ?? []));
   if (opts.extraPlugins?.length) {
     optional.push(...opts.extraPlugins);
   }
@@ -229,7 +232,10 @@ export function buildAuth(
             const params = ctx?.params as Record<string, unknown> | undefined;
             const ssoProviderId = ssoProviderIdFromPath(ctx?.path, params);
             const social = socialProviderFromPath(ctx?.path, params);
-            await assertSignupAllowed(db, user.email, process.env, {
+            // A SAML IdP that sent no email gets the IdP placeholder (saml.ts).
+            const samlId = samlProviderIdFromPath(ctx?.path, params);
+            const email = samlId && ssoById.has(samlId) ? samlUserEmail(samlId, user.email) : user.email;
+            await assertSignupAllowed(db, email, process.env, {
               inviteId: inviteIdFromRequest(ctx),
               ssoProviderId: ssoProviderId && ssoById.has(ssoProviderId) ? ssoProviderId : null,
               username: typeof user.username === 'string' ? user.username : null,
@@ -242,6 +248,7 @@ export function buildAuth(
                 user.emailVerified === true &&
                 emailDomainAllowed(user.email, allowedDomainsFor(config.social, social!)),
             });
+            if (email !== user.email) return { data: { ...user, email } };
           },
         },
       },

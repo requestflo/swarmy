@@ -7,6 +7,7 @@ import {
   usernameClient,
 } from 'better-auth/client/plugins';
 import { oauthProviderClient } from '@better-auth/oauth-provider/client';
+import { ssoClient } from '@better-auth/sso/client';
 
 /**
  * Browser auth client for the dashboard. `baseURL` is left to the same origin
@@ -22,6 +23,9 @@ import { oauthProviderClient } from '@better-auth/oauth-provider/client';
  *  - genericOAuthClient: `authClient.signIn.oauth2({ providerId })` for org SSO
  *    (any OIDC IdP: Keycloak, Authentik, Zitadel, Entra ID…). Social providers
  *    (Microsoft, Google, GitHub, GitLab) use `authClient.signIn.social`.
+ *  - ssoClient: `authClient.signIn.sso({ providerId, callbackURL })` for org
+ *    SAML providers (SP-initiated; the controller serves only that, the SP
+ *    metadata and the ACS — saml-plugin.ts).
  *  - oauthProviderClient: swarmy is an OIDC provider (NetBird signs in with
  *    swarmy accounts). While `/login` carries a signed authorize query, sign-in
  *    answers `{ redirect: true, url }` to resume the authorize flow.
@@ -33,7 +37,15 @@ import { oauthProviderClient } from '@better-auth/oauth-provider/client';
  */
 export const authClient = createAuthClient({
   basePath: '/api/auth',
-  plugins: [organizationClient(), magicLinkClient(), genericOAuthClient(), twoFactorClient(), usernameClient(), oauthProviderClient()],
+  plugins: [
+    organizationClient(),
+    magicLinkClient(),
+    genericOAuthClient(),
+    ssoClient(),
+    twoFactorClient(),
+    usernameClient(),
+    oauthProviderClient(),
+  ],
 });
 
 export const { signIn, signUp, signOut, useSession, organization } = authClient;

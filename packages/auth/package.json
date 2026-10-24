@@ -16,6 +16,10 @@
     "./server": {
       "types": "./src/server.ts",
       "import": "./src/server.ts"
+    },
+    "./testing": {
+      "types": "./src/saml-testing.ts",
+      "import": "./src/saml-testing.ts"
     }
   },
   "scripts": {
@@ -26,9 +30,11 @@
   },
   "dependencies": {
     "@better-auth/oauth-provider": "1.6.22",
+    "@better-auth/sso": "1.6.22",
     "@swarmy/core": "workspace:*",
     "@swarmy/db": "workspace:*",
-    "better-auth": "^1.6.19"
+    "better-auth": "^1.6.19",
+    "samlify": "2.15.1"
   },
   "devDependencies": {
     "tsup": "^8.3.5",

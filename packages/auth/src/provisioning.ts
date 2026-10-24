@@ -16,6 +16,7 @@ import {
 import { idpPlaceholderEmail } from './identity-idp';
 import type { ResolvedAuthConfig, ResolvedSsoProvider } from './config';
 import { isInviteLinkToken } from './invite-links';
+import { SAML_ACS_PREFIX, samlProviderIdFromPath } from './saml';
 
 /**
  * Who joins which org, and with which groups, when they sign in.
@@ -24,7 +25,8 @@ import { isInviteLinkToken } from './invite-links';
  *    sign-in follows it — password, username, social or SSO — and the invitee
  *    becomes a member with the invited role. The link is the credential; the
  *    invitee's email (if any) need not match.
- *  - An org SSO first login (`/oauth2/callback/<providerId>`) auto-provisions
+ *  - An org SSO first login (`/oauth2/callback/<providerId>`, SAML's
+ *    `/sso/saml2/sp/acs/<providerId>`) auto-provisions
  *    the person into the provider's org as a member (the IdP is the org's own
  *    directory; `metadata.autoProvision: false` turns it off).
  *  - Every SSO login replaces the member's `attributes.ssoGroups` with the
@@ -283,8 +285,9 @@ export function inviteIdFromRequest(ctx: { headers?: Headers | null; request?: R
   return id && /^[\w-]{1,128}$/.test(id) ? id : null;
 }
 
-/** `/oauth2/callback/:providerId` → the provider id. */
+/** `/oauth2/callback/:providerId` (OIDC) or `/sso/saml2/sp/acs/:providerId` (SAML) → the provider id. */
 export function ssoProviderIdFromPath(path: string | undefined, params?: Record<string, unknown> | null): string | null {
+  if (path?.startsWith(SAML_ACS_PREFIX)) return samlProviderIdFromPath(path, params);
   if (!path?.startsWith('/oauth2/callback/')) return null;
   const fromParams = params?.providerId;
   if (typeof fromParams === 'string' && fromParams) return fromParams;
@@ -315,6 +318,7 @@ function isSignInPath(path: string | undefined): boolean {
     path.startsWith('/sign-up/') ||
     path.startsWith('/callback/') ||
     path.startsWith('/oauth2/callback/') ||
+    path.startsWith(SAML_ACS_PREFIX) ||
     path.startsWith('/magic-link/verify') ||
     path.startsWith('/two-factor/verify')
   );

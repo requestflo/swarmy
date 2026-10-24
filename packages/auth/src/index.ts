@@ -78,6 +78,15 @@ export {
   mapGroups,
 } from './identity';
 export { idpPlaceholderEmail } from './identity-idp';
+export { normalizeCert, samlSpUrls, ssoPublicBase, type SamlSpUrls } from './saml';
+export {
+  assertHttpUrl,
+  certInfo,
+  parseIdpMetadata,
+  SamlConfigError,
+  type CertInfo,
+  type IdpMetadataFields,
+} from './saml-metadata';
 export {
   redeemInvitation,
   needsAppGrant,

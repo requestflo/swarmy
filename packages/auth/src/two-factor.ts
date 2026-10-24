@@ -19,7 +19,8 @@ import type { DB } from '@swarmy/db';
  *     second factor they opted into, so those sessions are marked pending and
  *     `orgProcedure` refuses them (`MFA_CHALLENGE_REQUIRED`) until the user
  *     verifies a code in-session. Social and org SSO sign-ins (`/callback/*`,
- *     `/oauth2/callback/*`) are exempt: the IdP owns MFA for federated logins.
+ *     `/oauth2/callback/*`, SAML `/sso/saml2/sp/acs/*`) are exempt: the IdP owns
+ *     MFA for federated logins.
  *     2FA is optional per user; nothing here is an org requirement. The same `mfaVerifiedAt` is the step-up
  *     clock the terminal checks (`TerminalPolicy.requireMfa` + `mfaMaxAgeMs`).
  */
@@ -49,7 +50,7 @@ export type SessionAssurance = 'verified' | 'pending' | 'exempt' | 'none';
 export function classifySessionPath(path: string | undefined): SessionAssurance {
   if (!path) return 'none';
   if ((MFA_VERIFY_PATHS as readonly string[]).includes(path)) return 'verified';
-  if (path.startsWith('/oauth2/callback/')) return 'exempt';
+  if (path.startsWith('/oauth2/callback/') || path.startsWith('/sso/saml2/sp/acs/')) return 'exempt';
   // Social sign-in (GitHub/Google/Microsoft/GitLab/OIDC) is exempt like org
   // SSO: the identity provider owns MFA, and swarmy never adds a wall on top.
   if (path.startsWith('/callback/')) return 'exempt';
