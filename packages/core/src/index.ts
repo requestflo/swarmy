@@ -16,6 +16,7 @@ export * from './manageddb-storage';
 export * from './manageddb-placement';
 export * from './manageddb-failover';
 export * from './data-pin';
+export * from './db-restore-copy';
 export * from './disk-forecast';
 export * from './disk-inventory';
 export * from './volume-move';

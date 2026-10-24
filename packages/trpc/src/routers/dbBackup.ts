@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { RunDbBackupInput, SetDbBackupScheduleInput } from '@swarmy/core';
 import { DbBackupEngine, DbRestoreMode } from '@swarmy/core/protocol';
 import { orgProcedure, router } from '../trpc';
-import { abacProcedure, resolveStackByName } from '../abac';
+import { abacProcedure, authorize, resolveStackByName } from '../abac';
 import {
   dbBackupOverview,
   getDbBackupSchedule,
@@ -11,6 +11,13 @@ import {
   runDbBackup,
   setDbBackupSchedule,
 } from '../services/dbBackup.service';
+import { restoreDbAsCopy } from '../services/dbRestoreCopy.service';
+
+const copyName = z
+  .string()
+  .min(1)
+  .max(40)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9-]*$/, 'invalid cluster name');
 
 /**
  * DB-aware backups (slice A1): logical (pg_dump / pg_dumpall /
@@ -71,4 +78,27 @@ export const dbBackupRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => restoreDb(ctx, input)),
+
+  /**
+   * Restore as a copy: create `<cluster>-restore-<mmdd>` beside the source (one
+   * copy, same image and placement, wired into no app), wait for it to answer,
+   * then restore into it. `data.restore`, plus `stack.deploy` because it
+   * provisions a database. Audited `db.restore.copy` (and `db.restore`).
+   */
+  restoreAsCopy: abacProcedure('data.restore', resolveStackByName)
+    .input(
+      z.object({
+        stack: z.string().min(1),
+        cluster: z.string().min(1),
+        engine: DbBackupEngine,
+        targetId: z.string().optional(),
+        snapshotId: z.string().optional(),
+        targetTime: z.string().optional(),
+        name: copyName.optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await authorize(ctx, 'stack.deploy', await resolveStackByName(ctx, input));
+      return restoreDbAsCopy(ctx, input);
+    }),
 });

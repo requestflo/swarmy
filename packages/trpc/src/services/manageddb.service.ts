@@ -416,6 +416,12 @@ export interface ProvisionDbInput {
    * exists. False for throwaway clusters (restore drills).
    */
   autoBackup?: boolean;
+  /**
+   * HA topology a NEW cluster is born with (default primary-replica). A
+   * re-provision keeps the live one. Server-side callers only (a restore
+   * copy is born `single`); the router does not expose it.
+   */
+  topology?: DbTopology;
 }
 
 /** A Bitnami (or frozen bitnamilegacy) image ref — the pre-B5 engine contract. */
@@ -680,7 +686,11 @@ async function provisionDbCore(
       : await import('./autoBackup.service')
           .then((m) => m.autoDbScheduleLabels(ctx, stack, cluster, existing?.labels))
           .catch(() => ({ labels: {} as Record<string, string> }));
-  const carried = existing ? omit(existing.labels, [DB_PITR_APPLIED_LABEL]) : undefined;
+  const carried = existing
+    ? omit(existing.labels, [DB_PITR_APPLIED_LABEL])
+    : input.topology
+      ? { [DB_TOPOLOGY_LABEL]: input.topology }
+      : undefined;
 
   const { primarySpec, replicaSpec } = managedPgSpecs({
     stack,
