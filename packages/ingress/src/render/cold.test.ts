@@ -34,4 +34,12 @@ describe('scale-to-zero cold routing', () => {
     expect(out).toContain('reverse_proxy web:3000');
     expect(out).not.toContain('_wake');
   });
+
+  it('a signed wake path (/_wake/<svc>/<token>) renders verbatim, with the return query after the token', () => {
+    const signed = { ...COLD, wakePath: '/_wake/web/AbC-123_xyzAbC-123_xyz' };
+    const out = buildCaddyfile(
+      cfg('caddy', { domains: [{ domain: 'app.example.com', service: 'web', port: 3000, tls: 'auto', cold: signed }] }),
+    );
+    expect(out).toContain('rewrite * /_wake/web/AbC-123_xyzAbC-123_xyz?return={scheme}://{host}{uri}');
+  });
 });

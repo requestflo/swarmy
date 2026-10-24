@@ -27,6 +27,7 @@ import { createHash } from 'node:crypto';
 import { TRPCError } from '@trpc/server';
 import { buildInventory, type TlsMode } from '@swarmy/core';
 import { decryptSecret, encryptSecret } from '@swarmy/core/crypto';
+import { wakePathFor } from '@swarmy/core/wake-token';
 import type { Auth } from '@swarmy/auth';
 import type { DB } from '@swarmy/db';
 import type { AgentHub } from '../hub/types';
@@ -145,13 +146,14 @@ function activatorUpstream(): string {
  * activator through the wake transient — while the service scales up but no task is
  * live yet — so the bounce-back never lands on a 0-task service and 502s.
  */
-function computeColdRoutes(ctx: OrgContext): Map<string, ColdRoute> {
+export function computeColdRoutes(ctx: Pick<OrgContext, 'activeOrgId' | 'hub'>): Map<string, ColdRoute> {
   const cold = new Map<string, ColdRoute>();
   const { services, containers } = ctx.hub.liveInventory(ctx.activeOrgId);
   const upstream = activatorUpstream();
   for (const s of buildInventory(services, containers).services) {
     if (s.scaleToZero && s.replicas.running === 0) {
-      cold.set(s.name, { upstream, wakePath: `/_wake/${encodeURIComponent(s.name)}` });
+      // Signed per org + service: the activator wakes nothing without it.
+      cold.set(s.name, { upstream, wakePath: wakePathFor(ctx.activeOrgId, s.name) });
     }
   }
   return cold;
