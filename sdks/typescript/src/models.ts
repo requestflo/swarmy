@@ -288,7 +288,7 @@ export interface DnsRecordHint {
 }
 
 export interface UpdateDomainRequest {
-  www: 'redirect-www-to-apex' | 'redirect-apex-to-www' | 'serve-both';
+  www: 'redirect-www-to-apex' | 'redirect-apex-to-www' | 'serve-both' | null;
 }
 
 export interface IngressTls {

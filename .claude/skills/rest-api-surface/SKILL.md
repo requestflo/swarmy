@@ -136,7 +136,12 @@ adapter contract.
   `scripts/gen-sdks.ts`; their client/resource layers are hand-written and must
   gain each new route by hand (Go/Python/TS each have `services.update` and
   join tokens). An optional `$ref` to an object becomes a Go pointer, and a
-  `$ref` to a nullable object is nullable in every language. The Terraform
+  `$ref` to a nullable object is nullable in every language. In a Go REQUEST
+  model (any schema a request body reaches) an optional boolean, or a number
+  whose bounds admit 0, is a pointer (`swarmy.Ptr(false)`; omitempty would drop
+  it), and an optional nullable field is `swarmy.Nullable[T]` + `omitzero`
+  (unset is left out, `swarmy.Null[T]()` sends `null`): a nil pointer would
+  send `null` and clear what the caller never named. The Terraform
   provider has its OWN hand-written client
   (`terraform-provider-swarmy/internal/client/*`) and keeps a copy of the spec
   (`terraform-provider-swarmy/openapi.json`), refreshed with the contract.

@@ -35,6 +35,11 @@ Each SDK is split into two layers:
 - Auth: `Authorization: Bearer swk_…`.
 - JSON is snake_case on the wire (matching the spec); the Go SDK uses Go-idiomatic
   field names with `json:"…"` tags, Python/TS keep snake_case field names.
+- Go request structs: an optional boolean or number is a pointer, so nil leaves
+  it out and `swarmy.Ptr(false)` / `swarmy.Ptr(0)` sends it; an optional
+  nullable field is a `swarmy.Nullable[T]` — unset is left out (the server keeps
+  the value), `swarmy.Null[T]()` sends `null` (clears it),
+  `swarmy.NullableValue(v)` sends `v`.
 - Async deploy endpoints (create / scale / restart service, deploy stack) return
   a `DeploymentRef` (HTTP 202).
 

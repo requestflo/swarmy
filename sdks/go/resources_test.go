@@ -14,7 +14,7 @@ func TestServicesUpdateSendsOnlySetFields(t *testing.T) {
 		Image:         "nginx:1.28",
 		Env:           []ServiceEnvVarInput{{Key: "LOG_LEVEL", Value: "debug"}},
 		Resources:     &ServiceResources{Limits: &ServiceResourceSide{Cpus: 0.5}},
-		RestartPolicy: &ServiceRestartPolicy{Condition: "on-failure", MaxAttempts: 3},
+		RestartPolicy: &ServiceRestartPolicy{Condition: "on-failure", MaxAttempts: Ptr(3)},
 		SetLabels:     map[string]any{"tier": "web"},
 	})
 	if err != nil {

@@ -125,7 +125,7 @@ type GuardrailProblem struct {
 type CreateServiceRequest struct {
 	Name     string   `json:"name"`
 	Image    string   `json:"image"`
-	Replicas int      `json:"replicas,omitempty"`
+	Replicas *int     `json:"replicas,omitempty"`
 	Command  []string `json:"command,omitempty"`
 	Env      []EnvVar `json:"env,omitempty"`
 	NodeID   string   `json:"node_id,omitempty"`
@@ -134,7 +134,7 @@ type CreateServiceRequest struct {
 type ServiceEnvVarInput struct {
 	Key      string `json:"key"`
 	Value    string `json:"value"`
-	Secret   bool   `json:"secret,omitempty"`
+	Secret   *bool  `json:"secret,omitempty"`
 	Delivery string `json:"delivery,omitempty"`
 }
 
@@ -149,14 +149,14 @@ type ServiceResources struct {
 }
 
 type ServiceRestartPolicy struct {
-	Condition    string  `json:"condition"`
-	MaxAttempts  int     `json:"max_attempts,omitempty"`
-	DelaySeconds float64 `json:"delay_seconds,omitempty"`
+	Condition    string   `json:"condition"`
+	MaxAttempts  *int     `json:"max_attempts,omitempty"`
+	DelaySeconds *float64 `json:"delay_seconds,omitempty"`
 }
 
 type UpdateServiceRequest struct {
 	Image            string                `json:"image,omitempty"`
-	Replicas         int                   `json:"replicas,omitempty"`
+	Replicas         *int                  `json:"replicas,omitempty"`
 	Command          []string              `json:"command,omitempty"`
 	Env              []ServiceEnvVarInput  `json:"env,omitempty"`
 	RemoveSecretKeys []string              `json:"remove_secret_keys,omitempty"`
@@ -319,7 +319,7 @@ type DnsRecordHint struct {
 }
 
 type UpdateDomainRequest struct {
-	Www string `json:"www"`
+	Www *string `json:"www"`
 }
 
 type IngressTls struct {
@@ -356,9 +356,9 @@ type IngressSettings struct {
 }
 
 type IngressTlsInput struct {
-	AcmeEmail *string `json:"acme_email"`
-	OnDemand  bool    `json:"on_demand,omitempty"`
-	AskURL    *string `json:"ask_url"`
+	AcmeEmail Nullable[string] `json:"acme_email,omitzero"`
+	OnDemand  *bool            `json:"on_demand,omitempty"`
+	AskURL    Nullable[string] `json:"ask_url,omitzero"`
 }
 
 type IngressTunnelInput struct {
@@ -373,14 +373,14 @@ type IngressDnsProviderInput struct {
 }
 
 type UpdateIngressSettingsRequest struct {
-	Driver          string                   `json:"driver,omitempty"`
-	Enabled         bool                     `json:"enabled,omitempty"`
-	Topology        string                   `json:"topology,omitempty"`
-	ControllerImage *string                  `json:"controller_image"`
-	TargetNodes     []string                 `json:"target_nodes,omitempty"`
-	TLS             *IngressTlsInput         `json:"tls,omitempty"`
-	Tunnel          *IngressTunnelInput      `json:"tunnel"`
-	DnsProvider     *IngressDnsProviderInput `json:"dns_provider"`
+	Driver          string                            `json:"driver,omitempty"`
+	Enabled         *bool                             `json:"enabled,omitempty"`
+	Topology        string                            `json:"topology,omitempty"`
+	ControllerImage Nullable[string]                  `json:"controller_image,omitzero"`
+	TargetNodes     []string                          `json:"target_nodes,omitempty"`
+	TLS             *IngressTlsInput                  `json:"tls,omitempty"`
+	Tunnel          Nullable[IngressTunnelInput]      `json:"tunnel,omitzero"`
+	DnsProvider     Nullable[IngressDnsProviderInput] `json:"dns_provider,omitzero"`
 }
 
 type ApiKey struct {
@@ -404,11 +404,11 @@ type ApiKeyList struct {
 }
 
 type CreateApiKeyRequest struct {
-	Name       string   `json:"name"`
-	Preset     string   `json:"preset,omitempty"`
-	Scopes     []string `json:"scopes,omitempty"`
-	StackNames []string `json:"stack_names"`
-	Expiry     string   `json:"expiry,omitempty"`
+	Name       string             `json:"name"`
+	Preset     string             `json:"preset,omitempty"`
+	Scopes     []string           `json:"scopes,omitempty"`
+	StackNames Nullable[[]string] `json:"stack_names,omitzero"`
+	Expiry     string             `json:"expiry,omitempty"`
 }
 
 type Revoked struct {
@@ -513,7 +513,7 @@ type UpsertDnsRecordRequest struct {
 	Type     string `json:"type"`
 	Value    string `json:"value"`
 	Ttl      int    `json:"ttl,omitempty"`
-	Priority int    `json:"priority,omitempty"`
+	Priority *int   `json:"priority,omitempty"`
 }
 
 type BackupTarget struct {
@@ -607,7 +607,7 @@ type RegisterVolumeRequest struct {
 	Name          string         `json:"name"`
 	CsiDriver     string         `json:"csi_driver"`
 	AccessMode    string         `json:"access_mode,omitempty"`
-	CapacityBytes int            `json:"capacity_bytes,omitempty"`
+	CapacityBytes *int           `json:"capacity_bytes,omitempty"`
 	Options       map[string]any `json:"options,omitempty"`
 	ServiceID     string         `json:"service_id,omitempty"`
 }
@@ -646,18 +646,18 @@ type RegistryCredentialList struct {
 }
 
 type CreateRegistryCredentialBody struct {
-	Prefix   string  `json:"prefix"`
-	Username string  `json:"username"`
-	Secret   string  `json:"secret"`
-	Provider string  `json:"provider,omitempty"`
-	Label    *string `json:"label"`
+	Prefix   string           `json:"prefix"`
+	Username string           `json:"username"`
+	Secret   string           `json:"secret"`
+	Provider string           `json:"provider,omitempty"`
+	Label    Nullable[string] `json:"label,omitzero"`
 }
 
 type UpdateRegistryCredentialBody struct {
-	Username string  `json:"username,omitempty"`
-	Secret   string  `json:"secret,omitempty"`
-	Provider string  `json:"provider,omitempty"`
-	Label    *string `json:"label"`
+	Username string           `json:"username,omitempty"`
+	Secret   string           `json:"secret,omitempty"`
+	Provider string           `json:"provider,omitempty"`
+	Label    Nullable[string] `json:"label,omitzero"`
 }
 
 type RegistryCredentialDeleted struct {
@@ -766,7 +766,7 @@ type LinkGitRepoBody struct {
 	URL          string      `json:"url,omitempty"`
 	Branch       string      `json:"branch"`
 	ConfigPath   string      `json:"config_path,omitempty"`
-	DeployKey    bool        `json:"deploy_key,omitempty"`
+	DeployKey    *bool       `json:"deploy_key,omitempty"`
 }
 
 type UpdateGitRepoBody struct {

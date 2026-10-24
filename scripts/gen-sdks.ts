@@ -34,10 +34,19 @@ interface JsonSchema {
   items?: JsonSchema;
   /** `double`/`float` marks a fractional number (Go `float64`); bare `number` stays `int`. */
   format?: string;
+  /** Bounds decide whether a number's zero value is a real input (see `admitsZero`). */
+  minimum?: number;
+  maximum?: number;
+  /** OpenAPI 3.0 emits a boolean flag on `minimum`/`maximum`; 3.1 a bound of its own. */
+  exclusiveMinimum?: boolean | number;
+  exclusiveMaximum?: boolean | number;
+  additionalProperties?: boolean | JsonSchema;
+  allOf?: JsonSchema[];
   $ref?: string;
 }
 
 interface OpenApi {
+  paths: Record<string, Record<string, { requestBody?: { content?: Record<string, { schema?: JsonSchema }> } }>>;
   components: { schemas: Record<string, JsonSchema> };
 }
 
@@ -58,11 +67,54 @@ for (const schema of Object.values(schemas)) {
 // referenced by a bare `$ref`; carry that onto the property so `null` is typed
 // (and a Go pointer). Scalar components (enums) are left alone: one used both
 // nullable and optional would otherwise make a request send `null`.
+// A nullable scalar component on a REQUIRED property is carried too: the only
+// way to send that field's "clear" is `null` (PATCH /ingress/domains/{id}
+// `www: null`), so the request must be able to say it.
 for (const schema of Object.values(schemas)) {
-  for (const p of Object.values(schema.properties ?? {})) {
+  for (const [prop, p] of Object.entries(schema.properties ?? {})) {
     const target = p.$ref ? schemas[p.$ref.split('/').pop() ?? ''] : undefined;
     if (target?.nullable && target.type === 'object') p.nullable = true;
+    if (target?.nullable && target.type !== 'object' && (schema.required ?? []).includes(prop)) p.nullable = true;
   }
+}
+
+/**
+ * Every component a request body reaches, transitively. Go request models
+ * differ from response models in one way: an optional field must be able to
+ * send its zero value (`false`, `0`) and an optional nullable one `null`, so
+ * those fields are pointers / `Nullable[T]` there (see `genGo`).
+ */
+const requestSchemas = new Set<string>();
+{
+  const visit = (name: string): void => {
+    if (requestSchemas.has(name) || !schemas[name]) return;
+    requestSchemas.add(name);
+    walk(schemas[name]);
+  };
+  const walk = (s: JsonSchema | undefined): void => {
+    if (!s) return;
+    if (s.$ref) visit(refName(s.$ref));
+    for (const x of s.allOf ?? []) walk(x);
+    if (s.items) walk(s.items);
+    for (const p of Object.values(s.properties ?? {})) walk(p);
+    if (typeof s.additionalProperties === 'object') walk(s.additionalProperties);
+  };
+  for (const ops of Object.values(spec.paths)) {
+    for (const op of Object.values(ops)) {
+      const body = op?.requestBody?.content?.['application/json']?.schema;
+      if (body) walk(body);
+    }
+  }
+}
+
+/** Whether a number schema's bounds let `0` through (`min(0)` yes, `positive()` / `min(1)` no). */
+function admitsZero(s: JsonSchema): boolean {
+  if (s.enum) return s.enum.includes(0);
+  if (typeof s.exclusiveMinimum === 'number' && s.exclusiveMinimum >= 0) return false;
+  if (typeof s.exclusiveMaximum === 'number' && s.exclusiveMaximum <= 0) return false;
+  if (s.minimum !== undefined && (s.minimum > 0 || (s.minimum === 0 && s.exclusiveMinimum === true))) return false;
+  if (s.maximum !== undefined && (s.maximum < 0 || (s.maximum === 0 && s.exclusiveMaximum === true))) return false;
+  return true;
 }
 
 /** Schemas emitted as nested types when referenced inline. */
@@ -373,21 +425,42 @@ function genGo(): string {
   lines.push('');
 
   // Nested object types referenced inline (Service.replicas -> ServiceReplicas,
-  // CreateServiceRequest.env -> []EnvVar).
+  // CreateServiceRequest.env -> []EnvVar). One nested in a request body is a
+  // request struct too.
   const nested = new Map<string, JsonSchema>();
+  const requestStructs = new Set(requestSchemas);
   for (const [name, schema] of Object.entries(schemas)) {
     for (const [prop, propSchema] of Object.entries(schema.properties ?? {})) {
       const key = `${name}.${prop}`;
-      if (propSchema.type === 'object' && INLINE_OBJECT_NAMES[key]) {
-        nested.set(INLINE_OBJECT_NAMES[key], propSchema);
+      const nestedName = INLINE_OBJECT_NAMES[key];
+      if (propSchema.type === 'object' && nestedName) {
+        nested.set(nestedName, propSchema);
       }
-      if (propSchema.type === 'array' && propSchema.items?.type === 'object' && INLINE_OBJECT_NAMES[key]) {
-        nested.set(INLINE_OBJECT_NAMES[key], propSchema.items);
+      if (propSchema.type === 'array' && propSchema.items?.type === 'object' && nestedName) {
+        nested.set(nestedName, propSchema.items);
       }
+      if (nestedName && requestSchemas.has(name)) requestStructs.add(nestedName);
     }
   }
 
+  /**
+   * An optional request field must be able to send what its zero value can't
+   * stand for: a boolean `false`, a number `0` its bounds admit (replicas,
+   * max_attempts, an MX priority) — `*T` + omitempty, nil leaves it out — and,
+   * when nullable, `null` as well as leaving it out (left out keeps, null
+   * clears) — `Nullable[T]` + omitzero. Strings keep their value type: no
+   * request in the spec gives `""` a meaning of its own.
+   */
+  const requestFieldType = (propSchema: JsonSchema, t: string): { t: string; omit: string } | undefined => {
+    if (propSchema.nullable) return { t: `Nullable[${t.replace(/^\*/, '')}]`, omit: ',omitzero' };
+    if (propSchema.$ref && !scalarRefTarget(propSchema)) return undefined; // object refs: pointers already
+    const s = scalarRefTarget(propSchema) ?? propSchema;
+    const zeroIsInput = s.type === 'boolean' || ((s.type === 'number' || s.type === 'integer') && admitsZero(s));
+    return zeroIsInput ? { t: `*${t}`, omit: ',omitempty' } : undefined;
+  };
+
   const emitStruct = (name: string, schema: JsonSchema): void => {
+    const isRequest = requestStructs.has(name);
     lines.push(`type ${name} struct {`);
     for (const [prop, propSchema] of Object.entries(schema.properties ?? {})) {
       const key = `${name}.${prop}`;
@@ -410,8 +483,10 @@ function genGo(): string {
       if (!arrayItem && nestedName && propSchema.type === 'object' && (propSchema.nullable || !required)) {
         t = `*${t}`;
       }
-      // omitempty for optional, non-nullable scalar request fields.
-      const omit = !required && !propSchema.nullable ? ',omitempty' : '';
+      // omitempty for optional, non-nullable fields.
+      let omit = !required && !propSchema.nullable ? ',omitempty' : '';
+      const req = isRequest && !required ? requestFieldType(propSchema, t) : undefined;
+      if (req) ({ t, omit } = req);
       lines.push(`\t${goName} ${t} \`json:"${prop}${omit}"\``);
     }
     lines.push('}');
