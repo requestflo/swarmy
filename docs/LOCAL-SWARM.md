@@ -122,9 +122,17 @@ Requirements the script checks for you:
   `bun run build:agent-bin` yourself. (In production the controller image ships
   them; `SWARMY_AGENT_BIN_DIR` overrides the path.)
 
-Knobs: `SWARMY_VM_COUNT` (default 2), `SWARMY_VM_CPUS`/`MEM`/`DISK`,
-`SWARMY_BACKEND` (`systemd` | `docker`), `SWARMY_JOIN_TOKEN` (default: a freshly
-minted one). See the header of `scripts/local-vms.sh`.
+Knobs: `SWARMY_VM_COUNT` (default 2), `SWARMY_VM_CPUS` (1), `SWARMY_VM_MEM` (1G),
+`SWARMY_VM_DISK` (20G), `SWARMY_VM_JOURNALD_MAX` (100M), `SWARMY_BACKEND`
+(`systemd` | `docker`), `SWARMY_JOIN_TOKEN` (default: a freshly minted one). See
+the header of `scripts/local-vms.sh`.
+
+Disk: the VMs get 20 GiB (the old ~5 GiB filled up within a session). Before
+every enroll the script also caps journald at 100M, stops apt keeping downloaded
+`.deb`s, stops dpkg unpacking kernel-header trees, and autoremoves old kernels.
+Docker images are pruned by the controller's node-hygiene worker. Disk size is
+fixed when a VM is created, so `up` warns about an existing smaller VM; recreate
+it (`down`, then `up`) to grow it.
 
 > Apple-Silicon Lima VMs are `arm64`; the installer downloads the
 > `linux-arm64` binary automatically. Lima uses QEMU + the native `hvf`

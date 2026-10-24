@@ -22,7 +22,11 @@
 #
 # Tunables (env):
 #   SWARMY_VM_COUNT=2            how many VMs
-#   SWARMY_VM_CPUS=1 MEM=1G DISK=6G   (MEM/DISK in GiB, trailing 'G' optional)
+#   SWARMY_VM_CPUS=1             vCPUs per VM
+#   SWARMY_VM_MEM=1G             memory per VM (GiB, trailing 'G' optional)
+#   SWARMY_VM_DISK=20G           disk per VM (GiB). Only applies when a VM is
+#                                 created; `up` warns about smaller existing VMs.
+#   SWARMY_VM_JOURNALD_MAX=100M  journald cap written into every VM
 #   SWARMY_VM_RELEASE=24.04      Ubuntu release (maps to template:ubuntu-<release>)
 #   SWARMY_BACKEND=systemd       agent backend: systemd (native binary) | docker
 #   SWARMY_CONTROLLER_IP=…       host IP the VMs dial (default: en0/en1 LAN IP)
@@ -44,7 +48,11 @@ PREFIX="swarmy-node"
 COUNT="${SWARMY_VM_COUNT:-2}"
 CPUS="${SWARMY_VM_CPUS:-1}"
 MEM="${SWARMY_VM_MEM:-1G}"
-DISK="${SWARMY_VM_DISK:-6G}"
+# 20 GiB: the old 6 GiB (≈4.8 GiB usable) filled up within a test session
+# (issues/resolved/vm-disk-chronically-full.md). A worker holds Docker, a
+# 2 GiB swap file on a 1 GiB VM, app images and the agent's journal.
+DISK="${SWARMY_VM_DISK:-20G}"
+JOURNALD_MAX="${SWARMY_VM_JOURNALD_MAX:-100M}"
 RELEASE="${SWARMY_VM_RELEASE:-24.04}"
 CONTROLLER_PORT="${SWARMY_CONTROLLER_PORT:-3021}"
 BACKEND="${SWARMY_BACKEND:-systemd}"
@@ -158,6 +166,67 @@ guarded() {
     wait "$p"; local rc=$?; kill "$k" 2>/dev/null; return "$rc" )
 }
 
+# Keep a long-lived test VM's disk from filling up (vm-disk-chronically-full):
+# a journald cap, no cached .debs after apt runs, no kernel-header trees from
+# kernel updates, and old kernels autoremoved. Idempotent; runs as root on the
+# VM before every (re-)enroll. Docker images are the agent's job: the
+# controller's node-hygiene worker prunes them (apps/api/src/workers/node-hygiene.ts).
+# (A function, not $(cat <<…): macOS bash 3.2 mis-parses quotes in a here-doc
+# inside a command substitution.)
+prepare_vm_script() {
+  cat <<'SWARMY_PREPARE_EOF'
+set -u
+# journald: zz- sorts after the installer's swarmy.conf (500M), so this wins.
+mkdir -p /etc/systemd/journald.conf.d
+jf=/etc/systemd/journald.conf.d/zz-swarmy-vm.conf
+printf '[Journal]\nSystemMaxUse=%s\n' "$JOURNALD_MAX" > "$jf.new"
+if cmp -s "$jf.new" "$jf"; then rm -f "$jf.new"; else mv "$jf.new" "$jf"; systemctl restart systemd-journald || true; fi
+journalctl --vacuum-size="$JOURNALD_MAX" >/dev/null 2>&1 || true
+
+# apt: never keep downloaded packages (the same rule Docker's ubuntu image uses).
+cat > /etc/apt/apt.conf.d/99-swarmy-vm <<'EOF'
+// scripts/local-vms.sh: a test VM keeps no downloaded .debs.
+APT::Keep-Downloaded-Packages "false";
+Binary::apt::APT::Keep-Downloaded-Packages "false";
+DPkg::Post-Invoke { "rm -f /var/cache/apt/archives/*.deb /var/cache/apt/archives/partial/*.deb 2>/dev/null || true"; };
+EOF
+
+# Kernel headers: nothing on a test VM builds kernel modules, so dpkg skips
+# the header trees every kernel update would add (package state is untouched).
+cat > /etc/dpkg/dpkg.cfg.d/99-swarmy-vm <<'EOF'
+# scripts/local-vms.sh: never unpack kernel header trees on a test VM.
+path-exclude=/usr/src/linux-headers-*
+EOF
+rm -rf /usr/src/linux-headers-*
+
+# Old kernels + the apt cache. Bounded: on first boot unattended-upgrades may
+# hold the dpkg lock, and the next enroll tries again.
+apt-get -qq -o DPkg::Lock::Timeout=60 autoremove --purge -y >/dev/null 2>&1 || true
+apt-get -qq clean >/dev/null 2>&1 || true
+df -h / | awk 'NR == 2 { print "    disk: " $3 " used, " $4 " free (" $5 " full)" }'
+SWARMY_PREPARE_EOF
+}
+
+# Not captured with $(…): guarded's sleeper would hold the pipe open until its
+# timeout.
+prepare_vm() {
+  local name="$1"
+  say "[$name] VM hygiene: journald ≤ ${JOURNALD_MAX}, no apt cache, no kernel headers"
+  guarded 180 limactl shell --workdir / "$name" -- sudo env JOURNALD_MAX="$JOURNALD_MAX" bash -c "$(prepare_vm_script)" \
+    || warn "[$name] VM hygiene step failed (continuing)."
+}
+
+# A VM's disk size is fixed when it is created: say so when an existing one is
+# smaller than asked for. Lima reports the disk in bytes.
+check_vm_disk() {
+  local name="$1" have
+  have="$(limactl list "$name" --format '{{.Disk}}' 2>/dev/null | awk '{ if ($1 ~ /^[0-9]+$/) printf "%.1f", $1 / 1073741824 }')"
+  [ -n "$have" ] || return 0
+  if awk -v h="$have" -v w="$DISK_GB" 'BEGIN { exit !(h + 0.5 < w) }'; then
+    warn "[$name] has a ${have} GiB disk (SWARMY_VM_DISK asks for ${DISK_GB} GiB). Disk size is set at creation: recreate it with 'bash scripts/local-vms.sh down' then 'up'."
+  fi
+}
+
 # Run the SAME one-liner the dashboard hands out, on a VM. `--controller`
 # makes the loader derive every later URL (installer, agent binary, dial-back)
 # from the LAN controller address, whatever CONTROLLER_PUBLIC_URL it bakes.
@@ -177,7 +246,7 @@ enroll_node() {
     SWARMY_BACKEND="$BACKEND" \
     SWARMY_NODE_LABELS="local-vm,${name}" \
     SWARMY_ALLOW_MESH="$ALLOW_MESH" \
-    "${mesh_env[@]}" \
+    ${mesh_env[@]+"${mesh_env[@]}"} \
     bash -c "curl -fsSL '${CONTROLLER_URL}/install/loader.sh' | sh -s -- --controller '${CONTROLLER_URL}'"
 }
 
@@ -194,14 +263,19 @@ up() {
     if vm_exists "$name"; then
       warn "[$name] exists — ensuring it's running, then re-running the installer (idempotent)."
       limactl start --tty=false "$name" >/dev/null 2>&1 || true
+      check_vm_disk "$name"
     else
       say "[$name] launching…"
+      # --containerd=none: Docker is the engine here; Lima's default rootless
+      # containerd + nerdctl would only cost disk and memory.
       limactl start --tty=false --timeout=10m \
         --name="$name" \
         --cpus="$CPUS" --memory="$MEM_GB" --disk="$DISK_GB" \
-        "${NETWORK_ARGS[@]}" \
+        --containerd=none \
+        ${NETWORK_ARGS[@]+"${NETWORK_ARGS[@]}"} \
         "template:ubuntu-${RELEASE}"
     fi
+    prepare_vm "$name"
     say "[$name] installing agent (${BACKEND}) ← ${CONTROLLER_URL}"
     if enroll_node "$name"; then
       ok "[$name] agent installed — should reach ONLINE shortly."
@@ -222,6 +296,8 @@ reenroll() {
   for i in $(seq 1 "$COUNT"); do
     local name="${PREFIX}-${i}"
     vm_exists "$name" || continue
+    check_vm_disk "$name"
+    prepare_vm "$name"
     say "[$name] re-enrolling ← ${CONTROLLER_URL}"
     enroll_node "$name" && ok "[$name] re-enrolled." || warn "[$name] failed."
   done
