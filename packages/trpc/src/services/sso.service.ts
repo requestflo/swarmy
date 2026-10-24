@@ -3,6 +3,7 @@ import { SOCIAL_PROVIDERS } from '@swarmy/auth';
 import type { OrgContext } from '../context';
 import { notFound } from '../errors';
 import { writeAudit } from './audit.service';
+import { assertProviderIdClaimable, retireProviderId } from './sso-identities';
 
 /**
  * Per-org enterprise SSO providers (OIDC via Better Auth's genericOAuth; SAML
@@ -123,9 +124,11 @@ export async function upsertSsoProvider(ctx: OrgContext, args: UpsertSsoArgs): P
   if (args.id) {
     const existing = await ctx.db.ssoProvider.findFirst({
       where: { id: args.id, orgId: ctx.activeOrgId },
-      select: { id: true },
+      select: { id: true, providerId: true },
     });
     if (!existing) throw notFound('sso provider', args.id);
+    const renamed = existing.providerId !== args.providerId;
+    if (renamed) await assertProviderIdClaimable(ctx.db, ctx.activeOrgId, args.providerId);
     const row = await ctx.db.ssoProvider.update({
       where: { id: args.id },
       data: {
@@ -140,15 +143,24 @@ export async function upsertSsoProvider(ctx: OrgContext, args: UpsertSsoArgs): P
         ...(args.mapping ? { mapping: args.mapping as object } : {}),
       },
     });
+    // The org's people keep signing in under the new id; the old one is retired.
+    const moved = renamed
+      ? await retireProviderId(ctx.db, ctx.activeOrgId, existing.providerId, { moveTo: row.providerId })
+      : 0;
     await writeAudit(ctx, {
       action: 'sso.update',
       targetType: 'sso_provider',
       targetId: row.id,
-      metadata: { providerId: row.providerId, protocol: row.protocol },
+      metadata: {
+        providerId: row.providerId,
+        protocol: row.protocol,
+        ...(renamed ? { renamedFrom: existing.providerId, identitiesMoved: moved } : {}),
+      },
     });
     return toView(row);
   }
 
+  await assertProviderIdClaimable(ctx.db, ctx.activeOrgId, args.providerId);
   const row = await ctx.db.ssoProvider.create({
     data: {
       orgId: ctx.activeOrgId,
@@ -175,10 +187,17 @@ export async function upsertSsoProvider(ctx: OrgContext, args: UpsertSsoArgs): P
 export async function deleteSsoProvider(ctx: OrgContext, id: string): Promise<{ id: string; deleted: true }> {
   const row = await ctx.db.ssoProvider.findFirst({
     where: { id, orgId: ctx.activeOrgId },
-    select: { id: true },
+    select: { id: true, providerId: true },
   });
   if (!row) throw notFound('sso provider', id);
+  // Its identities go with it, and the id stays this org's (sso-identities.ts).
+  const removed = await retireProviderId(ctx.db, ctx.activeOrgId, row.providerId);
   await ctx.db.ssoProvider.delete({ where: { id } });
-  await writeAudit(ctx, { action: 'sso.delete', targetType: 'sso_provider', targetId: id });
+  await writeAudit(ctx, {
+    action: 'sso.delete',
+    targetType: 'sso_provider',
+    targetId: id,
+    metadata: { providerId: row.providerId, identitiesRemoved: removed },
+  });
   return { id, deleted: true };
 }

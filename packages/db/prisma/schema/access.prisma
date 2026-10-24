@@ -37,6 +37,18 @@ model SsoProvider {
   @@map("sso_provider")
 }
 
+// A provider id an org deleted or renamed away from. It stays bound to that
+// org for good, so another org can't re-create it and answer for identities
+// the old IdP vouched for (trpc services/sso-identities.ts). No relation on
+// purpose: the reservation outlives the org.
+model SsoProviderRetired {
+  providerId String   @id
+  orgId      String
+  retiredAt  DateTime @default(now())
+
+  @@map("sso_provider_retired")
+}
+
 model Policy {
   id          String   @id @default(cuid())
   orgId       String
