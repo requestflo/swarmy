@@ -5,7 +5,7 @@
   "license": "FSL-1.1-ALv2",
   "type": "module",
   "scripts": {
-    "test": "echo 'e2e: run `bun --filter @swarmy/e2e test:e2e` against running apps (needs a browser)'",
+    "test": "bun test ./cluster",
     "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit && tsc -p cluster/tsconfig.json",
     "cluster": "bun run cluster/run.ts"

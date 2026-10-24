@@ -9,6 +9,7 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { assert, Fatal, log, must, poll, q, run, secret } from '../lib/util';
 import { ensureReplicated, followController } from '../lib/controller';
+import { DindProvider } from '../lib/provider-dind';
 
 // ── 1. install ─────────────────────────────────────────────────────────────
 export async function install(ctx: Ctx) {
@@ -422,7 +423,7 @@ export async function teardown(ctx: Ctx) {
   await c.destroyAll();
   // The harness registry and its volume (only what this harness created).
   await run(['docker', 'rm', '-f', '-v', `${c.cfg.prefix}-registry`]);
-  if (c.provider.kind === 'dind') await run(['docker', 'network', 'rm', 'swarmy-e2e']);
+  if (c.provider instanceof DindProvider) await run(['docker', 'network', 'rm', c.provider.network]);
   const left = await c.provider.list(`${c.cfg.prefix}-`);
   assert(left.filter((n) => !n.endsWith('-registry')).length === 0, `nodes left behind: ${left.join(', ')}`);
   return 'API key revoked; nodes + harness registry deleted';

@@ -28,7 +28,12 @@ export interface Provider {
   readonly agentBackend: 'systemd' | 'docker';
   exists(name: string): Promise<boolean>;
   running(name: string): Promise<boolean>;
-  create(name: string, spec: NodeSpec): Promise<void>;
+  /**
+   * Launch a node. `daemonJson` is the /etc/docker/daemon.json the node's
+   * dockerd must have from its FIRST start (a provider whose Docker is already
+   * running, like dind, seeds it here; Lima installs Docker later).
+   */
+  create(name: string, spec: NodeSpec, daemonJson: string): Promise<void>;
   /** The node's address the HOST reaches it on (API calls, edge checks). */
   ip(name: string): Promise<string>;
   /** The node's address the OTHER NODES reach it on (swarm advertise, agent dial). */
@@ -75,7 +80,7 @@ export class LimaProvider implements Provider {
     const r = await run(['limactl', 'list', '--format', '{{.Name}}']);
     return r.stdout.split('\n').filter((n) => n.startsWith(prefix));
   }
-  async create(name: string, spec: NodeSpec) {
+  async create(name: string, spec: NodeSpec, _daemonJson: string) {
     await must(
       [
         'limactl', 'start', '--tty=false', '--timeout=10m', `--name=${name}`,
@@ -144,87 +149,4 @@ export class LimaProvider implements Provider {
   }
 }
 
-// ── docker-in-docker ──────────────────────────────────────────────────────
-export class DindProvider implements Provider {
-  readonly kind = 'dind' as const;
-  readonly agentBackend = 'docker' as const;
-  readonly serveHost = '0.0.0.0';
-  constructor(
-    private readonly registryPort: number,
-    private readonly network = 'swarmy-e2e',
-    private readonly image = 'docker:29-dind',
-  ) {}
-
-  async exists(name: string) {
-    return (await run(['docker', 'inspect', name])).code === 0;
-  }
-  async running(name: string) {
-    const r = await run(['docker', 'inspect', '-f', '{{.State.Running}}', name]);
-    return r.stdout.trim() === 'true';
-  }
-  async list(prefix: string) {
-    const r = await run(['docker', 'ps', '-a', '--format', '{{.Names}}']);
-    return r.stdout.split('\n').filter((n) => n.startsWith(prefix));
-  }
-  async create(name: string, spec: NodeSpec) {
-    if ((await run(['docker', 'network', 'inspect', this.network])).code !== 0) {
-      // Nodes are created in parallel: losing the create race is fine.
-      const r = await run(['docker', 'network', 'create', '--label', 'swarmy.test=e2e-cluster', this.network]);
-      if (r.code !== 0 && !/already exists/.test(r.stderr)) throw new Error(`docker network create: ${r.stderr.trim()}`);
-    }
-    await must([
-      'docker', 'run', '-d', '--privileged', '--name', name, '--hostname', name, '--label', 'swarmy.test=e2e-cluster',
-      '--network', this.network, `--memory=${spec.memGiB}g`, `--cpus=${spec.cpus}`,
-      // Docker Desktop: publish the controller + edge ports (random host ports).
-      ...(process.platform === 'darwin' ? ['-p', '127.0.0.1::3021', '-p', '127.0.0.1::443'] : []),
-      '-e', 'DOCKER_TLS_CERTDIR=', this.image,
-      // The harness registry is plain http on the network gateway.
-      `--insecure-registry=${await this.hostAddr(name)}:${this.registryPort}`,
-    ]);
-    // The installer and the agent one-liner need bash/curl/openssl/jq/iproute2.
-    await must(
-      ['docker', 'exec', name, 'sh', '-c', 'apk add --no-cache bash curl openssl jq iproute2 python3 >/dev/null && for i in $(seq 1 60); do docker info >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'],
-      { timeoutMs: 180_000 },
-      `prepare ${name}`,
-    );
-  }
-  async ip(name: string) {
-    const r = await must(['docker', 'inspect', '-f', `{{(index .NetworkSettings.Networks "${this.network}").IPAddress}}`, name]);
-    return r.trim();
-  }
-  fabricIp(name: string) {
-    return this.ip(name);
-  }
-  async hostEndpoint(name: string, port: number) {
-    // Docker Desktop can't route to container IPs: use the published port.
-    if (process.platform !== 'darwin') return `${await this.ip(name)}:${port}`;
-    const r = await must(['docker', 'port', name, `${port}/tcp`]);
-    return r.split('\n')[0]!.trim().replace(/^0\.0\.0\.0/, '127.0.0.1');
-  }
-  async prepare(_name: string) {}
-  sh(name: string, script: string, opts: ShOpts = {}) {
-    return run(['docker', 'exec', ...(opts.input !== undefined ? ['-i'] : []), name, 'bash', '-c', script], opts);
-  }
-  async kill(name: string) {
-    await must(['docker', 'kill', name]);
-  }
-  async start(name: string) {
-    await must(['docker', 'start', name]);
-  }
-  async destroy(name: string) {
-    await run(['docker', 'rm', '-f', '-v', name]);
-  }
-  async loadImage(name: string, image: string) {
-    await must(
-      ['bash', '-c', `set -o pipefail; docker save ${q(image)} | docker exec -i ${q(name)} docker load`],
-      { timeoutMs: 15 * 60_000 },
-      `load ${image} into ${name}`,
-    );
-  }
-  async hostAddr(_name: string) {
-    // Docker Desktop (macOS): the bridge gateway lives inside Desktop's VM.
-    if (process.platform === 'darwin') return 'host.docker.internal';
-    const r = await must(['docker', 'network', 'inspect', '-f', '{{range .IPAM.Config}}{{.Gateway}}{{end}}', this.network]);
-    return r.trim();
-  }
-}
+export { DindProvider } from './provider-dind';

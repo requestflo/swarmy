@@ -212,24 +212,28 @@ export class Cluster {
   }
 
   async createNodes() {
-    await Promise.all(
-      this.nodes.map(async (n) => {
-        if (await this.provider.exists(n.name)) throw new Error(`${n.name} already exists — run without --reuse to recreate, or teardown first`);
-        log(`launching ${n.name} (${this.cfg.spec.cpus} CPU / ${this.cfg.spec.memGiB} GiB / ${this.cfg.spec.diskGiB} GiB)`);
-        await this.provider.create(n.name, this.cfg.spec);
-        await this.provider.prepare(n.name);
-      }),
-    );
-    await this.refreshIps();
-    // Trust the harness's registry BEFORE Docker is installed, so a fresh box
+    // Trust the harness's registry BEFORE Docker first starts, so a fresh box
     // pulls the locally-built images exactly like it would pull ghcr.io.
     const reg = await this.registryHost();
     // --hub-cache: Docker Hub pulls go through a harness-owned pull-through
     // cache. NOTE it pre-empts install-swarmy.sh's own registry mirror (the
     // installer leaves an existing registry-mirrors alone), so that product
     // path isn't exercised in this mode.
-    const mirror = this.cfg.hubCache ? `, "registry-mirrors": ["http://${await this.provider.hostAddr(this.manager.name)}:${this.cfg.registryPort + 1}"]` : '';
-    const daemon = `{"insecure-registries": ["${reg}"${this.cfg.hubCache ? `, "${await this.provider.hostAddr(this.manager.name)}:${this.cfg.registryPort + 1}"` : ''}]${mirror}}`;
+    const hub = `${await this.provider.hostAddr(this.manager.name)}:${this.cfg.registryPort + 1}`;
+    const daemon = JSON.stringify({
+      'insecure-registries': [reg, ...(this.cfg.hubCache ? [hub] : [])],
+      ...(this.cfg.hubCache ? { 'registry-mirrors': [`http://${hub}`] } : {}),
+    });
+    await Promise.all(
+      this.nodes.map(async (n) => {
+        if (await this.provider.exists(n.name)) throw new Error(`${n.name} already exists — run without --reuse to recreate, or teardown first`);
+        log(`launching ${n.name} (${this.cfg.spec.cpus} CPU / ${this.cfg.spec.memGiB} GiB / ${this.cfg.spec.diskGiB} GiB)`);
+        await this.provider.create(n.name, this.cfg.spec, daemon);
+        await this.provider.prepare(n.name);
+      }),
+    );
+    await this.refreshIps();
+    // Lima: Docker isn't installed yet. dind: create() already seeded it.
     await Promise.all(
       this.nodes.map((n) => this.sh(n, `mkdir -p /etc/docker && [ -s /etc/docker/daemon.json ] || printf '%s\\n' ${q(daemon)} > /etc/docker/daemon.json`)),
     );

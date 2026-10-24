@@ -109,7 +109,7 @@ async function main() {
     return;
   }
   const providerKind = (a.provider as string) || (process.platform === 'darwin' ? 'lima' : 'dind');
-  const provider: Provider = providerKind === 'lima' ? new LimaProvider() : new DindProvider(Number(a['registry-port'] ?? 5055));
+  const provider: Provider = providerKind === 'lima' ? new LimaProvider() : new DindProvider(Number(a['registry-port'] ?? 5055), (a.prefix as string) || 'swarmy-e2e');
   const mesh = ((a.mesh as string) || 'none') as ClusterConfig['mesh'];
   if (mesh !== 'none' && mesh !== 'swarmy') throw new Error(`--mesh ${mesh}: use none or swarmy`);
   // --mesh swarmy: the self-hosted NetBird control plane (install-swarmy.sh
