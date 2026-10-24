@@ -1,5 +1,6 @@
 import type { DemoStore, DomainResolvers } from '../types';
 import { demoRunView, newDemoRun, runControls, type RunHost } from './platform-run';
+import { bundleResolvers } from './platform-bundle';
 
 /**
  * Settings → Platform demo: v1.2.4 on Stable with v1.3.0 ready (signed,
@@ -100,6 +101,7 @@ export const platform: DomainResolvers = {
       return demoRunView(p);
     },
     'platform.importRelease': () => ({ manifest: { version: '1.3.0' }, verified: true, source: 'bundle' }),
+    ...bundleResolvers,
     'platform.retry': (_i, s) => (state(s).run ? demoRunView(state(s)) : null),
     'platform.cancel': () => ({ status: 'cancelled' }),
     'platform.run': (_i, s) => (state(s).run ? demoRunView(state(s)) : null),
