@@ -104,7 +104,16 @@ export const env = {
    * cache (:5001) answer only on this node's loopback. ON by default;
    * `SWARMY_REGISTRY_FIREWALL=false` opts the node out. Extra IPv4 CIDRs that
    * may reach them (e.g. a mesh range) go in SWARMY_REGISTRY_FIREWALL_ALLOW.
+   * Defence in depth once the registry has moved onto the forwarder below.
    */
   REGISTRY_FIREWALL: (process.env.SWARMY_REGISTRY_FIREWALL ?? 'true') !== 'false',
   REGISTRY_FIREWALL_ALLOW: process.env.SWARMY_REGISTRY_FIREWALL_ALLOW ?? '',
+  /**
+   * Loopback registry forwarder (handlers/registry-forwarder.ts, security
+   * review M16): 127.0.0.1:5000/:5001 → the registry and cache over the
+   * encrypted `swarmy` overlay. ON by default. `SWARMY_REGISTRY_FORWARDER=false`
+   * opts the node out; it then reports `registryForwarder: off`, which keeps
+   * an unmigrated cluster on the routing mesh.
+   */
+  REGISTRY_FORWARDER: (process.env.SWARMY_REGISTRY_FORWARDER ?? 'true') !== 'false',
 };

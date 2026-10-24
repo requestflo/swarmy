@@ -65,6 +65,14 @@ export const NodeFacts = z.object({
    * agents that predate the list: none.
    */
   capabilities: z.array(z.string()).optional(),
+  /**
+   * Security review M16: `on` = this agent supervises the loopback registry
+   * forwarder (`swarmy-registry-forwarder`, @swarmy/core/registry-forwarder);
+   * `off` = `SWARMY_REGISTRY_FORWARDER=false`. Absent = an agent that predates
+   * it. The controller moves the registry off the routing mesh only once every
+   * ready swarm node's agent reports `on`.
+   */
+  registryForwarder: z.enum(['on', 'off']).optional(),
 });
 export type NodeFacts = z.infer<typeof NodeFacts>;
 

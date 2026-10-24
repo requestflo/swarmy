@@ -1,8 +1,19 @@
 /**
- * Registry firewall floor: the built-in registry (:5000, htpasswd) and the
- * Docker Hub pull-through cache (:5001, NO login — dockerd's
- * `registry-mirrors` sends no creds) are published on the swarm routing mesh,
- * which listens on EVERY interface of EVERY node. Swarm cannot bind a
+ * Registry firewall floor — defence in depth since security review M16.
+ *
+ * A migrated cluster publishes neither port: the registry and the cache sit
+ * on the encrypted `swarmy` overlay and each node's loopback forwarder
+ * (registry-forwarder.ts) binds 127.0.0.1:5000/:5001 only, so nothing reaches
+ * them from outside and no forwarded connection is ever theirs. The floor
+ * stays for the clusters that still publish on the mesh (any node without a
+ * forwarder holds the migration back) and in case a port is ever published
+ * again. It never drops the forwarder's own traffic: loopback-originated
+ * connections don't traverse FORWARD.
+ *
+ * Before M16 (and still on an unmigrated cluster): the built-in registry
+ * (:5000, htpasswd) and the Docker Hub pull-through cache (:5001, NO login —
+ * dockerd's `registry-mirrors` sends no creds) are published on the swarm
+ * routing mesh, which listens on EVERY interface of EVERY node. Swarm cannot bind a
  * published port to loopback, so without a firewall the cache is an open
  * Docker Hub proxy on each node's public IP (disk fill, bandwidth, the node's
  * Hub rate limit) and the registry's login prompt faces the internet.

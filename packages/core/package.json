@@ -53,6 +53,10 @@
       "types": "./src/system-images.ts",
       "import": "./src/system-images.ts"
     },
+    "./registry-forwarder": {
+      "types": "./src/registry-forwarder.ts",
+      "import": "./src/registry-forwarder.ts"
+    },
     "./platform-manifest": {
       "types": "./src/platform-manifest.ts",
       "import": "./src/platform-manifest.ts"

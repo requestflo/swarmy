@@ -21,6 +21,7 @@ import { sampleIngressStatus } from './handlers/ingress-status';
 import { EdgeTrafficScraper, dockerMetricsFetcher } from './handlers/edge-traffic';
 import { agentPackaging } from './handlers/update';
 import { REGISTRY_FIREWALL_INTERVAL_MS, enforceRegistryFirewall, parseAllowCidrs } from './handlers/registry-firewall';
+import { REGISTRY_FORWARDER_INTERVAL_MS, registryForwarderFact, superviseRegistryForwarder } from './handlers/registry-forwarder';
 import { COMMIT, VERSION, versionInfo } from './version';
 import { handleCommand } from './executor';
 import { lastResolvedControllerUrl, resolveControllerUrl } from './controller-link';
@@ -195,6 +196,26 @@ export async function runDaemon(): Promise<void> {
   void firewallTick();
   const firewallTimer = setInterval(() => void firewallTick(), REGISTRY_FIREWALL_INTERVAL_MS);
 
+  // Loopback registry forwarder (M16): dockerd pulls localhost:5000/:5001
+  // through it, so it is kept up regardless of the controller link too.
+  let lastForwarderStatus = '';
+  let forwarderBusy = false;
+  const forwarderTick = async () => {
+    if (forwarderBusy) return;
+    forwarderBusy = true;
+    try {
+      const r = await superviseRegistryForwarder(docker, { enabled: env.REGISTRY_FORWARDER });
+      const warn = r.encrypted === false ? ' (WARNING: the swarmy overlay is not encrypted)' : '';
+      const line = `${r.status === 'started' ? 'running' : r.status}${r.detail ? `: ${r.detail}` : ''}${warn}`;
+      if (line !== lastForwarderStatus) log(`registry forwarder ${line}`);
+      lastForwarderStatus = line;
+    } finally {
+      forwarderBusy = false;
+    }
+  };
+  void forwarderTick();
+  const forwarderTimer = setInterval(() => void forwarderTick(), REGISTRY_FORWARDER_INTERVAL_MS);
+
   // Self-hosted mesh control plane (when this node holds one): keep it up and
   // its tmpfs config present, BEFORE and regardless of the controller
   // connection — on a cold boot the controller is reached over the overlay,
@@ -352,6 +373,9 @@ export async function runDaemon(): Promise<void> {
   // locally by SWARMY_ALLOW_EXEC=false on this node" instead of failing blind.
   if (env.EXEC_OVERRIDE) facts.execOverride = env.EXEC_OVERRIDE;
   if (env.SHELL_OVERRIDE) facts.shellOverride = env.SHELL_OVERRIDE;
+  // M16: the controller moves the registry off the routing mesh only once
+  // every node's agent forwards localhost:5000/:5001.
+  facts.registryForwarder = registryForwarderFact(env.REGISTRY_FORWARDER);
 
   // Public IP for the geo-edge DNS layer: the controller reports the source
   // address it sees in registerAck (preferred); third-party echo services are
@@ -590,6 +614,7 @@ export async function runDaemon(): Promise<void> {
   const shutdown = () => {
     for (const t of timers) clearInterval(t);
     clearInterval(firewallTimer);
+    clearInterval(forwarderTimer);
     clearInterval(meshControlTimer);
     clearInterval(overlayHealTimer);
     stopBeacon();
