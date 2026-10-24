@@ -16,73 +16,30 @@
  * A restored controller re-adopts the swarm automatically — agent reconnect creds
  * are *hashed* per-node session secrets in the DB, so agents re-attach on dial-out.
  *
- * Target + passphrase come from flags/env (both live OUTSIDE the dead controller):
+ * The target comes from the swarm when it can: on a swarm manager, with
+ * SWARMY_SECRET_KEY set (source state.env), the CLI reads where controller
+ * backups go from the swarm-kv documents in raft (`restore-swarm.ts`), so a
+ * controller that lost its volume still finds its backups. Every flag below
+ * overrides that field; with nothing in the swarm the flags are the target:
+ *   --target <id|name>         a destination other than the configured one
+ *   --no-swarm-kv              don't read the swarm, use only the flags
  *   --target-kind s3|node      (default s3)
  *   --endpoint, --bucket, --prefix, --region
  *   --access-key-id, --secret-access-key   (or AWS_* env)
  *   --restic-password <repo pw>            (or RESTIC_PASSWORD)
- *   --passphrase <restore passphrase>      (or SWARMY_RESTORE_PASSPHRASE)
+ *   --passphrase <restore passphrase>      (or SWARMY_RESTORE_PASSPHRASE; always the user's)
  *   --snapshot <id|latest>                 (default latest)
  *   --write-env <path>                     (default ./.swarmy-restored.env)
+ * Reading the swarm needs this host's Docker socket (DOCKER_HOST, else
+ * /var/run/docker.sock) on a manager, e.g. `docker run --rm -v
+ * /var/run/docker.sock:/var/run/docker.sock -v swarmy-data:/data …`.
  */
 import { dirname } from 'node:path';
 import { writeFile } from 'node:fs/promises';
-import type { ResticRepo } from '@swarmy/core/protocol';
 import { ensureSchema, buildAdapter, resolveDbPaths } from '@swarmy/db';
 import { restoreBundle, installSnapshotFile, stashPendingKv } from '@swarmy/trpc';
-
-interface Flags {
-  [k: string]: string | boolean;
-}
-
-function parseArgs(argv: string[]): Flags {
-  const flags: Flags = {};
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (a && a.startsWith('--')) {
-      const key = a.slice(2);
-      const next = argv[i + 1];
-      if (next && !next.startsWith('--')) {
-        flags[key] = next;
-        i++;
-      } else {
-        flags[key] = true;
-      }
-    }
-  }
-  return flags;
-}
-
-function str(flags: Flags, key: string, env?: string, fallback?: string): string | undefined {
-  const v = flags[key];
-  if (typeof v === 'string') return v;
-  if (env && process.env[env]) return process.env[env];
-  return fallback;
-}
-
-function buildRepo(flags: Flags): ResticRepo {
-  const kind = (str(flags, 'target-kind', undefined, 's3') as 's3' | 'node') ?? 's3';
-  const endpoint = str(flags, 'endpoint');
-  const bucket = str(flags, 'bucket');
-  const prefix = str(flags, 'prefix');
-  if (!bucket) throw new Error('--bucket is required (the restic repo bucket/path)');
-  const prefixSeg = prefix ? `/${prefix.replace(/^\/+/, '')}` : '';
-  const repoUrl =
-    kind === 'node'
-      ? `${bucket.replace(/\/+$/, '')}${prefixSeg}`
-      : `s3:${(endpoint ?? '').replace(/\/+$/, '')}/${bucket}${prefixSeg}`;
-  const password = str(flags, 'restic-password', 'RESTIC_PASSWORD');
-  if (!password) throw new Error('--restic-password (or RESTIC_PASSWORD) is required');
-  return {
-    kind,
-    repo: repoUrl,
-    password,
-    endpoint,
-    region: str(flags, 'region', 'AWS_DEFAULT_REGION'),
-    accessKeyId: str(flags, 'access-key-id', 'AWS_ACCESS_KEY_ID'),
-    secretAccessKey: str(flags, 'secret-access-key', 'AWS_SECRET_ACCESS_KEY'),
-  };
-}
+import { buildRepo, parseArgs, str } from './restore-args';
+import { targetFromSwarm } from './restore-swarm';
 
 async function main(): Promise<void> {
   const flags = parseArgs(process.argv.slice(2));
@@ -93,7 +50,9 @@ async function main(): Promise<void> {
   if (!passphrase) {
     throw new Error('--passphrase (or SWARMY_RESTORE_PASSPHRASE) is required — the user-held restore key');
   }
-  const repo = buildRepo(flags);
+  const fromSwarm = await targetFromSwarm(flags, log);
+  const { repo, overridden } = buildRepo(flags, fromSwarm);
+  if (fromSwarm && overridden.length) log(`flags override the swarm's ${overridden.join(', ')}`);
   const snapshotId = str(flags, 'snapshot', undefined, 'latest');
 
   log(`restoring controller-state bundle (${snapshotId}) from ${repo.repo} …`);

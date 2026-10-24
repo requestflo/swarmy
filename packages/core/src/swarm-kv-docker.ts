@@ -4,9 +4,12 @@
  * the agent-side rescue paths. The controller has no socket; it uses the
  * hub driver in `@swarmy/trpc` (`config.*` commands to a manager agent).
  *
- * Server-only (dockerode): import via a relative path, never the core barrel.
+ * Server-only (dockerode): import it as `@swarmy/core/swarm-kv-docker` (or a
+ * relative path), never through the core barrel. The disaster-restore CLI uses
+ * {@link localDockerKvDriver} to read where the backups are with the
+ * controller down.
  */
-import type Docker from 'dockerode';
+import Docker from 'dockerode';
 import { KV_LABEL, type KvConfigInfo, type KvDriver } from './swarm-kv';
 
 interface RawConfig {
@@ -42,4 +45,9 @@ export function dockerKvDriver(docker: Docker): KvDriver {
       await docker.getConfig(await idOf(name)).remove();
     },
   };
+}
+
+/** A driver over this host's Docker socket (DOCKER_HOST, else /var/run/docker.sock). Needs a swarm manager. */
+export function localDockerKvDriver(opts?: Docker.DockerOptions): KvDriver {
+  return dockerKvDriver(new Docker(opts));
 }

@@ -433,6 +433,7 @@ export {
   importKvFromBundle,
   stashPendingKv,
   importPendingKv,
+  vaultSealer as kvVaultSealer,
   KV_COLLECTIONS,
   type KvBundleSection,
   type KvCollection,
@@ -440,6 +441,7 @@ export {
 } from './services/swarm-kv.service';
 export { reachableOrgIds } from './services/kv-repo';
 export { createKvWarmer, warmOrgKv, type KvWarmOutcome } from './services/swarm-kv-warm';
+export { readRestoreTargetFromKv, type KvRestoreTarget } from './services/controllerBackup.kv-target';
 export { ingressConfigRepo, ingressEnabledOrgIds } from './services/ingress-config.repo';
 export { meshConfigRepo } from './services/mesh-config.repo';
 export { reconcileMeshControl, getControlPlaneCard, managedOf, renderControlSpec } from './services/mesh-control.service';

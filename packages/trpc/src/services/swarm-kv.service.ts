@@ -85,7 +85,7 @@ export interface KvScope {
  * swarmy's raft footprint well inside its budget. `z1.` marks the compressed
  * form; a plain vault blob still opens.
  */
-const vaultSealer: KvSealer = {
+export const vaultSealer: KvSealer = {
   seal: (plain) => `z1.${encryptSecret(Buffer.from(gzipSync(Buffer.from(plain, 'utf8'))).toString('base64'))}`,
   open: (sealed) =>
     sealed.startsWith('z1.')

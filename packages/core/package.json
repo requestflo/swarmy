@@ -37,6 +37,10 @@
       "types": "./src/docker.ts",
       "import": "./src/docker.ts"
     },
+    "./swarm-kv-docker": {
+      "types": "./src/swarm-kv-docker.ts",
+      "import": "./src/swarm-kv-docker.ts"
+    },
     "./crypto": {
       "types": "./src/crypto.ts",
       "import": "./src/crypto.ts"
