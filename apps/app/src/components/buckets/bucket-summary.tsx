@@ -7,10 +7,13 @@ import { REACH_YAML, type ReachMode } from './reach-model';
 export function BucketCode({
   bucket: b,
   endpoint,
+  publicEndpoint,
   mode,
 }: {
   bucket: BucketDetailView;
   endpoint: string | null;
+  /** The org's public S3 endpoint (S3_PUBLIC_ENDPOINT), when there is one. */
+  publicEndpoint: string | null;
   mode?: ReachMode;
 }): React.JSX.Element {
   const yaml = toYaml({
@@ -24,6 +27,7 @@ export function BucketCode({
   });
   const env = [
     `S3_ENDPOINT=${endpoint ?? 'http://swarmy-garage:3900'}`,
+    ...(publicEndpoint ? [`S3_PUBLIC_ENDPOINT=${publicEndpoint}  # sign browser links with it${mode === 'PUBLIC' ? '' : '; answers once access is public'}`] : []),
     `S3_BUCKET=${b.name}`,
     'S3_REGION=swarmy',
     `S3_ACCESS_KEY_ID=${b.attachments[0]?.accessKeyId ?? '<key id>'}`,

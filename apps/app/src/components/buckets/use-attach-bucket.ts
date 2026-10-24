@@ -2,7 +2,7 @@ import * as React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
-import { attachedToast } from './attach-plan';
+import { ATTACH_ENV, attachedToast } from './attach-plan';
 
 /**
  * Attach one bucket to some of an app's services (`buckets.attachToService`
@@ -37,9 +37,12 @@ export function useAttachBucket(): {
     async ({ bucketId, bucket, app, services }: { bucketId: string; bucket: string; app: string; services: Array<{ id: string; name: string }> }) => {
       const done: string[] = [];
       let failed: string | null = null;
+      let variables = ATTACH_ENV.length;
       for (const s of services) {
         try {
-          done.push((await attachOne.mutateAsync({ bucketId, appService: s.id })).appService);
+          const r = await attachOne.mutateAsync({ bucketId, appService: s.id });
+          done.push(r.appService);
+          variables = ATTACH_ENV.length + (r.publicEndpoint ? 1 : 0);
         } catch (e) {
           failed = `${s.name}: ${e instanceof Error ? e.message : String(e)}`;
           break;
@@ -48,7 +51,7 @@ export function useAttachBucket(): {
       refresh();
       const action = done.length ? { action: { label: 'Undo', onClick: () => void undo(bucket, app, done) }, duration: 12_000 } : undefined;
       if (failed) toast.error(`Attached to ${done.length} of ${services.length} services. ${failed}`, action);
-      else toast.success(attachedToast(bucket, app, done.length), action);
+      else toast.success(attachedToast(bucket, app, done.length, variables), action);
       return failed === null;
     },
     [attachOne, refresh, undo],

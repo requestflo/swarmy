@@ -50,6 +50,7 @@ import { ALL_BLUEPRINTS, findBlueprint } from './blueprints/registry';
 import { pinPlanSteps, resolvePlacementNode, type ResolvedPlacement } from './blueprints/placement';
 import { TemplateCompileError } from './blueprints/from-app-config';
 import { credentialEnvToSecrets, isCreateTimeWire, withCreateTimeWires, type CreateTimeWire } from './blueprints/create-wires';
+import { publicS3EndpointFor } from './public-s3';
 
 /**
  * Blueprints (slice F3) — list the static catalog, dry-run a plan, and deploy
@@ -336,7 +337,7 @@ async function applyWire(
     case 'bucket': {
       const bucketId = sctx.bucketIds[wire.bucket];
       if (!bucketId) throw commandRejected(`bucket "${wire.bucket}" was not created by this plan`);
-      await attachBucketToService(ctx, { bucketId, appService: wire.service });
+      await attachBucketToService(ctx, { bucketId, appService: wire.service }, { publicEndpoint: await publicS3EndpointFor(ctx) });
       waitKeys = ['S3_BUCKET'];
       break;
     }

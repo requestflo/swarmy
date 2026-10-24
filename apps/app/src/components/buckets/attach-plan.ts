@@ -65,10 +65,19 @@ export function attachmentMap(buckets: ReadonlyArray<{ name: string; attachments
   return out;
 }
 
-/** The preview lines: `KEY=value  # note`. The key id and secret are minted on Attach. */
-export function attachEnvLines(input: { endpoint: string | null; region: string; bucket: string }): Array<{ key: string; value: string; note?: string }> {
+/**
+ * The preview lines: `KEY=value  # note`. The key id and secret are minted on
+ * Attach; `S3_PUBLIC_ENDPOINT` comes only when the org has a public S3 address.
+ */
+export function attachEnvLines(input: {
+  endpoint: string | null;
+  publicEndpoint?: string | null;
+  region: string;
+  bucket: string;
+}): Array<{ key: string; value: string; note?: string }> {
   return [
     { key: 'S3_ENDPOINT', value: input.endpoint ?? 'http://swarmy-garage:3900' },
+    ...(input.publicEndpoint ? [{ key: 'S3_PUBLIC_ENDPOINT', value: input.publicEndpoint, note: 'sign browser links with it' }] : []),
     { key: 'S3_REGION', value: input.region },
     { key: 'S3_BUCKET', value: input.bucket },
     { key: 'S3_ACCESS_KEY_ID', value: '<minted on attach>', note: 'its own key per service' },
@@ -77,7 +86,6 @@ export function attachEnvLines(input: { endpoint: string | null; region: string;
 }
 
 /** "storefront-media attached to storefront · 5 variables in 2 services". */
-export function attachedToast(bucket: string, app: string, services: number): string {
-  const n = ATTACH_ENV.length;
-  return `${bucket} attached to ${app} · ${n} variables in ${services} service${services === 1 ? '' : 's'}`;
+export function attachedToast(bucket: string, app: string, services: number, variables: number = ATTACH_ENV.length): string {
+  return `${bucket} attached to ${app} · ${variables} variables in ${services} service${services === 1 ? '' : 's'}`;
 }

@@ -197,8 +197,17 @@ describe('attach naming + env', () => {
       S3_ACCESS_KEY_ID: 'GK1',
       S3_SECRET_ACCESS_KEY_FILE: '/run/secrets/swarmy-s3-web-assets',
     });
-    // detach removes exactly what attach added
-    expect(Object.keys(env).sort()).toEqual([...ATTACH_ENV_KEYS].sort());
+    // detach removes everything attach can add (S3_PUBLIC_ENDPOINT only when known)
+    expect(Object.keys(env).every((k) => (ATTACH_ENV_KEYS as readonly string[]).includes(k))).toBe(true);
+    const withPublic = buildAttachEnv({
+      endpoint: 'http://swarmy-garage:3900',
+      region: 'swarmy',
+      bucket: 'assets',
+      accessKeyId: 'GK1',
+      secretName: 'swarmy-s3-web-assets',
+      publicEndpoint: 'https://s3.example.com',
+    });
+    expect(Object.keys(withPublic).sort()).toEqual([...ATTACH_ENV_KEYS].sort());
     // the actual secret value must never be an env var
     expect(Object.keys(env)).not.toContain('S3_SECRET_ACCESS_KEY');
   });

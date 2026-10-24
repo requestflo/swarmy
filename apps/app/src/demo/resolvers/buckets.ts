@@ -360,6 +360,8 @@ export const buckets: DomainResolvers = {
         accessKeyId,
         secretName,
         endpoint: st.endpoint,
+        // Mirrors attachToService: the org's public S3 endpoint as S3_PUBLIC_ENDPOINT.
+        publicEndpoint: `https://${DEMO_PUBLIC_DOMAIN}`,
         region: st.region,
       };
     },

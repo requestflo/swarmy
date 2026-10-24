@@ -41,6 +41,7 @@ export function BucketPage({ name }: { name: string }): React.JSX.Element {
   }
 
   const apps = [...new Set(b.attachments.map((a) => a.stack))];
+  const publicEndpoint = p.access?.publicDomain ? `https://${p.access.publicDomain}` : null;
   return (
     <CalmPage
       crumbs={crumbs}
@@ -57,7 +58,7 @@ export function BucketPage({ name }: { name: string }): React.JSX.Element {
       }
       aside={
         <>
-          <BucketCode bucket={b} endpoint={p.store?.endpoint ?? null} mode={mode} />
+          <BucketCode bucket={b} endpoint={p.store?.endpoint ?? null} publicEndpoint={publicEndpoint} mode={mode} />
           <BucketReachAside bucket={b} access={p.access} />
         </>
       }
@@ -73,7 +74,7 @@ export function BucketPage({ name }: { name: string }): React.JSX.Element {
       />
       <BucketSizeSection bucket={b} />
       <BucketCopiesSection copies={p.copies} members={p.members} />
-      <BucketAttachedSection bucket={b} store={p.store} />
+      <BucketAttachedSection bucket={b} store={p.store} publicEndpoint={publicEndpoint} />
       <BucketKeysPanel bucket={b} endpoint={p.store?.endpoint ?? null} />
       <BucketLifecycleSection bucketId={b.id} access={p.access} />
       <BucketCorsSection bucketId={b.id} access={p.access} />

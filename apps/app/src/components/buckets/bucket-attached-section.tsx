@@ -14,7 +14,16 @@ import { useAttachCandidates } from './use-attach-candidates';
 const ENV_WORDS = ATTACH_ENV.map((k) => (k.endsWith('_FILE') ? `${k.replace(/_FILE$/, '')} (file)` : k)).join(' · ');
 
 /** "Attached to": each app / service, the variables it got, read-write or read. Attach and detach at Controls. */
-export function BucketAttachedSection({ bucket: b, store }: { bucket: BucketDetailView; store: BucketsOverview | undefined }): React.JSX.Element {
+export function BucketAttachedSection({
+  bucket: b,
+  store,
+  publicEndpoint,
+}: {
+  bucket: BucketDetailView;
+  store: BucketsOverview | undefined;
+  /** The org's public S3 endpoint, shown as the S3_PUBLIC_ENDPOINT an attach adds. */
+  publicEndpoint: string | null;
+}): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const [app, setApp] = React.useState<string | null>(null);
@@ -58,6 +67,7 @@ export function BucketAttachedSection({ bucket: b, store }: { bucket: BucketDeta
               target={{ bucketId: b.id, bucket: b.name, app }}
               candidates={candidates}
               endpoint={store?.endpoint ?? null}
+              publicEndpoint={publicEndpoint}
               region={store?.region ?? 'swarmy'}
               onClose={() => setApp(null)}
             />

@@ -42,6 +42,13 @@ describe('attachEnvLines', () => {
     expect(lines[2]!.value).toBe('media');
     expect(lines[4]!.note).toContain('Docker secret');
   });
+
+  test('adds S3_PUBLIC_ENDPOINT after S3_ENDPOINT when the org has a public S3 address', () => {
+    const lines = attachEnvLines({ endpoint: null, publicEndpoint: 'https://s3.northwind.dev', region: 'swarmy', bucket: 'media' });
+    expect(lines.map((l) => l.key).slice(0, 2)).toEqual(['S3_ENDPOINT', 'S3_PUBLIC_ENDPOINT']);
+    expect(lines[1]).toEqual({ key: 'S3_PUBLIC_ENDPOINT', value: 'https://s3.northwind.dev', note: 'sign browser links with it' });
+    expect(lines).toHaveLength(6);
+  });
 });
 
 test('shortName strips the app prefix only', () => {
@@ -53,4 +60,5 @@ test('shortName strips the app prefix only', () => {
 test('attachedToast counts variables and services', () => {
   expect(attachedToast('media', 'storefront', 2)).toBe('media attached to storefront · 5 variables in 2 services');
   expect(attachedToast('media', 'blog', 1)).toBe('media attached to blog · 5 variables in 1 service');
+  expect(attachedToast('media', 'blog', 1, 6)).toBe('media attached to blog · 6 variables in 1 service');
 });

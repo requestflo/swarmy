@@ -300,16 +300,24 @@ export function attachKeyName(service: string, bucket: string): string {
   return `swarmy-attach-${service}-${bucket}`.slice(0, 64);
 }
 
-/** The S3_* env an attached app receives (secret rides as a file, not env). */
+/**
+ * The S3_* env an attached app receives (secret rides as a file, not env).
+ * `S3_PUBLIC_ENDPOINT` — the org's public S3 endpoint, when there is one — is
+ * what an app signs browser-facing presigned URLs for; `S3_ENDPOINT` (the
+ * in-swarm name) stays what it talks to. Links signed for the public endpoint
+ * answer once the bucket's reach is Public.
+ */
 export function buildAttachEnv(input: {
   endpoint: string;
   region: string;
   bucket: string;
   accessKeyId: string;
   secretName: string;
+  publicEndpoint?: string | null;
 }): Record<string, string> {
   return {
     S3_ENDPOINT: input.endpoint,
+    ...(input.publicEndpoint ? { S3_PUBLIC_ENDPOINT: input.publicEndpoint } : {}),
     S3_REGION: input.region,
     S3_BUCKET: input.bucket,
     S3_ACCESS_KEY_ID: input.accessKeyId,
@@ -335,6 +343,7 @@ export function rotatedSecretName(current: string): { family: string; name: stri
 /** Env var keys `buildAttachEnv` owns (removed again on detach). */
 export const ATTACH_ENV_KEYS = [
   'S3_ENDPOINT',
+  'S3_PUBLIC_ENDPOINT',
   'S3_REGION',
   'S3_BUCKET',
   'S3_ACCESS_KEY_ID',
@@ -1031,12 +1040,16 @@ export async function setWebsite(
  * owner), store its secret as a Docker secret, and redeploy the app with the
  * `S3_*` env + secret ref + `swarmy.s3.*` labels. Mirrors manageddb
  * injectConnection: patches the FULL live spec (`patchLiveService`), so the
- * app's volumes/command/placement survive the redeploy.
+ * app's volumes/command/placement survive the redeploy. `publicEndpoint` (the
+ * org's public S3 endpoint, `public-s3.ts#publicS3EndpointFor`) becomes
+ * `S3_PUBLIC_ENDPOINT` for the app's own browser-facing presigned links.
  */
 export async function attachToService(
   ctx: OrgContext,
   input: AttachBucketInput,
+  opts: { publicEndpoint?: string | null } = {},
 ): Promise<BucketAttachResult> {
+  const publicEndpoint = opts.publicEndpoint ?? null;
   const store = await requireStore(ctx);
   const bucket = await getBucket(ctx, input.bucketId);
 
@@ -1093,6 +1106,7 @@ export async function attachToService(
           bucket: bucket.name,
           accessKeyId: key.accessKeyId,
           secretName,
+          publicEndpoint,
         }),
         addSecrets: [{ source: secretName }],
         addNetworks: withStoreNetwork([]),
@@ -1113,7 +1127,7 @@ export async function attachToService(
     action: 'buckets.attach',
     targetType: 'bucket',
     targetId: bucket.id,
-    metadata: { appService: app.name, bucket: bucket.name, accessKeyId: key.accessKeyId },
+    metadata: { appService: app.name, bucket: bucket.name, accessKeyId: key.accessKeyId, publicEndpoint },
   });
   return {
     appService: app.name,
@@ -1121,6 +1135,7 @@ export async function attachToService(
     accessKeyId: key.accessKeyId,
     secretName,
     endpoint: garageS3Endpoint(),
+    publicEndpoint,
     region: store.region,
   };
 }

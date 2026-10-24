@@ -18,6 +18,7 @@ export function AttachPreview({
   target,
   candidates,
   endpoint,
+  publicEndpoint = null,
   region,
   onClose,
   className,
@@ -25,6 +26,8 @@ export function AttachPreview({
   target: AttachTarget;
   candidates: AttachCandidate[];
   endpoint: string | null;
+  /** The org's public S3 endpoint (added as S3_PUBLIC_ENDPOINT), when there is one. */
+  publicEndpoint?: string | null;
   region: string;
   onClose: () => void;
   className?: string;
@@ -65,7 +68,7 @@ export function AttachPreview({
         them up; nothing else changes.
       </p>
       <pre className="calm-code overflow-x-auto px-3 py-2.5 text-[11.5px]">
-        {attachEnvLines({ endpoint, region, bucket: target.bucket }).map((l) => (
+        {attachEnvLines({ endpoint, publicEndpoint, region, bucket: target.bucket }).map((l) => (
           <React.Fragment key={l.key}>
             {l.key}={l.value}
             {l.note ? <span className="opacity-60">{`  # ${l.note}`}</span> : null}

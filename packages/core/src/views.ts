@@ -646,6 +646,8 @@ export interface BucketAttachResult {
   /** Docker secret injected as S3_SECRET_ACCESS_KEY_FILE (value never returned). */
   secretName: string;
   endpoint: string;
+  /** The org's public S3 endpoint, injected as S3_PUBLIC_ENDPOINT (null = none known, not injected). */
+  publicEndpoint: string | null;
   region: string;
 }
 

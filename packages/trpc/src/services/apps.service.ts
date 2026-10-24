@@ -102,6 +102,7 @@ import { bindEmailToService } from './email/bind';
 import { listDbBackups, restoreDb } from './dbBackup.service';
 import { execInService, waitForPostgres } from './resilience.service';
 import { applyPlan, type ActionOutcome, type AppOps } from './apps/apply';
+import { publicS3EndpointFor } from './public-s3';
 import { appBucketName, type Attachment } from './apps/compile';
 import {
   APP_STACK_LABEL,
@@ -557,7 +558,7 @@ export function realOps(
         case 'bucket': {
           const bucketId = ledger.resources[a.resource]?.bucketId;
           if (!bucketId) throw commandRejected(`bucket ${a.resource} is not provisioned yet`);
-          await attachToService(ctx, { bucketId, appService: app.name });
+          await attachToService(ctx, { bucketId, appService: app.name }, { publicEndpoint: await publicS3EndpointFor(ctx) });
           return;
         }
         case 'secret':

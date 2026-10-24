@@ -39,6 +39,7 @@ import {
   type BucketAccessMode,
 } from '../services/bucket-access.service';
 import { applyObjectStorageExposure, edgeMeshIps, orgDashboardDomain } from '../services/ingress.service';
+import { presignTarget, publicS3EndpointFor } from '../services/public-s3';
 import type { OrgContext } from '../context';
 import { bucketRuleProcedures } from './bucket-rules';
 
@@ -120,17 +121,13 @@ export const objectStorageRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      // Sign for where the link will be used: the bucket's public origin,
-      // else a mesh edge, else in-cluster (then it only works inside swarmy).
+      // Sign for where the link will be used: the org's public S3 endpoint
+      // when the bucket is Public, else a mesh edge, else in-cluster (then it
+      // only works inside swarmy).
       const view = await accessView(ctx, input.bucketId);
-      const origin = (u: string) => new URL(u).origin;
-      const endpoint = view.endpoints.public
-        ? origin(view.endpoints.public)
-        : view.endpoints.mesh[0]
-          ? origin(view.endpoints.mesh[0])
-          : undefined;
+      const { endpoint, reachableFrom } = presignTarget(view.endpoints);
       const signed = await presignObjectUrl(ctx, { ...input, endpoint });
-      return { ...signed, reachableFrom: view.endpoints.public ? 'internet' : endpoint ? 'mesh' : 'cluster' };
+      return { ...signed, reachableFrom };
     }),
 
   /** Who can reach this bucket's S3 API (INTERNAL / MESH / PUBLIC) + its endpoints. */
@@ -174,7 +171,7 @@ export const objectStorageRouter = router({
   /** Scoped key + S3_* env + Docker-secret injection into an app service. */
   attachToService: adminProcedure
     .input(AttachBucketInput)
-    .mutation(({ ctx, input }) => attachToService(ctx, input)),
+    .mutation(async ({ ctx, input }) => attachToService(ctx, input, { publicEndpoint: await publicS3EndpointFor(ctx) })),
 
   detach: adminProcedure
     .input(DetachBucketInput)
