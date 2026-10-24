@@ -197,14 +197,13 @@ because no backend provides it.
 |---|---|---|
 | 9 Move | `/nodes` (drag or Move…) | disk fit (volume sizes aren't reported), Undo (the old copy stays on the source and the mover refuses a non-empty destination), ⌥-drag to add a copy |
 | 10 Time travel | `/stacks/$name/time-travel` (from Releases) | whole-app restore, rows written since, historical db size, service-graph edges |
-| 11 Servers | `/nodes` (map first, list toggle) | 24h sparklines (no stored node stats), provider, restart agent |
+| 11 Servers | `/nodes` (map first, list toggle) | provider, restart agent (24 h sparklines arrived in the third pass) |
 | 14 Mesh | `/networking` (map) | per-link latency and bytes (relayed is per server, so every link of a relayed server draws through the relay) |
 | 15 Data | `/data` | lifecycle/CORS lines, moving a database by drag |
 | 16 Backups | `/backups` | live drill steps, server-loss drill, snapshot download, offsite mirror lag, resilience score (removed on purpose) |
-| 20 Upgrade (part) | `/settings/platform` | the "from" version of third-party images (`PlatformReleaseView` has no current tag), pause after a step |
+| 20 Upgrade | `/settings/platform` | release channels beyond Stable/Edge (the epic defines none) |
 | 21 Phone | `/overview` below `lg` | estate uptime, incident owner / "take for 30 min", rollback duration |
 | 23 Connect a repo | `/deploy?source=git` | "What we found" detectors (Postgres / Redis / S3 / cron), App #N |
-| 27 Build logs (part) | `/ci/$buildId` | the stage rail with timings (builds record only start/finish) |
 | 34 Scaling | `/stacks/$name/config/scaling` | Open PR, cost per size, cold-start time |
 | 40 Postgres backups | `/stacks/$name/backups` | offsite copy for db schedules, WAL-gap check, restore progress and row diff, PITR from an older base backup (wal-g starts from the newest) |
 | 42 Bucket | `/data/buckets/$name` | lifecycle, CORS, growth forecast, per-key last used, public-bucket approval |
@@ -223,7 +222,7 @@ because no backend provides it.
 |---|---|---|
 | 7 App canvas | `/stacks/$name` | the sign chip (no per-image signing record), per-part sparklines, saved data-node positions |
 | 12 Add a server | `/nodes/new` | "direct to home-lab · 0.4 ms" (no link latency) |
-| 13 Network | `/network` | per-domain req/min until traffic is per host, p50 per edge, a per-edge rendered Caddyfile |
+| 13 Network | `/network` | p50 per edge, a per-edge rendered Caddyfile |
 | 19 Settings | `/settings` | — (the "three ways" action is stack removal: the only change curl, the CLI and Terraform all share) |
 | 26 PR plan | Releases › plan drawer (Graph) | the YAML diff tab, unchanged boxes' connector lines |
 | 30 Domain detail | `/stacks/$name/network` | issued date, "covers", blocked req/min and receipts, renewals, Renew now, CAA |
@@ -256,7 +255,28 @@ Backend fixes found while building them:
 - A platform release now carries each component's current tag, so third-party
   images show from → to on the upgrade screen.
 
+**Third pass (2026-10-24):**
+
+| Board | Route | Left out (no data / backend) |
+|---|---|---|
+| 22 Estate map, light | Apps › Map | link latency labels, uptime |
+| 24 Repo scanned | `/deploy?source=git` (after Link & scan) | "Deploy now, commit later" and "Commit … PR #1" (no git write path) |
+| 25 swarmy.yaml editor | `/stacks/$name/source` | Commit & open PR (no git write path); autocomplete in flow mappings |
+| 27 Build logs | `/ci/$buildId` | a release version number (uses the short commit), per-stage log filtering |
+| 48 Members & roles | `/settings/access` | Viewer/Developer roles (owner decision), Enforce SSO, multi-app invites |
+| 51 CI & registry | `/ci` | — |
+| 65 App access | `/stacks/$name/access` | per-path who-can-enter, provider toggles, recent sign-ins |
+| 66 Email | `/stacks/$name/config/email` | the per-server port-25 test |
+
+Also this pass: the Servers 24 h sparklines (11), per-address visits on the
+routing diagram and Domains tab (13, 30), the upgrade's pause / resume /
+abandon (20), restore-as-a-copy creating its own database and live DR drill
+steps (10, 16, 40).
+
 Found, not fixed (worth deciding):
 
-- An in-place managed Postgres restore takes no safety snapshot first.
-- A clone restore needs a second, running database cluster to exist already.
+- Board 52 offers "All minor updates" for auto-patching; the upgrades epic
+  decides patch releases only. Decide before building it.
+- A refused point-in-time restore still takes the safety backup and a brief
+  restart before the agent refuses (moving the check earlier needs a new
+  agent command, which older agents would drop).
