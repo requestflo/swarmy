@@ -32,6 +32,7 @@ import { ApplyStorageNodeMsg, ListVolumesMsg, ProvisionVolumeMsg, RemoveVolumeMs
 import { SwarmJoinMsg, SwarmRotateTokensMsg, SwarmSetAutolockMsg } from './swarm';
 import { BackupVolumeMsg, RestoreVolumeMsg, ListSnapshotsMsg } from './backup';
 import { DbBackupMsg, DbRestoreMsg } from './dbBackup';
+import { DbPitrWindowMsg } from './pitrWindow';
 import { ControllerServiceMsg } from './controllerService';
 import { AppDbBackupMsg, AppDbRestoreMsg, AppDbVerifyMsg } from './appDb';
 import { QueueOpMsg } from './queueOp';
@@ -128,6 +129,7 @@ export const ControllerToAgentMessage = z.discriminatedUnion('type', [
   ListSnapshotsMsg,
   DbBackupMsg,
   DbRestoreMsg,
+  DbPitrWindowMsg,
   AppDbBackupMsg,
   AppDbRestoreMsg,
   AppDbVerifyMsg,

@@ -58,6 +58,13 @@ export const NodeFacts = z.object({
    * force it on — the label is always required. Absent ⇒ the label decides.
    */
   shellOverride: z.enum(['allow', 'deny']).optional(),
+  /**
+   * Optional commands this agent understands beyond the base protocol
+   * (`AGENT_CAPABILITIES`, e.g. `dbPitrWindow`). The controller sends such a
+   * command only to an agent that lists it (`agentSupports`). Absent on
+   * agents that predate the list: none.
+   */
+  capabilities: z.array(z.string()).optional(),
 });
 export type NodeFacts = z.infer<typeof NodeFacts>;
 

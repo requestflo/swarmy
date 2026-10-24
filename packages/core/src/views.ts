@@ -371,8 +371,31 @@ export interface DbBackupOverviewRow {
   nextRunAt: string | null;
   /** Restorable point-in-time span (PITR clusters with a successful backup). */
   pitrWindow: { from: string; to: string } | null;
+  /**
+   * Where `pitrWindow` came from: `agent` = read from the WAL repo by the
+   * cluster's agent (the last check, within the hour); `estimate` = worked
+   * out from the schedule (retention + last backup). Absent without PITR.
+   */
+  pitrWindowSource?: 'agent' | 'estimate';
   /** The schedule was created by default-on DB backups (not a user). */
   auto: boolean;
+}
+
+/** A PITR cluster's recoverable window as its agent read it from the WAL repo (`dbBackups.pitrWindow`). */
+export interface DbPitrWindowView {
+  /**
+   * `agent`: read from the WAL repo just now. `unsupported`: the node's agent
+   * predates the check, so only the estimate is known. `none`: not a wal-g
+   * PITR cluster.
+   */
+  source: 'agent' | 'unsupported' | 'none';
+  /** From the oldest base backup's finish to the newest archived change; null with no base backups. */
+  window: { from: string; to: string } | null;
+  /** Base backups, oldest first. */
+  backups: Array<{ name: string; finishTime: string }>;
+  /** Upload time of the newest archived WAL segment, when it could be read. */
+  latestWalAt: string | null;
+  checkedAt: string | null;
 }
 
 // ── Managed-DB topology view fragments (shared by the topology selector UI) ──

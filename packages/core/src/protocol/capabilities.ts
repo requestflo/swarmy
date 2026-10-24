@@ -1,0 +1,32 @@
+/**
+ * Optional agent commands, advertised in the register facts
+ * (`NodeFacts.capabilities`).
+ *
+ * `PROTOCOL_VERSION` is the wire contract every agent speaks, and bumping it
+ * changes the WS subprotocol (a breaking change). A command added later is
+ * additive instead: an agent that predates it fails `parseControllerEnvelope`
+ * on the unknown `type` and drops the frame silently, so the controller would
+ * only see a timeout. So such a command is listed here, the agent advertises
+ * the list, and the controller dispatches the command only to an agent that
+ * advertised it (`agentSupports`), falling back to the old behaviour otherwise.
+ *
+ * Append only: never rename or remove a capability.
+ */
+
+/** Each capability is the wire `type` of the command it stands for. */
+export const AGENT_CAPABILITY = {
+  /** Read-only: a PITR cluster's base backups and recoverable window (`dbPitrWindow`). */
+  dbPitrWindow: 'dbPitrWindow',
+} as const;
+export type AgentCapability = (typeof AGENT_CAPABILITY)[keyof typeof AGENT_CAPABILITY];
+
+/** Everything this build of the agent understands beyond the base protocol. */
+export const AGENT_CAPABILITIES: readonly AgentCapability[] = [AGENT_CAPABILITY.dbPitrWindow];
+
+/**
+ * Does an agent with these advertised capabilities understand `cap`? An
+ * absent list is an agent that predates capabilities: no. Pure.
+ */
+export function agentSupports(capabilities: readonly string[] | undefined, cap: AgentCapability): boolean {
+  return Array.isArray(capabilities) && capabilities.includes(cap);
+}

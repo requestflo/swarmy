@@ -107,6 +107,8 @@ export const DEFAULT_COMMAND_TIMEOUTS: Record<string, number> = {
   listSnapshots: 180_000,
   dbBackup: 4 * 3_600_000,
   dbRestore: 4 * 3_600_000,
+  // Read-only PITR window check: one `wal-g backup-list` (+ a WAL listing).
+  dbPitrWindow: 300_000,
   appDbBackup: 4 * 3_600_000,
   appDbRestore: 4 * 3_600_000,
   appDbVerify: 2 * 3_600_000,
