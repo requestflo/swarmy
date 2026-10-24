@@ -31,10 +31,15 @@ export const AdmissionViolationDto = z
   .openapi('AdmissionViolation');
 
 /** 412 from a deploy-shaped route: admission (guardrails / exposure / images / the network wall) refused it. */
-export const GuardrailProblemDto = ProblemDto.extend({
-  swarmy_code: z.string().optional().openapi({ description: '`POLICY_DENIED` when admission refused the deploy.' }),
-  violations: z.array(AdmissionViolationDto).openapi({ description: 'Every rule the deploy broke.' }),
-}).openapi('GuardrailProblem');
+// A flat object (not `ProblemDto.extend`, which the spec renders as `allOf`)
+// so every SDK generator emits it as a model.
+export const GuardrailProblemDto = z
+  .object({
+    ...ProblemDto.shape,
+    swarmy_code: z.string().optional().openapi({ description: '`POLICY_DENIED` when admission refused the deploy.' }),
+    violations: z.array(AdmissionViolationDto).openapi({ description: 'Every rule the deploy broke.' }),
+  })
+  .openapi('GuardrailProblem');
 
 /** The 412 every route that runs the admission pipeline documents. */
 export const admissionRefusedRes = {
