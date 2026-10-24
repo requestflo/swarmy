@@ -373,6 +373,12 @@ async function upgradeViaButton(ctx: Ctx, nextTag: string, digests: { controller
   );
   await poll('controller healthy with the release key', () => c.controllerHealthy(), { timeoutMs: 5 * 60_000, intervalMs: 3000 });
   await ctx.connect(ctx.password || undefined);
+  // That restart dropped every agent: they redial on a backoff, and the
+  // preflight refuses while any server is offline. Wait for all of them.
+  await poll('every server back online after the key restart', async () => (await ctx.sdk.nodes.list({ limit: 100 })).data.every((n) => n.status === 'online'), {
+    timeoutMs: 5 * 60_000,
+    intervalMs: 5000,
+  });
 
   const manifest = readFileSync(out, 'utf8');
   const signature = readFileSync(`${out}.sig`, 'utf8');
