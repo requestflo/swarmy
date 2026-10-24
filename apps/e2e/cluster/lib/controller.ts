@@ -59,6 +59,10 @@ export async function waitCaughtUp(ctx: Ctx, timeoutMs = 10 * 60_000): Promise<S
 
 /** Turn on Garage and replicate control.db into it (once), then wait until caught up. */
 export async function ensureReplicated(ctx: Ctx): Promise<StoreStatus> {
+  // A fresh install has no storage cluster row yet: enable 404s ("storage
+  // cluster … not found") until a driver is chosen, as the dashboard does first.
+  const cfg = await ctx.q<{ driver: string }>('storage.getConfig');
+  if (cfg?.driver !== 'garage') await ctx.m('storage.setDriver', { driver: 'garage' });
   await ctx.m('storage.enable', undefined, 5 * 60_000).catch((e) => {
     if (!/already/i.test((e as Error).message)) throw e;
   });
