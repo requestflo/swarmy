@@ -423,6 +423,8 @@ export { meshConfigRepo } from './services/mesh-config.repo';
 export { reconcileMeshControl, getControlPlaneCard, managedOf, renderControlSpec } from './services/mesh-control.service';
 export type { ManagedControlPlane } from './services/mesh-control.service';
 export { reconcilePeopleAccess, computePeopleIntent, liveStacks } from './services/mesh-people.service';
+export { orgsWithExpiredGrants, sweepExpiredPersonGrants } from './services/mesh-grant-ttl.service';
+export type { GrantSweepResult } from './services/mesh-grant-ttl.service';
 export { reconcileIntegrationsNetwork, integrationTargets, planIntegrations } from './services/integrations-network';
 export { reconcileOrphanedWork } from './services/build-orphans.service';
 export { gateSystemDeploy, isSystemOwned, SPEC_SIGNATURE_LABEL } from './services/system-service-deploy';

@@ -9,6 +9,7 @@ export { NoneDriver } from './drivers/none';
 export { NetbirdControlPlane } from './control-plane/netbird';
 export type { NetbirdClientOptions } from './control-plane/netbird';
 export * from './people';
+export * from './grant-ttl';
 export * from './control-plane/server-config';
 export * from './control-plane/litestream';
 export * from './control-plane/netbird-admin';

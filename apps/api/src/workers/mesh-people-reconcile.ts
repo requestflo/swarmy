@@ -4,7 +4,8 @@
  *   1. the control plane itself (bootstrap policies, swarmy connector,
  *      localAuthDisabled, Litestream key, config on the hosting node)
  *   2. people access (ABAC mesh.connect + personal grants → NetBird groups,
- *      Networks, policies, zones, users; routers up/down; expired grants swept)
+ *      Networks, policies, zones, users; routers up/down). Expired grants are
+ *      left out here; the mesh-grant-ttl worker revokes them.
  *
  * ALL logic lives in @swarmy/trpc (mesh-control.service / mesh-people.service)
  * and @swarmy/mesh (pure renderers + the NetBird diff) — this is a scheduler

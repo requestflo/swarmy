@@ -299,8 +299,8 @@ let lastSignature = new Map<string, string>();
 
 /**
  * One people-access tick (≤ 30 s, and on demand after a grant/revoke/toggle).
- * Removes expired personal grants first (the TTL sweeper), so expiry is enforced
- * within one tick.
+ * Expired personal grants are already out of the intent, so access ends at
+ * expiry; the `mesh-grant-ttl` worker revokes their rows (mesh-grant-ttl.service).
  */
 export async function reconcilePeopleAccess(ctx: OrgContext): Promise<PeopleReconcileResult> {
   const row = await meshConfigRepo.get(ctx, ctx.activeOrgId);
@@ -310,16 +310,6 @@ export async function reconcilePeopleAccess(ctx: OrgContext): Promise<PeopleReco
   if (!m || !api || !row.enabled) return { managed: false, enabled: settings.enabled, changes: [], steps: [], problems: {} };
 
   const steps: string[] = [];
-  const expired = (await ctx.db.meshRoute.findMany({
-    where: { orgId: ctx.activeOrgId, kind: 'person', expiresAt: { lt: new Date() } },
-    select: { id: true, principalId: true, targetStackId: true },
-  })) as { id: string; principalId: string; targetStackId: string | null }[];
-  for (const g of expired) {
-    await ctx.db.meshRoute.delete({ where: { id: g.id } });
-    await writeAudit(ctx, { action: 'mesh.access.grant.expired', targetType: 'meshRoute', targetId: g.id, metadata: { userId: g.principalId, stack: g.targetStackId } });
-    steps.push(`grant ${g.id} expired`);
-  }
-
   const intent = await computePeopleIntent(ctx, m, settings);
   const routers = await ensureRouters(ctx, api, m, intent);
   steps.push(...routers.steps);
@@ -431,11 +421,27 @@ function toGrantView(
   };
 }
 
-export async function revokePersonGrant(ctx: OrgContext, grantId: string): Promise<void> {
+export interface RevokeGrantOptions {
+  /** Set by the TTL sweeper: audited as the system actor, with the reason and the expiry. */
+  reason?: 'expired';
+  /** Converge NetBird now (default). A batch revoker converges once at the end. */
+  converge?: boolean;
+}
+
+/** The one revoke path (a person pressing Revoke, or the TTL sweeper): row gone, audited, NetBird converged. */
+export async function revokePersonGrant(ctx: OrgContext, grantId: string, opts: RevokeGrantOptions = {}): Promise<void> {
   const r = await ctx.db.meshRoute.findFirst({ where: { id: grantId, orgId: ctx.activeOrgId, kind: 'person' } });
   if (!r) throw new TRPCError({ code: 'NOT_FOUND', message: 'grant not found' });
   await ctx.db.meshRoute.delete({ where: { id: r.id } });
-  await writeAudit(ctx, { action: 'mesh.access.revoke', targetType: 'meshRoute', targetId: r.id, metadata: { userId: r.principalId, stack: r.targetStackId } });
+  const why = opts.reason ? { reason: opts.reason, expiresAt: r.expiresAt?.toISOString() ?? null } : {};
+  await writeAudit(ctx, {
+    action: 'mesh.access.revoke',
+    ...(opts.reason ? { actorType: 'system' as const } : {}),
+    targetType: 'meshRoute',
+    targetId: r.id,
+    metadata: { userId: r.principalId, stack: r.targetStackId, ...why },
+  });
+  if (opts.converge === false) return;
   // Revocation is the case that must be fast: converge now, not on the next tick.
   await reconcilePeopleAccess(ctx).catch(() => undefined);
 }

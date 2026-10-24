@@ -122,6 +122,7 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
 | Controller: managed control plane (card, reconcile, connector, break-glass, move, edge vhost) | `packages/trpc/src/services/mesh-control.service.ts` |
 | Controller: people access (intent, routers, sync, connect info, who's connected, grants) | `packages/trpc/src/services/mesh-people.service.ts` |
 | 30 s reconcile worker | `apps/api/src/workers/mesh-people-reconcile.ts` |
+| Grant TTL sweeper (expired personal grants → `revokePersonGrant`, system actor) | `packages/mesh/src/grant-ttl.ts` (pure), `packages/trpc/src/services/mesh-grant-ttl.service.ts`, `apps/api/src/workers/mesh-grant-ttl.ts` |
 | Installer `--mesh swarmy` (starts NetBird before `swarm init`) | `scripts/install-swarmy.sh` (`ensure_mesh_control`) |
 | e2e on Lima (install, join, person connects/denied/revoked) | `scripts/e2e-mesh-people.ts` |
 | Networking UI: the private network as a map (NAT'd servers behind the router, direct vs relayed links, who's joining) + per-app laptop access on the Access tab | `apps/app/src/routes/_authed/networking.tsx` → `components/networking/private-network-page.tsx` (`mesh-graph{,-model}.ts(x)` pure + tested, `use-nat-nodes.ts` reads `swarmy.node.reachability`), `routes/_authed/stacks/$name.access.tsx` |
@@ -173,7 +174,9 @@ For a whole cross-stack feature (db → protocol → service → router → UI) 
   the agent installs/re-asserts it (`handlers/mesh-pin.ts`) and self-heals
   mis-keyed IPsec SAs with one dockerd restart. Never remove the pin.
 - People access is off until an admin enables it; revoke converges at once, the
-  worker every 30 s; personal grants expire by `MeshRoute.expiresAt`.
+  worker every 30 s; personal grants expire by `MeshRoute.expiresAt` (left out
+  of the plan at once; the `mesh-grant-ttl` worker revokes the row, audited as
+  `system` with `reason: 'expired'`).
 
 ## Operational gotchas
 
