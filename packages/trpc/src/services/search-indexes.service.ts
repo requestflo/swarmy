@@ -11,9 +11,12 @@
 import { randomBytes } from 'node:crypto';
 import {
   MAX_SEARCH_INDEXES,
+  SEARCH_TRY_HITS,
   type SearchIndexListView,
   type SearchIndexRef,
   type SearchIndexSettingsView,
+  type SearchQueryInput,
+  type SearchQueryView,
 } from '@swarmy/core';
 import type { OrgContext } from '../context';
 import { commandRejected, mapDispatchError, notFound } from '../errors';
@@ -21,7 +24,8 @@ import { writeAudit } from './audit.service';
 import { resolveExecTarget } from './live-resolve';
 import { searchBaseName, requireInstance, searchEngineOf, type LiveInstance } from './search.service';
 import { indexPath, meiliProblem, meiliScript, splitResponses, type MeiliRequest, type MeiliResponse } from './search-indexes.core';
-import { indexView, parseIndexList, parseSettings } from './search-indexes.parse';
+import { indexView, parseIndexList, parseQuery, parseSettings } from './search-indexes.parse';
+import { readGate } from './search-gate';
 
 const EXEC_TIMEOUT_MS = 20_000;
 
@@ -106,4 +110,28 @@ export async function searchIndex(ctx: OrgContext, ref: SearchIndexRef): Promise
   );
   await writeAudit(ctx, { action: 'search.index.read', targetType: 'searchInstance', targetId: auditId(ref), metadata: { index: ref.index } });
   return { stack: ref.stack, name: ref.name, ...indexView(rs[0]?.body, rs[1]?.body), ...parseSettings(rs[2]?.body) };
+}
+
+/** "Try it": the top hits for `q` and how long the engine took. Gated `data.read` (documents are data). */
+export async function searchQuery(ctx: OrgContext, input: SearchQueryInput): Promise<SearchQueryView> {
+  const i = meiliInstance(ctx, input);
+  const policyId = await readGate(ctx, input.stack);
+  const body = JSON.stringify({ q: input.q, limit: SEARCH_TRY_HITS, showRankingScore: true });
+  const rs = await call(
+    ctx,
+    i,
+    [{ method: 'GET', path: indexPath(input.index) }, { method: 'POST', path: indexPath(input.index, '/search'), body: true }],
+    `${input.stack}/${input.name}/${input.index}`,
+    body,
+  );
+  const primaryKey = (rs[0]?.body as { primaryKey?: unknown } | null)?.primaryKey;
+  const parsed = parseQuery(rs[1]?.body, typeof primaryKey === 'string' ? primaryKey : null, SEARCH_TRY_HITS);
+  if (!parsed) throw commandRejected('the search engine sent results swarmy could not read (too large?)');
+  await writeAudit(ctx, {
+    action: 'search.query',
+    targetType: 'searchInstance',
+    targetId: auditId(input),
+    metadata: { index: input.index, q: input.q.slice(0, 80), hits: parsed.hits.length, ms: parsed.processingTimeMs, policyId },
+  });
+  return { index: input.index, q: input.q, ...parsed };
 }

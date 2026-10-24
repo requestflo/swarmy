@@ -1,10 +1,11 @@
-import type { SearchIndexListView, SearchIndexSettingsView, SearchIndexView, SearchInstanceView } from '@swarmy/core';
+import type { SearchIndexListView, SearchIndexSettingsView, SearchIndexView, SearchInstanceView, SearchQueryView } from '@swarmy/core';
 import type { DemoStore, DomainResolvers } from '../types';
 import { seedIndexes, type DemoIndex } from './searchsvc-indexes-seed';
+import { demoQuery } from './searchsvc-query';
 
 /**
  * Demo resolvers for a search instance's indexes (board 41): the list, one
- * index's settings. Shapes are the @swarmy/core views search-indexes.service
+ * index's settings, "Try it". Shapes are the @swarmy/core views search-indexes.service
  * returns. State lives in `store.extra.searchidx` (`<stack>/<name>` → indexes);
  * an instance made in the demo starts with none, as a real one does.
  */
@@ -71,6 +72,12 @@ export const searchsvcIndexes: DomainResolvers = {
         synonymWords: Object.keys(ix.synonyms).length,
         synonymsTruncated: false,
       };
+    },
+
+    'search.query': (i, s): SearchQueryView => {
+      const ix = indexOf(s, i);
+      const { q } = i as { q: string };
+      return { index: ix.uid, q, ...demoQuery(ix, q) };
     },
   },
 };

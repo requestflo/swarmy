@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AttachSearchInput, ProvisionSearchInput, SearchIndexRef, SearchInstanceRef } from '@swarmy/core';
+import { AttachSearchInput, ProvisionSearchInput, SearchIndexRef, SearchInstanceRef, SearchQueryInput } from '@swarmy/core';
 import { orgProcedure, router } from '../trpc';
 import { abacProcedure, resolveStackByName, resolveStackService } from '../abac';
 import {
@@ -14,7 +14,7 @@ import {
   restoreSearch,
   searchStats,
 } from '../services/search.service';
-import { searchIndex, searchIndexes } from '../services/search-indexes.service';
+import { searchIndex, searchIndexes, searchQuery } from '../services/search-indexes.service';
 
 const stackName = z
   .string()
@@ -87,6 +87,13 @@ export const managedSearchRouter = router({
 
   /** One index with its searchable / filterable / sortable fields and synonyms. Audited. */
   index: orgProcedure.input(SearchIndexRef).query(({ ctx, input }) => searchIndex(ctx, input)),
+
+  /**
+   * "Try it": the top 5 hits for a query and the engine's time. The hits are
+   * the app's documents, so the service gates it `data.read` on the stack and
+   * records one `search.query` audit row (the deciding policy included).
+   */
+  query: orgProcedure.input(SearchQueryInput).query(({ ctx, input }) => searchQuery(ctx, input)),
 
   /** Snapshots for this instance (restic catalog filtered by the search tag). */
   listBackups: orgProcedure

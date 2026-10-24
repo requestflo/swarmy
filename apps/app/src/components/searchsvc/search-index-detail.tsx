@@ -1,8 +1,9 @@
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { SearchInstanceView } from '@swarmy/core';
+import { synonymLines, type SearchInstanceView } from '@swarmy/core';
 import { useTRPC } from '@/integrations/trpc';
 import { FieldChips, Kv } from './search-kv';
+import { SearchTryIt } from './search-try-it';
 import { fieldsWords, synonymsLine } from './search-words';
 
 /**
@@ -43,6 +44,7 @@ export function SearchIndexDetail({ v, uid }: { v: SearchInstanceView; uid: stri
       <Kv k="Synonyms" tech={`synonyms · ${s.synonymWords} words${s.synonymsTruncated ? ' (first 200 shown)' : ''}`}>
         <span className="text-[13px]">{synonymsLine(s.synonyms, s.synonymWords)}</span>
       </Kv>
+      <SearchTryIt key={uid} v={v} uid={uid} suggestions={synonymLines(s.synonyms).slice(0, 3).map((l) => l.words[0]!)} />
     </>
   );
 }
