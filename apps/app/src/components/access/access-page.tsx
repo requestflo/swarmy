@@ -1,15 +1,19 @@
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { UserPlusIcon } from 'lucide-react';
+import { Button } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { CodeView, Depth } from '@/components/calm';
 import { RowPage, plural } from '@/components/rowpage/row-page';
-import { InviteMemberDialog } from '@/components/settings/invite-member-dialog';
+import { PendingInvitations } from '@/components/settings/pending-invitations';
 import { SecurityTab } from '@/components/security/security-tab';
 import { accessCode } from './access-code';
 import { InviteLinksSection } from './invite-links-section';
+import { InvitePanel } from './invite-panel';
 import { PeopleSection } from './people-section';
 import { PoliciesTab } from './policies-tab';
 import { PolicyWhoCan } from './policy-who-can';
+import { RolesAtAGlance } from './roles-at-a-glance';
 import { SignInSection } from './signin-section';
 import type { PolicyRow } from './use-policy-editor';
 import { useSignInMethods } from './use-signin-methods';
@@ -22,6 +26,7 @@ export function AccessPage(): React.JSX.Element {
   const keys = useQuery(trpc.apiKeys.list.queryOptions());
   const policies = useQuery(trpc.policies.list.queryOptions());
   const { methods } = useSignInMethods();
+  const [inviting, setInviting] = React.useState(false);
   const role = org.data?.role;
   const canInvite = role === 'owner' || role === 'admin';
   const inviteLinks = useQuery({ ...trpc.inviteLinks.list.queryOptions(), enabled: canInvite });
@@ -37,25 +42,37 @@ export function AccessPage(): React.JSX.Element {
       <em>Sign-in is by {company.length ? company.slice(0, 2).join(' and ') : 'username and password'}.</em>
     </>
   );
-  const rules = (policies.data ?? []) as PolicyRow[];
+  const rules = policies.data as PolicyRow[] | undefined;
 
   return (
     <RowPage
       title={title}
       description="Roles are the starting point; rules narrow or widen that, and every decision is logged."
-      actions={canInvite ? <InviteMemberDialog callerRole={role} /> : undefined}
+      actions={
+        canInvite && !inviting ? (
+          <Button className="pointer-coarse:min-h-11" onClick={() => setInviting(true)}>
+            <UserPlusIcon className="size-4" /> Invite someone
+          </Button>
+        ) : undefined
+      }
       aside={
         <>
           <CodeView
             title="Access as code"
-            tabs={accessCode(rules, methods ?? [], canInvite ? (inviteLinks.data ?? []) : null)}
+            tabs={accessCode(rules ?? [], methods ?? [], canInvite ? (inviteLinks.data ?? []) : null)}
             note="Dashboard setting. Each rule is a policy document that runs the same on the JSON engine or Cedar. Rules and invite links are edited here and audited; there is no REST route for them yet."
           />
+          {inviting && canInvite && role ? (
+            <InvitePanel callerRole={role} onClose={() => setInviting(false)} />
+          ) : (
+            <RolesAtAGlance rules={rules} onInvite={canInvite ? () => setInviting(true) : undefined} />
+          )}
           <PolicyWhoCan />
         </>
       }
     >
-      <PeopleSection canInvite={canInvite} />
+      <PeopleSection />
+      {canInvite ? <PendingInvitations /> : null}
       {canInvite ? <InviteLinksSection /> : null}
       <PoliciesTab />
       <SignInSection methods={methods} />

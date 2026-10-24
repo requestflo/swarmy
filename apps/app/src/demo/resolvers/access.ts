@@ -50,6 +50,8 @@ interface OrgMemberView {
   role: string;
   user: { id: string; name: string | null; email: string | null; image: string | null };
   joinedAt: string;
+  /** Newest session's updatedAt (null = no session on record). */
+  lastSeenAt: string | null;
 }
 
 interface GrantView {
@@ -141,6 +143,7 @@ interface InvitationView {
   createdAt: string;
   invitedBy: { id: string; name: string | null; email: string | null } | null;
   link: string;
+  stackName: string | null;
 }
 
 interface AccessState {
@@ -245,6 +248,7 @@ function seedInvitations(store: DemoStore): InvitationView[] {
       createdAt: iso(8 * HOUR),
       invitedBy: by,
       link: inviteLink('inv-demo-1'),
+      stackName: 'storefront',
     },
     {
       id: 'inv-demo-0',
@@ -256,11 +260,12 @@ function seedInvitations(store: DemoStore): InvitationView[] {
       createdAt: iso(4 * DAY),
       invitedBy: by,
       link: inviteLink('inv-demo-0'),
+      stackName: null,
     },
   ];
 }
 
-function mintInvitation(store: DemoStore, email: string | null, role: InvitationView['role']): InvitationView {
+function mintInvitation(store: DemoStore, email: string | null, role: InvitationView['role'], stackName: string | null = null): InvitationView {
   const id = `inv-${rid()}`;
   const view: InvitationView = {
     id,
@@ -268,10 +273,12 @@ function mintInvitation(store: DemoStore, email: string | null, role: Invitation
     kind: email ? 'email' : 'link',
     role,
     status: 'pending',
-    expiresAt: new Date(Date.now() + 48 * HOUR).toISOString(),
+    // Invitations last 7 days, as on the controller (INVITATION_TTL_SECONDS).
+    expiresAt: new Date(Date.now() + 7 * DAY).toISOString(),
     createdAt: new Date().toISOString(),
     invitedBy: { id: store.user.id, name: store.user.name, email: store.user.email },
     link: inviteLink(id),
+    stackName: role === 'member' ? stackName : null,
   };
   state(store).invitations.unshift(view);
   return view;
@@ -636,9 +643,10 @@ export const access: DomainResolvers = {
     'members.listInvitations': (_i, store): InvitationView[] => state(store).invitations,
 
     'members.invite': (input, store): InvitationView => {
-      const { email, role } = input as { email?: string | null; role: InvitationView['role'] };
+      const { email, role, stackName = null } = input as { email?: string | null; role: InvitationView['role']; stackName?: string | null };
+      if (stackName && role !== 'member') throw new Error(`an ${role} covers every app — pick Member to limit the invite to one app`);
       const normalized = (email ?? '').trim().toLowerCase();
-      if (!normalized) return mintInvitation(store, null, role);
+      if (!normalized) return mintInvitation(store, null, role, stackName);
       const s = state(store);
       if (s.members.some((m) => m.user.email?.toLowerCase() === normalized)) {
         throw new Error(`${normalized} is already a member of this org`);
@@ -646,7 +654,7 @@ export const access: DomainResolvers = {
       if (s.invitations.some((i) => i.email === normalized && i.status === 'pending')) {
         throw new Error(`${normalized} already has a pending invite — copy or regenerate its link below`);
       }
-      return mintInvitation(store, normalized, role);
+      return mintInvitation(store, normalized, role, stackName);
     },
 
     'members.revokeInvitation': (input, store): { id: string; revoked: true } => {
@@ -662,7 +670,7 @@ export const access: DomainResolvers = {
       const old = s.invitations.find((i) => i.id === id);
       if (!old) throw new Error(`invitation "${id}" not found`);
       s.invitations = s.invitations.filter((i) => i.id !== id);
-      return mintInvitation(store, old.email, old.role);
+      return mintInvitation(store, old.email, old.role, old.stackName);
     },
 
     // ── org.members (settings → members) ───────────────────────────────────────
@@ -672,6 +680,8 @@ export const access: DomainResolvers = {
         role: m.role,
         user: { id: m.user.id, name: m.user.name, email: m.user.email, image: null },
         joinedAt: iso((30 - idx * 4) * DAY),
+        // Seen recently, except the newest member, who hasn't signed in yet.
+        lastSeenAt: idx === 4 ? null : iso([20 * MIN, 3 * HOUR, 26 * HOUR, 6 * DAY][idx] ?? DAY),
       })),
 
     // ── apiKeys ────────────────────────────────────────────────────────────────

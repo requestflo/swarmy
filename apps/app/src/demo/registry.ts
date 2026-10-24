@@ -49,6 +49,7 @@ import { serviceSettings } from './resolvers/service-settings';
 import { deployEvents } from './resolvers/deploy-events';
 import { firstLook } from './resolvers/first-look';
 import { inviteLinks } from './resolvers/invite-links';
+import { invitePreview } from './resolvers/invite-preview';
 import { traffic } from './resolvers/traffic';
 import { stackLinks } from './resolvers/stack-links';
 import { scaling } from './resolvers/scaling';
@@ -116,6 +117,7 @@ const MODULES: DomainResolvers[] = [
   deployEvents,
   firstLook,
   inviteLinks,
+  invitePreview,
   traffic,
   stackLinks,
   scaling,
