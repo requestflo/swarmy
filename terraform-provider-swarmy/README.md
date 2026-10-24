@@ -201,8 +201,10 @@ SWARMY_ENDPOINT=… SWARMY_API_KEY=swk_… make testacc
   a 404 counts as "not visible yet" for two minutes. When it fails or the
   `timeouts` value runs out, the error carries the last phase and message, the
   service's last Swarm task error, and a stack's failed deploy events. A
-  create that fails is kept in state as tainted, so the next apply replaces it;
-  a failed update keeps the prior state, so the next apply tries again.
+  create that fails is kept in state as tainted, so the next apply replaces it.
+  A failed update keeps the prior state: a stack redeploys on the next apply
+  (its old `compose_source` is still in state), while a service's next refresh
+  reads the replica count the controller now wants.
 - **Node labels are write-only.** The Node DTO returns neither labels nor
   availability, so `swarmy_node` keeps `labels` from state (no drift
   detection; empty after import) and derives `availability` from

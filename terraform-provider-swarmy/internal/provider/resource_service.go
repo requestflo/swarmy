@@ -225,8 +225,9 @@ func (r *serviceResource) Update(ctx context.Context, req resource.UpdateRequest
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	// One deadline for the whole update (a scale and a redeploy share it). On
-	// a failed wait the prior state is kept, so the next apply retries.
+	// One deadline for the whole update (a scale and a redeploy share it). A
+	// failed wait fails the apply and keeps the prior state; the next refresh
+	// reads the replica count the controller now wants.
 	deadline := time.Now().Add(timeout)
 
 	// Scale if the desired replica count changed.
