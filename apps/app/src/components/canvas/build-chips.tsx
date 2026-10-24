@@ -35,7 +35,7 @@ export function BuildChips({ stack, services }: { stack: string; services: reado
           </span>
         ))}
       </Link>
-      <Tech className="truncate">{b.tech}</Tech>
+      <Tech className="max-w-full truncate">{b.tech}</Tech>
     </div>
   );
 }

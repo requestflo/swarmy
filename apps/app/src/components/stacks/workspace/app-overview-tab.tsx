@@ -60,7 +60,7 @@ export function AppOverviewTab({
             </span>
           ) : null}
           {app ? (
-            <span className="md:ml-auto">
+            <span className="min-w-0 max-w-full md:ml-auto">
               <BuildChips stack={stack} services={app.stat.services} />
             </span>
           ) : null}
