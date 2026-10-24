@@ -27,6 +27,7 @@ import type {
   RenderedMesh,
 } from '@swarmy/core/protocol';
 import { sampleMeshControl } from './mesh-control';
+import { parseTailscaleStatus } from './mesh-tailscale';
 import { putSecretFile } from './secret-file';
 
 /** Default client images if the controller didn't send one: the BOM's pins (`ref@digest`). */
@@ -265,21 +266,10 @@ async function sampleClientState(docker: DockerClient): Promise<MeshStatePayload
   );
   if (ts.code === 0 && ts.stdout) {
     try {
-      const j = JSON.parse(ts.stdout) as {
-        Self?: { TailscaleIPs?: string[]; Online?: boolean };
-        BackendState?: string;
-      };
-      return {
-        driver: 'headscale',
-        meshIp: bareMeshIp(j.Self?.TailscaleIPs?.[0]),
-        connected: j.BackendState === 'Running',
-        relayed: true,
-        advertisedRoutes: [],
-        peers: [],
-        sampledAt,
-      };
+      // Relayed is read per active peer (CurAddr vs DERP); unknown when none is active.
+      return parseTailscaleStatus(ts.stdout, sampledAt);
     } catch (e) {
-      return { driver: 'headscale', connected: false, relayed: true, advertisedRoutes: [], peers: [], error: e instanceof Error ? e.message : String(e), sampledAt };
+      return { driver: 'headscale', connected: false, advertisedRoutes: [], peers: [], error: e instanceof Error ? e.message : String(e), sampledAt };
     }
   }
 

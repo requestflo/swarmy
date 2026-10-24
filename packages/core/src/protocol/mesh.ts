@@ -152,7 +152,12 @@ export const MeshStatePayload = z.object({
   peerId: z.string().optional(),
   publicKey: z.string().optional(),
   connected: z.boolean(),
-  relayed: z.boolean().default(false),
+  /**
+   * Any of this node's live links going through a relay. Absent = unknown (a
+   * Headscale node with no active peer can't tell), which the controller keeps
+   * as null. Older controllers read absent as false, as before.
+   */
+  relayed: z.boolean().optional(),
   /** ISO timestamp of the last WireGuard handshake, if known. */
   lastHandshakeAt: z.string().optional(),
   advertisedRoutes: z.array(z.string()).default([]),

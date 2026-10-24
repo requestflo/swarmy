@@ -22,6 +22,14 @@ describe('meshState MTU fields (additive)', () => {
     ]);
   });
 
+  it('relayed may be absent (unknown: a Headscale node with no active link)', () => {
+    const { relayed: _r, ...noRelay } = OLD;
+    const r = MeshStatePayload.safeParse(noRelay);
+    expect(r.success).toBe(true);
+    expect(r.data?.relayed).toBeUndefined();
+    expect(MeshStatePayload.parse(OLD).relayed).toBe(false);
+  });
+
   it('rejects a non-positive or fractional MTU and a nameless overlay', () => {
     expect(MeshStatePayload.safeParse({ ...OLD, interfaceMtu: 0 }).success).toBe(false);
     expect(MeshStatePayload.safeParse({ ...OLD, interfaceMtu: 1280.5 }).success).toBe(false);
