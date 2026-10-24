@@ -198,6 +198,13 @@ Four ideas, one story:
   activator counted, and a busy service went back to sleep one idle window
   after every wake.) The counts are per host, not per path, so a host shared by
   several services keeps all of them awake: it errs towards awake.
+- **Wire a part to its data on the canvas.** The app canvas draws each data
+  store the app uses as its own node. In connect mode, dragging from a part to
+  a store first says what changes: the variables swarmy adds, and that the
+  part restarts once to pick them up. A part that already uses a store of
+  that kind is refused, with where to change it. Confirming calls the same
+  attach the Data tab uses (`db.inject`, `cache.attachToService`, …), with
+  Undo where a detach exists.
 - **Blueprints & previews.** Blueprints are a parameterised catalog (gallery →
   dry-run plan → sequential deploy through existing services). Previews are
   swarmy.yaml preview environments (PR, branch or trial deploy) torn down on
@@ -292,7 +299,10 @@ homes:
 - **Data model**: `packages/db/prisma/schema/releases.prisma` (`Release`) and
   `schema/cluster.prisma` (`Stack`).
 - **UI**: `apps/app/src/components/canvas/*` (service canvas, inspector, toolbar,
-  layout), `components/releases/*` (releases feed, canary panel, release detail),
-  `components/blueprints/*`, and routes
-  `apps/app/src/routes/_authed/stacks/$name.{index,releases}.tsx` +
-  `services/new.tsx` (the one image form).
+  layout; data nodes and connect mode in `canvas/{data-nodes.ts,connect/*}`),
+  `components/releases/*` (releases feed, canary panel, release detail),
+  environments side by side `components/gitops/environments/*`,
+  `components/blueprints/*`, the Config sub-tabs `components/app-tabs/{variables,scaling,rollout,placement,jobs}/*`,
+  Paste .env `components/env/paste-page/*`, and routes
+  `apps/app/src/routes/_authed/stacks/$name.{index,releases}.tsx`,
+  `stacks/$name.config.*.tsx` + `services/new.tsx` (the one image form).
