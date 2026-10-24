@@ -292,8 +292,8 @@ type IngressDomain struct {
 	Www             string               `json:"www,omitempty"`
 	CompanionHost   *string              `json:"companion_host"`
 	Auto            bool                 `json:"auto,omitempty"`
-	Status          *IngressDomainStatus `json:"status,omitempty"`
-	CompanionStatus *IngressDomainStatus `json:"companion_status,omitempty"`
+	Status          *IngressDomainStatus `json:"status"`
+	CompanionStatus *IngressDomainStatus `json:"companion_status"`
 }
 
 type IngressDomainList struct {
@@ -353,6 +353,54 @@ type CreateApiKeyRequest struct {
 type Revoked struct {
 	ID      string `json:"id"`
 	Revoked bool   `json:"revoked"`
+}
+
+type JoinToken struct {
+	ID          string  `json:"id"`
+	Label       *string `json:"label"`
+	Profile     *string `json:"profile"`
+	TokenPrefix string  `json:"token_prefix"`
+	CreatedAt   string  `json:"created_at"`
+	ExpiresAt   *string `json:"expires_at"`
+	MaxUses     *int    `json:"max_uses"`
+	UsedCount   int     `json:"used_count"`
+	RevokedAt   *string `json:"revoked_at"`
+	Status      string  `json:"status"`
+}
+
+type JoinTokenList struct {
+	Data       []JoinToken `json:"data"`
+	NextCursor *string     `json:"next_cursor"`
+}
+
+type JoinTokenMesh struct {
+	SetupKey      string  `json:"setup_key"`
+	ManagementURL *string `json:"management_url"`
+	Driver        *string `json:"driver"`
+}
+
+type JoinTokenInstall struct {
+	URL      string  `json:"url"`
+	Loopback bool    `json:"loopback"`
+	Warning  *string `json:"warning"`
+}
+
+type JoinTokenIssued struct {
+	ID        string           `json:"id"`
+	Token     string           `json:"token"`
+	Label     *string          `json:"label"`
+	Profile   *string          `json:"profile"`
+	ExpiresAt string           `json:"expires_at"`
+	MaxUses   int              `json:"max_uses"`
+	Mesh      *JoinTokenMesh   `json:"mesh"`
+	Install   JoinTokenInstall `json:"install"`
+}
+
+type CreateJoinTokenRequest struct {
+	Label      string `json:"label,omitempty"`
+	TtlSeconds int    `json:"ttl_seconds,omitempty"`
+	MaxUses    int    `json:"max_uses,omitempty"`
+	Profile    string `json:"profile,omitempty"`
 }
 
 type DnsZone struct {
@@ -928,11 +976,11 @@ type ErrorProject struct {
 }
 
 type StackErrorsStatus struct {
-	Stack           string       `json:"stack"`
-	Enabled         bool         `json:"enabled"`
-	StoreEnabled    bool         `json:"store_enabled"`
-	Project         ErrorProject `json:"project"`
-	PendingRedeploy []string     `json:"pending_redeploy"`
+	Stack           string        `json:"stack"`
+	Enabled         bool          `json:"enabled"`
+	StoreEnabled    bool          `json:"store_enabled"`
+	Project         *ErrorProject `json:"project"`
+	PendingRedeploy []string      `json:"pending_redeploy"`
 }
 
 type DeployEvent struct {

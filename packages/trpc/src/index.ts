@@ -223,6 +223,7 @@ export type {
 
 // ── public-api-terraform P2 (Wave G1): REST CRUD service fns ──
 export { listApiKeys, createApiKey, revokeApiKey } from './services/apiKeys.service';
+export { generateJoinToken, listJoinTokens, revokeJoinToken } from './services/token.service';
 export {
   setNodeAvailability,
   setNodeLabels,

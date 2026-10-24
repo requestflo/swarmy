@@ -1584,6 +1584,218 @@
           "revoked"
         ]
       },
+      "JoinToken": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string",
+            "nullable": true
+          },
+          "profile": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "edge",
+              "storage",
+              "database",
+              "private-mesh"
+            ],
+            "description": "The label bundle a node enrolls with (null = the default profile). Open enum: new values may be added."
+          },
+          "token_prefix": {
+            "type": "string",
+            "description": "Tells tokens apart; the token itself is never returned again."
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string",
+            "nullable": true
+          },
+          "max_uses": {
+            "type": "integer",
+            "nullable": true
+          },
+          "used_count": {
+            "type": "integer"
+          },
+          "revoked_at": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "expired",
+              "exhausted",
+              "revoked"
+            ],
+            "description": "Open enum."
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "profile",
+          "token_prefix",
+          "created_at",
+          "expires_at",
+          "max_uses",
+          "used_count",
+          "revoked_at",
+          "status"
+        ]
+      },
+      "JoinTokenList": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JoinToken"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor"
+        ]
+      },
+      "JoinTokenMesh": {
+        "type": "object",
+        "nullable": true,
+        "properties": {
+          "setup_key": {
+            "type": "string",
+            "description": "One-use mesh setup key the node joins the mesh with before it registers."
+          },
+          "management_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "driver": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "setup_key",
+          "management_url",
+          "driver"
+        ],
+        "description": "Set when the org runs a mesh: the node joins it with this key first, so the token is single-use."
+      },
+      "JoinTokenInstall": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "The controller base URL the install one-liner should use."
+          },
+          "loopback": {
+            "type": "boolean",
+            "description": "The URL points at loopback, so remote nodes cannot reach it (set CONTROLLER_PUBLIC_URL on the controller)."
+          },
+          "warning": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "url",
+          "loopback",
+          "warning"
+        ]
+      },
+      "JoinTokenIssued": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string",
+            "description": "Plaintext `swt_…` join token. Only its hash is stored; it is never returned again."
+          },
+          "label": {
+            "type": "string",
+            "nullable": true
+          },
+          "profile": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "edge",
+              "storage",
+              "database",
+              "private-mesh"
+            ],
+            "description": "The label bundle a node enrolls with (null = the default profile). Open enum: new values may be added."
+          },
+          "expires_at": {
+            "type": "string"
+          },
+          "max_uses": {
+            "type": "integer"
+          },
+          "mesh": {
+            "$ref": "#/components/schemas/JoinTokenMesh"
+          },
+          "install": {
+            "$ref": "#/components/schemas/JoinTokenInstall"
+          }
+        },
+        "required": [
+          "id",
+          "token",
+          "label",
+          "profile",
+          "expires_at",
+          "max_uses",
+          "mesh",
+          "install"
+        ]
+      },
+      "CreateJoinTokenRequest": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "ttl_seconds": {
+            "type": "integer",
+            "minimum": 60,
+            "maximum": 604800,
+            "description": "Lifetime in seconds; default 3600, at most 7 days."
+          },
+          "max_uses": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "How many nodes may join with it; default 1. Forced to 1 while the org runs a mesh."
+          },
+          "profile": {
+            "type": "string",
+            "enum": [
+              "default",
+              "edge",
+              "storage",
+              "database",
+              "private-mesh"
+            ]
+          }
+        }
+      },
       "DnsZone": {
         "type": "object",
         "properties": {
@@ -5659,6 +5871,150 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Revoked"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/join-tokens": {
+      "get": {
+        "tags": [
+          "Join tokens"
+        ],
+        "summary": "List join tokens (never the token itself)",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Join tokens, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinTokenList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Join tokens"
+        ],
+        "summary": "Create a join token (plaintext returned once)",
+        "description": "Admins and owners only. Pass `token` to the agent installer as `SWARMY_JOIN_TOKEN` on the new server.",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateJoinTokenRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created — carries the plaintext token (shown once)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinTokenIssued"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/join-tokens/{id}": {
+      "delete": {
+        "tags": [
+          "Join tokens"
+        ],
+        "summary": "Revoke a join token",
+        "description": "A revoked token enrolls nothing, and no longer re-adopts a server that joined with it (a reinstall needs a fresh token). Policy: `token.revoke`.",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Revoked"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
                 }
               }
             }

@@ -257,4 +257,68 @@ export function stackConnectionToDto(r: StackLinkResultShape) {
   return { stack: r.stack, peer: r.peer, network: r.network, services: r.services };
 }
 
+// ── Join tokens ──────────────────────────────────────────────────────────────
+
+type NodeProfileShape = 'edge' | 'storage' | 'database' | 'private-mesh' | 'default';
+
+export interface JoinTokenViewShape {
+  id: string;
+  label: string | null;
+  profile: NodeProfileShape | null;
+  tokenPrefix: string;
+  createdAt: Date;
+  expiresAt: Date | null;
+  maxUses: number | null;
+  usedCount: number;
+  revokedAt: Date | null;
+  status: 'active' | 'expired' | 'exhausted' | 'revoked';
+}
+
+export interface JoinTokenIssuedShape {
+  id: string;
+  token: string;
+  expiresAt: Date;
+  maxUses: number;
+  label: string | null;
+  profile: NodeProfileShape | null;
+  meshSetupKey?: string;
+  meshManagementUrl?: string;
+  meshDriver?: string;
+  install: { url: string; loopback: boolean; warning: string | null };
+}
+
+const isoOrNull = (d: Date | null) => (d ? d.toISOString() : null);
+// 'default' is stored as no profile; never surface it as one.
+const profileOf = (p: NodeProfileShape | null) => (p && p !== 'default' ? p : null);
+
+export function joinTokenToDto(t: JoinTokenViewShape) {
+  return {
+    id: t.id,
+    label: t.label,
+    profile: profileOf(t.profile),
+    token_prefix: t.tokenPrefix,
+    created_at: t.createdAt.toISOString(),
+    expires_at: isoOrNull(t.expiresAt),
+    max_uses: t.maxUses,
+    used_count: t.usedCount,
+    revoked_at: isoOrNull(t.revokedAt),
+    status: t.status,
+  };
+}
+
+export function joinTokenIssuedToDto(t: JoinTokenIssuedShape) {
+  return {
+    id: t.id,
+    token: t.token,
+    label: t.label,
+    profile: profileOf(t.profile),
+    expires_at: t.expiresAt.toISOString(),
+    max_uses: t.maxUses,
+    mesh: t.meshSetupKey
+      ? { setup_key: t.meshSetupKey, management_url: t.meshManagementUrl ?? null, driver: t.meshDriver ?? null }
+      : null,
+    install: { url: t.install.url, loopback: t.install.loopback, warning: t.install.warning },
+  };
+}
+
 // ── Mesh routes ───────────────────────────────────────────────────────────────

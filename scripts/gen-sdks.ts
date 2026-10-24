@@ -54,6 +54,16 @@ for (const schema of Object.values(schemas)) {
     if (ref) schema.properties![prop] = { $ref: ref, nullable: all!.some((x) => x.nullable) };
   }
 }
+// A `.nullable()` named object schema is emitted as a nullable COMPONENT
+// referenced by a bare `$ref`; carry that onto the property so `null` is typed
+// (and a Go pointer). Scalar components (enums) are left alone: one used both
+// nullable and optional would otherwise make a request send `null`.
+for (const schema of Object.values(schemas)) {
+  for (const p of Object.values(schema.properties ?? {})) {
+    const target = p.$ref ? schemas[p.$ref.split('/').pop() ?? ''] : undefined;
+    if (target?.nullable && target.type === 'object') p.nullable = true;
+  }
+}
 
 /** Schemas emitted as nested types when referenced inline. */
 const INLINE_OBJECT_NAMES: Record<string, string> = {

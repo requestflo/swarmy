@@ -291,3 +291,73 @@ export const StackConnectionDto = z
 export const ConnectStackBody = z
   .object({ peer: z.string().min(1).openapi({ description: 'The app to connect to: its stack id or name.' }) })
   .openapi('ConnectStackRequest');
+
+// ── Join tokens ──────────────────────────────────────────────────────────────
+
+// Inline (not a named component) so the property itself carries `nullable`.
+const nodeProfile = () =>
+  z.enum(['edge', 'storage', 'database', 'private-mesh']).nullable().openapi({
+    description: 'The label bundle a node enrolls with (null = the default profile). Open enum: new values may be added.',
+  });
+
+export const JoinTokenDto = z
+  .object({
+    id: z.string(),
+    label: z.string().nullable(),
+    profile: nodeProfile(),
+    token_prefix: z.string().openapi({ description: 'Tells tokens apart; the token itself is never returned again.' }),
+    created_at: z.string(),
+    expires_at: z.string().nullable(),
+    max_uses: z.number().int().nullable(),
+    used_count: z.number().int(),
+    revoked_at: z.string().nullable(),
+    status: z.enum(['active', 'expired', 'exhausted', 'revoked']).openapi({ description: 'Open enum.' }),
+  })
+  .openapi('JoinToken');
+
+const JoinTokenMeshDto = z
+  .object({
+    setup_key: z.string().openapi({ description: 'One-use mesh setup key the node joins the mesh with before it registers.' }),
+    management_url: z.string().nullable(),
+    driver: z.string().nullable(),
+  })
+  .openapi('JoinTokenMesh');
+
+const JoinTokenInstallDto = z
+  .object({
+    url: z.string().openapi({ description: 'The controller base URL the install one-liner should use.' }),
+    loopback: z.boolean().openapi({
+      description: 'The URL points at loopback, so remote nodes cannot reach it (set CONTROLLER_PUBLIC_URL on the controller).',
+    }),
+    warning: z.string().nullable(),
+  })
+  .openapi('JoinTokenInstall');
+
+/** POST /join-tokens: returned ONCE — carries the plaintext token. */
+export const JoinTokenIssuedDto = z
+  .object({
+    id: z.string(),
+    token: z.string().openapi({ description: 'Plaintext `swt_…` join token. Only its hash is stored; it is never returned again.' }),
+    label: z.string().nullable(),
+    profile: nodeProfile(),
+    expires_at: z.string(),
+    max_uses: z.number().int(),
+    mesh: JoinTokenMeshDto.nullable().openapi({
+      description: 'Set when the org runs a mesh: the node joins it with this key first, so the token is single-use.',
+    }),
+    install: JoinTokenInstallDto,
+  })
+  .openapi('JoinTokenIssued');
+
+export const CreateJoinTokenBody = z
+  .object({
+    label: z.string().max(80).optional(),
+    ttl_seconds: z.number().int().min(60).max(604_800).optional().openapi({
+      description: 'Lifetime in seconds; default 3600, at most 7 days.',
+    }),
+    max_uses: z.number().int().min(1).max(100).optional().openapi({
+      description: 'How many nodes may join with it; default 1. Forced to 1 while the org runs a mesh.',
+    }),
+    profile: z.enum(['default', 'edge', 'storage', 'database', 'private-mesh']).optional(),
+  })
+  .openapi('CreateJoinTokenRequest');

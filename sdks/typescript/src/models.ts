@@ -261,8 +261,8 @@ export interface IngressDomain {
   www?: 'redirect-www-to-apex' | 'redirect-apex-to-www' | 'serve-both';
   companion_host?: string | null;
   auto?: boolean;
-  status?: IngressDomainStatus;
-  companion_status?: IngressDomainStatus;
+  status?: IngressDomainStatus | null;
+  companion_status?: IngressDomainStatus | null;
 }
 
 export interface IngressDomainList {
@@ -322,6 +322,54 @@ export interface CreateApiKeyRequest {
 export interface Revoked {
   id: string;
   revoked: true;
+}
+
+export interface JoinToken {
+  id: string;
+  label: string | null;
+  profile: 'edge' | 'storage' | 'database' | 'private-mesh' | null;
+  token_prefix: string;
+  created_at: string;
+  expires_at: string | null;
+  max_uses: number | null;
+  used_count: number;
+  revoked_at: string | null;
+  status: 'active' | 'expired' | 'exhausted' | 'revoked';
+}
+
+export interface JoinTokenList {
+  data: JoinToken[];
+  next_cursor: string | null;
+}
+
+export interface JoinTokenMesh {
+  setup_key: string;
+  management_url: string | null;
+  driver: string | null;
+}
+
+export interface JoinTokenInstall {
+  url: string;
+  loopback: boolean;
+  warning: string | null;
+}
+
+export interface JoinTokenIssued {
+  id: string;
+  token: string;
+  label: string | null;
+  profile: 'edge' | 'storage' | 'database' | 'private-mesh' | null;
+  expires_at: string;
+  max_uses: number;
+  mesh: JoinTokenMesh | null;
+  install: JoinTokenInstall;
+}
+
+export interface CreateJoinTokenRequest {
+  label?: string;
+  ttl_seconds?: number;
+  max_uses?: number;
+  profile?: 'default' | 'edge' | 'storage' | 'database' | 'private-mesh';
 }
 
 export interface DnsZone {
@@ -900,7 +948,7 @@ export interface StackErrorsStatus {
   stack: string;
   enabled: boolean;
   store_enabled: boolean;
-  project: ErrorProject;
+  project: ErrorProject | null;
   pending_redeploy: string[];
 }
 

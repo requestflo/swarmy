@@ -640,6 +640,90 @@ class Revoked:
 
 
 @dataclass
+class JoinToken:
+    id: str
+    label: Optional[str]
+    profile: Optional[str]
+    token_prefix: str
+    created_at: str
+    expires_at: Optional[str]
+    max_uses: Optional[int]
+    used_count: int
+    revoked_at: Optional[str]
+    status: str
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "JoinToken":
+        return cls(
+            id=d.get("id"),
+            label=d.get("label"),
+            profile=d.get("profile"),
+            token_prefix=d.get("token_prefix"),
+            created_at=d.get("created_at"),
+            expires_at=d.get("expires_at"),
+            max_uses=d.get("max_uses"),
+            used_count=d.get("used_count"),
+            revoked_at=d.get("revoked_at"),
+            status=d.get("status"),
+        )
+
+
+@dataclass
+class JoinTokenMesh:
+    setup_key: str
+    management_url: Optional[str]
+    driver: Optional[str]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "JoinTokenMesh":
+        return cls(
+            setup_key=d.get("setup_key"),
+            management_url=d.get("management_url"),
+            driver=d.get("driver"),
+        )
+
+
+@dataclass
+class JoinTokenInstall:
+    url: str
+    loopback: bool
+    warning: Optional[str]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "JoinTokenInstall":
+        return cls(
+            url=d.get("url"),
+            loopback=d.get("loopback"),
+            warning=d.get("warning"),
+        )
+
+
+@dataclass
+class JoinTokenIssued:
+    id: str
+    token: str
+    label: Optional[str]
+    profile: Optional[str]
+    expires_at: str
+    max_uses: int
+    mesh: Optional[JoinTokenMesh]
+    install: JoinTokenInstall
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "JoinTokenIssued":
+        return cls(
+            id=d.get("id"),
+            token=d.get("token"),
+            label=d.get("label"),
+            profile=d.get("profile"),
+            expires_at=d.get("expires_at"),
+            max_uses=d.get("max_uses"),
+            mesh=d.get("mesh"),
+            install=d.get("install"),
+        )
+
+
+@dataclass
 class DnsZone:
     id: str
     zone: str
@@ -1730,7 +1814,7 @@ class StackErrorsStatus:
     stack: str
     enabled: bool
     store_enabled: bool
-    project: ErrorProject
+    project: Optional[ErrorProject]
     pending_redeploy: List[str]
 
     @classmethod

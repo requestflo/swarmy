@@ -32,6 +32,7 @@ function appFor(role: Role) {
 // [method, path, body, the tRPC twin that is adminProcedure]
 const ADMIN_ROUTES: Array<[string, string, unknown, string]> = [
   ['POST', '/api-keys', { name: 'ci', scopes: ['read'] }, 'apiKeys.create'],
+  ['POST', '/join-tokens', { label: 'ci' }, 'nodes.generateJoinToken'],
   ['POST', '/backup-targets', { name: 't', kind: 's3', url: 's3:x' }, 'backups.addTarget'],
   ['POST', '/dns/zones', { name: 'example.com' }, 'geodns.createZone'],
   ['POST', '/dns/zones/z1/records', { name: 'www', type: 'A', value: '1.2.3.4' }, 'geodns.upsertRecord'],
