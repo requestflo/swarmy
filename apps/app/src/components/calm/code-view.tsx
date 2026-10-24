@@ -48,18 +48,24 @@ export function CodeView({
       {tabs.length > 1 ? (
         <div role="tablist" aria-label="Format" className="border-border bg-background inline-flex w-fit max-w-full flex-wrap gap-0.5 rounded-[10px] border p-0.5">
           {tabs.map((t, k) => (
+            // On touch the button is a 44px hit area (8px past the strip above and
+            // below, margins cancel it out); the 28px pill inside keeps the look.
             <button
               key={t.label}
               type="button"
               role="tab"
               aria-selected={k === i}
               onClick={() => setI(k)}
-              className={cn(
-                'h-7 rounded-[8px] px-2.5 font-mono text-[11.5px] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring/60 pointer-coarse:min-h-11',
-                k === i ? 'bg-surface-2 text-foreground dark:bg-accent' : 'text-muted-foreground hover:text-foreground',
-              )}
+              className="group flex items-center outline-none pointer-coarse:-my-2 pointer-coarse:h-11"
             >
-              {t.label}
+              <span
+                className={cn(
+                  'flex h-7 w-full items-center justify-center rounded-[8px] px-2.5 font-mono text-[11.5px] font-semibold group-focus-visible:ring-2 group-focus-visible:ring-ring/60',
+                  k === i ? 'bg-surface-2 text-foreground dark:bg-accent' : 'text-muted-foreground group-hover:text-foreground',
+                )}
+              >
+                {t.label}
+              </span>
             </button>
           ))}
         </div>
