@@ -16,7 +16,7 @@ interface SsoProviderFieldsProps {
   onClientSecretChange: (v: string) => void;
 }
 
-/** OIDC field grid (or SAML placeholder) for the SSO provider edit form. */
+/** OIDC field grid for the SSO provider edit form (SAML: sso-saml-fields.tsx). */
 export function SsoProviderFields({
   provider: p,
   discoveryUrl,
@@ -30,15 +30,6 @@ export function SsoProviderFields({
   clientSecret,
   onClientSecretChange,
 }: SsoProviderFieldsProps): React.JSX.Element {
-  if (p.protocol !== 'oidc') {
-    return (
-      <p className="text-muted-foreground sm:col-span-2">
-        SAML config (IdP metadata XML, SP cert) is stored but not yet wired into sign-in on this
-        controller — see release notes.
-      </p>
-    );
-  }
-
   return (
     <>
       <div className="grid gap-1.5 sm:col-span-2">

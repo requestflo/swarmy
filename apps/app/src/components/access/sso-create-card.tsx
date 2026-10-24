@@ -18,10 +18,12 @@ import { useTRPC } from '@/integrations/trpc';
 interface SsoCreateCardProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** The new provider's id (the tab opens it: a SAML one shows its IdP URLs there). */
+  onCreated?: (id: string) => void;
 }
 
 /** Inline expanding card (no modal): new OIDC/SAML SSO provider. */
-export function SsoCreateCard({ open, onOpenChange }: SsoCreateCardProps): React.JSX.Element {
+export function SsoCreateCard({ open, onOpenChange, onCreated }: SsoCreateCardProps): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const [providerId, setProviderId] = React.useState('');
@@ -34,8 +36,9 @@ export function SsoCreateCard({ open, onOpenChange }: SsoCreateCardProps): React
 
   const upsert = useMutation(
     trpc.sso.upsert.mutationOptions({
-      onSuccess: () => {
+      onSuccess: (saved) => {
         toast.success('SSO provider saved');
+        onCreated?.(saved.id);
         setProviderId('');
         setDomain('');
         setIssuer('');
@@ -56,7 +59,7 @@ export function SsoCreateCard({ open, onOpenChange }: SsoCreateCardProps): React
           <div>
             <p className="text-sm font-bold">New SSO provider</p>
             <p className="text-muted-foreground text-xs">
-              OIDC via discovery URL. Paste the callback URL into your IdP once saved.
+              OIDC via discovery URL, or SAML. Once saved, the provider shows the URLs your IdP needs.
             </p>
           </div>
           <div className="grid gap-1.5">
@@ -113,8 +116,8 @@ export function SsoCreateCard({ open, onOpenChange }: SsoCreateCardProps): React
             </>
           ) : (
             <p className="text-muted-foreground text-xs">
-              SAML config (IdP metadata XML, SP cert) is stored but not yet wired into sign-in on
-              this controller — see release notes.
+              Create it, then give your identity provider the entity ID and ACS URL it shows, and
+              paste the IdP&rsquo;s metadata back into it.
             </p>
           )}
           <div className="flex justify-end gap-2">

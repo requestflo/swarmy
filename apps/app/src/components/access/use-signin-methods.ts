@@ -23,8 +23,10 @@ export function useSignInMethods(): { methods: SignInMethod[] | undefined } {
     label: `Company sign-in (${p.providerId})`,
     kind: 'sso' as const,
     enabled: p.enabled,
-    detail: p.domain ? `for anyone @${p.domain}` : 'set up',
-    tech: `${p.protocol} · ${p.issuer ?? 'no issuer'} · client ${p.clientId ?? '—'}`,
+    detail: p.saml && !p.saml.ready ? 'waiting for your identity provider' : p.domain ? `for anyone @${p.domain}` : 'set up',
+    tech: p.saml
+      ? `saml · ${p.issuer ?? 'no IdP entity id'} · ACS ${p.saml.acsUrl}`
+      : `${p.protocol} · ${p.issuer ?? 'no issuer'} · client ${p.clientId ?? '—'}`,
   }));
   const rest = (providers.data as ProviderEntry[]).map((p) => ({
     id: p.type,

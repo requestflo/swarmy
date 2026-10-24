@@ -7,6 +7,8 @@ export interface SignInOption {
   kind: 'social' | 'sso';
   id: string;
   label: string;
+  /** Org SAML providers start with `signIn.sso`; OIDC ones with `signIn.oauth2`. */
+  protocol?: 'saml';
 }
 
 const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -21,10 +23,22 @@ interface SignInOptionsProps {
   callbackURL: string;
 }
 
+/** Leave for the option's IdP (it comes back to `callbackURL`); an error message if it could not start. */
+export async function startSignIn(o: SignInOption, callbackURL: string): Promise<string | null> {
+  const errorCallbackURL = '/login';
+  const res =
+    o.kind === 'social'
+      ? await authClient.signIn.social({ provider: o.id, callbackURL, errorCallbackURL })
+      : o.protocol === 'saml'
+        ? await authClient.signIn.sso({ providerId: o.id, callbackURL, errorCallbackURL })
+        : await authClient.signIn.oauth2({ providerId: o.id, callbackURL, errorCallbackURL });
+  return res.error ? (res.error.message ?? `could not start ${o.label} sign-in`) : null;
+}
+
 /**
- * The SSO / social buttons: the primary way in. Org OIDC providers (Keycloak,
- * Authentik, Zitadel, Entra ID…) come first, then Microsoft, Google, GitHub,
- * GitLab. Each leaves the page for the IdP and comes back to `callbackURL`.
+ * The SSO / social buttons: the primary way in. Org OIDC and SAML providers
+ * (Keycloak, Authentik, Zitadel, Entra ID, Okta…) come first, then Microsoft,
+ * Google, GitHub, GitLab.
  */
 export function SignInOptions({ options, callbackURL }: SignInOptionsProps): React.JSX.Element | null {
   const [pending, setPending] = React.useState<string | null>(null);
@@ -32,14 +46,10 @@ export function SignInOptions({ options, callbackURL }: SignInOptionsProps): Rea
 
   async function go(o: SignInOption): Promise<void> {
     setPending(o.id);
-    const errorCallbackURL = '/login';
-    const res =
-      o.kind === 'sso'
-        ? await authClient.signIn.oauth2({ providerId: o.id, callbackURL, errorCallbackURL })
-        : await authClient.signIn.social({ provider: o.id, callbackURL, errorCallbackURL });
-    if (res.error) {
+    const error = await startSignIn(o, callbackURL);
+    if (error) {
       setPending(null);
-      toast.error(res.error.message ?? `could not start ${o.label} sign-in`);
+      toast.error(error);
     }
   }
 

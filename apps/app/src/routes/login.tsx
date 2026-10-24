@@ -6,8 +6,10 @@ import { AuthForm } from '@/components/auth/auth-form';
 import { InviteBanner } from '@/components/auth/invite-banner';
 import { setInviteCookie } from '@/components/auth/invite-cookie';
 import { InviteOnlyNotice } from '@/components/auth/invite-only-notice';
+import { validateLoginSearch } from '@/components/auth/login-search';
 import { OrDivider, SignInOptions } from '@/components/auth/sign-in-options';
 import { useInviteReturn } from '@/components/auth/use-invite-return';
+import { useSsoAutostart } from '@/components/auth/use-sso-autostart';
 import { isOAuthAuthorizeFlow, resumeAuthorize, useOAuthResume } from '@/components/auth/use-oauth-resume';
 import { LoginTwoFactorStep } from '@/components/auth/login-two-factor-step';
 import { type AuthFields, type AuthMode, useAuthSubmit } from '@/components/auth/use-auth-submit';
@@ -17,22 +19,8 @@ import { DEMO_BUILD } from '@/demo/site';
 import { useSession } from '@swarmy/auth/client';
 import { useTRPC } from '@/integrations/trpc';
 
-interface LoginSearch {
-  /** Where a session loss ejected the user from; same-origin paths only. */
-  redirect?: string;
-  /** Organization invitation id from an invite link — accepted after auth. */
-  invite?: string;
-}
-
 export const Route = createFileRoute('/login')({
-  validateSearch: (search: Record<string, unknown>): LoginSearch => {
-    const out: LoginSearch = {};
-    const r = search.redirect;
-    if (typeof r === 'string' && r.startsWith('/') && !r.startsWith('//') && !r.includes('\\')) out.redirect = r;
-    const i = search.invite;
-    if (typeof i === 'string' && /^[\w-]{1,128}$/.test(i)) out.invite = i;
-    return out;
-  },
+  validateSearch: validateLoginSearch,
   // The hosted demo has no accounts: a notice replaces the sign-in screen.
   component: DEMO_BUILD ? DemoLoginPage : LoginPage,
 });
@@ -47,7 +35,7 @@ function LoginPage(): React.JSX.Element {
   const navigate = useNavigate();
   const router = useRouter();
   const trpc = useTRPC();
-  const { redirect: returnTo, invite } = Route.useSearch();
+  const { redirect: returnTo, invite, sso } = Route.useSearch();
   const [mode, setMode] = React.useState<AuthMode>(invite ? 'signup' : 'signin');
   const { busy, submit, finish } = useAuthSubmit(invite);
   // Password accepted, 2FA pending: the code step replaces the form.
@@ -81,6 +69,7 @@ function LoginPage(): React.JSX.Element {
     Boolean(session.data) && !isOAuthAuthorizeFlow() && !busy && !viaForm.current,
     land,
   );
+  const ssoError = useSsoAutostart(sso, config.data?.signIn, callbackURL);
 
   async function onSubmit(fields: AuthFields): Promise<void> {
     viaForm.current = true;
@@ -127,7 +116,7 @@ function LoginPage(): React.JSX.Element {
       }
     >
       {invite && !challenge && <InviteBanner inviteId={invite} />}
-      {inviteError && <p className="text-tone-bad mb-4 text-sm font-medium">{inviteError}</p>}
+      {(inviteError ?? ssoError) && <p className="text-tone-bad mb-4 text-sm font-medium">{inviteError ?? ssoError}</p>}
       {options.length > 0 && (
         <>
           <SignInOptions options={options} callbackURL={callbackURL} />

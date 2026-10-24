@@ -19,15 +19,15 @@ export function SsoTab(): React.JSX.Element {
     <div className="grid gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-muted-foreground max-w-xl text-sm">
-          Per-org enterprise sign-in. OIDC routes by email domain (&ldquo;Sign in with your
-          company&rdquo;).
+          Per-org enterprise sign-in over OIDC or SAML: people sign in with your company&rsquo;s
+          own directory.
         </p>
         <Button variant="outline" onClick={() => setCreateOpen((o) => !o)}>
           <PlusIcon className="size-4" /> Add provider
         </Button>
       </div>
 
-      <SsoCreateCard open={createOpen} onOpenChange={setCreateOpen} />
+      <SsoCreateCard open={createOpen} onOpenChange={setCreateOpen} onCreated={setEditing} />
 
       <Card className="calm-card border-0 shadow-none">
         <CardContent className="p-0">
@@ -36,7 +36,7 @@ export function SsoTab(): React.JSX.Element {
               <EmptyState
                 icon={<BuildingIcon />}
                 title="No SSO providers yet"
-                description="Wire an OIDC identity provider to let your company sign in with its own directory."
+                description="Wire an OIDC or SAML identity provider to let your company sign in with its own directory."
                 action={
                   <Button variant="outline" onClick={() => setCreateOpen(true)}>
                     <PlusIcon className="size-4" /> Add provider

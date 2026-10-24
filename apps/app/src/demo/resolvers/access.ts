@@ -19,6 +19,7 @@ import {
 } from '@swarmy/core';
 import { DEMO_USER } from '../data';
 import { inviteLinkPreviewFor } from './invite-links';
+import { demoSamlInput, demoSamlSetup, type DemoSamlSetup } from './access-saml';
 import type { DemoStore, DomainResolvers } from '../types';
 
 /**
@@ -118,6 +119,7 @@ interface SsoProviderView {
   mapping: Record<string, string>;
   callbackUrl: string;
   loginUrl: string;
+  saml: DemoSamlSetup | null;
 }
 
 interface PolicyView {
@@ -443,20 +445,27 @@ function seedSso(): SsoProviderView[] {
       mapping: { email: 'email', name: 'name', team: 'department' },
       callbackUrl: ssoCallbackUrl('acme'),
       loginUrl: ssoLoginUrl('acme'),
+      saml: null,
     },
     {
       id: 'sso-globex',
       providerId: 'globex',
       protocol: 'saml',
       domain: 'globex.io',
-      issuer: null,
+      issuer: 'https://sso.globex.io/saml/metadata',
       clientId: null,
-      hasSecret: true,
-      enabled: false,
-      metadata: { entityId: 'https://sso.globex.io/saml/metadata' },
-      mapping: {},
+      hasSecret: false,
+      enabled: true,
+      metadata: { entryPoint: 'https://sso.globex.io/saml/sso', cert: 'MIIDdemoGlobexSigningCert', displayName: 'Globex SSO' },
+      mapping: { email: 'mail', groups: 'memberOf' },
       callbackUrl: ssoCallbackUrl('globex'),
       loginUrl: ssoLoginUrl('globex'),
+      saml: demoSamlSetup(CALLBACK_BASE, {
+        providerId: 'globex',
+        protocol: 'saml',
+        issuer: 'https://sso.globex.io/saml/metadata',
+        metadata: { entryPoint: 'https://sso.globex.io/saml/sso', cert: 'MIIDdemoGlobexSigningCert' },
+      }),
     },
   ];
 }
@@ -760,10 +769,11 @@ export const access: DomainResolvers = {
     'authConfig.publicConfig': (_i, store) => ({
       signupMode: 'open' as const,
       signIn: [
-        ...state(store).sso.filter((p) => p.enabled && p.protocol === 'oidc').map((p) => ({
+        ...state(store).sso.filter((p) => p.enabled && (p.protocol === 'oidc' || p.saml?.ready)).map((p) => ({
           kind: 'sso' as const,
           id: p.providerId,
           label: typeof p.metadata.displayName === 'string' ? p.metadata.displayName : p.providerId,
+          ...(p.protocol === 'saml' ? { protocol: 'saml' as const } : {}),
         })),
         ...state(store).providers
           .filter((p) => p.kind === 'social' && p.enabled && p.hasSecret)
@@ -816,6 +826,7 @@ export const access: DomainResolvers = {
         mapping?: Record<string, string>;
       };
       const s = state(store);
+      if (args.protocol === 'saml') Object.assign(args, demoSamlInput(args.issuer ?? null, args.metadata), { clientId: null });
       const existing = args.id ? s.sso.find((x) => x.id === args.id) : undefined;
       if (existing) {
         existing.providerId = args.providerId;
@@ -829,6 +840,7 @@ export const access: DomainResolvers = {
         if (args.mapping) existing.mapping = args.mapping;
         existing.callbackUrl = ssoCallbackUrl(existing.providerId);
         existing.loginUrl = ssoLoginUrl(existing.providerId);
+        existing.saml = demoSamlSetup(CALLBACK_BASE, existing);
         return existing;
       }
       const row: SsoProviderView = {
@@ -844,7 +856,9 @@ export const access: DomainResolvers = {
         mapping: args.mapping ?? {},
         callbackUrl: ssoCallbackUrl(args.providerId),
         loginUrl: ssoLoginUrl(args.providerId),
+        saml: null,
       };
+      row.saml = demoSamlSetup(CALLBACK_BASE, row);
       s.sso.push(row);
       return row;
     },

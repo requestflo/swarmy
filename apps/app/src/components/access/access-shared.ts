@@ -34,6 +34,18 @@ export interface SsoProviderEntry {
   mapping: Record<string, string>;
   callbackUrl: string;
   loginUrl: string;
+  /** SAML rows: what to give the IdP and whether sign-in is live. */
+  saml: SamlSetup | null;
+}
+
+export interface SamlSetup {
+  entityId: string;
+  metadataUrl: string;
+  acsUrl: string;
+  entryPoint: string | null;
+  ready: boolean;
+  certSubject: string | null;
+  certExpiresAt: string | null;
 }
 
 export interface MemberEntry {
