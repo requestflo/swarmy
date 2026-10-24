@@ -9,6 +9,7 @@ import { AgentConnection, strandedShouldExit } from './connection';
 import { collectMetrics } from './stats';
 import { sendContainerList, sendServiceState, sendNodeList } from './snapshots';
 import { applyMesh, lastSampledMeshCidr, sampleMeshState } from './handlers/mesh';
+import { meshSkipReason } from './mesh-startup';
 import { withMeshMtu } from './handlers/mesh-mtu';
 import { checkOverlayKeying, ensureMeshPin } from './handlers/mesh-pin';
 import { defaultDiskDeps, mountReturningDisks } from './handlers/disk';
@@ -70,7 +71,11 @@ async function waitForMeshAddress(ms: number): Promise<string | undefined> {
 }
 
 async function joinMeshAtStartup(docker: DockerClient): Promise<{ meshIp?: string; meshConnected?: boolean }> {
-  if (!env.ALLOW_MESH) return {};
+  const skip = meshSkipReason({ allowMesh: env.ALLOW_MESH, hasSetupKey: Boolean(env.MESH_SETUP_KEY) });
+  if (!env.ALLOW_MESH) {
+    log(skip);
+    return {};
+  }
 
   try {
     // Idempotency first: if a mesh client is already connected (daemon
@@ -89,9 +94,12 @@ async function joinMeshAtStartup(docker: DockerClient): Promise<{ meshIp?: strin
       log(`mesh already connected (${existing.driver}, ${meshIp}) — reusing`);
       return { meshIp, meshConnected: true };
     }
-    // No key ⇒ nothing to join. (Node #1 from the installer lands above: the
-    // installer joins the mesh itself before `swarm init` on the mesh IP.)
-    if (!env.MESH_SETUP_KEY) return {};
+    // No key ⇒ nothing to join, said out loud. (Node #1 from the installer
+    // lands above: the installer joins the mesh itself before `swarm init`.)
+    if (!env.MESH_SETUP_KEY) {
+      log(skip);
+      return {};
+    }
 
     const rendered: RenderedMesh = {
       driver: env.MESH_DRIVER as RenderedMesh['driver'],

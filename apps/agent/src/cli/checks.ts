@@ -13,6 +13,7 @@ import { DockerClient } from '@swarmy/core/docker';
 import { env } from '../env';
 import { loadState } from '../state';
 import { sampleMeshState } from '../handlers/mesh';
+import { meshSkipReason } from '../mesh-startup';
 import { versionInfo } from '../version';
 import type { DaemonStatus } from '../local-socket';
 import { controllerHttpBase, daemonReconnect, daemonStatus, probeController, timebox, type ControllerProbe } from './context';
@@ -237,7 +238,17 @@ async function checkSession(ctx: Ctx): Promise<CheckResult> {
 
 async function checkMesh(ctx: Ctx): Promise<CheckResult> {
   const base = { id: 'mesh', title: 'Mesh (netbird)' };
-  if (!env.ALLOW_MESH) return { ...base, status: 'skip', detail: 'disabled on this node (SWARMY_ALLOW_MESH=false)' };
+  if (!env.ALLOW_MESH) {
+    // A key the opt-out makes the agent ignore is a config mistake, not a skip.
+    return env.MESH_SETUP_KEY
+      ? {
+          ...base,
+          status: 'warn',
+          detail: 'mesh setup key configured but SWARMY_ALLOW_MESH=false',
+          hint: meshSkipReason({ allowMesh: false, hasSetupKey: true }) ?? undefined,
+        }
+      : { ...base, status: 'skip', detail: 'disabled on this node (SWARMY_ALLOW_MESH=false)' };
+  }
 
   const state = await sampleMeshState().catch(() => null);
   if (!state) {
