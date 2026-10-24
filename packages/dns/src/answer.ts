@@ -6,7 +6,11 @@ import type {
 } from '@swarmy/core/protocol';
 import { steer, type ClientLocation, type SteerTarget } from './steer';
 import { relativeToFqdn } from './compose';
+import { soaAnswer, staticToAnswer } from './answer-records';
+import { synthesizedAddress } from './synth';
 import type { Rcode } from './wire';
+
+export { txtStrings } from './answer-records';
 
 /**
  * Per-query authoritative resolution — the heart of "swarmy is the nameserver".
@@ -24,6 +28,9 @@ import type { Rcode } from './wire';
  * - Matching is case-insensitive; the question name is echoed as sent
  *   (0x20-randomization tolerant).
  * - ANY gets the RFC 8482 minimal HINFO response.
+ * - A cluster zone (`synth`) answers `<a-b-c-d>.<zone>` and names under it
+ *   with A a.b.c.d for the cluster's own public addresses (synth.ts); real
+ *   records always win.
  */
 
 export interface DnsAnswer {
@@ -54,83 +61,6 @@ export function findZone(
     }
   }
   return best;
-}
-
-function soaAnswer(zone: DnsZoneSnapshot): Answer {
-  return {
-    name: zone.zone,
-    type: 'SOA',
-    ttl: zone.soa.minimum,
-    data: {
-      mname: zone.soa.mname,
-      rname: zone.soa.rname,
-      serial: zone.serial,
-      refresh: zone.soa.refresh,
-      retry: zone.soa.retry,
-      expire: zone.soa.expire,
-      minimum: zone.soa.minimum,
-    },
-  };
-}
-
-function staticToAnswer(record: StaticDnsRecord, zone: DnsZoneSnapshot): Answer {
-  const name = relativeToFqdn(record.name, zone.zone);
-  const ttl = record.ttl ?? zone.ttl;
-  switch (record.type) {
-    case 'MX':
-      return {
-        name,
-        type: 'MX',
-        ttl,
-        data: { preference: record.priority ?? 10, exchange: record.value },
-      };
-    case 'TXT':
-      // A TXT string is at most 255 bytes on the wire (RFC 1035 §3.3.14);
-      // longer values (DKIM keys) go out as several strings, which receivers
-      // concatenate.
-      {
-        const parts = txtStrings(record.value);
-        return { name, type: 'TXT', ttl, data: parts.length === 1 ? record.value : parts };
-      }
-    case 'SRV': {
-      // Value format: "weight port target" (priority carried separately).
-      const [weight = '0', port = '0', target = ''] = record.value.split(/\s+/);
-      return {
-        name,
-        type: 'SRV',
-        ttl,
-        data: {
-          priority: record.priority ?? 0,
-          weight: Number(weight),
-          port: Number(port),
-          target,
-        },
-      };
-    }
-    case 'CAA': {
-      // Value format: 'flags tag "value"', e.g. '0 issue "letsencrypt.org"'.
-      const match = record.value.match(/^(\d+)\s+(\S+)\s+"?([^"]*)"?$/);
-      const tag = match?.[2];
-      return {
-        name,
-        type: 'CAA',
-        ttl,
-        data: {
-          flags: Number(match?.[1] ?? 0),
-          tag: tag === 'issuewild' || tag === 'iodef' ? tag : 'issue',
-          value: match?.[3] ?? record.value,
-        },
-      };
-    }
-    case 'NS':
-      return { name, type: 'NS', ttl, data: record.value };
-    case 'CNAME':
-      return { name, type: 'CNAME', ttl, data: record.value };
-    case 'AAAA':
-      return { name, type: 'AAAA', ttl, data: record.value };
-    case 'A':
-      return { name, type: 'A', ttl, data: record.value };
-  }
 }
 
 interface NameView {
@@ -200,10 +130,7 @@ export function answerQuery(
     };
   }
 
-  const respond = (
-    answers: Answer[],
-    opts: Partial<Pick<DnsAnswer, 'rcode' | 'authorities' | 'additionals' | 'steered' | 'degraded'>> = {},
-  ): DnsAnswer => ({
+  const respond: Respond = (answers, opts = {}) => ({
     rcode: opts.rcode ?? 'NOERROR',
     aa: true,
     answers,
@@ -213,7 +140,13 @@ export function answerQuery(
     degraded: opts.degraded ?? false,
   });
 
+  // Cluster zone: `<a-b-c-d>.<zone>` (and names under it) synthesise A a.b.c.d
+  // — real records win; it fills only an otherwise empty A answer (synth.ts).
+  const synthIp = synthesizedAddress(zone, qname);
   let view = viewName(zone, qname);
+  if (!view.exists && synthIp) {
+    return answerExisting(zone, qname, question, client, { ...view, exists: true }, respond, synthIp);
+  }
   if (!view.exists) {
     // RFC 4592 wildcard synthesis: a name that does not exist is answered by
     // `*.<closest encloser>` when that wildcard owns records. Wildcard routes
@@ -224,8 +157,13 @@ export function answerQuery(
     const synthesized = answerExisting(zone, qname, question, client, view, respond);
     return { ...synthesized, answers: synthesized.answers.map((a) => (lower(a.name) === wildcard.owner ? { ...a, name: qname } : a)) };
   }
-  return answerExisting(zone, qname, question, client, view, respond);
+  return answerExisting(zone, qname, question, client, view, respond, synthIp);
 }
+
+type Respond = (
+  answers: Answer[],
+  opts?: Partial<Pick<DnsAnswer, 'rcode' | 'authorities' | 'additionals' | 'steered' | 'degraded'>>,
+) => DnsAnswer;
 
 /** The wildcard view answering a non-existent `qname`, if one applies. */
 function wildcardFor(zone: DnsZoneSnapshot, qname: string): { owner: string; view: NameView } | undefined {
@@ -249,12 +187,9 @@ function answerExisting(
   question: Question,
   client: ClientLocation,
   view: NameView,
-  respond: (
-    answers: Answer[],
-    opts?: Partial<Pick<DnsAnswer, 'rcode' | 'authorities' | 'additionals' | 'steered' | 'degraded'>>,
-  ) => DnsAnswer,
+  respond: Respond,
+  synthIp: string | null = null,
 ): DnsAnswer {
-
   const qtype = question.type?.toUpperCase() ?? 'A';
 
   // RFC 8482: minimal answer for ANY.
@@ -300,10 +235,13 @@ function answerExisting(
       for (const record of view.statics.filter((r) => r.type === 'A')) {
         answers.push(staticToAnswer(record, zone));
       }
+      // Never empty when the name itself says where it points (a route with
+      // no endpoints yet, or a synthesised cluster-zone name).
+      if (answers.length === 0 && synthIp) answers.push({ name: qname, type: 'A', ttl: zone.ttl, data: synthIp });
       return respond(answers, { steered, degraded });
     }
     case 'AAAA': {
-      // Geo answers are IPv4-only today; static AAAA still served.
+      // Geo answers (and cluster-zone synthesis) are IPv4-only; static AAAA still served.
       const answers = view.statics.filter((r) => r.type === 'AAAA').map((r) => staticToAnswer(r, zone));
       return respond(answers);
     }
@@ -342,20 +280,4 @@ function answerExisting(
       // Type we don't host (HTTPS, DNSKEY, …) on an existing name → NODATA.
       return respond([]);
   }
-}
-
-/** Split a TXT value into ≤255-byte character-strings (UTF-8 safe). */
-export function txtStrings(value: string): string[] {
-  const buf = Buffer.from(value, 'utf8');
-  if (buf.length <= 255) return [value];
-  const out: string[] = [];
-  let start = 0;
-  while (start < buf.length) {
-    let end = Math.min(start + 255, buf.length);
-    // never cut inside a multi-byte sequence
-    while (end < buf.length && end > start && (buf[end]! & 0xc0) === 0x80) end--;
-    out.push(buf.subarray(start, end).toString('utf8'));
-    start = end;
-  }
-  return out;
 }

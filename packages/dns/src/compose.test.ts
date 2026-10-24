@@ -114,3 +114,20 @@ describe('composeZoneSnapshot', () => {
     expect(a.snapshot).toEqual(b.snapshot);
   });
 });
+
+describe('composeZoneSnapshot — cluster zone synthesis', () => {
+  it('carries the public allow-list only when asked (the cluster zone)', () => {
+    expect(composeZoneSnapshot(input()).snapshot.synth).toBeUndefined();
+    const { snapshot, conflicts } = composeZoneSnapshot(
+      input({ synthIps: ['41.76.108.20', '10.0.0.5', '5.9.10.200', '41.76.108.20'] }),
+    );
+    expect(snapshot.synth).toEqual({ ips: ['41.76.108.20', '5.9.10.200'] });
+    expect(conflicts.filter((c) => c.reason.includes('<a-b-c-d>'))).toEqual([]);
+  });
+
+  it('warns when no server has a public address to synthesise', () => {
+    const { snapshot, conflicts } = composeZoneSnapshot(input({ synthIps: ['192.168.1.4'] }));
+    expect(snapshot.synth).toEqual({ ips: [] });
+    expect(conflicts.some((c) => c.reason.includes('<a-b-c-d> names in the cluster zone answer NXDOMAIN'))).toBe(true);
+  });
+});

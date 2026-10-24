@@ -111,6 +111,20 @@ export const DnsSoa = z.object({
 });
 export type DnsSoa = z.infer<typeof DnsSoa>;
 
+/**
+ * Cluster-zone address synthesis (plans/self-reliance.md B2b): swarmy-dns
+ * answers `<a-b-c-d>.<zone>`, and any name under it, with `A a.b.c.d` — the
+ * sslip.io trick on the org's own zone. Only `ips` are synthesised (the
+ * cluster's own public node addresses), so the zone never vouches for a
+ * stranger's machine; private and reserved ranges are refused even when
+ * listed. Optional and additive: a server that predates it ignores the key.
+ */
+export const AddressSynthesis = z.object({
+  /** Public IPv4s this zone may synthesise (sorted, unique). */
+  ips: z.array(z.string()).default([]),
+});
+export type AddressSynthesis = z.infer<typeof AddressSynthesis>;
+
 /** Everything swarmy-dns needs to answer authoritatively for one zone. */
 export const DnsZoneSnapshot = z.object({
   /** Zone apex, no trailing dot, lowercase: `requestflo.com`. */
@@ -124,6 +138,8 @@ export const DnsZoneSnapshot = z.object({
   nameservers: z.array(ZoneNameserver),
   geoRecords: z.array(GeoRecord).default([]),
   staticRecords: z.array(StaticDnsRecord).default([]),
+  /** Set on the org's cluster zone only — see {@link AddressSynthesis}. */
+  synth: AddressSynthesis.optional(),
 });
 export type DnsZoneSnapshot = z.infer<typeof DnsZoneSnapshot>;
 

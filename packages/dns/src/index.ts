@@ -10,6 +10,7 @@
 export * from './steer';
 export * from './compose';
 export * from './answer';
+export * from './synth';
 export * from './wire';
 export * from './geoip';
 export * from './probe';
@@ -23,6 +24,7 @@ export {
   GeoRecord,
   ZoneNameserver,
   DnsSoa,
+  AddressSynthesis,
   DnsZoneSnapshot,
   DnsSnapshotBundle,
   ApplyDnsPayload,

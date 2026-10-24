@@ -5,6 +5,7 @@ import type {
   StaticDnsRecord,
   ZoneNameserver,
 } from '@swarmy/core/protocol';
+import { synthAllowList } from './synth';
 
 /**
  * Zone composition — pure assembly of a {@link DnsZoneSnapshot} from derived
@@ -38,6 +39,11 @@ export interface ZoneComposeInput {
   manualRecords: StaticDnsRecord[];
   /** Answers per geo response (failover spread). Default 2. */
   maxAnswers?: number;
+  /**
+   * Cluster zone only: the cluster's node addresses `<a-b-c-d>.<zone>` may
+   * synthesise (synth.ts filters to public IPv4). Omit for any other zone.
+   */
+  synthIps?: readonly string[];
 }
 
 export interface ComposeConflict {
@@ -140,6 +146,15 @@ export function composeZoneSnapshot(input: ZoneComposeInput): ComposeResult {
     });
   }
 
+  const synthIps = input.synthIps ? synthAllowList(input.synthIps) : null;
+  if (synthIps && synthIps.length === 0) {
+    conflicts.push({
+      name: zone,
+      type: 'A',
+      reason: 'No server has a public IPv4 address yet — <a-b-c-d> names in the cluster zone answer NXDOMAIN.',
+    });
+  }
+
   const snapshot: DnsZoneSnapshot = {
     zone,
     serial: input.zone.serial,
@@ -155,6 +170,7 @@ export function composeZoneSnapshot(input: ZoneComposeInput): ComposeResult {
     nameservers,
     geoRecords: [...geoByHost.values()].sort((a, b) => (a.host < b.host ? -1 : 1)),
     staticRecords: manual,
+    ...(synthIps ? { synth: { ips: synthIps } } : {}),
   };
 
   return { snapshot, conflicts };
