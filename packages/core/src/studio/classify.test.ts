@@ -300,6 +300,14 @@ describe('Redis classification', () => {
     expect(c('AUTH secret').blocked).toBeDefined();
     expect(c('MULTI').blocked).toBeDefined();
   });
+  it('blocks a leading "-" (redis-cli has no `--`, so it would be a client option such as -h)', () => {
+    for (const s of ['-h evil.example GET k', '--eval /tmp/x.lua', '"-n" 3 FLUSHDB', '-']) {
+      expect(c(s).blocked).toContain('never starts with "-"');
+    }
+    // Later arguments are safe: redis-cli stops reading options at the command name.
+    expect(c('SET counter -1')).toMatchObject({ class: 'write' });
+    expect(c('SET counter -1').blocked).toBeUndefined();
+  });
   it('tokenizes like redis-cli', () => {
     expect(tokenizeRedis(`SET "a b" 'it\\'s' "x\\ny\\x41"`)).toEqual(['SET', 'a b', "it's", 'x\nyA']);
     expect(() => tokenizeRedis('GET "open')).toThrow();
