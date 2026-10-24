@@ -1394,6 +1394,274 @@
           "www"
         ]
       },
+      "IngressDriver": {
+        "type": "string",
+        "enum": [
+          "caddy",
+          "none",
+          "cloudflared"
+        ],
+        "description": "`caddy` swarmy runs Caddy on 80/443; `cloudflared` a Cloudflare Tunnel (no public IP); `none` you run your own proxy. Open enum: new values may be added."
+      },
+      "IngressTopology": {
+        "type": "string",
+        "enum": [
+          "controller",
+          "edge-per-node"
+        ],
+        "description": "`controller` one replicated Caddy; `edge-per-node` a host-mode Caddy on every ingress node (needs an ingress-labelled node and swarmy object storage). Switching removes and recreates the edge service (seconds of downtime). Open enum."
+      },
+      "IngressTls": {
+        "type": "object",
+        "properties": {
+          "acme_email": {
+            "type": "string",
+            "nullable": true,
+            "description": "ACME account email (certificate expiry notices)."
+          },
+          "on_demand": {
+            "type": "boolean",
+            "description": "Certificates are issued on demand for customer domains."
+          },
+          "ask_url": {
+            "type": "string",
+            "nullable": true,
+            "description": "The endpoint Caddy asks before issuing on demand."
+          }
+        },
+        "required": [
+          "acme_email",
+          "on_demand",
+          "ask_url"
+        ]
+      },
+      "IngressTunnel": {
+        "type": "object",
+        "nullable": true,
+        "properties": {
+          "tunnel_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "tunnel_name": {
+            "type": "string"
+          },
+          "replicas": {
+            "type": "integer"
+          },
+          "run_token_set": {
+            "type": "boolean",
+            "description": "A run token is stored (encrypted). It is never returned."
+          }
+        },
+        "required": [
+          "tunnel_id",
+          "tunnel_name",
+          "replicas",
+          "run_token_set"
+        ],
+        "description": "The Cloudflare tunnel, or null when none is connected."
+      },
+      "IngressDnsProvider": {
+        "type": "object",
+        "nullable": true,
+        "properties": {
+          "provider": {
+            "type": "string",
+            "enum": [
+              "cloudflare"
+            ],
+            "description": "Open enum."
+          },
+          "api_token_set": {
+            "type": "boolean",
+            "description": "The token is in a Docker secret. It is never returned."
+          },
+          "set_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "api_token_set",
+          "set_at"
+        ],
+        "description": "BYO DNS provider for wildcard certificates in zones swarmy DNS does not serve, or null."
+      },
+      "IngressSettings": {
+        "type": "object",
+        "properties": {
+          "org_id": {
+            "type": "string"
+          },
+          "driver": {
+            "$ref": "#/components/schemas/IngressDriver"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "topology": {
+            "$ref": "#/components/schemas/IngressTopology"
+          },
+          "controller_image": {
+            "type": "string",
+            "nullable": true,
+            "description": "Custom Caddy image; null = `default_controller_image`."
+          },
+          "default_controller_image": {
+            "type": "string"
+          },
+          "target_nodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Node ids the replicated controller is pinned to (empty = no pin)."
+          },
+          "tls": {
+            "$ref": "#/components/schemas/IngressTls"
+          },
+          "tunnel": {
+            "$ref": "#/components/schemas/IngressTunnel"
+          },
+          "dns_provider": {
+            "$ref": "#/components/schemas/IngressDnsProvider"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "org_id",
+          "driver",
+          "enabled",
+          "topology",
+          "controller_image",
+          "default_controller_image",
+          "target_nodes",
+          "tls",
+          "tunnel",
+          "dns_provider",
+          "updated_at"
+        ]
+      },
+      "IngressTlsInput": {
+        "type": "object",
+        "properties": {
+          "acme_email": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 254,
+            "format": "email",
+            "description": "`null` clears it."
+          },
+          "on_demand": {
+            "type": "boolean"
+          },
+          "ask_url": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 2048,
+            "format": "uri",
+            "description": "`null` clears it."
+          }
+        },
+        "additionalProperties": false,
+        "description": "On-demand TLS needs an ACME email or an ask endpoint (after the change)."
+      },
+      "IngressTunnelInput": {
+        "type": "object",
+        "nullable": true,
+        "properties": {
+          "run_token": {
+            "type": "string",
+            "minLength": 20,
+            "maxLength": 4096,
+            "description": "Cloudflare tunnel run token (write-only, encrypted at rest; the tunnel id is read from it). Required to connect."
+          },
+          "tunnel_name": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "replicas": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10
+          }
+        },
+        "additionalProperties": false,
+        "description": "`null` disconnects the tunnel."
+      },
+      "IngressDnsProviderInput": {
+        "type": "object",
+        "nullable": true,
+        "properties": {
+          "provider": {
+            "type": "string",
+            "enum": [
+              "cloudflare"
+            ]
+          },
+          "api_token": {
+            "type": "string",
+            "minLength": 20,
+            "maxLength": 512,
+            "description": "Provider API token (Zone:DNS:Edit). Write-only: stored only in a Docker secret."
+          }
+        },
+        "required": [
+          "provider",
+          "api_token"
+        ],
+        "additionalProperties": false,
+        "description": "`null` clears the provider."
+      },
+      "UpdateIngressSettingsRequest": {
+        "type": "object",
+        "properties": {
+          "driver": {
+            "$ref": "#/components/schemas/IngressDriver"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "topology": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/IngressTopology"
+              },
+              {
+                "description": "The current topology is a no-op (nothing is recreated)."
+              }
+            ]
+          },
+          "controller_image": {
+            "type": "string",
+            "nullable": true,
+            "minLength": 1,
+            "maxLength": 512,
+            "description": "`null` = the default image."
+          },
+          "target_nodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 256
+          },
+          "tls": {
+            "$ref": "#/components/schemas/IngressTlsInput"
+          },
+          "tunnel": {
+            "$ref": "#/components/schemas/IngressTunnelInput"
+          },
+          "dns_provider": {
+            "$ref": "#/components/schemas/IngressDnsProviderInput"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Fields left out keep their current value; `null` clears a nullable one. Validated as a whole before anything changes; the edge then converges once."
+      },
       "ApiKeyScope": {
         "type": "string",
         "enum": [
@@ -5745,6 +6013,105 @@
           },
           "404": {
             "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ingress/settings": {
+      "get": {
+        "tags": [
+          "Ingress"
+        ],
+        "summary": "Read the ingress settings",
+        "description": "Driver, topology, image, target nodes, TLS, tunnel and DNS provider. Secrets read back as set / not set, never their values.",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Settings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngressSettings"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Ingress"
+        ],
+        "summary": "Change the ingress settings",
+        "description": "One write for every edge setting: the body is validated as a whole (nothing changes when any part is refused), saved, and the edge converges once. Fields left out keep their current value; `null` clears a nullable one. A topology change removes and recreates the edge service; the current topology is a no-op.",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateIngressSettingsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Settings after the change",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngressSettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "A precondition failed (no ingress node, or object storage off, for edge-per-node)",
             "content": {
               "application/problem+json": {
                 "schema": {

@@ -322,6 +322,67 @@ type UpdateDomainRequest struct {
 	Www string `json:"www"`
 }
 
+type IngressTls struct {
+	AcmeEmail *string `json:"acme_email"`
+	OnDemand  bool    `json:"on_demand"`
+	AskURL    *string `json:"ask_url"`
+}
+
+type IngressTunnel struct {
+	TunnelID    *string `json:"tunnel_id"`
+	TunnelName  string  `json:"tunnel_name"`
+	Replicas    int     `json:"replicas"`
+	RunTokenSet bool    `json:"run_token_set"`
+}
+
+type IngressDnsProvider struct {
+	Provider    string `json:"provider"`
+	ApiTokenSet bool   `json:"api_token_set"`
+	SetAt       string `json:"set_at"`
+}
+
+type IngressSettings struct {
+	OrgID                  string              `json:"org_id"`
+	Driver                 string              `json:"driver"`
+	Enabled                bool                `json:"enabled"`
+	Topology               string              `json:"topology"`
+	ControllerImage        *string             `json:"controller_image"`
+	DefaultControllerImage string              `json:"default_controller_image"`
+	TargetNodes            []string            `json:"target_nodes"`
+	TLS                    IngressTls          `json:"tls"`
+	Tunnel                 *IngressTunnel      `json:"tunnel"`
+	DnsProvider            *IngressDnsProvider `json:"dns_provider"`
+	UpdatedAt              string              `json:"updated_at"`
+}
+
+type IngressTlsInput struct {
+	AcmeEmail *string `json:"acme_email"`
+	OnDemand  bool    `json:"on_demand,omitempty"`
+	AskURL    *string `json:"ask_url"`
+}
+
+type IngressTunnelInput struct {
+	RunToken   string `json:"run_token,omitempty"`
+	TunnelName string `json:"tunnel_name,omitempty"`
+	Replicas   int    `json:"replicas,omitempty"`
+}
+
+type IngressDnsProviderInput struct {
+	Provider string `json:"provider"`
+	ApiToken string `json:"api_token"`
+}
+
+type UpdateIngressSettingsRequest struct {
+	Driver          string                   `json:"driver,omitempty"`
+	Enabled         bool                     `json:"enabled,omitempty"`
+	Topology        string                   `json:"topology,omitempty"`
+	ControllerImage *string                  `json:"controller_image"`
+	TargetNodes     []string                 `json:"target_nodes,omitempty"`
+	TLS             *IngressTlsInput         `json:"tls,omitempty"`
+	Tunnel          *IngressTunnelInput      `json:"tunnel"`
+	DnsProvider     *IngressDnsProviderInput `json:"dns_provider"`
+}
+
 type ApiKey struct {
 	ID          string   `json:"id"`
 	Name        string   `json:"name"`

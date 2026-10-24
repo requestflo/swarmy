@@ -8,6 +8,7 @@ import { registerServiceRoutes } from './routes/services';
 import { registerStackRoutes } from './routes/stacks';
 import { registerStackConnectionRoutes } from './routes/stack-connections';
 import { registerIngressRoutes } from './routes/ingress';
+import { registerIngressSettingsRoutes } from './routes/ingress-settings';
 import { registerApiKeyRoutes } from './routes/api-keys';
 import { registerJoinTokenRoutes } from './routes/join-tokens';
 import { registerNodeActionRoutes } from './routes/node-actions';
@@ -70,6 +71,7 @@ function buildResourceApp(deps: RestDeps, withAuth = true): OpenAPIHono<RestEnv>
   registerStackRoutes(app);
   registerStackConnectionRoutes(app);
   registerIngressRoutes(app);
+  registerIngressSettingsRoutes(app);
   registerApiKeyRoutes(app);
   registerJoinTokenRoutes(app);
   registerDnsRecordRoutes(app);

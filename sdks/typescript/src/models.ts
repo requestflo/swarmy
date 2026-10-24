@@ -291,6 +291,67 @@ export interface UpdateDomainRequest {
   www: 'redirect-www-to-apex' | 'redirect-apex-to-www' | 'serve-both';
 }
 
+export interface IngressTls {
+  acme_email: string | null;
+  on_demand: boolean;
+  ask_url: string | null;
+}
+
+export interface IngressTunnel {
+  tunnel_id: string | null;
+  tunnel_name: string;
+  replicas: number;
+  run_token_set: boolean;
+}
+
+export interface IngressDnsProvider {
+  provider: 'cloudflare';
+  api_token_set: boolean;
+  set_at: string;
+}
+
+export interface IngressSettings {
+  org_id: string;
+  driver: 'caddy' | 'none' | 'cloudflared';
+  enabled: boolean;
+  topology: 'controller' | 'edge-per-node';
+  controller_image: string | null;
+  default_controller_image: string;
+  target_nodes: string[];
+  tls: IngressTls;
+  tunnel: IngressTunnel | null;
+  dns_provider: IngressDnsProvider | null;
+  updated_at: string;
+}
+
+export interface IngressTlsInput {
+  acme_email?: string | null;
+  on_demand?: boolean;
+  ask_url?: string | null;
+}
+
+export interface IngressTunnelInput {
+  run_token?: string;
+  tunnel_name?: string;
+  replicas?: number;
+}
+
+export interface IngressDnsProviderInput {
+  provider: 'cloudflare';
+  api_token: string;
+}
+
+export interface UpdateIngressSettingsRequest {
+  driver?: 'caddy' | 'none' | 'cloudflared';
+  enabled?: boolean;
+  topology?: 'controller' | 'edge-per-node';
+  controller_image?: string | null;
+  target_nodes?: string[];
+  tls?: IngressTlsInput;
+  tunnel?: IngressTunnelInput | null;
+  dns_provider?: IngressDnsProviderInput | null;
+}
+
 export interface ApiKey {
   id: string;
   name: string;

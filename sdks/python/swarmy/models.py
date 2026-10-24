@@ -594,6 +594,127 @@ class DnsRecordHint:
 
 
 @dataclass
+class IngressTls:
+    acme_email: Optional[str]
+    on_demand: bool
+    ask_url: Optional[str]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "IngressTls":
+        return cls(
+            acme_email=d.get("acme_email"),
+            on_demand=d.get("on_demand"),
+            ask_url=d.get("ask_url"),
+        )
+
+
+@dataclass
+class IngressTunnel:
+    tunnel_id: Optional[str]
+    tunnel_name: str
+    replicas: int
+    run_token_set: bool
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "IngressTunnel":
+        return cls(
+            tunnel_id=d.get("tunnel_id"),
+            tunnel_name=d.get("tunnel_name"),
+            replicas=d.get("replicas"),
+            run_token_set=d.get("run_token_set"),
+        )
+
+
+@dataclass
+class IngressDnsProvider:
+    provider: str
+    api_token_set: bool
+    set_at: str
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "IngressDnsProvider":
+        return cls(
+            provider=d.get("provider"),
+            api_token_set=d.get("api_token_set"),
+            set_at=d.get("set_at"),
+        )
+
+
+@dataclass
+class IngressSettings:
+    org_id: str
+    driver: str
+    enabled: bool
+    topology: str
+    controller_image: Optional[str]
+    default_controller_image: str
+    target_nodes: List[str]
+    tls: IngressTls
+    tunnel: Optional[IngressTunnel]
+    dns_provider: Optional[IngressDnsProvider]
+    updated_at: str
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "IngressSettings":
+        return cls(
+            org_id=d.get("org_id"),
+            driver=d.get("driver"),
+            enabled=d.get("enabled"),
+            topology=d.get("topology"),
+            controller_image=d.get("controller_image"),
+            default_controller_image=d.get("default_controller_image"),
+            target_nodes=d.get("target_nodes"),
+            tls=d.get("tls"),
+            tunnel=d.get("tunnel"),
+            dns_provider=d.get("dns_provider"),
+            updated_at=d.get("updated_at"),
+        )
+
+
+@dataclass
+class IngressTlsInput:
+    acme_email: Optional[str] = None
+    on_demand: Optional[bool] = None
+    ask_url: Optional[str] = None
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "IngressTlsInput":
+        return cls(
+            acme_email=d.get("acme_email"),
+            on_demand=d.get("on_demand"),
+            ask_url=d.get("ask_url"),
+        )
+
+
+@dataclass
+class IngressTunnelInput:
+    run_token: Optional[str] = None
+    tunnel_name: Optional[str] = None
+    replicas: Optional[int] = None
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "IngressTunnelInput":
+        return cls(
+            run_token=d.get("run_token"),
+            tunnel_name=d.get("tunnel_name"),
+            replicas=d.get("replicas"),
+        )
+
+
+@dataclass
+class IngressDnsProviderInput:
+    provider: str
+    api_token: str
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "IngressDnsProviderInput":
+        return cls(
+            provider=d.get("provider"),
+            api_token=d.get("api_token"),
+        )
+
+
+@dataclass
 class ApiKey:
     id: str
     name: str
