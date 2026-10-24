@@ -1,6 +1,6 @@
 ---
 name: observability-otel
-description: Invariants, contracts, and file map for swarmy's per-stack OpenTelemetry suite — the OTEL_* env/label injection on deploy, the one self-deployed OTel Collector + ClickHouse store (collector owns the schema), the org-scoped ClickHouse read builders (traces/service-map/metrics/logs), the plain-words health narrative, and the alerts→incidents→status-page spine. Load before touching packages/trpc/src/services/{otel-injection,observability-*,observability.service,health-summary,alerts*,incidents*,statusPages*}.ts, routers/{observability,alerts,incidents,statusPages,metrics}.ts, schema/{observability,alerts}.prisma, apps/api/src/workers/{observability-reconcile,alert-evaluator}.ts, apps/api/src/status-public.ts, or the observability/status UI. Product rationale lives in docs/product/observability.md.
+description: Invariants, contracts, and file map for swarmy's per-stack OpenTelemetry suite — the OTEL_* env/label injection on deploy, the one self-deployed OTel Collector + ClickHouse store (collector owns the schema), the org-scoped ClickHouse read builders (traces/service-map/metrics/logs), the plain-words health narrative, and the alerts→incidents→status-page spine. Load before touching packages/trpc/src/services/{otel-injection,observability-*,observability.service,health-summary,alerts*,incidents*,statusPages*}.ts, routers/{observability,alerts,incidents,statusPages,metrics}.ts, schema/alerts.prisma, the observability-config swarm-kv repo, apps/api/src/workers/{observability-reconcile,alert-evaluator}.ts, apps/api/src/status-public.ts, or the observability/status UI. Product rationale lives in docs/product/observability.md.
 ---
 
 # Observability: inject env → collector → ClickHouse → swarmy's own UI
@@ -53,7 +53,9 @@ db→protocol→service→router→UI shape see `skill("add-feature-slice")`.
    string routed through `lit()` (single-quote escape), every int `clampInt`'d.
    Users never touch raw ClickHouse; they get audited tRPC procedures.
 8. **Telemetry data lives in ClickHouse; the DB owns only control state + fired
-   history.** The controller store (`control.db`) holds `ObservabilityConfig` and the
+   history.** `ObservabilityConfig` is a swarm-kv document (`obs/<orgId>`,
+   `observability-config.repo.ts`; the DSN vault-encrypted inside it) and the
+   controller store (`control.db`) holds the
    alerting spine — never spans/metrics/logs. Run state is never stored: the store probe
    (`recordStoreProbe`/`latestStoreProbe`) and the last suite-deploy outcome
    live in memory in `observability.service.ts`; collector/store status is
@@ -152,6 +154,8 @@ db→protocol→service→router→UI shape see `skill("add-feature-slice")`.
 | Collector config + ClickHouse init render (`create_schema`, TTL) | `packages/trpc/src/services/observability-render.ts` |
 | Org-scoped ClickHouse SQL: traces/metrics/logs | `packages/trpc/src/services/observability-query.ts` (logs: `observability-logs-query.ts`) |
 | Org-scoped ClickHouse SQL: service map (RED per edge) | `packages/trpc/src/services/observability-map.ts` |
+| One query for many parts' request series (the canvas sparklines, `observability.requestSeriesMany`, ≤ 60 names, one app) | `packages/trpc/src/services/observability-request-many.ts` |
+| Sampling + redaction processors (pure, shared with the dashboard) | `packages/core/src/telemetry.ts` |
 | Enable/read layer (deploy suite, query, status) | `packages/trpc/src/services/observability.service.ts` |
 | Plain-words health narrative | `packages/trpc/src/services/health-summary.ts` |
 | tRPC router (getConfig/status/traces/…/health) | `packages/trpc/src/routers/observability.ts` |
@@ -163,14 +167,14 @@ db→protocol→service→router→UI shape see `skill("add-feature-slice")`.
 | Store-state reconcile (probe reachability/footprint) | `apps/api/src/workers/observability-reconcile.ts` |
 | Container output: identity labels/log-opts, agent render/spec/converge, logs SQL | `@swarmy/core` `container-logs.ts`; `services/observability-agent{,-render,-operators,-status,.service}.ts`, `observability-logs-query.ts` |
 | Alert eval + uptime sampling worker | `apps/api/src/workers/alert-evaluator.ts` |
-| Prisma: config/store-state + alerts/incidents/status | `packages/db/prisma/schema/{observability,alerts}.prisma` |
-| Error tracking: envelope parse, grouping, source maps, ingest, issue/release/artifact reads | `packages/trpc/src/services/errors/*`, `routers/errors.ts`; ingest HTTP `apps/api/src/errors-ingest.ts`; spike worker `apps/api/src/workers/errors-alerts.ts`; UI `apps/app/src/components/errors/*` |
+| Suite config (swarm-kv `obs/<orgId>`) + Prisma alerts/incidents/status | `packages/trpc/src/services/observability-config.repo.ts`; `packages/db/prisma/schema/alerts.prisma` |
+| Error tracking: envelope parse, grouping, source maps, ingest, issue/release/artifact reads (the list and `errors.issue` share one 24 h trend loader, `errors/trend.ts`) | `packages/trpc/src/services/errors/*`, `routers/errors.ts`; ingest HTTP `apps/api/src/errors-ingest.ts`; spike worker `apps/api/src/workers/errors-alerts.ts`; UI `apps/app/src/components/errors/*` |
 | RUM: browser bundles, token, ingest parsing, ClickHouse DDL/reads, Garage SigV4 client, GeoIP | `packages/rum/src/*` (client in `src/client/`, built on demand by `src/build.ts`) |
 | RUM: edge render + injector module | `packages/ingress/src/rum.ts` (+ hooks in `render/caddyfile.ts`), `docker/caddy-swarmy/rum/*.go` (goldens in `testdata/`) |
 | RUM: controller (settings label, public `/_rum` ingest, reads, GDPR, retention) | `packages/trpc/src/services/rum/*`, `routers/rum.ts`, `apps/api/src/rum.ts`, `apps/api/src/workers/rum-retention.ts` |
 | Trace UI: waterfall/map/metrics/logs panels | `apps/app/src/components/observability/*` |
 | Per-stack Observability tab + trace detail route | `apps/app/src/routes/_authed/stacks/$name.observability.tsx` (→ `components/observability/stack-observability-tab.tsx`), `routes/_authed/observability.$traceId.tsx` |
-| Alerts/incidents routes, status pages, public page | `routes/_authed/{alerts,incidents,incidents_.$incidentId}.tsx`; status pages are per stack (`components/statuspages/stack-status-pages.tsx`); public `routes/s.$slug.tsx` |
+| Alerts/incidents routes, status pages, public page | `routes/_authed/{alerts,incidents,incidents_.$incidentId}.tsx`; status pages `routes/_authed/status-pages.tsx` → `components/statuspages/*`; public `routes/s.$slug.tsx` |
 
 ## Adding a signal / query (the recipe)
 
@@ -213,7 +217,15 @@ observe-only (ClickHouse `TTL` owns deletion).
   so each line carries `attrs`; lines without them are never shipped.
   `swarmy.org_id` comes from the agent's render, never a label. Rows carry
   `swarmy.log.source=stdout`; the logs builder's `auto` source shows a
-  service's stdout only when it sent no OTLP log in the window.
+  service's stdout only when it sent no OTLP log in the window (org wall on
+  both sides of that dedupe). A service labelled `swarmy.logs.stdout=off`
+  (`CONTAINER_LOGS_OPT_OUT_LABEL`) gets no identity, so it is never shipped.
+  The agent has no Docker socket, no port and no secret.
+- The sampling/redaction processors are rendered by the pure
+  `@swarmy/core` `telemetry.ts` (`renderTelemetryProcessors`, shared with the
+  dashboard's Code view): redaction before `tail_sampling` so a secret never
+  sits in the decision buffer; the sampler keeps every error, slow traces
+  (`slowTraceMs`) and `restPercent` of the rest.
 - The collector schema is the writer's — if you touch table shape, change
   `renderCollectorConfig`'s exporter settings, not a hand-rolled `CREATE TABLE`
   in `renderClickhouseInitSql`.
@@ -221,4 +233,7 @@ observe-only (ClickHouse `TTL` owns deletion).
   snapshot is read-only by design.
 - Verify: `bun --filter @swarmy/trpc typecheck` and the unit suites
   (`otel-injection`, `observability-query`, `observability-map`, `health-summary`,
-  `alerts.service`, `incidents-record`, `statusPages.service` tests).
+  `alerts.service`, `incidents-record`, `statusPages.service` tests). The SQL
+  builders also have opt-in tests against a REAL ClickHouse
+  (`observability-{query,logs-query}.clickhouse.integration.test.ts`): set
+  `SWARMY_CLICKHOUSE_URL` to a throwaway server; they skip without it.

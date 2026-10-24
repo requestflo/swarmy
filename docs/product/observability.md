@@ -51,8 +51,9 @@ managed suite (deployed via the EXISTING service.deploy path — no new protocol
    ▼
 app auto-exports OTLP → collector enriches + exports → ClickHouse
    otel_traces · otel_metrics_* · otel_logs   (partition-by-day, TTL = retentionDays)
-   │  ③ (planned) collector's `filelog` tails container stdout → logs land
-   │     with zero app changes, even for an uninstrumented image
+   │  ③ opt-in per org: a `swarmy-otel-agent` on every server tails container
+   │     output (`filelog`) → OTLP → the collector, so logs land with zero app
+   │     changes, even for an uninstrumented image
    ▼
 controller reads ClickHouse over HTTP, org-scoped on EVERY query
    traces · service map · metrics · logs · health narrative → the tab + top-level UI
@@ -94,9 +95,11 @@ Four ideas, one story:
 - **The telemetry data itself lives in ClickHouse, never swarmy's DB.** Traces,
   spans, app metrics, and log lines are the collector's write path; swarmy's DB
   never mirrors them. Retention is a ClickHouse `TTL`, not a swarmy delete loop.
-- **What swarmy's DB owns is only its own control state + queryable history**:
+- **What swarmy owns is only its own control state + queryable history**:
   `ObservabilityConfig` (org `enabled`, encrypted `clickhouseDsn`,
-  `retentionDays`) and the alerting spine —
+  `retentionDays`, the telemetry settings) is a small config document in the
+  swarm (swarm-kv `obs/<orgId>`), and the controller's DB holds the alerting
+  spine —
   `AlertRule`/`AlertEvent`, `Incident`/`IncidentEvent`, `StatusPage`/`UptimeSample`,
   `NotificationChannel` (config encrypted via the vault, never returned to
   clients). Identity, access, audit, and the *history of what fired* — swarmy's;
@@ -114,13 +117,26 @@ Four ideas, one story:
   telemetry until its toggle is on; turning it off drops the env/labels on next
   deploy and stops the stack's data landing. The whole suite has zero footprint
   when no org has enabled it — ClickHouse is heavy, so it is strictly opt-in.
-- **Logs work the instant you opt in — even for an uninstrumented image.**
-  *(Direction — not built: the collector pipelines are OTLP-only today, so only
-  apps that export OTLP logs show up; tail sampling and the gateway tier in the
-  table below are the same. See `plans/ROADMAP.md`.)* The node collector's
-  `filelog` receiver tails container stdout, so "Logs" is
-  populated before the app knows what OpenTelemetry is; if the app logs a
-  `trace_id`, the log line jumps to its trace.
+- **Logs work even for an uninstrumented image, once the org keeps container
+  output.** Activity › Telemetry › "Keep what every app prints" (off by
+  default, needs the suite on; `TelemetrySettings.containerLogs`) runs one
+  `swarmy-otel-agent` per server. It reads Docker's json-file logs read-only
+  (rotated files too) and sends them over OTLP to the collector, kept with the
+  logs retention. Docker itself attributes each line: a service deployed while
+  the org collects gets `swarmy.stack`/`swarmy.service` container labels and
+  the json-file `labels=` option, so every line carries them; lines without
+  them (swarmy's own services, plain containers, services not redeployed since)
+  are never shipped. `swarmy.logs.stdout=off` on a service keeps it out. Each
+  line says where it came from (stdout or OTLP); by default a service's stdout
+  shows only when it sent no OTLP log in the window, so a line appears once,
+  and the Source filter shows both or one. If the app logs a `trace_id`, the
+  log line jumps to its trace. Not verified on a real swarm yet: that Swarm
+  passes the `labels=` log option through.
+- **The one collector samples and scrubs.** Activity › Telemetry sets what it
+  keeps: every error trace, traces slower than a threshold, and a share of the
+  rest (`tail_sampling`, traces only), plus redaction rules that drop or mask
+  attributes before anything is sampled or stored, and a retention per signal.
+  There is no separate gateway tier of collectors.
 - **The service map is derived, not declared.** Edges come from client/server
   span-kind pairs (`A`'s CLIENT span parenting `B`'s SERVER span); RED is measured
   server-side — what B's callers actually experienced. A node or edge tints
@@ -141,6 +157,10 @@ Four ideas, one story:
   Disk history is a week of each server's 5-minute peaks
   (`alerts.diskHistory`); a gap is drawn as a gap, never as zero. Other signals
   have no backtest yet.
+- **Every part of an app has a sparkline.** The app canvas draws each part's
+  last hour of requests (two-minute buckets) from one batched, org-scoped
+  query (`observability.requestSeriesMany`, up to 60 service names of one
+  app): a gap before a part first reported, real zeros after.
 - **Send test shows what lands.** A channel's test message is drawn in that
   app's own look (Slack, Discord, Telegram, email…), from the same renderers
   the controller sends with, so the preview and the delivery can't differ.
@@ -264,7 +284,12 @@ ClickHouse query discipline, and the alerts→incidents→status spine. Key home
 `packages/trpc/src/services/otel-injection.ts` (env/label injection, service
 override), `observability-stack.ts` + `observability-render.ts` (managed specs +
 collector/ClickHouse config, `create_schema: true`), `observability-query.ts` /
-`observability-map.ts` (org-scoped ClickHouse SQL builders), `health-summary.ts`
+`observability-map.ts` (org-scoped ClickHouse SQL builders; logs in
+`observability-logs-query.ts`, the canvas batch in
+`observability-request-many.ts`), the container-output tier
+(`packages/core/src/container-logs.ts`,
+`services/observability-agent{,-render,-operators,-status,.service}.ts`),
+the sampling and redaction render (`packages/core/src/telemetry.ts`), `health-summary.ts`
 (the plain-words narrative), `observability.service.ts` + `routers/observability.ts`
 (the read/enable layer), the alerting spine
 (`alerts.service.ts`/`alerts-fire.ts`/`incidents-record.ts`/`statusPages.service.ts`
