@@ -636,6 +636,12 @@ export const ObservabilityLogsInput = z.object({
   search: z.string().min(1).max(512).optional(),
   /** Only lines correlated to this trace. */
   traceId: z.string().min(1).max(64).optional(),
+  /**
+   * Which lines: `auto` (default) shows a service's container output only
+   * when it sends no OTLP logs in the window — so one line never shows twice;
+   * `all` shows both; `stdout` / `otlp` one source only.
+   */
+  source: z.enum(['auto', 'all', 'stdout', 'otlp']).optional(),
   limit: z.number().int().min(1).max(500).optional(),
   cursor: z.string().regex(/^\d{1,20}$/).optional(),
 });
@@ -1570,6 +1576,13 @@ export const TelemetrySettings = z.object({
     .array(TelemetryRedactionRule)
     .max(32)
     .refine((rules) => new Set(rules.map((r) => r.id)).size === rules.length, 'Rule ids must be unique'),
+  /**
+   * Container output (stdout/stderr) tailed on every server by the node agent,
+   * so apps that never speak OTLP still have logs. Opt-in: absent = off.
+   * Lines expire with `retention.logsDays`. Additive — saved documents
+   * without it still parse.
+   */
+  containerLogs: z.object({ enabled: z.boolean() }).optional(),
 });
 export type TelemetrySettings = z.infer<typeof TelemetrySettings>;
 

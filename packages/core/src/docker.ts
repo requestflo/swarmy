@@ -13,6 +13,7 @@ import type {
 import { healthFromInspect } from './container-health';
 import { isSwarmyStackNetwork, summarizeTasks, SWARMY_OVERLAY_NETWORK, type TaskLike } from './inventory';
 import { isPlatformNetwork, OVERLAY_MTU_OPTION, stripPlatformAliases, SWARMY_CONTROL_NETWORK } from './network-policy';
+import { BOUNDED_JSON_FILE_OPTIONS } from './container-logs';
 
 /** The subset of a Docker swarm ServiceSpec the agent reads (dockerode types are loose). */
 interface SwarmNetworkAttachment {
@@ -1104,7 +1105,7 @@ function normalizeState(state: string): ContainerState {
  */
 export const DEFAULT_LOG_DRIVER: { Name: string; Options: Record<string, string> } = {
   Name: 'json-file',
-  Options: { 'max-size': '10m', 'max-file': '3' },
+  Options: { ...BOUNDED_JSON_FILE_OPTIONS },
 };
 
 /**
@@ -1175,6 +1176,8 @@ export function toServiceCreateOptions(spec: ServiceSpec): Docker.CreateServiceO
     TaskTemplate: {
       ContainerSpec: {
         Image: spec.image,
+        ...(spec.containerLabels ? { Labels: spec.containerLabels } : {}),
+        ...(spec.user ? { User: spec.user } : {}),
         Command: spec.command,
         Args: spec.args,
         Env: env,

@@ -965,6 +965,11 @@ export interface LogRowView {
   body: string;
   /** The row's `LogAttributes` map (structured context). */
   attributes: Record<string, string>;
+  /**
+   * Where the line came from: `stdout` = container output the node agent
+   * tailed, `otlp` = the app sent it. Absent (older controllers) = `otlp`.
+   */
+  source?: 'stdout' | 'otlp';
 }
 
 /** One page of the logs feed — fail-open `{status}` like the other obs reads. */

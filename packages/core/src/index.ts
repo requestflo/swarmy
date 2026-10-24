@@ -31,6 +31,7 @@ export * from './healthcheck';
 export * from './container-health';
 export * from './clickhouse';
 export * from './telemetry';
+export * from './container-logs';
 export * from './api-keys';
 export * from './alert-targets';
 export * from './alert-quiet-hours';

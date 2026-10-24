@@ -11,7 +11,7 @@ import {
 } from '@swarmy/core/docker';
 import type { CommandProgress, ControllerEnvelope, RegistryAuth, RenderedConfig, ServiceSpec } from '@swarmy/core/protocol';
 import type { AgentConnection } from './connection';
-import { buildGateAllows, BUILDER_ENABLE_HINT, execGateAllows, EXEC_LOCAL_VETO_HINT, EXEC_ENABLE_HINT } from '@swarmy/core';
+import { buildGateAllows, BUILDER_ENABLE_HINT, carryContainerLabels, execGateAllows, EXEC_LOCAL_VETO_HINT, EXEC_ENABLE_HINT } from '@swarmy/core';
 import { env } from './env';
 import { backupVolume, restoreVolume, listSnapshots, backupDb, restoreDb } from './handlers/backup';
 import { appDbBackup, appDbRestore, appDbVerify } from './handlers/appdb';
@@ -522,6 +522,13 @@ export async function deployOrUpdate(
         spec,
         (inspect.Spec?.TaskTemplate as { LogDriver?: { Name?: string; Options?: Record<string, string> } } | undefined)
           ?.LogDriver,
+      );
+      // Keep the task containers' labels (log identity) across lossy rebuilds.
+      carryContainerLabels(
+        opts as Parameters<typeof carryContainerLabels>[0],
+        spec,
+        (inspect.Spec?.TaskTemplate as { ContainerSpec?: { Labels?: Record<string, string> } } | undefined)
+          ?.ContainerSpec?.Labels,
       );
       // …but never onto the platform overlays: a legacy alias there is dropped.
       dropAliasesOnTargets(

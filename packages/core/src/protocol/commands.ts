@@ -170,6 +170,16 @@ export const ServiceSpec = z.object({
   logging: z
     .object({ driver: z.string().min(1), options: z.record(z.string()).optional() })
     .optional(),
+  /**
+   * Labels on each task CONTAINER (`ContainerSpec.Labels`), distinct from the
+   * service `labels`. swarmy stamps `swarmy.stack` / `swarmy.service` here so
+   * Docker's json-file driver can write them into every log line (see
+   * `container-logs.ts`). OMITTED on an update = the live ones are carried.
+   * Additive — an older agent ignores it.
+   */
+  containerLabels: z.record(z.string()).optional(),
+  /** Container user (`ContainerSpec.User`), e.g. `0` for the node log agent. Additive. */
+  user: z.string().min(1).optional(),
 });
 export type ServiceSpec = z.infer<typeof ServiceSpec>;
 
