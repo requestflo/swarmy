@@ -247,19 +247,20 @@ describe('aggregateTrafficNow — to region and app', () => {
       ['eu-2', 'reporting', 134],
     ]);
     expect(view.regions[2]!.edges).toEqual([
-      { nodeId: 'ap1', name: 'ap-1', region: 'ap-south', state: 'no-data', requestsPerMin: null, lastReportAt: null },
+      // An older agent's payload carries no duration buckets: no percentile, never a zero.
+      { nodeId: 'ap1', name: 'ap-1', region: 'ap-south', state: 'no-data', requestsPerMin: null, lastReportAt: null, p50Ms: null, p95Ms: null },
     ]);
     expect(view.apps).toEqual([
       { app: 'storefront', requestsPerMin: 578, errors5xxPerMin: 3.1, errorShare: 0.0054, hosts: ['api.example.com', 'shop.example.com'] },
       { app: null, requestsPerMin: 34, errors5xxPerMin: 0, errorShare: 0, hosts: ['junk.test'] },
     ]);
-    expect(view.totals).toEqual({ requestsPerMin: 612, errors5xxPerMin: 3.1, errorShare: 0.0051, state: 'reporting' });
+    expect(view.totals).toEqual({ requestsPerMin: 612, errors5xxPerMin: 3.1, errorShare: 0.0051, blockedPerMin: null, state: 'reporting', p50Ms: null, p95Ms: null });
   });
 
   it('nothing reported yet → no-data everywhere, never a zero', () => {
     const view = aggregateTrafficNow({ cells: [], coverage: new Map(), reports: new Map(), edges, appOf, now: T0 });
     expect(view.sampledAt).toBeNull();
-    expect(view.totals).toEqual({ requestsPerMin: null, errors5xxPerMin: null, errorShare: null, state: 'no-data' });
+    expect(view.totals).toEqual({ requestsPerMin: null, errors5xxPerMin: null, errorShare: null, blockedPerMin: null, state: 'no-data', p50Ms: null, p95Ms: null });
     expect(view.regions.every((r) => r.requestsPerMin === null && r.state === 'no-data')).toBe(true);
     expect(view.apps).toEqual([]);
   });
@@ -291,8 +292,9 @@ describe('bucketTrafficSeries — sparkline buckets', () => {
     });
     expect(out.bucketSec).toBe(300);
     expect(out.points).toHaveLength(72);
-    expect(out.points.at(-1)).toEqual({ t: M0 - 5 * MINUTE_MS, requestsPerMin: 200, errors5xxPerMin: 1 });
-    expect(out.points.at(-2)).toEqual({ t: M0 - 10 * MINUTE_MS, requestsPerMin: 0, errors5xxPerMin: 0 });
+    const none = { p50Ms: null, p95Ms: null, blockedPerMin: null };
+    expect(out.points.at(-1)).toEqual({ t: M0 - 5 * MINUTE_MS, requestsPerMin: 200, errors5xxPerMin: 1, ...none });
+    expect(out.points.at(-2)).toEqual({ t: M0 - 10 * MINUTE_MS, requestsPerMin: 0, errors5xxPerMin: 0, ...none });
     expect(out.points.at(-3)!.requestsPerMin).toBeNull();
     expect(out.points[0]!.t).toBe(M0 - 6 * 60 * MINUTE_MS);
   });

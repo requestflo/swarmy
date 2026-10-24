@@ -32,8 +32,32 @@ describe('EdgeTrafficScraper — deltas on the metrics tick', () => {
     expect(await scraper.sample()).toEqual({
       sampledAt: 1_015_000,
       intervalSec: 15,
-      hosts: [{ host: 'shop.test', requests: 60, errors5xx: 4 }],
+      // The duration count carries codes, so shop.test reports zero 403/429 (api.test has none: unreported).
+      hosts: [{ host: 'shop.test', requests: 60, errors5xx: 4, status403: 0, status429: 0 }],
     });
+  });
+
+  it('adds each host`s 403/429 and duration buckets since the last scrape', async () => {
+    const hist = (n200: number, n403: number, n429: number, slow: number) =>
+      ['200', '403', '429']
+        .map((code, k) => {
+          const n = [n200, n403, n429][k]!;
+          const l = `code="${code}",handler="subroute",host="shop.test",method="GET",server="srv0"`;
+          const fast = code === '200' ? n - slow : n;
+          return [
+            `caddy_http_request_duration_seconds_bucket{${l},le="0.05"} ${fast}`,
+            `caddy_http_request_duration_seconds_bucket{${l},le="1"} ${n}`,
+            `caddy_http_request_duration_seconds_bucket{${l},le="+Inf"} ${n}`,
+            `caddy_http_request_duration_seconds_count{${l}} ${n}`,
+          ].join('\n');
+        })
+        .join('\n');
+    const { scraper, tick } = harness([body(100, 0) + hist(90, 6, 4, 10), body(160, 0) + hist(140, 12, 8, 20)]);
+    await scraper.sample();
+    tick(15_000);
+    expect((await scraper.sample())?.hosts).toEqual([
+      { host: 'shop.test', requests: 60, errors5xx: 0, status403: 6, status429: 4, latency: { bounds: [0.05, 1], counts: [50, 10, 0] } },
+    ]);
   });
 
   it('a Caddy restart (new process start time) counts the new totals, never a negative', async () => {
@@ -41,7 +65,7 @@ describe('EdgeTrafficScraper — deltas on the metrics tick', () => {
     await scraper.sample();
     tick(15_000);
     expect((await scraper.sample())?.hosts).toEqual([
-      { host: 'shop.test', requests: 20, errors5xx: 0 },
+      { host: 'shop.test', requests: 20, errors5xx: 0, status403: 0, status429: 0 },
       { host: 'api.test', requests: 5, errors5xx: 0 },
     ]);
   });

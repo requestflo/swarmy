@@ -31,6 +31,8 @@ describe('traffic.now per host', () => {
       if (m >= 8) ring.record('o', 'us1', { sampledAt: at, intervalSec: 60, hosts: [{ host: 'shop.example.com', requests: 178, errors5xx: 0 }] }, at);
     }
     const view = aggregateTrafficNow({ cells: ring.cells('o', 0, now), coverage: ring.coverage('o', 0, now), reports: ring.reports('o'), edges, appOf, now });
+    // No status codes or duration buckets in these (older-agent) payloads: null, never a zero.
+    const none = { blockedPerMin: null, forbiddenPerMin: null, tooManyPerMin: null, p50Ms: null, p95Ms: null };
     expect(view.hosts).toEqual([
       {
         host: 'shop.example.com',
@@ -38,14 +40,15 @@ describe('traffic.now per host', () => {
         requestsPerMin: 478,
         errors5xxPerMin: 3.1,
         errorShare: 0.0065,
+        ...none,
         edges: [
           { nodeId: 'eu1', requestsPerMin: 300 },
           { nodeId: 'us1', requestsPerMin: 178 },
         ],
       },
-      { host: 'api.example.com', app: 'storefront', requestsPerMin: 100, errors5xxPerMin: 0, errorShare: 0, edges: [{ nodeId: 'eu1', requestsPerMin: 100 }] },
+      { host: 'api.example.com', app: 'storefront', requestsPerMin: 100, errors5xxPerMin: 0, errorShare: 0, ...none, edges: [{ nodeId: 'eu1', requestsPerMin: 100 }] },
       // The hosts an edge folded past its cap stay one honest row, owned by no app.
-      { host: EDGE_OVERFLOW_HOST, app: null, requestsPerMin: 7.1, errors5xxPerMin: 1.1, errorShare: 0.1563, edges: [{ nodeId: 'eu1', requestsPerMin: 7.1 }] },
+      { host: EDGE_OVERFLOW_HOST, app: null, requestsPerMin: 7.1, errors5xxPerMin: 1.1, errorShare: 0.1563, ...none, edges: [{ nodeId: 'eu1', requestsPerMin: 7.1 }] },
     ]);
     const storefront = view.apps.find((a) => a.app === 'storefront')!;
     const hostsSum = view.hosts.filter((h) => h.app === 'storefront').reduce((n, h) => n + h.requestsPerMin, 0);

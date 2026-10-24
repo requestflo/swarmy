@@ -36,6 +36,21 @@ describe('gateway ingests metrics.edge into the edge-traffic ring', () => {
     expect(store.nodeStats.get('edge1')?.memTotalBytes).toBe(2);
   });
 
+  it('keeps the 403/429 answers and duration buckets a newer agent sends', async () => {
+    const store = new GatewayStore();
+    store.nodeOrg.set('edge1', 'org_t');
+    const latency = { bounds: [0.005, 0.01], counts: [30, 10, 2] };
+    await handleAgentMessage(
+      socket('edge1'),
+      frame({ sampledAt: 1, intervalSec: 15, hosts: [{ host: 'shop.test', requests: 42, errors5xx: 0, status403: 5, status429: 2, latency }] }),
+      deps(store),
+    );
+    const cells = store.edgeTraffic.cells('org_t', 0, Number.MAX_SAFE_INTEGER);
+    expect(cells.reduce((n, c) => n + (c.status403 ?? 0) + (c.status429 ?? 0), 0)).toBe(7);
+    const buckets = [0, 1, 2].map((i) => cells.reduce((n, c) => n + (c.latency?.counts[i] ?? 0), 0));
+    expect(buckets).toEqual([30, 10, 2]);
+  });
+
   it('a metrics frame without edge (non-edge node / older agent) touches no ring', async () => {
     const store = new GatewayStore();
     store.nodeOrg.set('n1', 'org_t');

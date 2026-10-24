@@ -2,6 +2,12 @@ import { z } from 'zod';
 import type { PromSample } from './prometheus-text';
 import type { EdgeTrafficSample } from './protocol/stats';
 import { aggregateTrafficHosts, type TrafficHostView } from './edge-traffic-hosts';
+import { apportion } from './apportion';
+import type { CaddyHostExtras } from './edge-traffic-caddy';
+import { latencyView, type LatencyView } from './edge-latency';
+import { addExtras, apportionExtras, bucketSeriesExtras, edgeLatencies, mergedView, type HostExtras } from './edge-traffic-extras';
+
+export { apportion };
 
 /**
  * Per-edge request counting (Q4) — the pure half.
@@ -14,11 +20,13 @@ import { aggregateTrafficHosts, type TrafficHostView } from './edge-traffic-host
  *
  * Numbers only: plain-words phrasing ("434 visitors a minute in Europe") is a
  * UI concern. "No data" is always `null` + a state, never a fake zero.
+ * Latency (duration buckets) and blocked answers (403/429) ride along as
+ * {@link HostExtras} — see edge-traffic-caddy.ts / edge-traffic-extras.ts.
  */
 
 // ── agent side: counters out of a Caddy scrape ─────────────────────────────
 
-export interface HostCounter {
+export interface HostCounter extends HostExtras {
   requests: number;
   errors5xx: number;
 }
@@ -107,6 +115,8 @@ export interface EdgeScrapeState {
   /** Caddy process start (resets every counter when it changes). */
   startedAt?: number;
   counters: Map<string, HostCounter>;
+  /** Per-host 403/429 and duration buckets (absent when the scrape had no histogram). */
+  extras?: Map<string, CaddyHostExtras>;
 }
 
 /** Per-scrape host cap — a flood of junk Host headers must not blow up the frame. */
@@ -183,7 +193,7 @@ export const TRAFFIC_STALE_MS = 3 * MINUTE_MS;
 
 export const minuteOf = (ms: number): number => Math.floor(ms / MINUTE_MS) * MINUTE_MS;
 
-export interface TrafficCell {
+export interface TrafficCell extends HostExtras {
   /** Bucket start (ms). */
   t: number;
   nodeId: string;
@@ -205,27 +215,6 @@ interface OrgRing {
   /** minute → node → ms of that minute its reports covered (zero traffic ≠ no data) */
   coverage: Map<number, Map<string, number>>;
   reports: Map<string, EdgeReportSpan>;
-}
-
-/**
- * Split integer `n` by `weights` (largest remainder): shares sum to exactly
- * `n`, so spreading a delta over minutes never gains or loses a request.
- */
-export function apportion(n: number, weights: readonly number[]): number[] {
-  const total = weights.reduce((a, b) => a + b, 0);
-  if (n === 0 || total <= 0) return weights.map(() => 0);
-  const exact = weights.map((w) => (n * w) / total);
-  const out = exact.map(Math.floor);
-  let left = n - out.reduce((a, b) => a + b, 0);
-  const order = exact
-    .map((x, i) => ({ i, r: x - Math.floor(x) }))
-    .sort((a, b) => b.r - a.r || b.i - a.i);
-  for (const { i } of order) {
-    if (left <= 0) break;
-    out[i]! += 1;
-    left--;
-  }
-  return out;
 }
 
 /**
@@ -277,13 +266,16 @@ export class EdgeTrafficRing {
     for (const h of sample.hosts) {
       const req = apportion(h.requests, weights);
       const err = apportion(h.errors5xx, weights);
+      const extra = apportionExtras(h, weights);
       mins.forEach((m, i) => {
-        if (req[i] === 0 && err[i] === 0) return;
+        const x = extra[i]!;
+        if (req[i] === 0 && err[i] === 0 && !x.latency && !x.status403 && !x.status429) return;
         const cells = o.minutes.get(m) ?? new Map<string, HostCounter>();
         const key = `${nodeId}\u0000${h.host}`;
         const c = cells.get(key) ?? { requests: 0, errors5xx: 0 };
         c.requests += req[i]!;
         c.errors5xx += err[i]!;
+        addExtras(c, x);
         cells.set(key, c);
         o.minutes.set(m, cells);
       });
@@ -331,7 +323,7 @@ export class EdgeTrafficRing {
 
 // ── rollups ────────────────────────────────────────────────────────────────
 
-export interface TrafficRollupRow {
+export interface TrafficRollupRow extends HostExtras {
   bucketStart: number;
   nodeId: string;
   /** `''` = the per-edge coverage marker (the edge reported in this bucket). */
@@ -343,7 +335,9 @@ export interface TrafficRollupRow {
 /**
  * Fold the ring's minutes in `[from, to)` into `bucketMs` rows per (edge,
  * host). Every edge that reported in a bucket also gets a coverage row
- * (`host: ''`, zero counts) so a quiet bucket reads 0, not "no data".
+ * (`host: ''`, zero counts) so a quiet bucket reads 0, not "no data". The
+ * coverage row carries the edge's WHOLE duration histogram (every host
+ * merged), so an edge-wide latency series never needs the host rows.
  */
 export function rollupRing(
   ring: EdgeTrafficRing,
@@ -367,7 +361,10 @@ export function rollupRing(
     const row = acc.get(key) ?? { bucketStart: b, nodeId: c.nodeId, host: c.host, requests: 0, errors5xx: 0 };
     row.requests += c.requests;
     row.errors5xx += c.errors5xx;
+    addExtras(row, c);
     acc.set(key, row);
+    const cover = acc.get(`${b}\u0000${c.nodeId}\u0000`);
+    if (cover && c.latency) addExtras(cover, { latency: c.latency });
   }
   return [...acc.values()].sort(
     (a, b) => a.bucketStart - b.bucketStart || (a.nodeId < b.nodeId ? -1 : a.nodeId > b.nodeId ? 1 : a.host < b.host ? -1 : a.host > b.host ? 1 : 0),
@@ -400,6 +397,10 @@ export const TrafficSeriesInput = z.object({
   app: z.string().min(1).nullable().optional(),
   /** A region label (`swarmy.region`). */
   region: z.string().min(1).optional(),
+  /** One address (as the edge reports it: lower-case, no port). */
+  host: z.string().min(1).max(253).optional(),
+  /** One edge (node id). */
+  nodeId: z.string().min(1).optional(),
   window: TrafficWindow.default('6h'),
 });
 export type TrafficSeriesInput = z.infer<typeof TrafficSeriesInput>;
@@ -414,7 +415,10 @@ export const TRAFFIC_WINDOWS: Record<TrafficWindow, { spanMs: number; bucketMs: 
 /** `reporting` = heard from recently; `stale` = was, not lately; `no-data` = nothing yet. */
 export type EdgeTrafficState = 'reporting' | 'stale' | 'no-data';
 
-export interface TrafficEdgeView {
+/** p50/p95 in ms from the MERGED duration buckets (null = nothing observed / not reported). */
+export type TrafficLatency = Partial<LatencyView>;
+
+export interface TrafficEdgeView extends TrafficLatency {
   nodeId: string;
   name: string;
   region: string | null;
@@ -424,7 +428,7 @@ export interface TrafficEdgeView {
   lastReportAt: number | null;
 }
 
-export interface TrafficRegionView {
+export interface TrafficRegionView extends TrafficLatency {
   /** `swarmy.region` label; null = edges with no region label. */
   region: string | null;
   /** Sum over its reporting edges; null when none has data yet. */
@@ -449,10 +453,12 @@ export interface TrafficNowView {
   sampledAt: number | null;
   windowMinutes: number;
   unit: 'requests/min';
-  totals: {
+  totals: TrafficLatency & {
     requestsPerMin: number | null;
     errors5xxPerMin: number | null;
     errorShare: number | null;
+    /** 403 + 429 a minute over every host; null = no edge reported status codes. */
+    blockedPerMin?: number | null;
     state: 'reporting' | 'no-data';
   };
   regions: TrafficRegionView[];
@@ -461,12 +467,14 @@ export interface TrafficNowView {
   hosts: TrafficHostView[];
 }
 
-export interface TrafficSeriesPoint {
+export interface TrafficSeriesPoint extends TrafficLatency {
   /** Bucket start (ms). */
   t: number;
   /** null = no edge reported in this bucket (a gap, not a zero). */
   requestsPerMin: number | null;
   errors5xxPerMin: number | null;
+  /** 403 + 429 a minute; null = a gap, or no edge reported status codes. */
+  blockedPerMin?: number | null;
 }
 
 export interface TrafficSeriesView {
@@ -475,6 +483,8 @@ export interface TrafficSeriesView {
   unit: 'requests/min';
   app?: string | null;
   region?: string;
+  host?: string;
+  nodeId?: string;
   sampledAt: number | null;
   points: TrafficSeriesPoint[];
 }
@@ -560,6 +570,7 @@ export function aggregateTrafficNow(args: {
     perApp.set(app, a);
   }
 
+  const latencies = edgeLatencies({ cells: args.cells, covered, start, end });
   const regions = new Map<string | null, TrafficRegionView>();
   const regionRaw = new Map<string | null, HostCounter>();
   let sampledAt: number | null = null;
@@ -576,6 +587,7 @@ export function aggregateTrafficNow(args: {
       state,
       requestsPerMin: mins > 0 ? round1(counts.requests / mins) : null,
       lastReportAt: rep?.lastAt ?? null,
+      ...latencyView(latencies.get(e.nodeId)),
     };
     const r = regions.get(e.region) ?? {
       region: e.region,
@@ -597,6 +609,7 @@ export function aggregateTrafficNow(args: {
     regions.set(e.region, r);
   }
 
+  for (const r of regions.values()) Object.assign(r, mergedView(r.edges.map((e) => latencies.get(e.nodeId))));
   const regionList = [...regions.values()].sort(
     (a, b) => (b.requestsPerMin ?? -1) - (a.requestsPerMin ?? -1) || String(a.region).localeCompare(String(b.region)),
   );
@@ -605,6 +618,7 @@ export function aggregateTrafficNow(args: {
   const totalReq = reporting.length ? round1(raws.reduce((n, r) => n + r.requests, 0)) : null;
   const totalErr = reporting.length ? round1(raws.reduce((n, r) => n + r.errors5xx, 0)) : null;
 
+  const hosts = aggregateTrafficHosts({ cells: args.cells, covered, appOf: args.appOf, start, end });
   const apps: TrafficAppView[] = [...perApp.entries()]
     .map(([app, a]) => ({
       app,
@@ -624,16 +638,24 @@ export function aggregateTrafficNow(args: {
       requestsPerMin: totalReq,
       errors5xxPerMin: totalErr,
       errorShare: totalReq !== null && totalReq > 0 && totalErr !== null ? Math.round((totalErr / totalReq) * 10_000) / 10_000 : null,
+      blockedPerMin: hostsBlocked(hosts),
       state: totalReq === null ? 'no-data' : 'reporting',
+      ...mergedView(latencies.values()),
     },
     regions: regionList,
     apps,
-    hosts: aggregateTrafficHosts({ cells: args.cells, covered, appOf: args.appOf, start, end }),
+    hosts,
   };
 }
 
+/** Every host's blocked a minute added up; null when none reported status codes. */
+function hostsBlocked(hosts: readonly TrafficHostView[]): number | null {
+  const known = hosts.filter((h) => typeof h.blockedPerMin === 'number');
+  return known.length ? round1(known.reduce((n, h) => n + h.blockedPerMin!, 0)) : null;
+}
+
 /** A pre-filtered row for series bucketing (from the ring or the rollup table). */
-export interface TrafficSeriesRow {
+export interface TrafficSeriesRow extends HostExtras {
   t: number;
   nodeId: string;
   /** `''` = coverage marker. */
@@ -674,12 +696,14 @@ export function bucketTrafficSeries(args: {
     err[i]! += r.errors5xx;
   }
   const perMin = bucketMs / MINUTE_MS;
+  const extras = bucketSeriesExtras({ rows: args.rows, start, bucketMs, n, covered: cov });
   return {
     bucketSec: bucketMs / 1000,
     points: req.map((r, i) => ({
       t: start + i * bucketMs,
       requestsPerMin: cov[i] ? round1(r / perMin) : null,
       errors5xxPerMin: cov[i] ? round1(err[i]! / perMin) : null,
+      ...extras[i]!,
     })),
   };
 }

@@ -1,8 +1,10 @@
 import {
   caddyHostCounters,
+  caddyHostExtras,
   edgeTrafficDelta,
   parsePrometheusText,
   processStartTime,
+  withEdgeExtras,
   type EdgeScrapeState,
 } from '@swarmy/core';
 import type { DockerClient } from '@swarmy/core/docker';
@@ -15,7 +17,8 @@ import { createLogDemuxer } from '../log-demux';
  * the docker socket, like `localReload`): the admin listener stays on the
  * task's localhost and port 2019 is never published. The per-host counter
  * deltas since the previous scrape ride the existing `metrics` frame as its
- * optional `edge` field.
+ * optional `edge` field — with each host's 403/429 answers and request-duration
+ * buckets (from Caddy's duration histogram) as optional fields of their own.
  *
  * Scrapes run on the metrics tick but at most every {@link EDGE_SCRAPE_MIN_MS}
  * — each one is a docker exec, and 15 s is plenty for per-minute rates. A
@@ -59,10 +62,10 @@ export class EdgeTrafficScraper {
       return undefined;
     }
     const samples = parsePrometheusText(body);
-    const curr: EdgeScrapeState = { at, counters: caddyHostCounters(samples) };
+    const curr: EdgeScrapeState = { at, counters: caddyHostCounters(samples), extras: caddyHostExtras(samples) };
     const startedAt = processStartTime(samples);
     if (startedAt !== undefined) curr.startedAt = startedAt;
-    const delta = edgeTrafficDelta(this.prev, curr);
+    const delta = withEdgeExtras(edgeTrafficDelta(this.prev, curr), this.prev, curr);
     this.prev = curr;
     return delta;
   }

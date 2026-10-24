@@ -29,6 +29,22 @@ export const ContainerMetricsSample = z.object({
 });
 export type ContainerMetricsSample = z.infer<typeof ContainerMetricsSample>;
 
+/**
+ * Request durations since the previous scrape: Caddy's
+ * `caddy_http_request_duration_seconds` histogram as PER-BUCKET deltas.
+ * `bounds` are the finite upper bounds in seconds, ascending; `counts` has one
+ * more entry than `bounds` — the last is the +Inf overflow bucket.
+ */
+export const EdgeLatencyBuckets = z
+  .object({
+    bounds: z.array(z.number().finite().nonnegative()).max(64),
+    counts: z.array(z.number().int().nonnegative()).max(65),
+  })
+  .refine((h) => h.counts.length === h.bounds.length + 1 && h.bounds.every((b, i) => i === 0 || b > h.bounds[i - 1]!), {
+    message: 'counts has one entry per bound plus the +Inf bucket; bounds ascend',
+  });
+export type EdgeLatencyBuckets = z.infer<typeof EdgeLatencyBuckets>;
+
 /** Requests one edge Caddy served for one host since the previous scrape. */
 export const EdgeHostTraffic = z.object({
   /** Request Host as Caddy's `per_host` metrics label it (lower-case, no port). */
@@ -37,6 +53,15 @@ export const EdgeHostTraffic = z.object({
   requests: z.number().int().nonnegative(),
   /** Of those, responses with a 5xx status. */
   errors5xx: z.number().int().nonnegative(),
+  /**
+   * Of those, 403 answers — a protection's `respond 403` or the app's own
+   * (Caddy's `code` label doesn't say which). Absent = not reported (older agent).
+   */
+  status403: z.number().int().nonnegative().optional(),
+  /** Of those, 429 answers — `rate_limit` or the app's own. Absent = not reported. */
+  status429: z.number().int().nonnegative().optional(),
+  /** How long those requests took (101 upgrades left out). Absent = not reported. */
+  latency: EdgeLatencyBuckets.optional(),
 });
 export type EdgeHostTraffic = z.infer<typeof EdgeHostTraffic>;
 
