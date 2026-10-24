@@ -30,14 +30,15 @@ export function LiveSpec({ stack, match, branch, pending, notice }: { stack: str
               ? 'Read-only. swarmy manages this one itself and keeps it up to date.'
               : 'Read-only here. Edit it in git and swarmy rolls it out.'
           }
-          actions={system ? undefined : <SourceActions app={match?.app ?? null} branch={branch} />}
+          actions={system ? undefined : <SourceActions app={match?.app ?? null} branch={branch} convert={match ? undefined : stack} />}
         />
       )}
       {match ? <AppSource app={match.app} branch={branch} /> : null}
       {notice ? <p className="text-muted-foreground text-[13.5px]">{notice}</p> : null}
       {!match && !system && !pending ? (
         <p className="text-muted-foreground text-[13.5px]">
-          This app isn&apos;t linked to a repo yet. Link one and its swarmy.yaml opens here, checked as you type.
+          This app isn&apos;t linked to a repo yet. Convert its compose to a swarmy.yaml, put the file in a repo and link it: it
+          then opens here, checked as you type.
         </p>
       ) : null}
       {app ? <CodeView always title="Live spec" tabs={appCodeTabs(app, null)} source="readonly" /> : <CardSkeleton lines={10} />}

@@ -17,3 +17,16 @@ export function sourceCodeTabs(repoId: string, path: string, branch: string): Co
     { label: 'REST', code: withHeader('what each push planned and applied', curl('GET', `/apps/${repoId}/plans`)) },
   ];
 }
+
+/** A converted compose app at Code depth: check the saved file, commit it, push it. */
+export function convertCodeTabs(stack: string): CodeTab[] {
+  return [
+    {
+      label: 'CLI',
+      code: withHeader(
+        'in a checkout of the repo, with the file saved at its root',
+        ['$ swarmy check .', '$ git add swarmy.yaml', `$ git commit -m "Run ${stack} from swarmy.yaml"`, '$ git push'].join('\n'),
+      ),
+    },
+  ];
+}

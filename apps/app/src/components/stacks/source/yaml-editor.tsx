@@ -15,6 +15,8 @@ interface YamlEditorProps {
   /** Move the cursor to a line, or apply a fix there (bump `seq` to ask again). */
   request: EditorRequest | null;
   fixOf: (issue: ConfigIssue) => Fix | null;
+  /** Show the file without letting it be edited (a generated file you copy). */
+  readOnly?: boolean;
 }
 
 export interface EditorRequest {
@@ -30,7 +32,7 @@ export interface EditorRequest {
  * problem on the cursor's line sits beside it. Picks and fixes go through
  * `insertText`, so ⌘Z undoes them like typing.
  */
-export function YamlEditor({ value, onChange, issues, marks, request, fixOf }: YamlEditorProps): React.JSX.Element {
+export function YamlEditor({ value, onChange, issues, marks, request, fixOf, readOnly }: YamlEditorProps): React.JSX.Element {
   const ta = React.useRef<HTMLTextAreaElement>(null);
   const scroller = React.useRef<HTMLDivElement>(null);
   const [cursor, setCursor] = React.useState(0);
@@ -83,7 +85,7 @@ export function YamlEditor({ value, onChange, issues, marks, request, fixOf }: Y
   }, [request, applyFix]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (ac.onKeyDown(e)) return;
+    if (readOnly || ac.onKeyDown(e)) return;
     if (e.key !== 'Enter' || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey || e.nativeEvent.isComposing) return;
     e.preventDefault();
     const el = e.currentTarget;
@@ -98,8 +100,9 @@ export function YamlEditor({ value, onChange, issues, marks, request, fixOf }: Y
         <textarea
           ref={ta}
           value={value}
-          aria-label="swarmy.yaml"
+          aria-label={readOnly ? 'swarmy.yaml, generated (read-only)' : 'swarmy.yaml'}
           aria-multiline
+          readOnly={readOnly}
           aria-autocomplete="list"
           aria-expanded={Boolean(ac.state)}
           aria-controls={ac.state ? listId : undefined}
@@ -128,7 +131,7 @@ export function YamlEditor({ value, onChange, issues, marks, request, fixOf }: Y
         {ac.state ? (
           <CompletePopup id={listId} state={ac.state} onPick={(c) => ac.accept(c)} onHover={ac.setActive} />
         ) : shown ? (
-          <LintBubble issue={shown} lineLength={lineText(value, starts, shown.line ?? 1).length} fix={fixOf(shown)} onFix={applyFix} />
+          <LintBubble issue={shown} lineLength={lineText(value, starts, shown.line ?? 1).length} fix={readOnly ? null : fixOf(shown)} onFix={applyFix} />
         ) : null}
       </div>
     </div>

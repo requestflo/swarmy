@@ -5,8 +5,12 @@ import { Button } from '@swarmy/ui';
 import type { GitApp } from '@/components/gitops/gitops-types';
 import { repoFileUrl } from './repo-link';
 
-/** The page's one coral: "Edit in git ↗" to the spec file; not linked, an outline "Link a repo" to the git flow. */
-export function SourceActions({ app, branch }: { app: GitApp | null; branch?: string }): React.JSX.Element {
+/**
+ * The page's one coral: "Edit in git ↗" to the spec file. Not linked: an
+ * outline "Link a repo" to the git flow — with, for an app deployed from
+ * compose (`convert`), the coral "Convert to swarmy.yaml" first.
+ */
+export function SourceActions({ app, branch, convert }: { app: GitApp | null; branch?: string; convert?: string }): React.JSX.Element {
   const href = app ? repoFileUrl(app.url, branch ?? app.branch, app.configPath) : null;
   if (href) {
     return (
@@ -18,8 +22,17 @@ export function SourceActions({ app, branch }: { app: GitApp | null; branch?: st
     );
   }
   return (
-    <Button asChild variant="outline">
-      <Link to="/ci">Link a repo</Link>
-    </Button>
+    <>
+      {convert ? (
+        <Button asChild className="pointer-coarse:min-h-11">
+          <Link to="/stacks/$name/source" params={{ name: convert }} search={{ convert: true }}>
+            Convert to swarmy.yaml
+          </Link>
+        </Button>
+      ) : null}
+      <Button asChild variant="outline" className="pointer-coarse:min-h-11">
+        <Link to="/ci">Link a repo</Link>
+      </Button>
+    </>
   );
 }

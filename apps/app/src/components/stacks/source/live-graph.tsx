@@ -25,11 +25,25 @@ export function graphWords(g: Graph): string {
  * toDesired of the text in the editor, redrawn as you type, with what the
  * edit adds, removes and changes against the saved file, and Undo edits.
  */
-export function LiveGraph({ graph, diff, dirty, old, onUndo }: { graph: Graph | null; diff: GraphDiff | null; dirty: boolean; old: boolean; onUndo: () => void }): React.JSX.Element {
+export function LiveGraph({
+  graph,
+  diff,
+  dirty,
+  old,
+  onUndo,
+  hint = 'live as you type',
+}: {
+  graph: Graph | null;
+  diff: GraphDiff | null;
+  dirty: boolean;
+  old: boolean;
+  onUndo: () => void;
+  hint?: string;
+}): React.JSX.Element {
   return (
     <Section
       title="What this file builds"
-      hint="live as you type"
+      hint={hint}
       action={
         <div className="flex flex-wrap items-center justify-end gap-1.5">
           {diff?.chips.map((c) => (
