@@ -70,7 +70,14 @@ export {
   groupsFromClaim,
   mapGroups,
 } from './identity';
-export { redeemInvitation, provisionSsoMember, type AuthAudit } from './provisioning';
+export {
+  redeemInvitation,
+  needsAppGrant,
+  provisionSsoMember,
+  type AuthAudit,
+  type InviteAppGrant,
+  type RedeemResult,
+} from './provisioning';
 export {
   INVITE_LINK_PREFIX,
   isInviteLinkToken,

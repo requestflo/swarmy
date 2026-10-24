@@ -95,14 +95,32 @@ export const orgRouter = router({
     if (!ctx.activeOrgId) return [];
     const members = await ctx.db.member.findMany({
       where: { organizationId: ctx.activeOrgId },
-      include: { user: { select: { id: true, name: true, email: true, image: true, username: true } } },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            image: true,
+            username: true,
+            // "Last seen": the newest Better Auth session's updatedAt (refreshed
+            // on use about once a day, so it's day-accurate).
+            sessions: { select: { updatedAt: true }, orderBy: { updatedAt: 'desc' }, take: 1 },
+          },
+        },
+      },
     });
-    return members.map((m) => ({
-      id: m.id,
-      role: m.role,
-      user: { ...m.user, email: displayEmail(m.user.email) },
-      joinedAt: m.createdAt.toISOString(),
-    }));
+    return members.map((m) => {
+      const { sessions, ...user } = m.user;
+      return {
+        id: m.id,
+        role: m.role,
+        user: { ...user, email: displayEmail(user.email) },
+        joinedAt: m.createdAt.toISOString(),
+        /** null = no session on record (never signed in, or signed out everywhere). */
+        lastSeenAt: sessions[0]?.updatedAt.toISOString() ?? null,
+      };
+    });
   }),
 
   switchOrg: protectedProcedure

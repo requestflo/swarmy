@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { authRegistry, resolveSignupMode, type SignupMode } from '@swarmy/auth';
 import { instanceOwnerProcedure, orgProcedure, protectedProcedure, publicProcedure, router } from '../trpc';
 import { listProviders, setProvider, signInOptions, type SignInOption } from '../services/authConfig.service';
-import { acceptInvitation, invitationPreview, type InvitationPreview } from '../services/invitations.service';
+import { acceptInvitation, invitationPreview, type InvitationPreview } from '../services/invitation-accept';
 import { isInviteLinkToken, type InviteLinkState } from '@swarmy/auth';
 import { acceptInviteLink, inviteLinkPreview } from '../services/inviteLinks.service';
 import { setActiveOrg } from '../services/active-org';

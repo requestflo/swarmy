@@ -222,6 +222,10 @@ model Invitation {
   expiresAt      DateTime
   inviterId      String
   createdAt      DateTime @default(now())
+  // swarmy: the one app (stack name) an invite scopes a member to. Accepting it
+  // writes an `operator` ResourceGrant on that app, the same grant an
+  // app-scoped InviteLink gives. Null = the whole org. Better Auth ignores it.
+  stackName      String?
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   inviter      User         @relation("InvitationInviter", fields: [inviterId], references: [id], onDelete: Cascade)

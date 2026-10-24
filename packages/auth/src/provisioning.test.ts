@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import {
+  needsAppGrant,
   provisionDomainMember,
   provisionSsoMember,
   redeemInvitation,
@@ -18,7 +19,7 @@ interface Row {
 
 function fakeDb(init: {
   members?: Row[];
-  invites?: Array<{ id: string; organizationId: string; role: string; email: string; status: string; expiresAt: Date }>;
+  invites?: Array<{ id: string; organizationId: string; role: string; email: string; status: string; expiresAt: Date; stackName?: string | null }>;
   /** The user's non-credential accounts (provider ids). */
   accounts?: string[];
   /** Org SSO providers: providerId → orgId. */
@@ -73,7 +74,14 @@ describe('redeemInvitation (single-use; email invites need a proven address)', (
 
   it('a link-only invite admits whoever holds it, once', async () => {
     const f = fakeDb({ invites: [inv('invite-x@invite.swarmy.invalid')] });
-    expect(await redeemInvitation(f.db, { invitationId: 'inv', user: u1 }, f.sink)).toEqual({ ok: true, orgId: 'org', role: 'admin' });
+    expect(await redeemInvitation(f.db, { invitationId: 'inv', user: u1 }, f.sink)).toEqual({
+      ok: true,
+      orgId: 'org',
+      role: 'admin',
+      memberId: f.members[0]?.id ?? 'missing',
+      created: true,
+      stackName: null,
+    });
     expect(f.members[0]).toMatchObject({ userId: 'u1', role: 'admin' });
     expect(f.invites[0]!.status).toBe('accepted');
     expect(await redeemInvitation(f.db, { invitationId: 'inv', user: u1 }, f.sink)).toEqual({ ok: false, reason: 'gone' });
@@ -109,6 +117,22 @@ describe('redeemInvitation (single-use; email invites need a proven address)', (
     expect((await redeemInvitation(rogue.db, { invitationId: 'inv', user: unverified })).ok).toBe(false);
     expect(rogue.members).toHaveLength(0);
     expect(rogue.invites[0]!.status).toBe('pending');
+  });
+
+  it('carries the invite\'s app to the caller, which grants it only to a NEW member', async () => {
+    const f = fakeDb({ invites: [{ ...inv('invite-x@invite.swarmy.invalid', 'member'), stackName: 'storefront' }] });
+    const res = await redeemInvitation(f.db, { invitationId: 'inv', user: u1 }, f.sink);
+    expect(res).toMatchObject({ ok: true, role: 'member', created: true, stackName: 'storefront', memberId: f.members[0]!.id });
+    expect(needsAppGrant(res)).toBe(true);
+    const again = fakeDb({
+      members: [{ id: 'm-old', organizationId: 'org', userId: 'u1', role: 'member' }],
+      invites: [{ ...inv('invite-y@invite.swarmy.invalid', 'member'), stackName: 'storefront' }],
+    });
+    const existing = await redeemInvitation(again.db, { invitationId: 'inv', user: u1 });
+    expect(existing).toMatchObject({ ok: true, created: false, memberId: 'm-old' });
+    expect(needsAppGrant(existing)).toBe(false);
+    const admin = fakeDb({ invites: [{ ...inv('invite-z@invite.swarmy.invalid', 'admin'), stackName: 'storefront' }] });
+    expect(needsAppGrant(await redeemInvitation(admin.db, { invitationId: 'inv', user: u1 }))).toBe(false);
   });
 
   it('refuses an expired invite', async () => {

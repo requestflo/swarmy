@@ -26,8 +26,7 @@ import type { DB } from '@swarmy/db';
 import type { AuthedContext, OrgContext } from '../context';
 import { notFound } from '../errors';
 import { writeAudit } from './audit.service';
-import { stacks } from './apps.repo';
-import { createGrant } from './members.service';
+import { grantInviteApp } from './invite-grant';
 import { inviteLinkBase } from './invitations.service';
 
 export const INVITE_LINK_ROLES = ['member', 'admin'] as const;
@@ -247,14 +246,6 @@ async function claimUse(db: DB, row: InviteLinkRow, now: Date): Promise<void> {
   throw new TRPCError({ code: 'CONFLICT', message: 'Lots of people are using this link right now — try again.' });
 }
 
-/** The grant target for an app: its config-row id (what grants key on), else its name. */
-async function stackResourceId(ctx: AuthedContext, orgId: string, stackName: string): Promise<string> {
-  const row = await stacks(ctx, orgId)
-    .findFirst({ where: { name: stackName, orgId }, select: { id: true } })
-    .catch(() => null);
-  return row?.id ?? stackName;
-}
-
 export interface AcceptInviteLinkResult {
   orgId: string;
   alreadyMember: boolean;
@@ -293,16 +284,7 @@ export async function acceptInviteLink(
     data: { id: crypto.randomUUID(), organizationId: row.orgId, userId: ctx.user.id, role },
     select: { id: true },
   });
-  if (row.stackName && role === 'member') {
-    const orgCtx = { ...ctx, activeOrgId: row.orgId, membership: { role, orgId: row.orgId } } as OrgContext;
-    await createGrant(orgCtx, {
-      principalType: 'member',
-      principalId: member.id,
-      resourceType: 'stack',
-      resourceId: await stackResourceId(ctx, row.orgId, row.stackName),
-      relation: 'operator',
-    });
-  }
+  if (row.stackName && role === 'member') await grantInviteApp(ctx, row.orgId, member.id, row.stackName);
   await writeAudit(auditCtx, {
     action: 'member.inviteLink.accept',
     targetType: 'inviteLink',

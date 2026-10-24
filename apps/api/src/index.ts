@@ -21,7 +21,7 @@ import {
   resolveDbPaths,
   TELEMETRY_MIGRATIONS_DIR,
 } from '@swarmy/db';
-import { resolveOrgContextFromApiKey, agentRelease, agentBinaryPath, submitRecoveryClaim, pollRecoveryClaim, writeAudit, acmeDnsRequest, ingressConfigRepo } from '@swarmy/trpc';
+import { resolveOrgContextFromApiKey, agentRelease, agentBinaryPath, submitRecoveryClaim, pollRecoveryClaim, writeAudit, grantInviteApp, acmeDnsRequest, ingressConfigRepo } from '@swarmy/trpc';
 import { createRestApp } from '@swarmy/api-rest';
 import { createApiTokenVerifier, ensureMcpOidcClient } from '@swarmy/auth';
 import { resolveOrgContextFromBearer } from '@swarmy/trpc/devx';
@@ -400,6 +400,8 @@ app.notFound((c) => c.json({ error: 'not found' }, 404));
 // through the one audit writer.
 authRegistry.configure({
   audit: (orgId, entry) => writeAudit({ db: prisma, activeOrgId: orgId, user: null }, entry),
+  // An app-scoped invitation redeemed at sign-in gives its operator grant here.
+  grantInviteApp: (orgId, g) => grantInviteApp({ db: prisma, hub, user: { id: g.userId } }, orgId, g.memberId, g.stackName),
 });
 // Load stored auth-provider config so social/SSO providers are live without a restart.
 // swarmy's own mail (verification, reset, magic links) + the MTA bounce hook.

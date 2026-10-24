@@ -102,8 +102,28 @@ type ProvisionDb = Pick<DB, 'member' | 'invitation' | 'session'> &
   Partial<Pick<DB, 'ssoProvider' | 'account' | 'organization'>>;
 
 export type RedeemResult =
-  | { ok: true; orgId: string; role: string }
+  | {
+      ok: true;
+      orgId: string;
+      role: string;
+      /** The member row the invitee now has (new, or the one they already had). */
+      memberId: string;
+      /** False when they were already a member (nothing about them changed). */
+      created: boolean;
+      /** The app the invite scopes them to (`Invitation.stackName`), if any. */
+      stackName: string | null;
+    }
   | { ok: false; reason: 'gone' | 'email_mismatch'; invitedEmail?: string };
+
+/**
+ * Host-injected: give a newly joined member the `operator` grant on the app
+ * their invite names (apps/api wires the controller's grant writer, which
+ * resolves the app's grant id from swarm config). Best-effort.
+ */
+export type InviteAppGrant = (
+  orgId: string,
+  grant: { memberId: string; userId: string; stackName: string; invitationId: string },
+) => Promise<void>;
 
 /**
  * Redeem a pending, unexpired invitation (single-use). A link-only invite
@@ -120,7 +140,7 @@ export async function redeemInvitation(
 ): Promise<RedeemResult> {
   const inv = await db.invitation.findFirst({
     where: { id: input.invitationId, status: 'pending', expiresAt: { gt: now } },
-    select: { id: true, organizationId: true, role: true, email: true },
+    select: { id: true, organizationId: true, role: true, email: true, stackName: true },
   });
   if (!inv) return { ok: false, reason: 'gone' };
   const userId = input.user.id;
@@ -155,19 +175,26 @@ export async function redeemInvitation(
     where: { organizationId: inv.organizationId, userId },
     select: { id: true },
   });
+  const memberId = existing?.id ?? randomUUID();
   if (!existing) {
     await db.member.create({
-      data: { id: randomUUID(), organizationId: inv.organizationId, userId, role },
+      data: { id: memberId, organizationId: inv.organizationId, userId, role },
     });
   }
+  const stackName = inv.stackName ?? null;
   await audit?.(inv.organizationId, {
     action: 'member.invite.accept',
     targetType: 'invitation',
     targetId: inv.id,
     actorId: userId,
-    metadata: { role, alreadyMember: Boolean(existing), kind: isLinkInviteEmail(inv.email) ? 'link' : 'email' },
+    metadata: { role, alreadyMember: Boolean(existing), kind: isLinkInviteEmail(inv.email) ? 'link' : 'email', stackName },
   });
-  return { ok: true, orgId: inv.organizationId, role };
+  return { ok: true, orgId: inv.organizationId, role, memberId, created: !existing, stackName };
+}
+
+/** Whether a redemption should now get its app grant: a NEW member, invited onto one app. */
+export function needsAppGrant(res: RedeemResult): res is Extract<RedeemResult, { ok: true }> & { stackName: string } {
+  return res.ok && res.created && res.role === 'member' && Boolean(res.stackName);
 }
 
 /**
@@ -299,7 +326,7 @@ function isSignInPath(path: string | undefined): boolean {
  */
 export function swarmyProvisioning(
   db: ProvisionDb,
-  opts: { sso: ResolvedSsoProvider[]; social?: ResolvedAuthConfig['social']; audit?: AuthAudit },
+  opts: { sso: ResolvedSsoProvider[]; social?: ResolvedAuthConfig['social']; audit?: AuthAudit; grantInviteApp?: InviteAppGrant },
 ): BetterAuthPlugin {
   const byId = new Map(opts.sso.map((p) => [p.providerId, p]));
   return {
@@ -359,6 +386,13 @@ export function swarmyProvisioning(
                 opts.audit,
               );
               if (res.ok) orgId = res.orgId;
+              if (needsAppGrant(res) && opts.grantInviteApp) {
+                await opts
+                  .grantInviteApp(res.orgId, { memberId: res.memberId, userId, stackName: res.stackName, invitationId: inviteId })
+                  .catch(() => {
+                    /* best-effort: they joined; an admin can add the grant */
+                  });
+              }
               // An email mismatch keeps the cookie so the page can explain it
               // (authConfig.acceptInvite answers with the reason).
               if (res.ok || res.reason === 'gone') ctx.setCookie(INVITE_COOKIE, '', { path: '/', maxAge: 0 });

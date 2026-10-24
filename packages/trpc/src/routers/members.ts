@@ -15,6 +15,8 @@ import {
   regenerateInvitation,
   revokeInvitation,
 } from '../services/invitations.service';
+import { resendInvitation } from '../services/invitation-resend';
+import type { OrgContext } from '../context';
 
 /**
  * Org member attribute management + ReBAC grants (org admin). Attributes feed the
@@ -61,6 +63,8 @@ export const membersRouter = router({
         // Optional: omit for a link-only invite (not everyone has email).
         email: z.union([z.string().trim().toLowerCase().email(), z.literal('')]).nullish(),
         role: z.enum(['owner', 'admin', 'member']),
+        // Optional: one app to scope a member to (an operator grant on accept), as invite links do.
+        stackName: z.string().min(1).max(128).nullish(),
       }),
     )
     .mutation(({ ctx, input }) => {
@@ -78,16 +82,27 @@ export const membersRouter = router({
   regenerateInvitation: adminProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      // Regenerating mints a fresh link at the SAME role — owner-only for owner invites.
-      if (ctx.membership.role !== 'owner') {
-        const inv = await ctx.db.invitation.findFirst({
-          where: { id: input.id, organizationId: ctx.activeOrgId },
-          select: { role: true },
-        });
-        if (inv?.role === 'owner') {
-          throw new TRPCError({ code: 'FORBIDDEN', message: 'only an owner can reissue an owner invite' });
-        }
-      }
+      await assertCanReissue(ctx, input.id);
       return regenerateInvitation(ctx, input.id);
     }),
+
+  /** Mail a pending invite again (an expired one is regenerated first). */
+  resendInvitation: adminProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await assertCanReissue(ctx, input.id);
+      return resendInvitation(ctx, input.id);
+    }),
 });
+
+/** Reissuing keeps the SAME role — owner-only for owner invites. */
+async function assertCanReissue(ctx: OrgContext, id: string): Promise<void> {
+  if (ctx.membership.role === 'owner') return;
+  const inv = await ctx.db.invitation.findFirst({
+    where: { id, organizationId: ctx.activeOrgId },
+    select: { role: true },
+  });
+  if (inv?.role === 'owner') {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'only an owner can reissue an owner invite' });
+  }
+}

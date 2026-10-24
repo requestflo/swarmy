@@ -31,6 +31,7 @@ import {
   ssoProviderIdFromPath,
   swarmyProvisioning,
   type AuthAudit,
+  type InviteAppGrant,
 } from './provisioning';
 
 /**
@@ -89,6 +90,8 @@ export interface BuildAuthOptions {
   extraPlugins?: ExtraPlugin[];
   /** Audit sink for sign-in provisioning (apps/api wires `writeAudit`). */
   audit?: AuthAudit;
+  /** The app grant an app-scoped invite gives when redeemed at sign-in (apps/api wires it). */
+  grantInviteApp?: InviteAppGrant;
   /**
    * swarmy's own mail (apps/api wires the email service): verification,
    * password reset and — unless `sendMagicLink` is given — magic links.
@@ -345,7 +348,7 @@ export function buildAuth(
       // Username sign-in: email is optional on swarmy (identity.ts). Static so
       // `Auth` infers `user.username` and `/sign-in/username`.
       username({ minUsernameLength: 2, maxUsernameLength: 40 }),
-      swarmyProvisioning(db, { sso: config.sso ?? [], social: config.social, audit: opts.audit }),
+      swarmyProvisioning(db, { sso: config.sso ?? [], social: config.social, audit: opts.audit, grantInviteApp: opts.grantInviteApp }),
       ...optional,
     ],
   });

@@ -9,6 +9,8 @@ export type {
 } from './hub/types';
 export { COMMAND_PROTOCOL_TYPE } from './hub/types';
 export { writeAudit } from './services/audit.service';
+// The app grant an app-scoped invitation gives when the sign-in hook redeems it.
+export { grantInviteApp } from './services/invite-grant';
 export { resetTwoFactorByEmail } from './services/security.service';
 export type { AuditEntry, AuditActorType } from './services/audit.service';
 // Agent-binary release: the install routes serve these binaries and pin their

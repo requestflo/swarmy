@@ -1,13 +1,12 @@
 import { randomBytes } from 'node:crypto';
 import { TRPCError } from '@trpc/server';
 import { normaliseBaseUrl, resolveControllerPublicUrl } from '@swarmy/core';
-import { displayEmail, invitePlaceholderEmail, isLinkInviteEmail, redeemInvitation } from '@swarmy/auth';
-import type { DB } from '@swarmy/db';
-import type { AuthedContext, OrgContext } from '../context';
+import { displayEmail, invitePlaceholderEmail, isLinkInviteEmail } from '@swarmy/auth';
+import type { OrgContext } from '../context';
 import { notFound } from '../errors';
-import { setActiveOrg } from './active-org';
 import { writeAudit } from './audit.service';
 import { sendSystemEmail } from './email/runtime';
+import { inviteStackName } from './invite-grant';
 
 /**
  * Org invitations as copyable links. An admin mints a Better Auth organization
@@ -41,6 +40,8 @@ export interface InvitationView {
   invitedBy: { id: string; name: string | null; email: string | null } | null;
   /** The copyable link: `<controller public url>/login?invite=<id>`. */
   link: string;
+  /** The one app it scopes a member to (an `operator` grant on accept); null = the whole org. */
+  stackName: string | null;
   /** An email invite was also mailed (the email service is on); absent otherwise. */
   emailed?: boolean;
 }
@@ -61,17 +62,18 @@ export function inviteLink(base: string, invitationId: string): string {
   return `${base}/login?invite=${encodeURIComponent(invitationId)}`;
 }
 
-interface InvitationRow {
+export interface InvitationRow {
   id: string;
   email: string;
   role: string | null;
   status: string;
   expiresAt: Date;
   createdAt: Date;
+  stackName?: string | null;
   inviter?: { id: string; name: string | null; email: string | null } | null;
 }
 
-function toView(row: InvitationRow, base: string, now: Date): InvitationView {
+export function toView(row: InvitationRow, base: string, now: Date): InvitationView {
   return {
     id: row.id,
     email: displayEmail(row.email),
@@ -82,6 +84,7 @@ function toView(row: InvitationRow, base: string, now: Date): InvitationView {
     createdAt: row.createdAt,
     invitedBy: row.inviter ?? null,
     link: inviteLink(base, row.id),
+    stackName: row.stackName ?? null,
   };
 }
 
@@ -102,6 +105,8 @@ export interface InviteArgs {
   /** Optional. Omit for a link-only invite (the invitee may have no email). */
   email?: string | null;
   role: InviteRole;
+  /** One app to scope a member to, as an app-scoped invite link does. Members only. */
+  stackName?: string | null;
 }
 
 function badRequest(message: string): TRPCError {
@@ -117,13 +122,14 @@ function authErrorMessage(e: unknown, fallback: string): string {
 
 export async function inviteMember(ctx: OrgContext, args: InviteArgs): Promise<InvitationView> {
   const given = args.email?.trim().toLowerCase();
+  const stackName = inviteStackName(args.role, args.stackName);
   if (!given) {
-    const row = await createViaAuth(ctx, invitePlaceholderEmail(randomBytes(9).toString('base64url')), args.role);
+    const row = await createViaAuth(ctx, invitePlaceholderEmail(randomBytes(9).toString('base64url')), args.role, stackName);
     await writeAudit(ctx, {
       action: 'member.invite',
       targetType: 'invitation',
       targetId: row.id,
-      metadata: { kind: 'link', role: args.role, expiresAt: row.expiresAt.toISOString() },
+      metadata: { kind: 'link', role: args.role, stackName, expiresAt: row.expiresAt.toISOString() },
     });
     return toView(row, inviteLinkBase(ctx.reqHeaders), new Date());
   }
@@ -140,14 +146,14 @@ export async function inviteMember(ctx: OrgContext, args: InviteArgs): Promise<I
   });
   if (pending) throw badRequest(`${email} already has a pending invite — copy or regenerate its link below`);
 
-  const row = await createViaAuth(ctx, email, args.role);
+  const row = await createViaAuth(ctx, email, args.role, stackName);
   const view = toView(row, inviteLinkBase(ctx.reqHeaders), new Date());
   const emailed = await mailInvite(ctx, view);
   await writeAudit(ctx, {
     action: 'member.invite',
     targetType: 'invitation',
     targetId: row.id,
-    metadata: { email, role: args.role, expiresAt: row.expiresAt.toISOString(), emailed },
+    metadata: { email, role: args.role, stackName, expiresAt: row.expiresAt.toISOString(), emailed },
   });
   return { ...view, emailed };
 }
@@ -157,7 +163,7 @@ export async function inviteMember(ctx: OrgContext, args: InviteArgs): Promise<I
  * Best-effort: the copyable link stays the primary path, so a failed or
  * skipped send never fails the invite.
  */
-async function mailInvite(ctx: OrgContext, view: InvitationView): Promise<boolean> {
+export async function mailInvite(ctx: OrgContext, view: InvitationView): Promise<boolean> {
   if (!view.email || view.kind !== 'email') return false;
   let org: { name: string } | null = null;
   try {
@@ -173,7 +179,8 @@ async function mailInvite(ctx: OrgContext, view: InvitationView): Promise<boolea
     to: view.email,
     subject: `${who} invited you to ${orgName} on swarmy`,
     text:
-      `${who} invited you to join ${orgName} on swarmy as ${view.role === 'member' ? 'a member' : `an ${view.role}`}.\n\n` +
+      `${who} invited you to join ${orgName} on swarmy as ${view.role === 'member' ? 'a member' : `an ${view.role}`}` +
+      `${view.stackName ? `, working on ${view.stackName}` : ''}.\n\n` +
       `Accept the invite: ${view.link}\n\n` +
       `The link works once and expires in ${days} day${days === 1 ? '' : 's'}. ` +
       'Sign in with this email address (or an SSO/social account that uses it). If you did not expect this, ignore it.',
@@ -181,7 +188,7 @@ async function mailInvite(ctx: OrgContext, view: InvitationView): Promise<boolea
   return r.sent;
 }
 
-async function createViaAuth(ctx: OrgContext, email: string, role: InviteRole): Promise<InvitationRow> {
+async function createViaAuth(ctx: OrgContext, email: string, role: InviteRole, stackName: string | null = null): Promise<InvitationRow> {
   let created: { id: string; email: string; role: string; status: string; expiresAt: Date };
   try {
     created = await ctx.auth.api.createInvitation({
@@ -191,6 +198,8 @@ async function createViaAuth(ctx: OrgContext, email: string, role: InviteRole): 
   } catch (e) {
     throw badRequest(authErrorMessage(e, 'could not create the invitation'));
   }
+  // The app scope is swarmy's column on Better Auth's row (Better Auth ignores it).
+  if (stackName) await ctx.db.invitation.update({ where: { id: created.id }, data: { stackName } });
   return {
     id: created.id,
     email: created.email,
@@ -198,11 +207,12 @@ async function createViaAuth(ctx: OrgContext, email: string, role: InviteRole): 
     status: created.status,
     expiresAt: new Date(created.expiresAt),
     createdAt: new Date(),
+    stackName,
     inviter: { id: ctx.user.id, name: ctx.user.name ?? null, email: ctx.user.email ?? null },
   };
 }
 
-async function findPendingOrThrow(ctx: OrgContext, id: string): Promise<InvitationRow> {
+export async function findPendingOrThrow(ctx: OrgContext, id: string): Promise<InvitationRow> {
   const row = await ctx.db.invitation.findFirst({
     where: { id, organizationId: ctx.activeOrgId, status: 'pending' },
     include: { inviter: INVITER_SELECT },
@@ -234,78 +244,15 @@ export async function regenerateInvitation(ctx: OrgContext, id: string): Promise
   const role = (old.role === 'owner' || old.role === 'admin' ? old.role : 'member') as InviteRole;
   // A link-only invite gets a fresh placeholder so the old one can't collide.
   const email = isLinkInviteEmail(old.email) ? invitePlaceholderEmail(randomBytes(9).toString('base64url')) : old.email;
-  const row = await createViaAuth(ctx, email, role);
+  const stackName = role === 'member' ? (old.stackName ?? null) : null;
+  const row = await createViaAuth(ctx, email, role, stackName);
   const view = toView(row, inviteLinkBase(ctx.reqHeaders), new Date());
   const emailed = await mailInvite(ctx, view);
   await writeAudit(ctx, {
     action: 'member.invite.regenerate',
     targetType: 'invitation',
     targetId: row.id,
-    metadata: { email: displayEmail(old.email), role, replaced: id, expiresAt: row.expiresAt.toISOString(), emailed },
+    metadata: { email: displayEmail(old.email), role, stackName, replaced: id, expiresAt: row.expiresAt.toISOString(), emailed },
   });
   return { ...view, emailed };
-}
-
-/** What an invite link shows before sign-in. */
-export interface InvitationPreview {
-  orgName: string;
-  role: InviteRole;
-  /** The invited address, when the invite named one. */
-  email: string | null;
-  expired: boolean;
-}
-
-/** Public preview of an invite link (the unguessable id is the credential). */
-export async function invitationPreview(db: DB, id: string, now: Date = new Date()): Promise<InvitationPreview | null> {
-  const row = await db.invitation.findFirst({
-    where: { id, status: 'pending' },
-    select: { role: true, email: true, expiresAt: true, organization: { select: { name: true } } },
-  });
-  if (!row) return null;
-  return {
-    orgName: row.organization.name,
-    role: (row.role === 'owner' || row.role === 'admin' ? row.role : 'member') as InviteRole,
-    email: displayEmail(row.email),
-    expired: row.expiresAt.getTime() <= now.getTime(),
-  };
-}
-
-/**
- * Redeem an invite link for the signed-in user and activate its org. A
- * link-only invite works for any sign-in method; one that names an email
- * needs that address verified or carried by the SSO/social identity used.
- * Idempotent: when the sign-in hook already redeemed it, the user's
- * membership answers.
- */
-export async function acceptInvitation(ctx: AuthedContext, id: string): Promise<{ orgId: string }> {
-  const redeemed = await redeemInvitation(
-    ctx.db,
-    { invitationId: id, user: { id: ctx.user.id, email: ctx.user.email, emailVerified: ctx.user.emailVerified } },
-    (orgId, entry) => writeAudit({ db: ctx.db, activeOrgId: orgId, user: ctx.user }, entry),
-  );
-  if (!redeemed.ok && redeemed.reason === 'email_mismatch') {
-    throw new TRPCError({
-      code: 'FORBIDDEN',
-      message: `This invite is for ${redeemed.invitedEmail ?? 'a specific email address'}. Sign in with an SSO or social account that uses that address.`,
-      cause: { swarmyCode: 'INVITE_EMAIL_MISMATCH' },
-    });
-  }
-  let orgId = redeemed.ok ? redeemed.orgId : null;
-  if (!orgId) {
-    // Already redeemed (by the sign-in hook, or a second click): find the org.
-    const inv = await ctx.db.invitation.findFirst({
-      where: { id, status: 'accepted' },
-      select: { organizationId: true },
-    });
-    const member = inv
-      ? await ctx.db.member.findFirst({
-          where: { organizationId: inv.organizationId, userId: ctx.user.id },
-          select: { organizationId: true },
-        })
-      : null;
-    if (!member) throw new TRPCError({ code: 'NOT_FOUND', message: 'This invite link has expired or was revoked.' });
-    orgId = member.organizationId;
-  }
-  await setActiveOrg(ctx, orgId);
-  return { orgId };
 }
