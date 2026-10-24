@@ -2,6 +2,7 @@ import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
 import {
   appliedCachePolicy,
+  cacheCountersOf,
   cachePrimarySpec,
   cacheRegionReplicaSpec,
   cacheReplicaSpec,
@@ -10,8 +11,10 @@ import {
   fireEvent,
   parseLivePolicy,
   reconcileDataPin,
+  recordCacheHistory,
   systemContext,
   type CacheClusterDecl,
+  type CacheCounters,
   type CachePolicy,
   type LivePolicySample,
 } from '@swarmy/trpc';
@@ -31,7 +34,9 @@ import { convergeCachePolicy, type PolicyMember } from './cache-policy-reconcile
  * `swarmy.cache.appliedMemoryMb` stamp). Each tick it also samples `INFO` on
  * the primary (exec — the password stays inside the container's secret file)
  * and stamps the result as the `swarmy.cache.stats` label, firing alert events
- * when used memory crosses 90% of maxmemory or the primary is down.
+ * when used memory crosses 90% of maxmemory or the primary is down. The same
+ * INFO feeds the history (`recordCacheHistory`: keyspace counters, ops/s and
+ * memory, one telemetry.db row per 5-minute bucket) behind `cache.statsHistory`.
  *
  * Policy (step 6, cache-policy-reconcile): the declared when-full +
  * persistence labels are CONFIG SET live on every data member and stamped as
@@ -229,12 +234,12 @@ function execTarget(
   return undefined;
 }
 
-/** The primary's INFO → stats + the policy it is really running (null = not sampled). */
+/** The primary's INFO → stats, the policy it is really running, and the history counters (null = not sampled). */
 async function sampleStats(
   orgId: string,
   c: Cluster,
   decl: Decl,
-): Promise<{ stats: StatsSample | null; live: LivePolicySample | null } | null> {
+): Promise<{ stats: StatsSample | null; live: LivePolicySample | null; counters: CacheCounters | null } | null> {
   if (!c.primary || (c.primary.runningReplicas ?? 0) < 1) return null;
   const target = execTarget(orgId, c.primary);
   if (!target) return null;
@@ -253,7 +258,11 @@ async function sampleStats(
     );
     if (res.exitCode !== 0 || !res.output) return null;
     const sample = parseInfo(res.output);
-    return { stats: sample ? { ...sample, at: new Date().toISOString() } : null, live: parseLivePolicy(res.output) };
+    return {
+      stats: sample ? { ...sample, at: new Date().toISOString() } : null,
+      live: parseLivePolicy(res.output),
+      counters: cacheCountersOf(res.output),
+    };
   } catch {
     return null;
   }
@@ -437,6 +446,10 @@ async function reconcileOrg(orgId: string): Promise<void> {
     }
     const sampled = await sampleStats(orgId, c, decl);
     const stats = sampled?.stats ?? null;
+    // History: the same INFO, at most one telemetry.db row per 5-minute bucket.
+    if (sampled?.counters) {
+      await recordCacheHistory(ctx, { stack: c.stack, cluster: c.cluster, ...sampled.counters }).catch(() => undefined);
+    }
     if (stats && c.primary) {
       await setLabels(c.primary.name, {
         [CACHE_STATS_LABEL]: JSON.stringify(stats),

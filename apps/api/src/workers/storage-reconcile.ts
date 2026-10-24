@@ -8,6 +8,7 @@ import {
   garageCapacityGb,
   garageMajorOf,
   gcPlatformKeys,
+  recordBucketHistory,
   resumeEngineUpgrade,
   systemContext,
   toGarageRequest,
@@ -68,6 +69,9 @@ import {
  *  3. MONITOR resync: stamp health + per-node partition/data progress as the
  *     `swarmy.storage.stats` label on the swarmy-garage service (change-gated),
  *     which `replicatedStore.service#status` folds into the router's view.
+ *  4. HISTORY: once per 5-minute bucket, every bucket's size and object count
+ *     into telemetry.db (`recordBucketHistory`, interval-gated per org) for
+ *     the bucket page's growth and "full in ~N" forecast.
  *
  * Never flaps: an empty plan at steady state dispatches nothing, an identical
  * plan that failed to converge backs off exponentially, and the stats stamp is
@@ -390,6 +394,10 @@ export function startStorageReconcile(): () => void {
           systemContext({ db: prisma, hub, auth: authRegistry.getAuth() }, row.orgId),
         ).catch(() => undefined);
         await reconcileOrg(row, t).catch(() => undefined);
+        // History: every bucket's size, once per 5-minute bucket (`buckets.sizeHistory`).
+        await recordBucketHistory(
+          systemContext({ db: prisma, hub, auth: authRegistry.getAuth() }, row.orgId),
+        ).catch(() => undefined);
       }
     })().finally(() => {
       running = false;

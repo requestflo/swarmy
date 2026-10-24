@@ -1,6 +1,6 @@
 import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
-import { fireEvent, sampleQueueClusters, systemContext } from '@swarmy/trpc';
+import { fireEvent, recordQueueHistory, sampleQueueClusters, systemContext } from '@swarmy/trpc';
 import type { ContainerInfo, SwarmServiceInfo } from '@swarmy/core/protocol';
 import { hub, store } from '../gateway';
 
@@ -14,6 +14,9 @@ import { hub, store } from '../gateway';
  *      events since the last tick become throughput/failure rates, written to
  *      the observability store. BullMQ defs scale off THESE counts (backlog =
  *      wait + prioritized, 0 while paused), the same numbers the studio shows.
+ *      The same tick feeds the history (`recordQueueHistory`: peak depth,
+ *      finished jobs and worker copies, one telemetry.db row per queue per
+ *      5-minute bucket) behind `queues.depthHistory`.
  * Then read the `swarmy.queues` JSON labels off WORKER services. A raw-list
  * def samples its depth via one `redis-cli EVAL` exec on the backing cache
  * PRIMARY (the password stays in the container's mounted secret file), then:
@@ -273,6 +276,8 @@ async function reconcileOrg(orgId: string): Promise<void> {
     }
   }
   const bullSampled = await sampleQueueClusters(ctx, [...extras.values()]).catch(() => []);
+  // History: fold this tick into each queue's 5-minute bucket; ended buckets land in telemetry.db.
+  await recordQueueHistory(ctx, bullSampled).catch(() => undefined);
   const bullCounts = new Map<string, Sample>();
   const at = new Date().toISOString();
   for (const c of bullSampled) {
