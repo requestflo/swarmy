@@ -101,3 +101,67 @@ model PgQueryText {
   @@index([lastSeen])
   @@map("pg_query_text")
 }
+
+// Managed data history: a few numbers per cache, queue and bucket, one row
+// per resource per 5-minute bucket, kept 7 days (the hourly retention worker
+// prunes them). Written by the reconcile workers that already read these
+// numbers (cache INFO, the BullMQ studio sampler, Garage bucket info). The
+// unique key is the "one row per resource per bucket" rule: writes upsert,
+// so a restart never doubles a bucket. Rows key on names (stack/cluster/
+// queue, the Garage bucket id), not on control.db ids.
+
+// A managed cache primary's INFO, the first sample in each bucket. `hits` and
+// `misses` are the engine's cumulative keyspace counters; the read diffs
+// consecutive rows (a drop is a restart, and that interval is skipped).
+model CacheStatSample {
+  id              Int      @id @default(autoincrement())
+  orgId           String
+  stack           String
+  cluster         String
+  bucketStart     DateTime
+  hits            BigInt
+  misses          BigInt
+  opsPerSec       Int
+  usedMemoryBytes BigInt
+
+  @@unique([orgId, stack, cluster, bucketStart])
+  @@index([bucketStart])
+  @@map("cache_stat_sample")
+}
+
+// One BullMQ queue on a managed cache (`stack`/`cluster` = the cache): the
+// bucket's last depth reading, the jobs that finished during it (from the
+// events stream; null = not measured, never a zero) and the worker copies
+// running (null = no worker definition consumes it).
+model QueueStatSample {
+  id          Int      @id @default(autoincrement())
+  orgId       String
+  stack       String
+  cluster     String
+  prefix      String
+  queue       String
+  bucketStart DateTime
+  waiting     Int
+  active      Int
+  completed   Int?
+  failed      Int?
+  workers     Int?
+
+  @@unique([orgId, stack, cluster, prefix, queue, bucketStart])
+  @@index([bucketStart])
+  @@map("queue_stat_sample")
+}
+
+// One Garage bucket's size, the first sample in each bucket.
+model BucketStatSample {
+  id          Int      @id @default(autoincrement())
+  orgId       String
+  bucketId    String
+  bucketStart DateTime
+  bytes       BigInt
+  objects     Int
+
+  @@unique([orgId, bucketId, bucketStart])
+  @@index([bucketStart])
+  @@map("bucket_stat_sample")
+}
