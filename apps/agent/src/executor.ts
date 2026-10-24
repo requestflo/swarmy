@@ -14,6 +14,7 @@ import type { AgentConnection } from './connection';
 import { buildGateAllows, BUILDER_ENABLE_HINT, carryContainerLabels, execGateAllows, EXEC_LOCAL_VETO_HINT, EXEC_ENABLE_HINT } from '@swarmy/core';
 import { env } from './env';
 import { backupVolume, restoreVolume, listSnapshots, backupDb, restoreDb } from './handlers/backup';
+import { dbPitrWindow } from './handlers/pitr-window';
 import { appDbBackup, appDbRestore, appDbVerify } from './handlers/appdb';
 import { queueOp } from './handlers/queue-op';
 import { dbQuery } from './handlers/studio';
@@ -237,6 +238,13 @@ export async function handleCommand(
     case 'dbRestore': {
       const p = envlp.payload;
       return run(conn, p.commandId, () => restoreDb(docker, conn, p));
+    }
+    case 'dbPitrWindow': {
+      // Read-only wal-g backup-list in a sidecar, the same as dbRestore's own
+      // list: it execs into no task, so it has dbRestore's gates (none), not
+      // the SWARMY_ALLOW_EXEC veto. Advertised in AGENT_CAPABILITIES.
+      const p = envlp.payload;
+      return run(conn, p.commandId, () => dbPitrWindow(docker, p));
     }
     case 'appDbBackup': {
       const p = envlp.payload;

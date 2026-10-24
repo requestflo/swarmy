@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { selfContainer } from './self-container';
 import os from 'node:os';
-import { PROTOCOL_VERSION, type NodeFacts, type RegisterPayload, type RenderedMesh } from '@swarmy/core/protocol';
+import { AGENT_CAPABILITIES, PROTOCOL_VERSION, type NodeFacts, type RegisterPayload, type RenderedMesh } from '@swarmy/core/protocol';
 import { DockerClient } from '@swarmy/core/docker';
 import { env } from './env';
 import { clearState, loadState, saveState, type AgentState } from './state';
@@ -341,6 +341,9 @@ export async function runDaemon(): Promise<void> {
   // Build commit on EVERY path (not just the no-docker fallback): unreleased
   // builds are all 0.0.0, so this is what the controller's update check compares.
   facts.agentCommit = COMMIT;
+  // Optional commands this build understands (e.g. dbPitrWindow): the
+  // controller sends one only to an agent that lists it.
+  facts.capabilities = [...AGENT_CAPABILITIES];
 
   // Explicit SWARMY_ALLOW_BUILD override (if any) — lets the controller's
   // builder picker honour a local allow/veto instead of dispatching blind.
