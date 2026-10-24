@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import type { NodeSummary, ServiceSummary, TrafficNowView } from '@swarmy/core';
 import type { HubDomain } from '../use-network';
-import { buildRouteMap, litPath, litSay, perMinText, shortService } from './route-map-model';
+import { buildRouteMap, litPath, litSay, msText, perMinText, shortService } from './route-map-model';
 
 const node = (id: string, status: NodeSummary['status'], publicIp: string | null): NodeSummary =>
   ({ id, name: id, status, publicIp }) as unknown as NodeSummary;
@@ -26,7 +26,7 @@ const TRAFFIC: TrafficNowView = {
   unit: 'requests/min',
   totals: { requestsPerMin: 612, errors5xxPerMin: 0, errorShare: 0, state: 'reporting' },
   regions: [
-    { region: 'eu-west', requestsPerMin: 434, errors5xxPerMin: 0, state: 'reporting', edges: [{ nodeId: 'a', name: 'a', region: 'eu-west', state: 'reporting', requestsPerMin: 434, lastReportAt: 1 }] },
+    { region: 'eu-west', requestsPerMin: 434, errors5xxPerMin: 0, state: 'reporting', edges: [{ nodeId: 'a', name: 'a', region: 'eu-west', state: 'reporting', requestsPerMin: 434, lastReportAt: 1, p50Ms: 41.6, p95Ms: 230 }] },
     { region: 'us-east', requestsPerMin: 178, errors5xxPerMin: 0, state: 'reporting', edges: [{ nodeId: 'b', name: 'b', region: 'us-east', state: 'reporting', requestsPerMin: 178, lastReportAt: 1 }] },
     { region: 'us-west', requestsPerMin: null, errors5xxPerMin: null, state: 'no-data', edges: [{ nodeId: 'c', name: 'c', region: 'us-west', state: 'no-data', requestsPerMin: null, lastReportAt: null }] },
   ],
@@ -49,6 +49,12 @@ describe('route map', () => {
       ['c', null, null, false],
     ]);
     expect(m.visitors).toEqual({ perMin: 612, regions: [{ region: 'eu-west', perMin: 434 }, { region: 'us-east', perMin: 178 }] });
+  });
+
+  it('carries each edge`s p50/p95 (board 13); an edge without duration buckets reads null, not 0', () => {
+    const m = buildRouteMap({ domains: [], traffic: TRAFFIC, nodes: NODES, servicesByNode: PLACED });
+    expect(m.edges.map((e) => [e.name, e.p50Ms, e.p95Ms])).toEqual([['a', 41.6, 230], ['b', null, null], ['c', null, null]]);
+    expect([msText(0.4), msText(41.6), msText(1340)]).toEqual(['<1 ms', '42 ms', '1.3 s']);
   });
 
   it('groups addresses by the service they open, with where it runs and the worst state', () => {

@@ -2,7 +2,7 @@ import * as React from 'react';
 import { GlobeIcon, RadarIcon } from 'lucide-react';
 import { cn } from '@swarmy/ui';
 import { TONE_DOT, Tech } from '@/components/calm';
-import { perMinText, type MapApp, type MapEdge, type RouteMap } from './route-map-model';
+import { msText, perMinText, type MapApp, type MapEdge, type RouteMap } from './route-map-model';
 
 /** How a card reads against the lit path: on it, off it, or nothing picked. */
 export type Lit = 'hot' | 'dim' | 'none';
@@ -75,8 +75,10 @@ function ForAddress({ perMin }: { perMin: number | null | undefined }): React.JS
   return <span className="text-foreground font-mono text-[11.5px]">{perMinText(perMin)}/min for this address</span>;
 }
 
+/** An edge (board 13): its rate and its p50 — half its answers were quicker than this. */
 export function EdgeCard({ e, lit, forAddress }: { e: MapEdge; lit: Lit; forAddress?: number | null }): React.JSX.Element {
   const line = e.perMin !== null ? `${perMinText(e.perMin)} a minute` : e.healthy ? 'No visits counted yet' : 'Not taking visits';
+  const timing = e.p50Ms !== null ? ` · p50 ${msText(e.p50Ms)}${e.p95Ms !== null ? ` · p95 ${msText(e.p95Ms)}` : ''}` : '';
   return (
     <Card flow={`edge:${e.id}`} lit={lit}>
       <span className="flex min-w-0 items-center gap-2 text-[14px] font-semibold">
@@ -84,9 +86,17 @@ export function EdgeCard({ e, lit, forAddress }: { e: MapEdge; lit: Lit; forAddr
         <span className="truncate">{e.name}</span>
         {e.region ? <span className="border-border text-muted-foreground ml-auto shrink-0 rounded-md border px-1.5 font-mono text-[10.5px] font-medium">{e.region}</span> : null}
       </span>
-      <span className="text-muted-foreground text-[12.5px]">{line}</span>
+      <span className="text-muted-foreground text-[12.5px]">
+        {line}
+        {e.p50Ms !== null ? (
+          <>
+            {' · answers in '}
+            <span className="text-foreground font-mono" title="p50: half of this edge’s answers were quicker">{msText(e.p50Ms)}</span>
+          </>
+        ) : null}
+      </span>
       <ForAddress perMin={forAddress} />
-      <Tech>{`${e.ip ?? 'no public IP'} · Caddy :443`}</Tech>
+      <Tech>{`${e.ip ?? 'no public IP'} · Caddy :443${timing}`}</Tech>
     </Card>
   );
 }

@@ -11,6 +11,9 @@ export interface MapEdge {
   ip: string | null;
   /** Requests a minute over the last 5 minutes (`traffic.now`); null = no number yet. */
   perMin: number | null;
+  /** Median / 95th-percentile answer time (ms) from the edge's merged duration buckets; null = none. */
+  p50Ms: number | null;
+  p95Ms: number | null;
   /** The server is online, so DNS can send visitors to it. */
   healthy: boolean;
 }
@@ -54,6 +57,8 @@ export function buildRouteMap(input: {
       region: e.region,
       ip: byId.get(e.nodeId)?.publicIp ?? null,
       perMin: e.requestsPerMin,
+      p50Ms: e.p50Ms ?? null,
+      p95Ms: e.p95Ms ?? null,
       healthy: byId.get(e.nodeId)?.status === 'online',
     })),
   );
@@ -124,6 +129,12 @@ export function litSay(map: RouteMap, d: HubDomain | null, lit: LitPath | null):
         ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}`
         : `over ${parts.length} edges`;
   return `${opens}: ${perMinText(lit.perMin)} visits a minute, ${via}.`;
+}
+
+/** "<1 ms" / "42 ms" / "1.3 s" — an answer time. */
+export function msText(ms: number): string {
+  if (ms < 1) return '<1 ms';
+  return ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`;
 }
 
 /** "434" / "1.2k" — a rate as a short mono number. */

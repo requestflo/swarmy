@@ -1,4 +1,4 @@
-import { EDGE_OVERFLOW_HOST, type TrafficHostEdgeView, type TrafficNowView } from '@swarmy/core';
+import { EDGE_OVERFLOW_HOST, type TrafficHostEdgeView, type TrafficHostView, type TrafficNowView } from '@swarmy/core';
 
 /** One address's visits at the edge right now (`traffic.now.hosts`). */
 export interface HostVisits {
@@ -21,9 +21,7 @@ const norm = (h: string): string => h.trim().toLowerCase().replace(/\.$/, '');
  */
 export function hostVisits(traffic: TrafficNowView | undefined, host: string, viaEdge = true): HostVisits | null {
   if (!traffic || traffic.totals.state !== 'reporting' || !viaEdge) return null;
-  const h = norm(host);
-  const wild = h.startsWith('*.') ? h.slice(1) : null;
-  const rows = traffic.hosts.filter((r) => (wild ? r.host.indexOf('.') > 0 && r.host.slice(r.host.indexOf('.')) === wild : r.host === h));
+  const rows = hostRows(traffic, host);
   if (rows.length === 0) {
     if (traffic.hosts.some((r) => r.host === EDGE_OVERFLOW_HOST)) return null;
     return { perMin: 0, errors5xxPerMin: 0, edges: [], windowMinutes: traffic.windowMinutes };
@@ -37,6 +35,13 @@ export function hostVisits(traffic: TrafficNowView | undefined, host: string, vi
     edges: [...byEdge.entries()].map(([nodeId, v]) => ({ nodeId, requestsPerMin: r1(v) })).sort((a, b) => b.requestsPerMin - a.requestsPerMin),
     windowMinutes: traffic.windowMinutes,
   };
+}
+
+/** The `traffic.now.hosts` rows an address covers: itself, or every host one label under a `*.zone`. */
+export function hostRows(traffic: TrafficNowView, host: string): TrafficHostView[] {
+  const h = norm(host);
+  const wild = h.startsWith('*.') ? h.slice(1) : null;
+  return traffic.hosts.filter((r) => (wild ? r.host.indexOf('.') > 0 && r.host.slice(r.host.indexOf('.')) === wild : r.host === h));
 }
 
 /** Does this address go through the Caddy edge (where visits are counted)? The route's own driver, else the org's. */
