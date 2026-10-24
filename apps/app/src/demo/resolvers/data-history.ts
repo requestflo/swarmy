@@ -1,9 +1,12 @@
 import {
+  autoscaleStep,
   dataHistorySlots,
+  desiredWorkers,
   dataHistoryStepSeconds,
   type BucketSizeHistoryView,
   type CacheClusterView,
   type CacheStatsHistoryView,
+  type QueueCalm,
   type QueueDepthHistoryView,
   type QueueView,
 } from '@swarmy/core';
@@ -15,8 +18,9 @@ import { STOREFRONT_QUEUES } from './queue-studio-demo';
  * `buckets.sizeHistory`), each anchored on the numbers the same screen shows
  * live: a cache's hit rate dips overnight and lands on today's reading; a
  * queue's backlog had a burst a couple of hours ago that its workers scaled
- * up to absorb (one copy per `scalePerJobs` waiting, up to `maxWorkers`)
- * and ends on today's depth; a bucket grew ~1.7% over the week (storefront-
+ * up to absorb (one copy per `scalePerJobs` waiting, up to `maxWorkers`, and
+ * back down only after the cooldown — the real `autoscaleStep`) and ends on
+ * today's depth; a bucket grew ~1.7% over the week (storefront-
  * media: +310 MB) up to its size now. An empty bucket has no history yet.
  */
 
@@ -77,7 +81,9 @@ function queueHistory(input: unknown, s: DemoStore): QueueDepthHistoryView {
   if (!q || stack !== 'storefront' || cluster !== 'main') return view;
   const per = Math.max(1, def?.scalePerJobs ?? 100);
   const max = Math.max(1, def?.maxWorkers ?? 1);
+  const rule = { scalePerJobs: per, minWorkers: 1, maxWorkers: max };
   let copies = Math.max(1, def?.workers.running ?? 1);
+  let calm: QueueCalm | null = null;
   for (let i = 0; i < g.slots; i++) {
     const hoursAgo = (Date.now() - g.at(i)) / HOUR;
     // A burst ~2 h ago (sale traffic), draining over the next hour; today's depth now.
@@ -87,8 +93,11 @@ function queueHistory(input: unknown, s: DemoStore): QueueDepthHistoryView {
     view.waiting[i] = waiting;
     view.active[i] = Math.min(copies * 4, q.active + Math.round(burst * 6));
     view.workers[i] = copies;
-    // The autoscaler follows the depth one sample later.
-    copies = Math.min(max, Math.max(1, Math.ceil(waiting / per)));
+    // The autoscaler follows the depth one sample later: up at once, down after the calm.
+    const now = g.at(i);
+    const step = autoscaleStep({ current: copies, target: desiredWorkers(rule, waiting), cooldownSeconds: def?.cooldownSeconds ?? 600, calm, lastSampleAt: now, now });
+    copies = step.replicas;
+    calm = step.calm;
     const done = (q.perMin * g.step) / 60;
     view.completed[i] = Math.round(done * (0.5 + 0.6 * busy(g.at(i))) * (1 + burst));
     view.failed[i] = q.failed && unit(`${queue}:f`, i) > 0.85 ? 1 + Math.round(2 * unit(`${queue}:n`, i)) : 0;

@@ -25,6 +25,7 @@ export function queuesCode(stack: string, queues: QueueView[]): CodeTab[] {
                 scalePerJobs: q.scalePerJobs,
                 minWorkers: q.minWorkers,
                 maxWorkers: q.maxWorkers,
+                cooldownSeconds: q.cooldownSeconds,
                 retries: q.retries,
                 dlq: q.dlq,
               })),

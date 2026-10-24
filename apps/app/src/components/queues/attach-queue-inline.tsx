@@ -41,6 +41,7 @@ export function AttachQueueInline({ onDone }: { onDone: () => void }): React.JSX
       scalePerJobs: draft.scalePerJobs,
       minWorkers: draft.minWorkers,
       maxWorkers: draft.maxWorkers,
+      cooldownSeconds: draft.cooldownSeconds,
       retries: draft.retries,
       dlq: draft.dlq,
     });

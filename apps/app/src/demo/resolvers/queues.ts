@@ -1,18 +1,20 @@
-import type {
-  QueueDepthSample,
-  QueueDlqItemView,
-  QueueDrainResult,
-  QueueRequeueResult,
-  QueueRetryResult,
-  QueueView,
-  QueuesOverview,
+import {
+  autoscaleStep,
+  desiredWorkers,
+  type QueueDepthSample,
+  type QueueDlqItemView,
+  type QueueDrainResult,
+  type QueueRequeueResult,
+  type QueueRetryResult,
+  type QueueView,
+  type QueuesOverview,
 } from '@swarmy/core';
 import type { DemoStore, DomainResolvers } from '../types';
 import { queueStudio, STOREFRONT_QUEUES } from './queue-studio-demo';
 
 /** How each storefront queue's workers scale (the counts live in STOREFRONT_QUEUES). */
 const STOREFRONT_WORKERS: Record<string, { workerService: string; scalePerJobs: number; maxWorkers: number; retries: number; running: number }> = {
-  emails: { workerService: 'storefront_email-worker', scalePerJobs: 25, maxWorkers: 4, retries: 5, running: 2 },
+  emails: { workerService: 'storefront_email-worker', scalePerJobs: 25, maxWorkers: 4, retries: 5, running: 3 },
   'image-resize': { workerService: 'storefront_media-worker', scalePerJobs: 50, maxWorkers: 6, retries: 3, running: 6 },
   webhooks: { workerService: 'storefront_webhook-worker', scalePerJobs: 100, maxWorkers: 3, retries: 8, running: 1 },
   'abandoned-carts': { workerService: 'storefront_email-worker', scalePerJobs: 200, maxWorkers: 1, retries: 3, running: 1 },
@@ -47,13 +49,7 @@ function require_(st: QueuesState, i: unknown): QueueView {
   return q;
 }
 
-const clamp = (def: QueueView, wait: number): number =>
-  Math.min(
-    def.maxWorkers,
-    Math.max(def.minWorkers, Math.ceil(Math.max(0, wait) / Math.max(1, def.scalePerJobs))),
-  );
-
-/** Wobble a queue's depths so polls feel alive, and keep workers tracking wait. */
+/** Wobble a queue's depths so polls feel alive; workers follow the real rule (up now, down after the calm). */
 function liveSample(q: QueueView): QueueDepthSample {
   const base = q.stats ?? { wait: 0, active: 0, failed: 0, delayed: 0, ts: nowIso() };
   const wob = (n: number, pct: number): number =>
@@ -66,8 +62,16 @@ function liveSample(q: QueueView): QueueDepthSample {
     ts: nowIso(),
   };
   q.stats = next;
-  const target = clamp(q, next.wait);
-  q.workers = { desired: target, running: target };
+  const step = autoscaleStep({
+    current: q.workers.desired,
+    target: desiredWorkers(q, next.wait),
+    cooldownSeconds: q.cooldownSeconds,
+    calm: q.calm,
+    lastSampleAt: Date.parse(base.ts),
+    now: Date.now(),
+  });
+  q.calm = step.calm;
+  q.workers = { desired: step.replicas, running: step.replicas };
   return next;
 }
 
@@ -81,6 +85,7 @@ function makeQueue(input: Partial<QueueView> & Pick<QueueView, 'name' | 'workerS
     scalePerJobs: input.scalePerJobs ?? 100,
     minWorkers: input.minWorkers ?? 1,
     maxWorkers: input.maxWorkers ?? 5,
+    cooldownSeconds: input.cooldownSeconds ?? 600,
     retries: input.retries ?? 3,
     dlq: input.dlq ?? true,
     workerService: input.workerService,
@@ -90,6 +95,7 @@ function makeQueue(input: Partial<QueueView> & Pick<QueueView, 'name' | 'workerS
     cacheOnline: input.cacheOnline ?? true,
     workers: input.workers ?? { desired: 1, running: 1 },
     stats: input.stats ?? null,
+    calm: input.calm ?? null,
   };
 }
 
@@ -111,6 +117,8 @@ export const queues: DomainResolvers = {
         retries: w.retries,
         workers: { desired: w.running, running: w.running },
         stats: { wait: q.wait, active: q.active, failed: q.failed, delayed: q.delayed, ts: nowIso() },
+        // email-worker came off a burst 4 min ago: its calm clock runs, 3 copies until it drops to 2.
+        ...(q.name === 'emails' ? { calm: { since: new Date(Date.now() - 4 * 60_000).toISOString(), peak: 2 } } : {}),
       });
     });
     const resize = storefront.find((q) => q.name === 'image-resize')!;
@@ -205,6 +213,7 @@ export const queues: DomainResolvers = {
         scalePerJobs: b.scalePerJobs ?? q.scalePerJobs,
         minWorkers: b.minWorkers ?? q.minWorkers,
         maxWorkers: b.maxWorkers ?? q.maxWorkers,
+        cooldownSeconds: b.cooldownSeconds ?? q.cooldownSeconds,
         retries: b.retries ?? q.retries,
         dlq: b.dlq ?? q.dlq,
       });

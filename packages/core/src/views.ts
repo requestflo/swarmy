@@ -693,6 +693,11 @@ export interface QueueDef {
   scalePerJobs: number;
   minWorkers: number;
   maxWorkers: number;
+  /**
+   * Scale-down cooldown: workers drop only after the depth has asked for fewer
+   * copies for this long (seconds; default 600). Scale-up never waits.
+   */
+  cooldownSeconds: number;
   /** Consumer retry budget (informational — the consumer library enforces it). */
   retries: number;
   /** Whether a `<queue>:dead` dead-letter list is expected/browsable. */
@@ -707,6 +712,17 @@ export interface QueueDepthSample {
   delayed: number;
   /** ISO time the sample was taken. */
   ts: string;
+}
+
+/**
+ * The autoscaler's calm clock — the `swarmy.queues.calm` JSON label on a
+ * worker service while its queues ask for fewer copies than run.
+ */
+export interface QueueCalm {
+  /** ISO time the depth first asked for fewer copies than run. */
+  since: string;
+  /** The most copies any tick since then asked for (always fewer than run). */
+  peak: number;
 }
 
 /** One queue projected for the dashboard (def + live worker state + last sample). */
@@ -725,6 +741,8 @@ export interface QueueView extends QueueDef {
   workers: { desired: number; running: number };
   /** Last depth sample (stamped by queue-reconcile), or null before the first. */
   stats: QueueDepthSample | null;
+  /** The worker's calm clock (scale-down cooldown running), or null. */
+  calm: QueueCalm | null;
 }
 
 /** Aggregates for the Queues page hero. */

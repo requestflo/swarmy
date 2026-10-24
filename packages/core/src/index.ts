@@ -49,6 +49,7 @@ export * from './edge-traffic-extras';
 export * from './edge-latency';
 export * from './node-stats-history';
 export * from './data-history';
+export * from './queue-autoscale';
 export * from './image-ref';
 export * from './bucket-cors';
 export * from './bucket-lifecycle';

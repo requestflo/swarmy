@@ -26,6 +26,7 @@ const BULL: QueueDef = {
   scalePerJobs: 25,
   minWorkers: 1,
   maxWorkers: 5,
+  cooldownSeconds: 300,
   retries: 3,
   dlq: true,
 };
@@ -109,9 +110,16 @@ describe('queues label codec', () => {
       scalePerJobs: 100,
       minWorkers: 1,
       maxWorkers: 5,
+      cooldownSeconds: 600,
       retries: 3,
       dlq: true,
     });
+  });
+
+  it('keeps the scale-down cooldown: 0 allowed, capped at a day, junk is the 10 min default', () => {
+    const cool = (v: string): number | undefined =>
+      parseQueuesLabel(`[{"name":"q","cacheCluster":"main","cooldownSeconds":${v}}]`)[0]?.cooldownSeconds;
+    expect([cool('0'), cool('90'), cool('999999'), cool('-5'), cool('"soon"')]).toEqual([0, 90, 86_400, 600, 600]);
   });
 
   it('keeps maxWorkers ≥ minWorkers', () => {

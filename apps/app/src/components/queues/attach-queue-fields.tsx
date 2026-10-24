@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { QUEUE_CONVENTIONS, type QueueConvention } from '@swarmy/core';
+import { DEFAULT_QUEUE_COOLDOWN_SECONDS, QUEUE_CONVENTIONS, scaleDownWords, type QueueConvention } from '@swarmy/core';
 import {
   Input,
   Label,
@@ -23,6 +23,7 @@ export interface QueueDraft {
   scalePerJobs: number;
   minWorkers: number;
   maxWorkers: number;
+  cooldownSeconds: number;
   retries: number;
   dlq: boolean;
 }
@@ -36,6 +37,7 @@ export const EMPTY_QUEUE_DRAFT: QueueDraft = {
   scalePerJobs: 100,
   minWorkers: 1,
   maxWorkers: 5,
+  cooldownSeconds: DEFAULT_QUEUE_COOLDOWN_SECONDS,
   retries: 3,
   dlq: true,
 };
@@ -111,7 +113,7 @@ export function AttachQueueFields({
           />
         </Field>
       ) : null}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         <Field label="Jobs / worker">
           <Input type="number" min={1} value={draft.scalePerJobs} onChange={(e) => set({ scalePerJobs: num(e.target.value, 1) })} />
         </Field>
@@ -121,13 +123,16 @@ export function AttachQueueFields({
         <Field label="Max workers">
           <Input type="number" min={1} value={draft.maxWorkers} onChange={(e) => set({ maxWorkers: num(e.target.value, 1) })} />
         </Field>
+        <Field label="Calm (min)">
+          <Input type="number" min={0} max={1440} value={Math.round(draft.cooldownSeconds / 60)} onChange={(e) => set({ cooldownSeconds: Math.min(1440, num(e.target.value, 0)) * 60 })} />
+        </Field>
         <Field label="Retries">
           <Input type="number" min={0} value={draft.retries} onChange={(e) => set({ retries: num(e.target.value, 0) })} />
         </Field>
       </div>
       <p className="text-muted-foreground -mt-1 text-xs">
         Workers autoscale: one replica per {draft.scalePerJobs || '…'} waiting jobs, held between{' '}
-        {draft.minWorkers} and {draft.maxWorkers}.
+        {draft.minWorkers} and {draft.maxWorkers}; {scaleDownWords(draft.minWorkers, draft.cooldownSeconds)}.
       </p>
       <div className="flex items-center justify-between gap-3">
         <div>

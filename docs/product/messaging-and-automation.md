@@ -82,9 +82,10 @@ Four ideas, one story:
 
 - **Queue definitions are Docker truth** — one `swarmy.queues` JSON label on the
   *worker* service (`[{name, cacheCluster, convention, scalePerJobs, minWorkers,
-  maxWorkers, retries, dlq}]`). The last depth sample is stamped into a
+  maxWorkers, cooldownSeconds, retries, dlq}]`). The last depth sample is stamped into a
   `swarmy.queues.stats` label by `queue-reconcile` so the list renders without an
-  exec fan-out. No queue row in swarmy's DB — see the `docker-native-storage` skill.
+  exec fan-out, and a running scale-down cooldown lives in `swarmy.queues.calm`
+  (`{since, peak}`) so a controller restart keeps the clock. No queue row in swarmy's DB — see the `docker-native-storage` skill.
 - **Queue contents live in the cache cluster, never swarmy.** Waiting/active/
   failed/delayed and the `<q>:dead` list are keys in the org's own Valkey/Redis
   primary. swarmy reads and mutates them by exec'ing the CLI inside that
@@ -108,7 +109,11 @@ Four ideas, one story:
 - **Queues autoscale, and only within the operator's band.** Desired workers is
   `clamp(ceil(wait / scalePerJobs), minWorkers, maxWorkers)`. `minWorkers: 0`
   legitimately scales a queue's workers to zero when idle; the band is never
-  exceeded.
+  exceeded. Up is immediate; down waits `cooldownSeconds` (default 600, "back
+  to 1 after 10 min calm") of every tick asking for fewer copies, then goes to
+  the most any of those ticks asked for, so a queue dipping between bursts
+  doesn't flap its workers. A sampling gap over 5 minutes restarts the clock
+  (`autoscaleStep`, `@swarmy/core` `queue-autoscale.ts`).
 - **Dead letters are a first-class, browsable place.** Exhausted jobs RPUSH to
   `<q>:dead` for both conventions; the UI browses the tail and requeues bounded
   batches back onto `wait`. Draining deletes waiting (+ delayed) jobs but never
@@ -132,7 +137,7 @@ Four ideas, one story:
 | Failure | Behaviour |
 |---|---|
 | Cache primary down when reading depth | `queueStats` falls back to the last `swarmy.queues.stats` label stamp; the list still renders. Actions that must exec return a clear "no running container" rejection rather than a hang. |
-| Worker service backlog spikes | `queue-reconcile` scales replicas up to `maxWorkers`; when the backlog clears it scales back to `minWorkers` (possibly 0). Never exceeds the band. |
+| Worker service backlog spikes | `queue-reconcile` scales replicas up to `maxWorkers` at once; when the backlog clears it scales back to `minWorkers` (possibly 0) after the cooldown. Never exceeds the band. |
 | Third-party webhook with a bad signature | Persisted as `FAILED` (kept for the audit feed) and answered `401`; never enqueued. Verifying kinds fail closed if the secret can't be decrypted. |
 | Inbound target unreachable | Delivery retries 1m→6h across 6 attempts, then `DEAD`. A malformed endpoint target dead-letters immediately (not retryable). Replay re-runs the transform on the original body. |
 | No online node to run a job | The attempt fails with "no online node"; a scheduled job records the failed `JobRun` and, with `alertOnFailure`, raises an alert. |

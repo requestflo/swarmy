@@ -338,6 +338,17 @@ export {
 } from './services/cache-policy';
 export { parseLivePolicy, planCachePolicy, type CachePolicyStep, type LivePolicySample } from './services/cache-policy-plan';
 export { sampleQueueClusters, type SampledCluster } from './services/queue-studio.service';
+// The queue-reconcile worker reads the same label codecs + depth probe the queues view does.
+export {
+  depthCommand,
+  encodeQueueStatsLabel,
+  parseCacheClusterRef,
+  parseDepthOutput,
+  parseQueueStatsLabel,
+  parseQueuesLabel,
+  QUEUES_LABEL,
+  QUEUES_STATS_LABEL,
+} from './services/queues.service';
 export { runDueDbBackups } from './services/dbBackup.service';
 export { runDueScheduledJobs } from './services/jobs.service';
 export { managedKindOf, parseExposureRules } from './services/exposure.service';

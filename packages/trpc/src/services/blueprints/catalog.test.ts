@@ -224,6 +224,7 @@ describe('worker-with-queue', () => {
         scalePerJobs: 25,
         minWorkers: 1,
         maxWorkers: SIZE_PRESETS.m.maxWorkers,
+        cooldownSeconds: 600,
         retries: 3,
         dlq: true,
       },

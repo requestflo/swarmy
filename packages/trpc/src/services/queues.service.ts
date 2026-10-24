@@ -1,6 +1,10 @@
 import {
   buildInventory,
+  DEFAULT_QUEUE_COOLDOWN_SECONDS,
+  MAX_QUEUE_COOLDOWN_SECONDS,
+  parseQueueCalmLabel,
   QUEUE_CONVENTIONS,
+  QUEUES_CALM_LABEL,
   STACK_LABEL,
   type AttachQueueInput,
   type InvService,
@@ -30,11 +34,14 @@ import { studioAction, studioOverview } from './queue-studio.service';
  *
  * Queue definitions live in ONE JSON label on the WORKER service
  * (`swarmy.queues`): `[{name, cacheCluster, convention, listKey?, scalePerJobs,
- * minWorkers, maxWorkers, retries, dlq}]`. Depth stats are read live by exec'ing
+ * minWorkers, maxWorkers, cooldownSeconds, retries, dlq}]`. Depth stats are read live by exec'ing
  * `redis-cli`/`valkey-cli` on the backing cache cluster's PRIMARY container (the
  * password never rides the wire — the container reads it from its mounted
  * secret file), and the queue-reconcile worker stamps the last-known sample into
  * a `swarmy.queues.stats` label so the list renders without an exec fan-out.
+ * While the depth asks for fewer copies than run, the worker also keeps its
+ * scale-down cooldown clock in `swarmy.queues.calm` (`@swarmy/core`
+ * queue-autoscale.ts owns the rule).
  *
  * Key conventions:
  *   bullmq → `bull:<q>:wait` (list), `bull:<q>:active` (list),
@@ -90,6 +97,7 @@ function coerceDef(v: unknown): QueueDef | null {
     scalePerJobs: num(o.scalePerJobs, 100, 1),
     minWorkers,
     maxWorkers: Math.max(minWorkers, num(o.maxWorkers, 5, 1)),
+    cooldownSeconds: Math.min(MAX_QUEUE_COOLDOWN_SECONDS, num(o.cooldownSeconds, DEFAULT_QUEUE_COOLDOWN_SECONDS, 0)),
     retries: num(o.retries, 3, 0),
     dlq: o.dlq !== false,
   };
@@ -118,6 +126,7 @@ export function encodeQueuesLabel(defs: QueueDef[]): string {
       scalePerJobs: d.scalePerJobs,
       minWorkers: d.minWorkers,
       maxWorkers: d.maxWorkers,
+      cooldownSeconds: d.cooldownSeconds,
       retries: d.retries,
       dlq: d.dlq,
     })),
@@ -194,18 +203,8 @@ export function queueKeys(def: Pick<QueueDef, 'name' | 'convention' | 'listKey'>
   };
 }
 
-// ── Pure: scale decision ──────────────────────────────────────────────────────
-
-/** clamp(ceil(wait / scalePerJobs), minWorkers, maxWorkers). */
-export function desiredWorkers(
-  def: Pick<QueueDef, 'scalePerJobs' | 'minWorkers' | 'maxWorkers'>,
-  wait: number,
-): number {
-  const raw = Math.ceil(Math.max(0, wait) / Math.max(1, def.scalePerJobs));
-  const min = Math.max(0, def.minWorkers);
-  const max = Math.max(min, def.maxWorkers);
-  return Math.min(max, Math.max(min, raw));
-}
+// ── Pure: scale decision (canonical in @swarmy/core queue-autoscale.ts) ──────
+export { desiredWorkers } from '@swarmy/core';
 
 // ── Pure: redis-cli command builders + output parsers ─────────────────────────
 
@@ -446,6 +445,7 @@ function toView(services: InvService[], worker: InvService, def: QueueDef): Queu
     cacheOnline: Boolean(primary && primary.replicas.running > 0),
     workers: { desired: worker.replicas.desired, running: worker.replicas.running },
     stats: stats[def.name] ?? null,
+    calm: parseQueueCalmLabel(worker.labels[QUEUES_CALM_LABEL]),
   };
 }
 
@@ -522,6 +522,7 @@ function toDef(input: AttachQueueInput): QueueDef {
     scalePerJobs: input.scalePerJobs,
     minWorkers: input.minWorkers,
     maxWorkers: input.maxWorkers,
+    cooldownSeconds: input.cooldownSeconds,
     retries: input.retries,
     dlq: input.dlq,
   };
@@ -584,7 +585,7 @@ export async function removeQueue(
   const next = defs.filter((d) => d.name !== input.queue);
   if (next.length === defs.length) throw notFound('queue', input.queue);
   if (next.length === 0) {
-    await stampLabels(ctx, worker.name, {}, [QUEUES_LABEL, QUEUES_STATS_LABEL]);
+    await stampLabels(ctx, worker.name, {}, [QUEUES_LABEL, QUEUES_STATS_LABEL, QUEUES_CALM_LABEL]);
   } else {
     const stats = parseQueueStatsLabel(worker.labels[QUEUES_STATS_LABEL]);
     delete stats[input.queue];

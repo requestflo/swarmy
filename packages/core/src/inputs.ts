@@ -425,6 +425,7 @@ export type DetachBucketInput = z.infer<typeof DetachBucketInput>;
 
 // ── Queues (slice B1) — defs live in the `swarmy.queues` label on the worker ──
 import { QUEUE_CONVENTIONS } from './views';
+import { DEFAULT_QUEUE_COOLDOWN_SECONDS, MAX_QUEUE_COOLDOWN_SECONDS } from './queue-autoscale';
 
 export const QueueConventionInput = z.enum(QUEUE_CONVENTIONS);
 export type QueueConventionInput = z.infer<typeof QueueConventionInput>;
@@ -442,6 +443,8 @@ export const QueueRuleFields = z.object({
   scalePerJobs: z.number().int().min(1).max(100000).default(100),
   minWorkers: z.number().int().min(0).max(100).default(1),
   maxWorkers: z.number().int().min(1).max(100).default(5),
+  /** Scale-down cooldown (seconds): drop workers only after this long calm. */
+  cooldownSeconds: z.number().int().min(0).max(MAX_QUEUE_COOLDOWN_SECONDS).default(DEFAULT_QUEUE_COOLDOWN_SECONDS),
   retries: z.number().int().min(0).max(100).default(3),
   dlq: z.boolean().default(true),
 });

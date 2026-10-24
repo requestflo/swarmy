@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import type { QueueDepthSample } from '@swarmy/core';
+import { scaleDownWords, type QueueDepthSample } from '@swarmy/core';
 import { CalmRow, Section, SectionLink } from '@/components/calm';
 import { useTRPC } from '@/integrations/trpc';
 import { RowsSkeleton } from '../tab-body';
@@ -68,7 +68,7 @@ function WorkerLine({ r, depth }: { r: WorkerRow; depth: Map<string, QueueDepthS
       name={r.part}
       sub={r.queues.length ? `${r.queues.length} queue${r.queues.length === 1 ? '' : 's'}` : 'no queue'}
       say={[copies(r.copies), ...queueWords].join(' · ')}
-      tech={r.queues.length ? r.queues.map((q) => `${q.name} ${q.convention} on ${q.cacheName} · ${q.minWorkers}–${q.maxWorkers} copies, 1 per ${q.scalePerJobs} waiting`).join(' · ') : `${r.service} · no published port, no route`}
+      tech={r.queues.length ? r.queues.map((q) => `${q.name} ${q.convention} on ${q.cacheName} · ${q.minWorkers}–${q.maxWorkers} copies, 1 per ${q.scalePerJobs} waiting, ${scaleDownWords(q.minWorkers, q.cooldownSeconds)}`).join(' · ') : `${r.service} · no published port, no route`}
       trailing={r.queues.length ? <WorkerToday queues={r.queues} /> : undefined}
       word={short ? 'Short' : asleep ? 'Asleep' : 'Running'}
       wordTone={short ? 'warn' : asleep ? 'idle' : 'ok'}

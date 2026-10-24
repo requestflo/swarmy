@@ -1,3 +1,4 @@
+import { DEFAULT_QUEUE_COOLDOWN_SECONDS } from '@swarmy/core';
 import { escapeInterpolation } from '@swarmy/core/compose';
 import { stringify as stringifyYaml } from 'yaml';
 import type {
@@ -680,6 +681,7 @@ export const BLUEPRINT_CATALOG: BlueprintEntry[] = [
                     scalePerJobs: 25,
                     minWorkers: 1,
                     maxWorkers: preset.maxWorkers,
+                    cooldownSeconds: DEFAULT_QUEUE_COOLDOWN_SECONDS,
                     retries: 3,
                     dlq: true,
                   },
