@@ -6,8 +6,10 @@
  * copies equal) and the worker join script rendered by `./installer.ts`.
  *
  * The cache is the `swarmy-registry-cache` swarm service (registry:2 in proxy
- * mode) published on :5001 through the routing mesh, so `localhost:5001` answers
- * on every node and dockerd trusts loopback registries as insecure by default.
+ * mode). `localhost:5001` answers on every node through the agent's loopback
+ * forwarder over the encrypted `swarmy` overlay (security review M16; on a
+ * cluster not yet moved, through the routing mesh), and dockerd trusts
+ * loopback registries as insecure by default. The URL is the same either way.
  * dockerd only consults `registry-mirrors` for Docker Hub, and falls back to Hub
  * itself when the mirror is down, so writing it before the cache exists is safe.
  * (GHCR / gcr.io system images come from the mirrored copies in the built-in

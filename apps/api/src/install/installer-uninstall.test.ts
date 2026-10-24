@@ -82,6 +82,7 @@ describe('install-swarmy.sh --uninstall (M15)', () => {
       expect(r.code).toBe(0);
       for (const call of [
         'docker rm -f swarmy-agent',
+        'docker rm -f swarmy-registry-forwarder', // M16: restart always, it would outlive the agent
         'docker volume rm swarmy-agent', // agent.json lives on it
         'docker stack rm swarmy',
         'docker secret rm swarm_manager_token',
@@ -192,6 +193,7 @@ describe('node installer --uninstall (M15)', () => {
       expect(r.code).toBe(0);
       expect(r.log).toContain('systemctl disable --now swarmy-agent.service\n');
       expect(r.log).toContain('docker rm -f swarmy-agent swarmy-netbird swarmy-tailscale swarmy-mesh-front\n');
+      expect(r.log).toContain('docker rm -f swarmy-registry-forwarder\n'); // M16: restart always, it would outlive the agent
       expect(r.log).toContain('docker volume rm swarmy-agent\n');
       expect(r.log).toContain('docker volume rm swarmy-netbird\n');
       expect(r.log).toContain('ip link del swarmy-mesh0\n');

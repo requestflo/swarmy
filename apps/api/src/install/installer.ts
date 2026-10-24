@@ -206,6 +206,8 @@ if [ -n "$UNINSTALL" ]; then
   fi
   if have docker; then
     docker rm -f "$CONTAINER_NAME" swarmy-netbird swarmy-tailscale swarmy-mesh-front >/dev/null 2>&1 || true
+    # The loopback registry forwarder the agent supervised (restart always: it would outlive the agent).
+    docker rm -f swarmy-registry-forwarder >/dev/null 2>&1 || true
     for _v in "$STATE_VOLUME" swarmy-netbird; do docker volume rm "$_v" >/dev/null 2>&1 || true; done
     if [ -n "$MESH_CONTROL_HERE" ] && [ -z "$KEEP_DATA" ]; then
       docker rm -f swarmy-mesh-control swarmy-mesh-litestream >/dev/null 2>&1 || true

@@ -1567,15 +1567,31 @@ overlay_mtu() {
   [ -n "$link" ] && printf '%s' "$link"
 }
 
+# overlay_security_gaps NAME → "unencrypted" and/or "unattachable" for an existing
+# overlay (empty = fine). `encrypted` is a key with an empty value, so test the keys.
+overlay_security_gaps() {
+  local keys attach
+  keys="$(docker network inspect "$1" -f '{{range $k, $v := .Options}}{{$k}} {{end}}' 2>/dev/null || true)"
+  attach="$(docker network inspect "$1" -f '{{.Attachable}}' 2>/dev/null || true)"
+  case " $keys " in *" encrypted "*) ;; *) printf 'unencrypted ' ;; esac
+  [ "$attach" = true ] || printf 'unattachable '
+}
+
 # create_overlay NAME — encrypted, attachable, MTU-sized for the mesh. Idempotent;
-# an EXISTING network's MTU can't change in place, so only warn about it.
+# an EXISTING network's MTU or options can't change in place, so only warn about them.
 create_overlay() {
-  local name="$1" mtu have
+  local name="$1" mtu have gaps
   mtu="$(overlay_mtu || true)"
   if docker network inspect "$name" >/dev/null 2>&1; then
     have="$(docker network inspect "$name" -f '{{index .Options "com.docker.network.driver.mtu"}}' 2>/dev/null || true)"
     if [ -n "$mtu" ] && { [ -z "$have" ] || [ "$have" -gt "$mtu" ]; }; then
       warn "overlay $name has MTU ${have:-1500 (default)} but the mesh needs ≤ $mtu — large cross-node packets may stall. Recreating it is disruptive; see docs (verify with scripts/verify-networking.sh)."
+    fi
+    # Each node's registry forwarder attaches to `swarmy`, and registry logins
+    # cross it between nodes (security review M16): it must be both.
+    gaps="$(overlay_security_gaps "$name")"
+    if [ -n "$gaps" ]; then
+      warn "overlay $name is ${gaps% } — swarmy creates its overlays --attachable --opt encrypted (registry pulls and control-plane traffic cross them between nodes). Recreating it is disruptive; see docs/product/cicd-and-registry.md."
     fi
     return 0
   fi
@@ -1984,6 +2000,8 @@ do_uninstall() {
   warn "Removing swarmy from this host (the swarm itself and your apps' volumes are left alone)…"
   # node #1's agent: container, identity (agent.json on its volume), join-token env file.
   docker rm -f "$AGENT_CONTAINER" >/dev/null 2>&1 || true
+  # …and the loopback registry forwarder it supervised (restart always: it would outlive the agent).
+  docker rm -f swarmy-registry-forwarder >/dev/null 2>&1 || true
   docker volume rm swarmy-agent >/dev/null 2>&1 || true
   shred_rm "$AGENT_ENV_FILE"
   rmdir "$(dirname "$AGENT_ENV_FILE")" 2>/dev/null || true
