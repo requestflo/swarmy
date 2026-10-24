@@ -103,7 +103,8 @@ Four ideas, one story:
 
 - **Admission runs on every path.** Stack deploy, image deploy, canary start,
   and rollback all call `evaluateAdmission` (guardrails · exposure · image
-  policy). A `block` violation is refused unless an admin overrides; a `warn` any
+  policy). A `block` violation is refused unless an admin overrides (on
+  `/services/new`, with a written reason that is audited); a `warn` any
   member can override; every override is audited. See `skill("hot-signal-design")`
   for how violations surface, and governance-and-access.md for the rules.
 - **One image form.** A single-image deploy has one path: `/services/new`

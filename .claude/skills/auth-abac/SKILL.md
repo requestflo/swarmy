@@ -60,7 +60,14 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
    `block` violation returns unless `intent.override` is set (and audit the
    override with `stack.deploy.override` / `service.deploy.override`). The
    spine's shape (`admission.service.ts`) is a contract — add rules inside an
-   evaluator, never change the spine's fan-out.
+   evaluator, never change the spine's fan-out. `enforceAdmission`
+   (`admission-gate.ts`) is the one refuse/override step: a caller that passes
+   `requireReason` (today `createService`, i.e. `/services/new`) refuses a
+   `block` override with no reason (`BAD_REQUEST`, `swarmyCode:
+   OVERRIDE_REASON_REQUIRED`); the reason rides the override audit row and the
+   Recent decisions feed (`GuardrailDecisionView.reason`). Admission refusals
+   carry their `violations` in the tRPC error data (`errorFormatter` in
+   `trpc.ts`), so the UI can offer the override without re-evaluating.
 10. **"Production" is the `swarmy.env=production` Docker label, never a DB
     column.** Guardrail prod-detection reads it from live inventory or the
     incoming specs. Config rows (`GuardrailConfig`, `ExposureConfig`) hold only
@@ -126,7 +133,14 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
   Provider/SSO secrets are write-only: encrypted via `@swarmy/core/crypto`
   (`SWARMY_SECRET_KEY`), decrypted only in `loadAuthConfig`, never returned by
   any read (the UI shows "set"/"rotate"). SAML rows are stored but skipped at
-  build time (no SAML plugin in this Better Auth version).
+  build time (no SAML plugin in this Better Auth version). Changing the active
+  org goes through `setActiveOrg` (`services/active-org.ts`), never a bare
+  `auth.api.setActiveOrganization`: it asks Better Auth for `returnHeaders`
+  and forwards the re-issued session cookies onto the tRPC response
+  (`ctx.resHeaders`, set by `apps/api/src/trpc.ts`). Dropping them leaves the
+  old `session_data` cookie cache in the browser, so the next request still
+  reads the previous org for up to `cookieCache.maxAge` (60 s). `org.switch`,
+  invite acceptance and invite-link acceptance all use it.
 - **Email is optional; SSO is first.** Social: microsoft/google/github/gitlab
   (`AuthProviderConfig.settings`: Entra `tenantId`, GitLab `issuer`). Generic
   OIDC = org `SsoProvider` rows via genericOAuth (PKCE). The `username` plugin
@@ -181,6 +195,10 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
   `resolveConfigRow(type)` (`abac-config.ts`, type + id, no lookup). Members
   keep the ones `orgProcedure` allowed via `defaults-config.ts` (inbound
   webhooks by `resourceTypes: ['inboundEndpoint']`; outbound stay admin).
+  Revoking an app's AI grant is `ai.remove` on the stack. Tearing a preview
+  down from the dashboard (`apps.teardownPreview`) is `stack.remove` on the
+  preview's live stack (`resolvePreviewStack` in `routers/apps.ts`; an
+  unknown preview is `NOT_FOUND`, never "authorize as the org").
 - **`abacProcedure` sits BEFORE `.input()`**, so tRPC gives the middleware no
   parsed input — it resolves the resource from `opts.getRawInput()`. Resolvers
   must read input defensively (they already `typeof`-check and re-look-up the
@@ -193,13 +211,14 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
 |---|---|
 | Procedure chain (`public→protected→org→admin`) | `packages/trpc/src/trpc.ts` |
 | `abacProcedure`, `authorize`, `evaluateAccess`, resolvers | `packages/trpc/src/abac.ts` |
+| Config-row resolver for the config-level deletes (`resolveConfigRow`) | `packages/trpc/src/abac-config.ts` |
 | REST policy gate (`requireAction`) | `packages/api-rest/src/middleware.ts` |
 | Destructive-gate CI units (router + REST wiring) | `packages/trpc/src/destructive-gates.test.ts`, `packages/api-rest/src/destructive-gates.test.ts` |
 | Request context (`OrgContext`, `activeOrgId`, hub) | `packages/trpc/src/context.ts`, `apiKeyContext.ts` |
 | Policy engine (`IPolicyEngine`, JSON default) | `packages/abac/src/engine.ts` |
 | Cedar adapter (optional, faithful fallback) | `packages/abac/src/cedar.ts`, `factory.ts` (`createEngine`) |
 | Policy document parse/match + P·A·R·C types | `packages/abac/src/{policy,types}.ts` |
-| Seeded default policy set | `packages/abac/src/defaults.ts` |
+| Seeded default policy set | `packages/abac/src/defaults.ts` (+ `defaults-config.ts`: the member permits for config-level deletes, unit `config-actions.test.ts`) |
 | Attribute paths, env normalisation, groups, conditions | `packages/abac/src/attrs.ts` |
 | Plain-words rules + action catalogue | `packages/abac/src/describe.ts`; browser entry `model.ts` |
 | Policy storage seam | `packages/trpc/src/services/policy-repo.ts` |
@@ -207,6 +226,8 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
 | Principal/resource/grant builders + relation implication | `packages/abac/src/{build,grants}.ts` |
 | The one audit writer | `packages/trpc/src/services/audit.service.ts` |
 | Admission spine + evaluators | `packages/trpc/src/services/admission{.service,-guardrails,-exposure,-images}.ts` |
+| Refuse / override step (`enforceAdmission`, override reason) | `packages/trpc/src/services/admission-gate.ts`; UI `apps/app/src/components/services/{deploy-override-panel.tsx,policy-refusal.ts}` |
+| Active-org switch that forwards the refreshed session cookies | `packages/trpc/src/services/active-org.ts` (`setActiveOrg`; test `routers/org.switch.test.ts`) |
 | Guardrails config + Recent decisions | `packages/trpc/src/services/guardrails.service.ts` |
 | Identity / access routers | `packages/trpc/src/routers/{org,members,policies,sso,oauth,authConfig,apiKeys,guardrails,cost,auditLog}.ts` |
 | Better Auth wiring (runtime-built) | `packages/auth/src/{server,config,client}.ts` |
@@ -252,8 +273,9 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
   for a *missing* row means the policy sees "no resource," not "denied" — enforce
   existence in the resolver's org-scoped `findFirst`.
 - Guardrail `warn` vs `block` is a product distinction the deploy UI enforces
-  (any member confirms a warn; only an admin overrides a block); the spine itself
-  only refuses on `block`. Keep the override audited on both paths.
+  (any member confirms a warn; only an admin overrides a block, and on
+  `/services/new` only with a written reason); the spine itself only refuses on
+  `block`. Keep the override audited on both paths.
 - Never log secrets in `metadata`. Audit rows are org-readable; the encrypted
   secret columns (`AuthProviderConfig.encryptedSecret`, `WebhookEndpoint.secret`)
   stay in the DB, never in an `AuditLog`.

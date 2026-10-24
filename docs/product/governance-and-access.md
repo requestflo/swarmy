@@ -137,7 +137,10 @@ Four ideas, one story:
 - **Guardrails are per-rule, prod-aware, and overridable on the record.** Each
   rule is `block` or `warn`. A **warn** surfaces in the deploy dialog and any
   member may confirm through it; a **block** refuses and only an admin may
-  override. **Production safety mode** forces every rule to `block` on production
+  override. On `/services/new` the admin must also say why ("Deploy anyway"
+  takes a written reason, and the server refuses a block override without
+  one); the reason is stored on the `service.deploy.override` audit row and
+  shown in Recent decisions. **Production safety mode** forces every rule to `block` on production
   stacks (per-rule params still apply); prod-scoped rules stay silent everywhere
   else. Every block and every override is an `AuditLog` row — the Recent decisions
   feed is literally a query over them.
@@ -176,9 +179,10 @@ Four ideas, one story:
   | `data.destroy` | managed cache/search/vector/queue teardown or drain, bucket/key delete, object store disable, cluster-volume deregister |
   | `data.restore` | volume, DB, cache, search and controller restores (they overwrite live data) |
   | `data.failover` | confirming a managed-DB failover that may lose the last writes (see `managed-data.md`) |
-  | `backup.remove` | removing a backup target |
+  | `backup.remove` | removing a backup target or a backup schedule |
   | `node.disk.format` | formatting a blank added disk on a server (typed last 4 of the serial; also off per server with `swarmy.node.diskFormat=false`) |
-  | `secret.delete` | deleting or pruning a secret/config family |
+  | `secret.delete` | deleting or pruning a secret/config family; removing an AI-gateway provider (and its stored key) |
+  | `alert.remove` / `statuspage.remove` / `webhook.remove` / `job.remove` / `ai.remove` | removing an alert channel or rule, a status page, an inbound or outbound webhook endpoint, a scheduled job; revoking an AI-gateway key, route or an app's AI grant |
   | `dns.remove` / `ingress.remove` / `ingress.write` | geo-DNS zone/record removal; Cloudflare tunnel delete; domain removal |
   | `token.revoke` / `member.write` / `policy.write` / `authconfig.write` / `cicd.remove` | API key / OAuth client / join token / direct-connect revoke; grants + invitations; policy, SSO and git-repo removal |
   | `service.deploy` / `stack.deploy` / `service.configure` | create a service, deploy/redeploy a compose stack, add an app to a stack, connect apps; edit a service or its scale-to-zero (env-aware, see above) |
@@ -192,9 +196,12 @@ Four ideas, one story:
   service/stack/preview removal, managed-data destroy/restore and queue
   remove/drain, which were member-callable before; an org re-grants any of them
   with one policy. Over REST it also closes the gap where a member's API key
-  could remove a node. Not yet swept (config-level deletes, still
-  role-gated): alert channels/rules, notification templates, status pages,
-  inbound/outbound webhooks, jobs, backup schedules, AI-gateway keys.
+  could remove a node. The config-level deletes (2026-10) kept who may do them:
+  members still remove alert channels and rules, status pages, scheduled jobs,
+  inbound webhooks and AI keys/routes (seeded `member-config-remove` and
+  `member-inbound-webhook-remove` defaults); outbound webhooks, backup schedules
+  and AI providers stay owner/admin-only. What changed is that each is now a
+  policy decision with an audit row, so an org can narrow or widen it.
 
 - **The web terminal is one policy gate and a dumb pipe.** tRPC `terminal.open`
   is the only gate (ABAC `terminal.open` + `TerminalPolicy` + optional four-eyes
@@ -217,7 +224,8 @@ Four ideas, one story:
 | Stored `rulesJson` is malformed / has unknown ids | Parsed over the defaults; bad entries dropped, missing rules fall back. A corrupt config can never brick admission. |
 | Cedar (`cedar-wasm`) absent or throws at runtime | Transparent fallback to the JSON engine; the decision is identical for the supported document shape. |
 | Audit write fails (DB hiccup) | `writeAudit` swallows the error — a logging failure never rolls back or blocks the underlying mutation. |
-| A `block` guardrail fires on a prod deploy | The deploy is refused with the exact rule + plain-words reason; an admin may override, and the block *and* the override are both audited. |
+| A `block` guardrail fires on a prod deploy | The deploy is refused with the exact rule + plain-words reason; an admin may override (on `/services/new`, with a required reason), and the block *and* the override are both audited. |
+| You switch to another org | The switch re-issues the session cookies and hands them to the browser, so the next request already reads the new org (it used to show the previous org for up to the 60 s cookie cache). |
 | System actor (worker/webhook/GC) mutates | It writes an `AuditLog` row with `actorType:'system'` — automation is on the record exactly like a human. |
 
 ## Explicitly rejected
