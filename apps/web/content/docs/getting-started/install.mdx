@@ -74,7 +74,9 @@ non-interactive path.
 | `--check` | | Run the preflight only (network, egress). Changes nothing. |
 | `--uninstall` | | Remove the swarmy stack, its secrets and the node #1 agent. |
 | `--admin-email <e>` | `SWARMY_ADMIN_EMAIL` | Owner login. A value without `@` becomes a username login. |
-| `--admin-password <p>` | `SWARMY_ADMIN_PASSWORD` | Owner password. Generated if unset. |
+| `--admin-password-file <f>` | `SWARMY_ADMIN_PASSWORD_FILE` | Read the owner password from the first line of a file (keep it `0600`). The safe way to set it. |
+| `--admin-password -` | | Read the owner password from stdin: `sudo bash install-swarmy.sh --admin-password - < pw.txt`. Not with `curl \| bash`, where stdin is the script. |
+| `--admin-password <p>` | `SWARMY_ADMIN_PASSWORD` | Owner password on the command line. **Discouraged**: other users on the server can see it in `ps`, and it stays in your shell history. The installer warns. |
 | `--domain <host>` | `SWARMY_DOMAIN` | HTTPS domain for the dashboard. Point an A record at the server. |
 | `--no-https` / `--https` | `SWARMY_NO_HTTPS=1` | Keep the dashboard on plain `http://<ip>:<port>` only, or turn HTTPS back on. |
 | `--ingress none\|caddy\|cloudflare` | `SWARMY_INGRESS` | Ingress for the dashboard. |

@@ -60,7 +60,7 @@ in a checkout lists every flag and env var):
 | Flag | Does |
 |---|---|
 | `--non-interactive` | Never prompt; use flags / env / defaults |
-| `--admin-email <e>` / `--admin-password <p>` | The owner login (password is generated if unset) |
+| `--admin-email <e>` / `--admin-password-file <f>` | The owner login (password from the first line of a file, or `--admin-password -` for stdin; generated if unset). `--admin-password <p>` still works but puts the password in `ps` and shell history |
 | `--allow-signup` | Open self-registration (default: invite-only) |
 | `--port <n>` | Dashboard/API port (default `3021`) |
 | `--image <ref>` / `--agent-image <ref>` | Controller / agent image (default `ghcr.io/requestflo/swarmy-{controller,agent}:latest`) |

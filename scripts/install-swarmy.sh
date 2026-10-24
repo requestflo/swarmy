@@ -21,7 +21,16 @@
 #   --check                      preflight only — detect + report, mutate nothing
 #   --uninstall                  remove the swarmy stack, secrets, and node #1 agent
 #   --admin-email <e>            SWARMY_ADMIN_EMAIL (a value without "@" is a username login)
-#   --admin-password <p>         SWARMY_ADMIN_PASSWORD   (generated if unset)
+#   --admin-password-file <f>    SWARMY_ADMIN_PASSWORD_FILE — read the owner password from the
+#                                first line of a file (keep it 0600). The safe way to set it.
+#   --admin-password -           read the owner password from stdin, e.g.
+#                                `sudo bash install-swarmy.sh --admin-password - < pw.txt`
+#                                (not with curl | bash: there stdin is this script)
+#   --admin-password <p>         SWARMY_ADMIN_PASSWORD. DISCOURAGED: the value is on the command
+#                                line, so other users on this host see it (ps, /proc) and it stays
+#                                in your shell history. (`sudo SWARMY_ADMIN_PASSWORD=…` is argv too.)
+#                                With none of these the wizard asks, or one is generated and
+#                                saved root-only (the path is printed at the end).
 #   --domain <host>              SWARMY_DOMAIN — the dashboard's https domain (point an A
 #                                record at this box). On a public-IP box it defaults to
 #                                swarmy.<ip-with-dashes>.sslip.io: swarmy's Caddy edge
@@ -74,6 +83,9 @@ set -euo pipefail
 # (/etc/docker/daemon.json, journald drop-ins, the Docker install) switch to
 # 022 explicitly — see with_public_umask.
 umask 077
+# Empty when bash reads this script from stdin (curl … | bash): stdin is then
+# the script itself and must never be read for input (--admin-password -).
+SCRIPT_SOURCE="${BASH_SOURCE[0]:-}"
 
 # ── constants ───────────────────────────────────────────────────────────────
 DEFAULT_IMAGE="ghcr.io/requestflo/swarmy-controller:latest"
@@ -122,6 +134,8 @@ MODE="install"
 STACK_FILE="swarmy.lite.stack.yml"
 ADMIN_EMAIL="${SWARMY_ADMIN_EMAIL:-}"
 ADMIN_PASSWORD="${SWARMY_ADMIN_PASSWORD:-}"
+ADMIN_PASSWORD_FILE="${SWARMY_ADMIN_PASSWORD_FILE:-}"
+ADMIN_PASSWORD_ARG=""; ADMIN_PASSWORD_ARG_SET=0; ADMIN_PASSWORD_FILE_FLAG=0
 DOMAIN="${SWARMY_DOMAIN:-}"
 NO_HTTPS="${SWARMY_NO_HTTPS:-0}"
 ZONE="${SWARMY_CLUSTER_ZONE:-}"
@@ -173,7 +187,8 @@ while [ $# -gt 0 ]; do
     --uninstall) MODE="uninstall" ;;
     --standard) die "--standard was removed: the controller always runs its embedded SQLite store (no Postgres service)." ;;
     --admin-email) ADMIN_EMAIL="${2:?}"; EXPLICIT="${EXPLICIT}ADMIN_EMAIL "; shift ;;
-    --admin-password) ADMIN_PASSWORD="${2:?}"; shift ;;
+    --admin-password) ADMIN_PASSWORD_ARG="${2:?}"; ADMIN_PASSWORD_ARG_SET=1; shift ;;
+    --admin-password-file) ADMIN_PASSWORD_FILE="${2:?}"; ADMIN_PASSWORD_FILE_FLAG=1; shift ;;
     --domain) DOMAIN="${2:?}"; EXPLICIT="${EXPLICIT}DOMAIN "; shift ;;
     --no-https) NO_HTTPS=1 EXPLICIT="${EXPLICIT}NO_HTTPS " ;;
     --https) NO_HTTPS=0 EXPLICIT="${EXPLICIT}NO_HTTPS " ;;
@@ -198,6 +213,38 @@ while [ $# -gt 0 ]; do
 done
 
 case "$MESH" in self-hosted|managed) MESH=swarmy ;; esac
+
+# ── admin password sources (pure — unit-tested by sourcing this file) ─────────
+# read_password_file FILE|- → the first line of FILE (or of stdin for `-`)
+# without a trailing CR, or fails when it can't be read or that line is empty.
+read_password_file() {
+  local pw=""
+  if [ "$1" = - ]; then
+    IFS= read -r pw || [ -n "$pw" ] || return 1
+  else
+    [ -f "$1" ] && [ -r "$1" ] || return 1
+    IFS= read -r pw < "$1" || [ -n "$pw" ] || return 1
+  fi
+  pw="${pw%$'\r'}"
+  [ -n "$pw" ] || return 1
+  printf '%s' "$pw"
+}
+# Flag > --admin-password-file / SWARMY_ADMIN_PASSWORD_FILE > SWARMY_ADMIN_PASSWORD.
+if [ "$ADMIN_PASSWORD_ARG_SET" = 1 ] && [ "$ADMIN_PASSWORD_FILE_FLAG" = 1 ]; then
+  die "pass --admin-password or --admin-password-file, not both."
+fi
+if [ "$ADMIN_PASSWORD_ARG_SET" = 1 ] && [ "$ADMIN_PASSWORD_ARG" = - ]; then
+  [ -n "$SCRIPT_SOURCE" ] \
+    || die "--admin-password - reads stdin, but with curl … | bash stdin is this script. Use --admin-password-file <file>, or download the script and run: sudo bash install-swarmy.sh --admin-password - < <file>"
+  ADMIN_PASSWORD="$(read_password_file -)" || die "--admin-password -: no password on stdin (the first line is used)."
+elif [ "$ADMIN_PASSWORD_ARG_SET" = 1 ]; then
+  ADMIN_PASSWORD="$ADMIN_PASSWORD_ARG"
+  warn "--admin-password puts the password on the command line: other users on this host can read it (ps, /proc/<pid>/cmdline) and it stays in your shell history. Prefer --admin-password-file <file> or --admin-password - (stdin)."
+elif [ -n "$ADMIN_PASSWORD_FILE" ]; then
+  ADMIN_PASSWORD="$(read_password_file "$ADMIN_PASSWORD_FILE")" \
+    || die "--admin-password-file / SWARMY_ADMIN_PASSWORD_FILE: no password in $ADMIN_PASSWORD_FILE (a readable file; the first line is used)."
+fi
+ADMIN_PASSWORD_ARG=""
 
 # ── platform-upgrade trust (pure — unit-tested by sourcing this file) ────────
 # release_pubkey_value FILE|PEM → the PEM text (a readable file is read, so the
