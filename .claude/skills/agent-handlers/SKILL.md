@@ -173,6 +173,11 @@ skill is the agent-and-protocol third of that.
   `commandId` unanswered — always answer, even on timeout.
 - Don't add a mutating route to any node-local admin API without a bearer gate
   (the DNS admin API is the pattern — see `skill("geo-edge-routing")`).
+- A worker's container agent sits on the default bridge, so its own routes and
+  addresses are the CONTAINER's (172.17.0.x), not the host's. Never hand Docker
+  an address derived inside it: the swarm advertise address is pinned only when
+  `agentOnHostNetwork()` (`handlers/swarm-advertise.ts`), else dockerd picks it.
+  A wrong one still shows Ready but kills cross-node DNS and overlay traffic.
 - Verify: `bun --filter @swarmy/agent typecheck` and the protocol round-trip
   tests (`parseControllerEnvelope` over your new message); after a protocol
   bump, also `packages/core/src/protocol/skew.test.ts` and
