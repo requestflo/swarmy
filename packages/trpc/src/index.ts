@@ -65,7 +65,11 @@ export {
 } from './services/ingress.service';
 export type { DomainView, IngressConfigView, IngressColdReconcileDeps } from './services/ingress.service';
 // Wildcard certificates: ACME DNS-01 through swarmy's own nameservers (apps/api route).
-export { acmeDnsRequest, getDnsChallengeView, setByoDnsProvider } from './services/acme-dns.service';
+export { acmeDnsRequest, getDnsChallengeView } from './services/acme-dns.service';
+export { setByoDnsProvider } from './services/ingress-setters';
+// The org's ingress settings in one read / one write (REST /ingress/settings).
+export { getIngressSettings, updateIngressSettings } from './services/ingress-settings.service';
+export type { IngressSettingsPatch, IngressSettingsView } from './services/ingress-settings.schema';
 export type { DnsChallengeView } from './services/acme-dns.service';
 // Custom domains: DNS verification + certificate status (domain-verify worker, REST).
 export {

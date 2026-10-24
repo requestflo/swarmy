@@ -281,47 +281,58 @@ export async function getDnsChallengeView(ctx: OrgContext): Promise<DnsChallenge
 }
 
 /**
- * Set (or clear, `null`) the BYO DNS provider token. The token goes into a
- * fresh Docker secret and is never stored or returned; the next ingress
- * reconcile rolls the edge onto the new secret.
+ * The BYO DNS provider token, trimmed — or BAD_REQUEST when it can't be one.
+ * Pure: the ingress settings patch validates it before anything is written.
  */
-export async function setByoDnsProvider(
-  ctx: OrgContext,
-  input: { provider: ByoDnsProvider; apiToken: string } | null,
-): Promise<DnsChallengeView> {
-  const row = await ingressConfigRepo.get(ctx, ctx.activeOrgId);
-  const acme = readAcmeDnsSettings(ingressSettingsOf(row));
-  let byo: AcmeDnsSettings['byo'];
-  if (input) {
-    const token = input.apiToken.trim();
-    if (token.length < 20 || /\s/.test(token)) {
-      throw new TRPCError({ code: 'BAD_REQUEST', message: 'that does not look like an API token' });
-    }
-    const node = await resolveManagerNode(ctx);
-    const secretName = `swarmy-acme-dns-byo-${createHash('sha256').update(token).digest('hex').slice(0, 12)}`;
-    try {
-      await ctx.hub.dispatch(node.id, 'secret.create', {
-        name: secretName,
-        dataB64: Buffer.from(token, 'utf8').toString('base64'),
-        labels: { 'swarmy.managed': 'true', 'swarmy.role': 'ingress-acme-dns-byo' },
-      });
-    } catch (e) {
-      if (!/exist/i.test(e instanceof Error ? e.message : String(e))) throw mapDispatchError(e);
-    }
-    byo = { provider: input.provider, secretName, setAt: new Date().toISOString() };
+export function assertByoToken(apiToken: string): string {
+  const token = apiToken.trim();
+  if (token.length < 20 || /\s/.test(token)) {
+    throw new TRPCError({ code: 'BAD_REQUEST', message: 'that does not look like an API token' });
   }
-  const next: AcmeDnsSettings = { ...acme, byo };
+  return token;
+}
+
+/**
+ * The persisted coordinates of a BYO token (secret NAME only). The secret is
+ * named by a hash of the token, so the same token always maps to one secret.
+ */
+export function byoDnsSettingsFor(
+  input: { provider: ByoDnsProvider; apiToken: string },
+  now = new Date(),
+): NonNullable<AcmeDnsSettings['byo']> {
+  const token = assertByoToken(input.apiToken);
+  const secretName = `swarmy-acme-dns-byo-${createHash('sha256').update(token).digest('hex').slice(0, 12)}`;
+  return { provider: input.provider, secretName, setAt: now.toISOString() };
+}
+
+/**
+ * Put a BYO token into its Docker secret (an existing one is fine: same
+ * token, same name). The token is never stored or returned anywhere else;
+ * the ingress settings write (`ingress-settings.service.ts`) persists the
+ * secret name and rolls the edge onto it.
+ */
+export async function ensureByoDnsSecret(ctx: OrgContext, apiToken: string, secretName: string): Promise<void> {
+  const token = assertByoToken(apiToken);
+  const node = await resolveManagerNode(ctx);
+  try {
+    await ctx.hub.dispatch(node.id, 'secret.create', {
+      name: secretName,
+      dataB64: Buffer.from(token, 'utf8').toString('base64'),
+      labels: { 'swarmy.managed': 'true', 'swarmy.role': 'ingress-acme-dns-byo' },
+    });
+  } catch (e) {
+    if (!/exist/i.test(e instanceof Error ? e.message : String(e))) throw mapDispatchError(e);
+  }
+}
+
+/** `settings` with the BYO provider set (or cleared, `null`) on `acmeDns`. */
+export function withByoDnsProvider(
+  settings: Record<string, unknown>,
+  byo: AcmeDnsSettings['byo'] | null,
+): Record<string, unknown> {
+  const next: AcmeDnsSettings = { ...readAcmeDnsSettings(settings), ...(byo ? { byo } : {}) };
   if (!byo) delete next.byo;
-  await ingressConfigRepo.update(ctx, ctx.activeOrgId, (cur) => ({
-    settings: { ...ingressSettingsOf(cur), acmeDns: next },
-  }));
-  await writeAudit(ctx, {
-    action: input ? 'ingress.setDnsProvider' : 'ingress.clearDnsProvider',
-    targetType: 'ingressConfig',
-    targetId: ctx.activeOrgId,
-    metadata: input ? { provider: input.provider, secretName: byo?.secretName } : {},
-  });
-  return getDnsChallengeView(ctx);
+  return { ...settings, acmeDns: next };
 }
 
 /** Persist the swarmy token secret name (settings merge, called by the edge converge). */

@@ -1,8 +1,6 @@
 import {
   CADDY_CONTROLLER_SERVICE,
   CADDY_EDGE_SERVICE,
-  defaultRegistry as defaultIngressRegistry,
-  IngressConfigSchema,
   companionHost,
   expandWww,
   isHostGated,
@@ -26,7 +24,7 @@ import { meshControlVhosts } from './mesh-control.service';
 import { createHash } from 'node:crypto';
 import { TRPCError } from '@trpc/server';
 import { buildInventory, type TlsMode } from '@swarmy/core';
-import { decryptSecret, encryptSecret } from '@swarmy/core/crypto';
+import { decryptSecret } from '@swarmy/core/crypto';
 import { wakePathFor } from '@swarmy/core/wake-token';
 import type { Auth } from '@swarmy/auth';
 import type { DB } from '@swarmy/db';
@@ -35,7 +33,6 @@ import type { OrgContext } from '../context';
 import { systemContext } from './cicd.service';
 import { writeAudit } from '../services/audit.service';
 import {
-  anyIngressLabelledNode,
   defaultEdgeImage,
   deriveEdgeRuntime,
   ensureCaddyController,
@@ -45,7 +42,7 @@ import {
   type EdgeApplyRecord,
   type EdgeRuntimeStatus,
 } from './ingress-controller';
-import { badRequest, commandRejected, notFound } from '../errors';
+import { commandRejected, notFound } from '../errors';
 import { resolveManagerNode } from './dispatch.service';
 import { resolveLiveService } from './live-resolve';
 import { listOutlets as listAiOutlets } from './ai.service';
@@ -166,7 +163,7 @@ export function computeColdRoutes(ctx: Pick<OrgContext, 'activeOrgId' | 'hub'>):
 export type IngressDriverId = 'caddy' | 'none' | 'cloudflared';
 
 /** Map a controller driver id ⇄ Prisma `IngressDriver` enum value. */
-const DRIVER_TO_ENUM: Record<IngressDriverId, IngressDriverEnum> = {
+export const DRIVER_TO_ENUM: Record<IngressDriverId, IngressDriverEnum> = {
   caddy: 'CADDY',
   none: 'NONE',
   cloudflared: 'CLOUDFLARE_TUNNEL',
@@ -299,7 +296,7 @@ interface ConfigRow {
   updatedAt: Date;
 }
 
-function driverLower(d: string): IngressDriverId {
+export function driverLower(d: string): IngressDriverId {
   switch (d.toUpperCase()) {
     case 'CADDY':
       return 'caddy';
@@ -315,7 +312,7 @@ function driverLower(d: string): IngressDriverId {
  * vault blobs — never plaintext. They are decrypted just-in-time when building the
  * driver config for render/dispatch and are NEVER returned to the client.
  */
-interface IngressSettings {
+export interface IngressSettings {
   targetNodes?: string[];
   /**
    * The self-host dashboard domain this org's edge serves, recorded by the
@@ -371,7 +368,7 @@ interface IngressSettings {
   };
 }
 
-function readSettings(row: Pick<ConfigRow, 'settings'>): IngressSettings {
+export function readSettings(row: Pick<ConfigRow, 'settings'>): IngressSettings {
   return (row.settings as IngressSettings | null) ?? {};
 }
 
@@ -538,18 +535,23 @@ async function computeControllerVhosts(ctx: OrgContext, settings: IngressSetting
   return out;
 }
 
-type Topology = NonNullable<IngressSettings['topology']>;
+export type Topology = NonNullable<IngressSettings['topology']>;
 
 /**
  * Resolve the org's full driver config. `overrides.topology` renders it as if
- * that topology were live — `setTopology` validates the target topology
- * BEFORE swapping any service or persisting anything.
+ * that topology were live and `overrides.row` as if a not-yet-saved settings
+ * patch were persisted — the topology switch validates the target config
+ * BEFORE swapping any service or persisting anything (ingress-topology.ts).
  */
-async function loadOrgConfig(
+export async function loadOrgConfig(
   ctx: OrgContext,
-  overrides: { topology?: Topology; certStorage?: EdgeCertStorageSettings } = {},
+  overrides: {
+    topology?: Topology;
+    certStorage?: EdgeCertStorageSettings;
+    row?: Pick<ConfigRow, 'driver' | 'enabled' | 'settings'>;
+  } = {},
 ): Promise<OrgIngressConfig> {
-  const row = await ensureConfig(ctx);
+  const row = overrides.row ?? (await ensureConfig(ctx));
   const persisted = readSettings(row);
   const settings: IngressSettings = {
     ...persisted,
@@ -745,11 +747,11 @@ function makeDispatch(ctx: OrgContext, config?: OrgIngressConfig): DriverDispatc
  */
 const lastApplyByOrg = new Map<string, EdgeApplyRecord>();
 
-function recordApply(orgId: string, ok: boolean, message: string): void {
+export function recordApply(orgId: string, ok: boolean, message: string): void {
   lastApplyByOrg.set(orgId, { ok, at: new Date().toISOString(), message });
 }
 
-function errMessage(e: unknown): string {
+export function errMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
@@ -786,7 +788,7 @@ export async function edgeRuntimeStatus(
  * converge controller" button. Idempotent (`service.deploy` is create+update).
  * A failure is RECORDED (surfaces on `runtime`) and returned, never swallowed.
  */
-async function convergeEdge(ctx: OrgContext): Promise<string | null> {
+export async function convergeEdge(ctx: OrgContext): Promise<string | null> {
   const row = await ensureConfig(ctx);
   if (driverLower(row.driver) !== 'caddy' || !row.enabled) return null;
   const settings = readSettings(row);
@@ -810,19 +812,19 @@ function edgeServiceDeployed(ctx: OrgContext): boolean {
 }
 
 /** Live mode of the swarmy Caddy service (undefined = not deployed). */
-function liveEdgeMode(ctx: OrgContext): 'replicated' | 'global' | undefined {
+export function liveEdgeMode(ctx: OrgContext): 'replicated' | 'global' | undefined {
   return ctx.hub
     .liveInventory(ctx.activeOrgId)
     .services.find((s) => s.name === CADDY_CONTROLLER_SERVICE)?.mode;
 }
 
 /** The swarm service mode a topology runs as. */
-function modeForTopology(topology: Topology | undefined): 'replicated' | 'global' {
+export function modeForTopology(topology: Topology | undefined): 'replicated' | 'global' {
   return topology === 'edge-per-node' ? 'global' : 'replicated';
 }
 
 /** Deploy the swarmy Caddy for `topology` (mode swap handled by ingress-controller). */
-async function deployTopology(
+export async function deployTopology(
   ctx: OrgContext,
   topology: Topology,
   settings: IngressSettings,
@@ -888,162 +890,10 @@ export async function getConfig(ctx: OrgContext): Promise<IngressConfigView> {
   };
 }
 
-/**
- * Switch the edge topology (geo-edge). 'edge-per-node' runs a GLOBAL
- * host-mode Caddy on every ingress-labelled node; 'controller' runs the
- * classic single replicated service.
- *
- * Swarm can't flip a service between replicated and global in place, so a
- * swap REMOVES the live service and creates the new one (named cert/config
- * volumes are kept — no re-issuance on nodes that already hold certs). There
- * is a brief gap on 80/443 while the new tasks start.
- *
- * Ordering is what keeps settings honest:
- *   1. preflight (edge-per-node has at least one ingress-labelled node to land
- *      on AND swarmy object storage is on; the shared cert store — bucket
- *      `swarmy-edge-certs`, a scoped key, its Docker secret — is ensured; the
- *      driver config validates under the new topology) — no service touched yet;
- *   2. deploy; on failure, best-effort restore the previous topology and throw
- *      — the persisted setting is NOT changed;
- *   3. only then persist `topology`, and re-apply routes.
- * The ingress-reconcile worker also converges a live mode that disagrees with
- * the persisted setting (see {@link reconcileIngressOrg}).
- */
-export async function setTopology(
-  ctx: OrgContext,
-  topology: Topology,
-): Promise<IngressConfigView> {
-  const row = await ensureConfig(ctx);
-  const settings = readSettings(row);
-  const previous: Topology = settings.topology ?? 'controller';
-  const extra = (settings.globalOptions?.extraConfig ?? {}) as Record<string, unknown>;
-  // swarmy only runs a Caddy service when the edge is Caddy + enabled and the
-  // operator hasn't opted into a self-run host Caddy ('file').
-  const swarmyRunsCaddy =
-    driverLower(row.driver) === 'caddy' && row.enabled && extra.applyVia !== 'file';
-
-  if (swarmyRunsCaddy) {
-    if (topology === 'edge-per-node' && !anyIngressLabelledNode(ctx)) {
-      throw new TRPCError({
-        code: 'PRECONDITION_FAILED',
-        message:
-          'No node is marked as an ingress node — edge-per-node runs one Caddy per ingress node, ' +
-          'so it would schedule nowhere. Mark at least one node as ingress first.',
-      });
-    }
-    // Edge-per-node shares ONE certificate store in swarmy object storage —
-    // without it each edge issues alone and geo-DNS breaks ACME validation.
-    // Refuses (PRECONDITION_FAILED) while object storage is off; otherwise the
-    // bucket + scoped key + Docker secret are ensured (idempotent). Persisted
-    // right away (coordinates only) so a failed deploy never re-mints a key.
-    let next: IngressSettings = settings;
-    if (topology === 'edge-per-node') {
-      const certs = await ensureEdgeCertStorage(ctx, settings.certStorage);
-      next = { ...settings, certStorage: certs.settings };
-      if (certs.created) {
-        await patchSettings(ctx, (prev) => ({ ...prev, certStorage: certs.settings }));
-      }
-    }
-    const target = IngressConfigSchema.parse(
-      await loadOrgConfig(ctx, { topology, certStorage: next.certStorage }),
-    );
-    const validation = defaultIngressRegistry.get(target.driver).validate(target);
-    if (!validation.ok) {
-      throw new TRPCError({
-        code: 'BAD_REQUEST',
-        message: `Cannot switch to ${topology}: ${validation.errors.map((e) => e.message).join('; ')}`,
-      });
-    }
-    try {
-      await deployTopology(ctx, topology, next);
-    } catch (e) {
-      recordApply(ctx.activeOrgId, false, `topology switch to ${topology} failed: ${errMessage(e)}`);
-      // The swap may have removed the old service already — put it back so the
-      // edge doesn't stay dark (the reconcile worker would too, within a minute).
-      if (liveEdgeMode(ctx) !== modeForTopology(previous)) {
-        await deployTopology(ctx, previous, settings).catch(() => undefined);
-      }
-      throw e;
-    }
-  }
-
-  await patchSettings(ctx, (prev) => ({ ...prev, topology }));
-  await reapply(ctx);
-  await writeAudit(ctx, {
-    action: 'ingress.setTopology',
-    targetType: 'ingressConfig',
-    targetId: ctx.activeOrgId,
-    metadata: { topology, previous },
-  });
-  return getConfig(ctx);
-}
-
 /** The configured controller image, or null for the stock default. */
 export async function getControllerImage(ctx: OrgContext): Promise<string | null> {
   const row = await ensureConfig(ctx);
   return readSettings(row).controllerImage ?? null;
-}
-
-/**
- * Set (or clear) the ingress-controller image. Persisted in settings; the next
- * `ensureController` deploy converges the running controller onto it. Needed for
- * per-route rate limits — the stock caddy:2-alpine lacks mholt/caddy-ratelimit.
- */
-export async function setControllerImage(
-  ctx: OrgContext,
-  image: string | null,
-): Promise<IngressConfigView> {
-  await patchSettings(ctx, (s) => ({ ...s, controllerImage: image ?? undefined }));
-  await writeAudit(ctx, {
-    action: image ? 'ingress.setControllerImage' : 'ingress.clearControllerImage',
-    targetType: 'ingressConfig',
-    targetId: ctx.activeOrgId,
-    metadata: { image },
-  });
-  // Roll the running controller onto the new image (no-op unless Caddy is live).
-  if ((await convergeEdge(ctx)) === null) await reapply(ctx);
-  return getConfig(ctx);
-}
-
-/**
- * Set the ingress controller's target node set — the swarm node ids
- * `ensureController`-class deploys should prefer. Persisted in settings
- * (`IngressConfigView.targetNodes`); an empty array clears the pin and falls
- * back to the default placement heuristic (`swarmy.node.ingress` label /
- * manager quorum, see `ingress-controller.ts`).
- */
-export async function setTargetNodes(
-  ctx: OrgContext,
-  nodeIds: string[],
-): Promise<IngressConfigView> {
-  await patchSettings(ctx, (s) => ({ ...s, targetNodes: nodeIds }));
-  await writeAudit(ctx, {
-    action: 'ingress.setTargetNodes',
-    targetType: 'ingressConfig',
-    targetId: ctx.activeOrgId,
-    metadata: { nodeIds },
-  });
-  // Re-place the controller now (no separate "redeploy" step). The pin is an
-  // enrollment id; `ensureCaddyController` translates it to the swarm node id.
-  if ((await convergeEdge(ctx)) === null) await reapply(ctx);
-  return getConfig(ctx);
-}
-
-export async function setDriver(
-  ctx: OrgContext,
-  driver: IngressDriverId,
-): Promise<IngressConfigView> {
-  await ingressConfigRepo.update(ctx, ctx.activeOrgId, { driver: DRIVER_TO_ENUM[driver] });
-  await writeAudit(ctx, {
-    action: 'ingress.setDriver',
-    targetType: 'ingressConfig',
-    targetId: ctx.activeOrgId,
-    metadata: { driver },
-  });
-  // Picking Caddy while enabled deploys it — selecting the "Recommended" driver
-  // must never silently leave nothing listening on 80/443.
-  if ((await convergeEdge(ctx)) === null) await reapply(ctx);
-  return getConfig(ctx);
 }
 
 /** The key edge cert sync holds (platform-key GC, QA-081). */
@@ -1054,94 +904,13 @@ export async function edgeCertStorageKeyIds(ctx: OrgContext): Promise<string[]> 
 }
 
 /** Merge a partial patch into the persisted settings JSON. */
-async function patchSettings(
+export async function patchSettings(
   ctx: OrgContext,
   patch: (s: IngressSettings) => IngressSettings,
 ): Promise<void> {
   await ingressConfigRepo.update(ctx, ctx.activeOrgId, (cur) => ({
     settings: patch(readSettings(cur)) as Record<string, unknown>,
   }));
-}
-
-/** Toggle on-demand TLS + record the controller `ask` endpoint. */
-export async function setOnDemandTls(
-  ctx: OrgContext,
-  input: { enabled: boolean; askUrl?: string },
-): Promise<IngressConfigView> {
-  await patchSettings(ctx, (s) => {
-    const globalOptions = { ...(s.globalOptions ?? {}) } as Record<string, unknown>;
-    globalOptions.onDemandTls = input.enabled;
-    const extra = { ...((globalOptions.extraConfig as Record<string, unknown>) ?? {}) };
-    if (input.askUrl) extra.onDemandAsk = input.askUrl;
-    globalOptions.extraConfig = extra;
-    return { ...s, globalOptions };
-  });
-  await writeAudit(ctx, {
-    action: 'ingress.setOnDemandTls',
-    targetType: 'ingressConfig',
-    targetId: ctx.activeOrgId,
-    metadata: { enabled: input.enabled },
-  });
-  await reapply(ctx);
-  return getConfig(ctx);
-}
-
-/**
- * Configure (or clear) the Cloudflare tunnel. The pasted CF API token and the
- * run token / credentials JSON are encrypted at rest; only coords are in clear.
- * The user creates the tunnel in Cloudflare (Zero Trust → Networks → Tunnels)
- * and pastes its token; the tunnel id is read from the token itself. Public
- * hostnames are added on the Cloudflare side (the ingress preview lists the
- * hostname → service rules to add).
- */
-export async function setTunnel(
-  ctx: OrgContext,
-  input:
-    | {
-        accountId?: string;
-        tunnelId?: string;
-        tunnelName?: string;
-        image?: string;
-        replicas?: number;
-        metricsAddr?: string;
-        apiToken?: string;
-        runToken?: string;
-        credentialsJson?: string;
-      }
-    | null,
-): Promise<IngressConfigView> {
-  const tokenId = input?.runToken ? tunnelIdFromToken(input.runToken) : null;
-  if (input?.runToken && !tokenId) {
-    throw badRequest('That doesn’t look like a Cloudflare tunnel token — copy it from the tunnel’s install command.');
-  }
-  await patchSettings(ctx, (s) => ({
-    ...s,
-    tunnel: input
-      ? {
-          ...s.tunnel,
-          provider: 'cloudflare',
-          accountId: input.accountId ?? s.tunnel?.accountId,
-          tunnelId: tokenId ?? input.tunnelId ?? s.tunnel?.tunnelId,
-          tunnelName: input.tunnelName ?? s.tunnel?.tunnelName ?? 'swarmy',
-          image: input.image ?? s.tunnel?.image,
-          replicas: input.replicas ?? s.tunnel?.replicas,
-          metricsAddr: input.metricsAddr ?? s.tunnel?.metricsAddr,
-          apiTokenEnc: input.apiToken ? encryptSecret(input.apiToken) : s.tunnel?.apiTokenEnc,
-          runTokenEnc: input.runToken ? encryptSecret(input.runToken) : s.tunnel?.runTokenEnc,
-          credentialsJsonEnc: input.credentialsJson
-            ? encryptSecret(input.credentialsJson)
-            : s.tunnel?.credentialsJsonEnc,
-        }
-      : undefined,
-  }));
-  await writeAudit(ctx, {
-    action: input ? 'ingress.setTunnel' : 'ingress.clearTunnel',
-    targetType: 'ingressConfig',
-    targetId: ctx.activeOrgId,
-    metadata: { tunnelId: tokenId ?? input?.tunnelId ?? null },
-  });
-  await reapply(ctx);
-  return getConfig(ctx);
 }
 
 /**
@@ -1155,12 +924,6 @@ export function tunnelIdFromToken(token: string): string | null {
   } catch {
     return null;
   }
-}
-
-export async function setEnabled(ctx: OrgContext, enabled: boolean): Promise<IngressConfigView> {
-  await ingressConfigRepo.update(ctx, ctx.activeOrgId, { enabled });
-  if ((await convergeEdge(ctx)) === null) await reapply(ctx);
-  return getConfig(ctx);
 }
 
 export async function listDomains(ctx: OrgContext, stack?: string): Promise<DomainView[]> {
@@ -1400,13 +1163,19 @@ async function applyAndRecord(ctx: OrgContext, config: OrgIngressConfig): Promis
  * While the in-task controller has no running task yet (just deployed, still
  * pulling) the apply is deferred — the ingress-reconcile worker applies the
  * moment a task appears — rather than recorded as a failure.
+ *
+ * `converged`: the caller deployed the edge a moment ago, so live inventory
+ * may not show it yet — skip the self-heal deploy (one converge per write).
  */
-export async function reapply(ctx: OrgContext): Promise<IngressStatus | null> {
+export async function reapply(
+  ctx: OrgContext,
+  opts: { converged?: boolean } = {},
+): Promise<IngressStatus | null> {
   const config = await loadOrgConfig(ctx);
   if (config.driver === 'none' || !config.enabled) return null;
   if (usesInTaskExec(config) && (await ingressTaskNodes(ctx)).length === 0) {
     // Self-heal: Caddy enabled but the controller is gone → deploy it again.
-    if (!edgeServiceDeployed(ctx)) await convergeEdge(ctx);
+    if (!opts.converged && !edgeServiceDeployed(ctx)) await convergeEdge(ctx);
     return null;
   }
   return applyAndRecord(ctx, config).catch(() => null);

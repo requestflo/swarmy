@@ -5,7 +5,7 @@ import { getEdgeGeoip, setEdgeGeoip } from '../services/edge-geoip.service';
 import { getAutoAddressBase, setAutoAddressBase } from '../services/auto-address-base.service';
 import { adminProcedure, orgProcedure, router } from '../trpc';
 import { BYO_DNS_PROVIDERS } from '@swarmy/ingress';
-import { getDnsChallengeView, setByoDnsProvider } from '../services/acme-dns.service';
+import { getDnsChallengeView } from '../services/acme-dns.service';
 import { companionHost, normalizeHostname } from '@swarmy/ingress';
 import { PRODUCTION, resourceEnv } from '@swarmy/abac';
 import { abacProcedure, resolveService, type ResolveResource } from '../abac';
@@ -20,15 +20,20 @@ import {
   parseDomainId,
   reapply,
   removeDomain,
-  setControllerImage,
   setDomainWww,
+} from '../services/ingress.service';
+import {
+  setByoDnsProvider,
+  setControllerImage,
   setDriver,
   setEnabled,
   setOnDemandTls,
   setTargetNodes,
   setTunnel,
   setTopology,
-} from '../services/ingress.service';
+} from '../services/ingress-setters';
+import { getIngressSettings, updateIngressSettings } from '../services/ingress-settings.service';
+import { IngressSettingsPatchSchema } from '../services/ingress-settings.schema';
 import {
   detectServicePorts,
   listServiceRoutes,
@@ -101,6 +106,12 @@ const routeInput = z.object({
 
 export const ingressRouter = router({
   getConfig: orgProcedure.query(({ ctx }) => getConfig(ctx)),
+  /** Every edge setting in one read (secrets as set / not set) — REST GET /ingress/settings. */
+  settings: orgProcedure.query(({ ctx }) => getIngressSettings(ctx)),
+  /** Every edge setting in one write and one converge — REST PUT /ingress/settings. */
+  updateSettings: adminProcedure
+    .input(IngressSettingsPatchSchema)
+    .mutation(({ ctx, input }) => updateIngressSettings(ctx, input)),
   setDriver: adminProcedure
     .input(z.object({ driver: driverEnum }))
     .mutation(({ ctx, input }) => setDriver(ctx, input.driver)),

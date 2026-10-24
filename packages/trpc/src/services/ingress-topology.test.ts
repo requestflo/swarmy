@@ -8,7 +8,8 @@ import {
   deployWithModeSwap,
   EDGE_PLACEMENT_CONSTRAINT,
 } from './ingress-controller';
-import { getConfig, reconcileIngressOrg, setTopology } from './ingress.service';
+import { getConfig, reconcileIngressOrg } from './ingress.service';
+import { setTopology } from './ingress-setters';
 import { OBJECT_STORAGE_REQUIRED_MESSAGE, buildLegacyPurgeRunOnce, certStorageFor } from './ingress-certs';
 import { peekKv, seedKv, useMemoryKv } from './swarm-kv.service';
 
@@ -403,9 +404,10 @@ describe('setTopology — shared certificates in swarmy object storage', () => {
     const first = world({ services: [svc({ mode: 'replicated' })] });
     await setTopology(first.ctx, 'edge-per-node');
     const { encSecretName: _drop, ...legacyStore } = first.row.settings.certStorage;
-    const legacy = { ...first.row.settings, certStorage: { ...legacyStore, prefix: 'caddy/org_1' } };
+    // Switched back to controller since (the store is kept), now switching again.
+    const legacy = { ...first.row.settings, topology: 'controller', certStorage: { ...legacyStore, prefix: 'caddy/org_1' } };
     const w = world({
-      services: [svc({ mode: 'global' })],
+      services: [svc({ mode: 'replicated' })],
       settings: legacy,
       secrets: [...first.secrets].filter((n: string) => !n.startsWith('swarmy-edge-certs-enc-')),
     });
@@ -422,22 +424,38 @@ describe('setTopology — shared certificates in swarmy object storage', () => {
     expect(w.row.settings.certStorage.prefix).toMatch(/^caddy-enc\//);
   });
 
-  it('is idempotent: a re-run with the secret still present makes zero Garage calls and mints nothing', async () => {
+  it('reuses the store: switching back with the secret still present makes zero Garage calls and mints nothing', async () => {
     const first = world({ services: [svc({ mode: 'replicated' })] });
     await setTopology(first.ctx, 'edge-per-node');
     const w = world({
-      services: [svc({ mode: 'global' })],
-      settings: first.row.settings,
+      services: [svc({ mode: 'replicated' })],
+      settings: { ...first.row.settings, topology: 'controller' },
       secrets: [...first.secrets],
     });
     await setTopology(w.ctx, 'edge-per-node');
     expect(w.garage).toEqual([]);
     expect(w.sent.some((s) => s.cmd === 'secret.create')).toBe(false);
     expect(w.row.settings.certStorage).toEqual(first.row.settings.certStorage);
-    // Same mode ⇒ plain in-place update, secret still mounted.
-    expect(cmds(w.sent)).toEqual(['service.deploy']);
+    expect(cmds(w.sent)).toEqual(['service.remove', 'service.deploy']);
     const spec = w.sent.find((s) => s.cmd === 'service.deploy')!.payload.spec as ServiceSpec;
     expect(spec.secrets?.[0]?.source).toBe(first.row.settings.certStorage.secretName);
+  });
+
+  it('the current topology is a no-op: nothing removed, recreated, minted or saved', async () => {
+    const first = world({ services: [svc({ mode: 'replicated' })] });
+    await setTopology(first.ctx, 'edge-per-node');
+    const w = world({ services: [svc({ mode: 'global' })], settings: first.row.settings, secrets: [...first.secrets] });
+    const before = JSON.stringify(w.row.settings);
+    const view = await setTopology(w.ctx, 'edge-per-node');
+    expect(view.topology).toBe('edge-per-node');
+    expect(w.sent).toEqual([]);
+    expect(w.garage).toEqual([]);
+    expect(JSON.stringify(w.row.settings)).toBe(before);
+    // Same for the replicated controller.
+    const c = world({ services: [svc({ mode: 'replicated' })] });
+    await setTopology(c.ctx, 'controller');
+    expect(cmds(c.sent)).toEqual([]);
+    expect(c.row.settings.topology).toBeUndefined();
   });
 
   it('reuses an existing swarmy-edge-certs bucket (found by alias)', async () => {
