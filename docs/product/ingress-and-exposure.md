@@ -33,9 +33,11 @@ never like a certificate project.
    swarmy names it, tells them how to fix it, and — in v1 — **never pulls the
    port itself. The fix is always yours to make.**
 
-The unopinionated promise holds underneath all of this: the default driver is
-**`none`**, which stands up no process and touches nothing. swarmy is invisible
-until you ask it to put something on the internet.
+The unopinionated promise holds underneath all of this: the **`none`** driver
+stands up no process and touches nothing, and it is always one choice away.
+New workspaces start on Caddy so a deployed app is reachable with zero setup
+(owner decision 2026-09-24, below); an existing workspace's choice is never
+rewritten.
 
 ## How it works (the request path)
 
@@ -294,7 +296,14 @@ Least privilege, by network:
 - **Apps are isolated by default; connecting them is explicit.** "Connect
   apps" (`stacks.connect`, swarmy.yaml `connect: [billing]`) creates a private
   overlay for exactly that pair — never a flat network — and never shares the
-  apps' managed databases.
+  apps' managed databases. **Network › Connections** is where that lives: pick
+  an app and see its internal names, which managed data stays private to it,
+  and which other apps it is connected to. Before you connect another app it
+  shows what that does (one private network for the pair, the names each side
+  types, what stays private), and connect or disconnect (`stacks.connect` /
+  `stacks.disconnect`) confirms the one rolling restart of both apps'
+  services. An app's Access tab says which other apps can reach it and links
+  there.
 - **The control plane is on no network an app can join.** Admission refuses
   a spec naming `swarmy-control` or aliasing any name on `swarmy`, with no
   override: an app aliasing `postgres` or `swarmy_controller` there could
@@ -374,4 +383,8 @@ the tunnel block) and the `governance.prisma` row (`ExposureConfig`); the public
 `apps/api/src/ingress-ask.ts` mounted at `/ingress/ask` in `apps/api/src/index.ts`;
 agent handlers `apps/agent/src/handlers/{ingress-local,ingress-connector,
 ingress-status}.ts`; UI `apps/app/src/routes/_authed/{ingress,governance}.tsx` (exposure is a section of the Safety page) with
-`apps/app/src/components/ingress/*` and `apps/app/src/components/exposure/*`.
+`apps/app/src/components/ingress/*` (Front door's topology, edge servers and
+HTTPS in `components/ingress/edge/*`) and `apps/app/src/components/exposure/*`;
+Network › Domains (`routes/_authed/network.tsx`, the visit's route map in
+`components/network/route-map/*`) and Network › Connections
+(`routes/_authed/network_.connections.tsx` → `components/connections/*`).

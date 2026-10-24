@@ -145,6 +145,11 @@ The UI must hold the user's hand through the only part we can't automate:
 4. Adding/removing ordinary ingress nodes never touches the registrar — only
    changing the pinned set does, and the UI warns loudly there.
 
+This lives on **Network › Geo-DNS**, beside one table of the zone's records and
+**Ask from anywhere**: pick a continent and see which front door swarmy-dns
+would answer with (`geodns.previewResolution`, measured from the same point the
+engine ranks by).
+
 Nodes running a nameserver must not fight `systemd-resolved` for port 53 — the
 onboarding copy documents `DNSStubListener=no`.
 

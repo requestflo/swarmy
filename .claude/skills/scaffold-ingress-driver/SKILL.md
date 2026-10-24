@@ -51,7 +51,8 @@ that generic intent — drivers never touch a node directly.
    - the dashboard picker: `apps/app/src/components/ingress/driver-panel.tsx`,
      fed by `ALL_DRIVERS` / `DRIVER_LABELS` / `DRIVER_BLURB` / `IngressDriverId`
      in `components/ingress/driver-config.ts`; any driver-specific card goes in
-     `routes/_authed/ingress.tsx` (as cloudflared does),
+     `components/ingress/front-door-page.tsx` at Controls depth (as the
+     Cloudflare Tunnel card does; `routes/_authed/ingress.tsx` only mounts that page),
    - the demo resolver `apps/app/src/demo/resolvers/ingress.ts`.
 
 6. **Verify** — a colocated golden render test (`render/<driver>.test.ts`, see

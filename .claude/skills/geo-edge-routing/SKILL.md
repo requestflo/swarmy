@@ -137,7 +137,7 @@ invariants that must survive every change, and where everything lives.
 | Region-aware Caddy render | `packages/ingress/src/render/caddyfile.ts` (+ `types.ts` RegionUpstream/localRegion) |
 | Region sibling discovery | `packages/trpc/src/services/ingress-regions.ts` |
 | Edge Caddy service spec / topology | `packages/trpc/src/services/ingress-controller.ts` |
-| DNS UI (zones, NS onboarding, preview, records) | `apps/app/src/components/geo/*`, used by `routes/_authed/ingress.tsx` and the stack `stacks/$name.network.tsx` tab |
+| DNS UI: Network › Geo-DNS (ask from anywhere, one records table, delegation, steering; zones, nameserver picks and server regions at Controls) | `routes/_authed/network_.geo-dns.tsx` → `apps/app/src/components/geo/geodns-page.tsx` (`ask-model.ts`: the continents `regionCoord` places, so `geodns.previewResolution` steers from the point the map draws; `zone-records-model.ts`; `delegation-section.tsx`; `steering-section.tsx`). `components/geo/*` also serves Network › Domains (`components/network/*`) and the app Domains tab |
 
 ## Operational gotchas
 
