@@ -50,6 +50,7 @@ import { rum } from './resolvers/rum';
 import { studio } from './resolvers/studio';
 import { gaps } from './resolvers/gaps';
 import { serviceSettings } from './resolvers/service-settings';
+import { serviceHealth } from './resolvers/service-health';
 import { deployEvents } from './resolvers/deploy-events';
 import { firstLook } from './resolvers/first-look';
 import { inviteLinks } from './resolvers/invite-links';
@@ -125,6 +126,7 @@ const MODULES: DomainResolvers[] = [
   rum,
   gaps,
   serviceSettings,
+  serviceHealth,
   deployEvents,
   firstLook,
   inviteLinks,

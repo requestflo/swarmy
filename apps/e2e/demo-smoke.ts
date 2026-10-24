@@ -129,7 +129,8 @@ const routes: Array<[string, RegExp?]> = [
   ['/stacks/storefront/network', /Protections/],
   ['/stacks/storefront/network?domain=api.northwind.dev', /Certificate/],
   ['/stacks/storefront/config/scaling'],
-  ['/stacks/storefront/config/rollout'],
+  // Health & rollout: the live check, Docker's real probe count, Test now.
+  ['/stacks/storefront/config/rollout', /Health check[\s\S]*Last \d+ probes[\s\S]*Test now/],
   ['/stacks/storefront/config/placement'],
   ['/stacks/storefront/config/jobs'],
   ['/stacks/storefront/config/paste', /Paste a \.env into/],

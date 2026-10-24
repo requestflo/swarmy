@@ -7,6 +7,7 @@ import { Tech } from '@/components/calm';
 import { Segmented, type SegOption } from '@/components/service-settings/settings-row';
 import { orderOf, parallelismOf } from '@/components/service-settings/settings-model';
 import { useTRPC } from '@/integrations/trpc';
+import { countWord } from '../tab-body';
 import { editOf, formOf, previewOf, type AskKind, type HealthForm as Form } from './health-draft';
 import { HealthField } from './health-field';
 
@@ -100,7 +101,7 @@ export function HealthForm({
           </Button>
         ) : null}
         <span className="text-muted-foreground text-[12.5px]">
-          {edit ? `${name}’s copies are replaced ${parallelismOf(spec)} at a time; nothing else about it changes.` : 'Change a field to save it.'}
+          {edit ? `${name}’s copies are replaced ${countWord(parallelismOf(spec), true)} at a time; nothing else about it changes.` : 'Change a field to save it.'}
         </span>
       </div>
       <Tech>

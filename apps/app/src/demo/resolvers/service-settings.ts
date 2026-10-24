@@ -1,4 +1,4 @@
-import type { ServiceDetail, ServiceUsageView, UpdateServiceInput } from '@swarmy/core';
+import { applyHealthcheckEdit, type ServiceDetail, type ServiceUsageView, type SpecHealthcheck, type UpdateServiceInput } from '@swarmy/core';
 import type { DemoStore, DomainResolvers } from '../types';
 import { managedMemberUsage } from './managed-members';
 
@@ -15,7 +15,8 @@ interface Knobs {
   reservations?: { cpus?: number; mem?: number };
   restart?: { condition: 'on-failure' | 'any' | 'none'; maxAttempts?: number; delaySec?: number };
   update?: { parallelism: number; order: 'start-first' | 'stop-first'; failureAction?: string };
-  health?: { test: string[]; intervalSec: number; startSec: number; retries: number };
+  /** Spec-shaped (ns), so services.update edits apply exactly as on the controller. */
+  health?: SpecHealthcheck;
   labels: Record<string, string>;
 }
 
@@ -24,8 +25,8 @@ const KEY = 'serviceKnobs';
 
 const HTTP = (port: number): Knobs['health'] => ({
   test: ['CMD', 'wget', '-qO-', `http://localhost:${port}/health`],
-  intervalSec: 10,
-  startSec: 15,
+  intervalNs: 10e9,
+  startPeriodNs: 15e9,
   retries: 3,
 });
 
@@ -73,7 +74,7 @@ function knobsFor(store: DemoStore): Record<string, Knobs> {
   return (store.extra[KEY] ??= {}) as Record<string, Knobs>;
 }
 
-function knobs(store: DemoStore, sv: ServiceDetail): Knobs {
+export function knobs(store: DemoStore, sv: ServiceDetail): Knobs {
   const all = knobsFor(store);
   const stack = store.stacks.find((st) => st.id === sv.stackId)?.name;
   return (all[sv.id] ??= {
@@ -106,9 +107,11 @@ function inspectOf(store: DemoStore, sv: ServiceDetail): Record<string, unknown>
           Args: k.args,
           Env: Object.entries(sv.env).map(([key, v]) => `${key}=${v}`),
           Mounts: sv.volumes.map((v) => ({ Type: v.type, Source: v.source, Target: v.target, ReadOnly: v.readOnly })),
-          Healthcheck: k.health
-            ? { Test: k.health.test, Interval: ns(k.health.intervalSec), StartPeriod: ns(k.health.startSec), Retries: k.health.retries }
-            : undefined,
+          Healthcheck: k.health?.disable
+            ? { Test: ['NONE'] }
+            : k.health
+              ? { Test: k.health.test, Interval: k.health.intervalNs, Timeout: k.health.timeoutNs, StartPeriod: k.health.startPeriodNs, Retries: k.health.retries }
+              : undefined,
         },
         Resources: { Limits: side(k.limits), Reservations: side(k.reservations) },
         RestartPolicy: k.restart
@@ -144,6 +147,8 @@ export function applyDemoSettings(store: DemoStore, sv: ServiceDetail, b: Update
     k.restart = condition === 'none' ? { condition } : { ...k.restart, condition, ...(maxAttempts !== undefined ? { maxAttempts } : {}), ...(delaySeconds !== undefined ? { delaySec: delaySeconds } : {}) };
   }
   if (b.updateOrder) k.update = { ...(k.update ?? { parallelism: 1 }), order: b.updateOrder };
+  // Throws (like the controller's 400) when the edit says nothing to ask for.
+  if (b.healthcheck !== undefined) k.health = applyHealthcheckEdit(k.health, b.healthcheck);
   for (const key of b.removeLabels ?? []) delete k.labels[key];
   Object.assign(k.labels, b.setLabels ?? {});
 }
