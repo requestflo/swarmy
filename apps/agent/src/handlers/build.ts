@@ -42,6 +42,7 @@ import type {
 import { pinnedSystemRef, railpackImageRewrites } from '@swarmy/core/system-images';
 import type { AgentConnection } from '../connection';
 import { authForImage, pullWithFallback } from './pull-fallback';
+import { buildStageTracker, stageMarker } from './build-stages';
 
 const DEFAULT_BUILDER_IMAGE = 'moby/buildkit:rootless';
 const CONTAINER_PREFIX = 'swarmy-build-';
@@ -395,6 +396,8 @@ export function renderBuildProgram(p: BuildImagePayload): string {
           'mkdir -p "$HOME/.ssh" && printf \'%s\\n\' "$SWARMY_SSH_KEY" > "$HOME/.ssh/id" && chmod 600 "$HOME/.ssh/id" && export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/id -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$HOME/.ssh/known_hosts"',
         ]
       : []),
+    // Stage markers (captured as SWARMY_META, never logged) — only when asked.
+    ...(p.reportStages ? [stageMarker('clone')] : []),
     // Exact sha (git-apps): fetch that commit, never "whatever the branch is now".
     p.source.sha
       ? `git -C "$W" init -q && git -C "$W" remote add origin ${shq(cloneUrl)} && git -C "$W" fetch -q --depth 1 origin ${shq(p.source.sha)} && git -C "$W" checkout -q FETCH_HEAD`
@@ -402,6 +405,7 @@ export function renderBuildProgram(p: BuildImagePayload): string {
     dockerConfig
       ? `mkdir -p "$DOCKER_CONFIG" && printf %s ${shq(dockerConfig)} > "$DOCKER_CONFIG/config.json"`
       : ':',
+    ...(p.reportStages ? [stageMarker('build')] : []),
     ...(toml
       ? [
           `mkdir -p "$HOME/.config/buildkit" && printf '%s\\n' ${shq(toml)} > "$HOME/.config/buildkit/buildkitd.toml"`,
@@ -614,18 +618,24 @@ export async function buildImage(
   const metas: string[] = [];
   const carry: Record<'stdout' | 'stderr', string> = { stdout: '', stderr: '' };
   const cached = cachedStepCounter();
+  // clone → build → push as `buildStage` frames, only when the controller asked.
+  const stages = p.reportStages
+    ? buildStageTracker((stage) => conn.send('buildStage', { commandId: p.commandId, stage }))
+    : null;
   const send = (stream: 'stdout' | 'stderr', text: string) => {
     if (!text) return;
     tail = (tail + text).slice(-MAX_TAIL_CHARS);
     cached.feed(text);
+    stages?.text(text);
     conn.send('logChunk', { commandId: p.commandId, stream, seq: seq++, data: text, eof: false });
   };
   const emit = (stream: 'stdout' | 'stderr', raw: string) => {
     // Never echo the git token / registry password into logs or error text.
-    // `SWARMY_META` lines (builder facts, Railpack info/plan) are captured, not logged.
+    // `SWARMY_META` lines (builder facts, Railpack info/plan, stages) are captured, not logged.
     const split = splitMetaLines(carry[stream], redact(raw, secrets));
     carry[stream] = split.carry;
     metas.push(...split.metas);
+    for (const m of split.metas) stages?.meta(m);
     send(stream, split.forward);
   };
   try {
