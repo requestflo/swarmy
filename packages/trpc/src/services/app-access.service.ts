@@ -31,7 +31,7 @@ import { buildInventory, UNGROUPED } from '@swarmy/core';
 import { displayEmail } from '@swarmy/auth';
 import type { ResourceInput } from '@swarmy/abac';
 import type { DB } from '@swarmy/db';
-import { APP_AUTH_ORIGINAL_URI_HEADER, APP_AUTH_MODE_HEADER, APP_AUTH_PATH_PREFIX } from '@swarmy/ingress';
+import { APP_AUTH_ORIGINAL_URI_HEADER, APP_AUTH_MODE_HEADER, APP_AUTH_PATH_PREFIX, isBroadWildcard } from '@swarmy/ingress';
 import type { OrgContext } from '../context';
 import type { AgentHub } from '../hub/types';
 import { decide, liveStackLabels, principalFromMember } from '../abac';
@@ -132,9 +132,14 @@ export interface ProtectedRoute {
   stack: string;
 }
 
+/**
+ * A wildcard over a public suffix (`*.com`, `*.co.uk`) never matches: it
+ * would let the login round trip mint a code for, and redirect it to, any
+ * host under the suffix. Such a route fails closed (403 / 404).
+ */
 function hostMatches(pattern: string, host: string): boolean {
   const p = pattern.toLowerCase();
-  if (p.startsWith('*.')) return host.endsWith(p.slice(1)) && host.length > p.length - 1;
+  if (p.startsWith('*.')) return !isBroadWildcard(p) && host.endsWith(p.slice(1)) && host.length > p.length - 1;
   return p === host;
 }
 

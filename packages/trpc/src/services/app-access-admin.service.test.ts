@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createTestDb, type TestDb } from '@swarmy/db';
 import type { OrgContext } from '../context';
-import { getAppAccess, setAppAccessRules } from './app-access-admin.service';
+import { getAppAccess, setAppAccessRules, setRequireLogin } from './app-access-admin.service';
 
 const ORG = 'org_a';
 let t: TestDb;
@@ -26,6 +26,13 @@ const svc = {
   configs: [],
 };
 
+const wild = {
+  ...svc,
+  id: 'svc_wild',
+  name: 'wild_web',
+  labels: { 'com.docker.stack.namespace': 'wild', 'swarmy.ingress.routes': JSON.stringify([{ host: '*.co.uk', port: 80, tls: 'auto' }]) },
+};
+
 beforeAll(async () => {
   t = await createTestDb();
   await t.db.organization.create({ data: { id: ORG, name: 'A', slug: 'a', createdAt: new Date() } });
@@ -39,7 +46,7 @@ beforeAll(async () => {
   }
   ctx = {
     db: t.db,
-    hub: { liveInventory: () => ({ services: [svc], containers: [] }) },
+    hub: { liveInventory: () => ({ services: [svc, wild], containers: [] }) },
     activeOrgId: ORG,
     user: { id: 'u_owner' },
     session: { id: 's' },
@@ -53,6 +60,10 @@ const canEnter = (v: Awaited<ReturnType<typeof getAppAccess>>) =>
   v.people.filter((p) => p.canEnter).map((p) => p.memberId).sort();
 
 describe('app Access panel', () => {
+  it('refuses Require login on a wildcard over a public suffix', async () => {
+    await expect(setRequireLogin(ctx, { stack: 'wild', on: true })).rejects.toThrow(/public suffix/);
+  });
+
   it('lists routes with their Require-login state; only owners/admins enter by default', async () => {
     const v = await getAppAccess(ctx, 'shop');
     expect(v.routes).toEqual([

@@ -222,6 +222,31 @@ describe('login round trip', () => {
     expect(String(res.headers.location)).toStartWith('/login?redirect=%2Fapp-login%3Frd%3D');
   });
 
+  it('a wildcard over a public suffix never protects (or mints a code for) anything', async () => {
+    SERVICES.push(
+      svc('wild_web', 'wild', [
+        { host: '*.com', port: 80, tls: 'auto', access: { login: true } },
+        { host: '*.co.uk', port: 80, tls: 'auto', access: { login: true } },
+        { host: '*.apps.example.com', port: 80, tls: 'auto', access: { login: true } },
+      ]),
+    );
+    try {
+      for (const host of ['attacker.com', 'attacker.co.uk']) {
+        expect(findProtectedRoute(deps.hub, ORG, host)).toBeNull();
+        const start = await startAppLogin(deps, { id: 's_u_admin', userId: 'u_admin' }, `https://${host}/`);
+        expect(start.status).toBe(404);
+        expect(start.headers.location).toBeUndefined();
+        expect((await verifyAppRequest(deps, ORG, edge(host))).status).toBe(403);
+      }
+      // A wildcard under a registrable domain still works.
+      expect(findProtectedRoute(deps.hub, ORG, 'a.apps.example.com')?.stack).toBe('wild');
+      const ok = await startAppLogin(deps, { id: 's_u_admin', userId: 'u_admin' }, 'https://a.apps.example.com/');
+      expect(new URL(String(ok.headers.location)).host).toBe('a.apps.example.com');
+    } finally {
+      SERVICES.pop();
+    }
+  });
+
   it('never mints a code for a host outside the caller’s orgs (no open redirect)', async () => {
     const res = await startAppLogin(deps, { id: 's_u_admin', userId: 'u_admin' }, 'https://attacker.example.net/');
     expect(res.status).toBe(404);

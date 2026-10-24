@@ -35,3 +35,4 @@ export {
   CLOUDFLARED_CREDENTIALS_PATH,
 } from './render/cloudflared';
 export type { CloudflaredRenderInput } from './render/cloudflared';
+export * from './wildcard-scope';

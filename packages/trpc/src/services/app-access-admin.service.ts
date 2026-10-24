@@ -14,6 +14,7 @@
  */
 import { TRPCError } from '@trpc/server';
 import { parsePolicyDoc } from '@swarmy/abac';
+import { isBroadWildcard } from '@swarmy/ingress';
 import type { OrgContext } from '../context';
 import { notFound } from '../errors';
 import { whoCan } from '../abac';
@@ -187,6 +188,16 @@ export async function setRequireLogin(
   const routes = stackRoutes(ctx, input.stack);
   if (routes.length === 0) throw notFound('app routes', input.stack);
   const wanted = input.routeIds ? new Set(input.routeIds) : null;
+  // Forward-auth never honours these (app-access.service hostMatches); say so up front.
+  const broad = input.on
+    ? routes.find(({ serviceId, route }) => (!wanted || wanted.has(routeId(serviceId, route.host, route.path))) && isBroadWildcard(route.host))
+    : undefined;
+  if (broad) {
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: `${broad.route.host} covers every site under a public suffix; sign-in can only protect a wildcard inside your own domain (like *.apps.example.com)`,
+    });
+  }
   const byService = new Map<string, { serviceId: string; routes: Route[]; changed: boolean }>();
   for (const { serviceId, serviceName, route } of routes) {
     const entry = byService.get(serviceId) ?? { serviceId, routes: [], changed: false };
