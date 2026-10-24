@@ -1,5 +1,27 @@
 import type { NodeSummary } from '@swarmy/core';
 import type { Tone } from '@/components/calm';
+import { numberWord } from '@/components/apps/app-words';
+
+/**
+ * The agent's version skew in plain words, or null when it's in step (or
+ * unknown). `upgrade` = the Upgrade agent button applies; an incompatible
+ * agent can't take a command, so it is pointed at the install line instead.
+ */
+export function agentSkewWords(
+  n: Pick<NodeSummary, 'agentSkew'>,
+): { say: string; word: string; tone: Tone; upgrade: boolean } | null {
+  const s = n.agentSkew;
+  if (!s || s.status === 'ok') return null;
+  if (s.status === 'incompatible') {
+    const say = 'This server’s agent can’t talk to swarmy. Re-run the install line on it to reinstall the agent.';
+    return { say, word: 'Agent mismatch', tone: 'bad', upgrade: false };
+  }
+  if (s.status === 'ahead') {
+    return { say: 'This server’s agent is newer than swarmy. Upgrade swarmy to match.', word: 'Agent ahead', tone: 'info', upgrade: false };
+  }
+  const by = s.versions ? `${numberWord(s.versions, true)} ${s.versions === 1 ? 'version' : 'versions'} behind` : 'behind';
+  return { say: `This server’s agent is ${by}`, word: 'Agent behind', tone: 'warn', upgrade: true };
+}
 
 /** Status → the calm tone + the five-word vocabulary. */
 export function serverTone(n: Pick<NodeSummary, 'status'>): { tone: Tone; word: string } {

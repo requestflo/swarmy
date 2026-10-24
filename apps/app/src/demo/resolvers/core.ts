@@ -197,15 +197,15 @@ export const core: DomainResolvers = {
       return { id: (i as { id: string }).id, role: 'worker' };
     },
 
-    // Agent self-update: the demo controller "ships" a newer release than the
-    // seeded nodes run, so the Update affordance is visible; updating bumps the
+    // Agent self-update: the demo controller "ships" a newer release than one
+    // seeded node (wkr-2) runs, so the Update affordance is visible; updating bumps the
     // node's reported version (mirrors the swap→reconnect flow instantly).
     'nodes.agentRelease': () => ({ version: '0.2.0', platforms: ['linux-x64', 'linux-arm64'] }),
     'nodes.upgradeAgent': (i, s) => {
       const id = (i as { id: string }).id;
       const n = byId(s.nodes, id) as (NodeSummary & { agentVersion?: string | null }) | undefined;
       if (n?.agentVersion === '0.2.0') return { id, upToDate: true as const };
-      if (n) Object.assign(n, { agentVersion: '0.2.0', agentUpdateAvailable: false });
+      if (n) Object.assign(n, { agentVersion: '0.2.0', agentUpdateAvailable: false, agentSkew: { status: 'ok', versions: null } });
       return { id, targetVersion: '0.2.0', strategy: 'self-replace' };
     },
     'nodes.activate': (i, s) => {

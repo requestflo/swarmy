@@ -4,6 +4,7 @@ import { CalmRow, RowList, Section, SectionLink } from '@/components/calm';
 import { SkeletonBody } from '@/components/states';
 import { DISK_HOT_PCT, type FleetServer } from './use-fleet';
 import { plainRoles, serverTone, techRoles } from './server-words';
+import { AgentSkewBadge } from './agent-skew';
 
 /**
  * The fleet as one quiet list: each server's name, what it does in plain
@@ -66,6 +67,7 @@ export function ServersList({
                 tech={tech}
                 word={hot ? `Disk ${s.diskPct}%` : word}
                 wordTone={hot ? 'warn' : tone}
+                trailing={<AgentSkewBadge node={s.node} />}
                 onClick={() => onSelect(s.node.id)}
                 className={selectedId === s.node.id ? 'bg-foreground/[0.04]' : undefined}
               />

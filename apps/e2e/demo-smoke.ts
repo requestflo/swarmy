@@ -113,6 +113,8 @@ const routes: Array<[string, RegExp?]> = [
   // Placement & volumes' "Move…" opens the move picker for that service.
   ['/nodes?move=svc-postgres', /Move postgres to/],
   ['/nodes/n-mgr-1', /mgr-1/],
+  // Agent ↔ controller skew: the demo's one stale agent says so in plain words.
+  ['/nodes/n-wkr-2', /agent is two versions behind/],
   ['/nodes/n-wkr-1/terminal'],
   ['/services/svc-api'],
   ['/services/svc-api/terminal'],

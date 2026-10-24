@@ -14,6 +14,7 @@ import { NodeOldCopiesCard } from '../node-old-copies-card';
 import { NodeRetirePanel } from '../node-retire-panel';
 import { NodeDisksCard } from '../node-disks-card';
 import { ServerInspector } from '../servers/server-inspector';
+import { AgentSkewLine } from '../servers/agent-skew';
 import { TidyUpNext } from '../servers/servers-next-action';
 import { DISK_HOT_PCT } from '../servers/use-fleet';
 import { gb, plainRoles } from '../servers/server-words';
@@ -86,6 +87,7 @@ export function ServerDetailPage({ nodeId }: { nodeId: string }): React.JSX.Elem
           </Button>
         }
       />
+      <AgentSkewLine node={n} />
       {hot ? <TidyUpNext server={server} here /> : null}
       <NodeRepairCard node={n} />
       <NodeSwarmJoinBanner node={n} />

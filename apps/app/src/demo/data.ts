@@ -34,9 +34,10 @@ function node(
     os: 'Ubuntu 24.04',
     arch: 'x86_64',
     resources: { cpus, memBytes: memGiB * 1024 ** 3 },
-    agentVersion: '0.1.0',
+    agentVersion: '0.2.0',
     agentCommit: null,
-    agentUpdateAvailable: true,
+    agentUpdateAvailable: false,
+    agentSkew: { status: 'ok', versions: null },
     lastSeenAt: status === 'offline' ? iso(6 * MIN) : iso(3_000),
     live: status === 'online' || status === 'draining' ? { cpuPercent: cpuPct, memPercent: memPct } : null,
     ipAddress: ip,
@@ -50,7 +51,13 @@ export const DEMO_NODES: NodeDetail[] = [
   node('n-mgr-1', 'mgr-1', 'manager', 'online', 8, 32, 34, 51, '10.0.1.11'),
   node('n-mgr-2', 'mgr-2', 'manager', 'online', 8, 32, 28, 47, '10.0.1.12'),
   node('n-wkr-1', 'wkr-1', 'worker', 'online', 16, 64, 62, 70, '10.0.1.21'),
-  node('n-wkr-2', 'wkr-2', 'worker', 'online', 16, 64, 41, 58, '10.0.1.22'),
+  // The one server whose agent missed two releases: "two versions behind — Upgrade agent".
+  {
+    ...node('n-wkr-2', 'wkr-2', 'worker', 'online', 16, 64, 41, 58, '10.0.1.22'),
+    agentVersion: '0.0.9',
+    agentUpdateAvailable: true,
+    agentSkew: { status: 'behind', versions: 2 },
+  },
   node('n-wkr-3', 'wkr-3', 'worker', 'draining', 16, 64, 12, 22, '10.0.1.23'),
 ];
 
