@@ -43,7 +43,9 @@ async function providerAccess(db: DB, repo: FeedbackRepo) {
   if (!repo.connectionId) return null;
   const conn = await loadConnectionRow(db, repo.connectionId);
   if (!conn || conn.status !== 'active') return null;
-  const creds = await connectionCredentials(db, conn);
+  // GitHub: a token for this one repo that can only write checks / statuses / the PR comment.
+  const name = repo.fullName ?? githubFullName(repo.url, conn.baseUrl);
+  const creds = await connectionCredentials(db, conn, { repo: name, access: 'feedback' });
   if (!creds.token) return null;
   return { conn, token: creds.token };
 }

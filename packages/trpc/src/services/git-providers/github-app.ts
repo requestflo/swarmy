@@ -17,6 +17,7 @@
  * Pure over an injected `fetch`; RS256 JWT via node:crypto.
  */
 import { createSign } from 'node:crypto';
+import type { InstallationTokenRequest } from './github-token-scope';
 import {
   GitProviderError,
   requestJson,
@@ -157,11 +158,13 @@ export interface InstallationToken {
   expires_at: string;
 }
 
+/** Mint an installation token, narrowed by `scope` (github-token-scope.ts) when given. */
 export function createInstallationToken(
   fetchFn: FetchLike,
   apiBase: string,
   appJwt: string,
   installationId: string | number,
+  scope?: InstallationTokenRequest,
 ): Promise<InstallationToken> {
   return requestJson<InstallationToken>(
     fetchFn,
@@ -169,6 +172,7 @@ export function createInstallationToken(
     {
       method: 'POST',
       headers: ghHeaders(appJwt),
+      ...(scope ? { body: JSON.stringify(scope) } : {}),
     },
   );
 }

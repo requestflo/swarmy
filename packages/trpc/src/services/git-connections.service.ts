@@ -33,6 +33,7 @@ import {
 import { bindBrowser, notStartedHere } from './git-browser-bind';
 import { createGiteaConnection, registerGiteaHook, type GiteaConnectionInput } from './git-gitea.service';
 import {
+  assertRemoteOnConnection,
   connectionCredentials,
   controllerPublicUrl,
   gitFetch,
@@ -51,6 +52,7 @@ import {
   getInstallation,
   githubApiBase,
   githubAppJwt,
+  githubFullName,
   githubInstallUrl,
   githubManifestFormUrl,
   GITHUB_WEB,
@@ -473,7 +475,7 @@ export async function listProviderRepos(
   input: { connectionId: string; search?: string },
 ): Promise<ProviderRepo[]> {
   const conn = await loadConnection(ctx, input.connectionId);
-  const creds = await connectionCredentials(ctx.db, conn);
+  const creds = await connectionCredentials(ctx.db, conn, { access: 'list' });
   if (!creds.token) return [];
   if (conn.kind === 'GITHUB') {
     return listInstallationRepos(gitFetch, githubApiBase(conn.baseUrl), creds.token, {
@@ -492,7 +494,7 @@ export async function listProviderBranches(
   input: { connectionId: string; repo: string },
 ): Promise<ProviderBranch[]> {
   const conn = await loadConnection(ctx, input.connectionId);
-  const creds = await connectionCredentials(ctx.db, conn);
+  const creds = await connectionCredentials(ctx.db, conn, { repo: input.repo, access: 'read' });
   if (!creds.token) return [];
   if (conn.kind === 'GITHUB')
     return listGithubBranches(gitFetch, githubApiBase(conn.baseUrl), creds.token, input.repo);
@@ -533,6 +535,7 @@ export async function linkRepo(ctx: OrgContext, input: LinkRepoInput): Promise<L
   const url = input.repo?.cloneUrl ?? input.url;
   if (!url)
     throw new TRPCError({ code: 'BAD_REQUEST', message: 'pick a repository or give its URL' });
+  if (conn) assertRemoteOnConnection(url, conn); // M7: the token only ever goes to the connection's host
   const configPath = (input.configPath ?? 'swarmy.yaml').replace(/^\.?\/+/, '');
   const webhookSecret = randomToken('whsec');
   const key =
@@ -659,7 +662,9 @@ export async function inspectSource(
   let creds: GitCredentials = {};
   if (input.connectionId) {
     const conn = await loadConnection(ctx, input.connectionId);
-    creds = await connectionCredentials(ctx.db, conn);
+    assertRemoteOnConnection(input.cloneUrl, conn); // M7: never hand the token to another host
+    const repo = githubFullName(input.cloneUrl, conn.baseUrl);
+    creds = await connectionCredentials(ctx.db, conn, { repo, access: 'read' });
   }
   const res = await runInspect(ctx, {
     url: input.cloneUrl,

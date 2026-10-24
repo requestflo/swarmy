@@ -17,11 +17,18 @@ import {
   GITEA_CALLBACK_PATH,
   giteaTokenExpiry,
   giteaTokenRequest,
+  githubFullName,
   GITLAB_CALLBACK_PATH,
   gitlabTokenNeedsRefresh,
+  installationTokenKey,
+  installationTokenRequest,
   isSshGitUrl,
   refreshGitlabToken,
+  remoteHost,
+  remoteMatchesConnection,
   type FetchLike,
+  type GithubTokenAccess,
+  type InstallationTokenRequest,
 } from './git-providers';
 
 let fetchImpl: FetchLike = (url, init) => fetch(url, init);
@@ -58,8 +65,23 @@ export interface GitCredentials {
   sshKey?: string;
 }
 
+/**
+ * What a credential is for. GitHub installation tokens are narrowed to `repo`
+ * (`owner/name`) and the permissions of `access` (github-token-scope.ts);
+ * the default is the repo picker's metadata-only token. Other providers'
+ * tokens can't be narrowed per request, so they ignore it.
+ */
+export interface CredentialScope {
+  repo?: string | null;
+  access?: GithubTokenAccess;
+}
+
 /** Resolve a usable token for a connection right now (mint / refresh as needed). */
-export async function connectionCredentials(db: DB, conn: ConnectionRow): Promise<GitCredentials> {
+export async function connectionCredentials(
+  db: DB,
+  conn: ConnectionRow,
+  scope: CredentialScope = {},
+): Promise<GitCredentials> {
   if (conn.status !== 'active') {
     throw new TRPCError({
       code: 'PRECONDITION_FAILED',
@@ -73,17 +95,20 @@ export async function connectionCredentials(db: DB, conn: ConnectionRow): Promis
         code: 'PRECONDITION_FAILED',
         message: 'GitHub connection is incomplete.',
       });
-    const cached = installationTokenCache.get(conn.id);
+    let req: InstallationTokenRequest;
+    try {
+      req = installationTokenRequest({ access: scope.access ?? 'list', repo: scope.repo });
+    } catch (e) {
+      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: (e as Error).message });
+    }
+    const key = installationTokenKey(conn.id, req);
+    const cached = installationTokenCache.get(key);
     if (cached && cached.expiresAt > Date.now())
       return { token: cached.token, tokenUser: 'x-access-token' };
     const jwt = githubAppJwt(app.appId, decryptSecret(app.privateKeyEnc));
-    const t = await createInstallationToken(
-      gitFetch,
-      githubApiBase(app.webBase),
-      jwt,
-      conn.installationId,
-    );
-    installationTokenCache.set(conn.id, {
+    const t = await createInstallationToken(gitFetch, githubApiBase(app.webBase), jwt, conn.installationId, req);
+    if (installationTokenCache.size > 1000) installationTokenCache.clear();
+    installationTokenCache.set(key, {
       token: t.token,
       expiresAt: Math.min(Date.now() + TOKEN_REUSE_MS, Date.parse(t.expires_at) - 60_000),
     });
@@ -134,7 +159,20 @@ async function refreshOAuth(
   return { ...t, expiresAt: new Date((t.created_at + t.expires_in) * 1000) };
 }
 
-/** Credentials for one repo: connection token, legacy per-repo token, or deploy key. */
+/**
+ * Refuse to attach a connection's credential to a remote on another host
+ * (M7): a crafted clone URL must never carry the org's token elsewhere.
+ */
+export function assertRemoteOnConnection(url: string, conn: { baseUrl: string; displayName: string }): void {
+  if (remoteMatchesConnection(url, conn.baseUrl)) return;
+  const host = remoteHost(conn.baseUrl)?.hostname ?? conn.baseUrl;
+  throw new TRPCError({
+    code: 'BAD_REQUEST',
+    message: `${url} is not on ${host} — ${conn.displayName} only reaches repositories there.`,
+  });
+}
+
+/** Credentials to read one repo: connection token (narrowed to it), legacy per-repo token, or deploy key. */
 export async function repoCredentials(
   db: DB,
   repo: {
@@ -143,13 +181,18 @@ export async function repoCredentials(
     tokenEnc: string | null;
     deployKeyEnc: string | null;
     provider: string;
+    fullName?: string | null;
   },
 ): Promise<GitCredentials> {
   if (repo.deployKeyEnc && isSshGitUrl(repo.url))
     return { sshKey: decryptSecret(repo.deployKeyEnc) };
   if (repo.connectionId) {
     const conn = await loadConnectionRow(db, repo.connectionId);
-    if (conn) return connectionCredentials(db, conn);
+    if (conn) {
+      assertRemoteOnConnection(repo.url, conn);
+      const name = repo.fullName ?? githubFullName(repo.url, conn.baseUrl);
+      return connectionCredentials(db, conn, { repo: name, access: 'read' });
+    }
   }
   if (repo.tokenEnc) {
     return {
