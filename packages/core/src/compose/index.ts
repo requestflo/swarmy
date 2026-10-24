@@ -28,7 +28,10 @@ export {
 export {
   modelsToCompose,
   modelToComposeService,
+  composeHealthcheck,
+  nsToDuration,
   type ComposeFileOut,
+  type ComposeHealthcheckOut,
   type ComposeServiceOut,
 } from './to-compose';
 export {

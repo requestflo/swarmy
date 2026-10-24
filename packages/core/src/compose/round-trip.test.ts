@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { composeToModels } from './from-compose';
-import { modelToComposeService, modelsToCompose } from './to-compose';
+import { applyHealthcheckEdit } from '../healthcheck';
+import { composeHealthcheck, modelToComposeService, modelsToCompose, nsToDuration } from './to-compose';
 import { modelToServiceSpec } from './to-spec';
 
 /**
@@ -192,5 +193,35 @@ describe('compose <-> model round-trip', () => {
     const out = modelToComposeService(app);
     expect(out.entrypoint).toEqual(['/whoami']);
     expect(out.command).toEqual(['--name', 'x']);
+  });
+  it('a dashboard health-check edit round-trips through compose (spec -> compose -> spec)', () => {
+    const spec = applyHealthcheckEdit(undefined, {
+      http: { path: '/health', port: 3000 },
+      intervalSeconds: 10,
+      timeoutSeconds: 1.5,
+      retries: 3,
+      startPeriodSeconds: 15,
+    });
+    const block = composeHealthcheck(spec);
+    expect(block).toEqual({
+      test: ['CMD-SHELL', "curl -fsS -o /dev/null 'http://localhost:3000/health' || wget -q -O /dev/null 'http://localhost:3000/health'"],
+      interval: '10s',
+      timeout: '1500ms',
+      start_period: '15s',
+      retries: 3,
+    });
+    const web = composeToModels({ services: { web: { image: 'web:1', healthcheck: block } } }).models[0]!;
+    expect(modelToServiceSpec(web).healthcheck).toEqual(spec);
+
+    const off = composeHealthcheck(applyHealthcheckEdit(spec, { disable: true }));
+    expect(off).toEqual({ disable: true });
+    const offModel = composeToModels({ services: { web: { image: 'web:1', healthcheck: off } } }).models[0]!;
+    expect(modelToServiceSpec(offModel).healthcheck).toEqual({ disable: true });
+  });
+
+  it('durations export as the largest exact unit and parse back exactly', () => {
+    expect([30e9, 90e9, 3_600e9, 1_500e6, 250e3, 7, 0].map(nsToDuration)).toEqual(['30s', '90s', '1h', '1500ms', '250us', '7ns', '0ns']);
+    const models = composeToModels({ services: { a: { image: 'a', stop_grace_period: '1m30s', healthcheck: { test: ['CMD', 'true'], interval: '2m' } } } }).models;
+    expect(composeToModels(modelsToCompose(models)).models).toEqual(models);
   });
 });

@@ -20,6 +20,29 @@ export const ContainerPort = z.object({
 });
 export type ContainerPort = z.infer<typeof ContainerPort>;
 
+/** One probe Docker kept (`State.Health.Log[]`): when it ran, how long, its exit code. */
+export const HealthProbe = z.object({
+  at: Timestamp,
+  durationMs: z.number().nonnegative(),
+  exitCode: z.number().int(),
+  /** Trimmed output, sent only for a failed probe. */
+  output: z.string().max(300).optional(),
+});
+export type HealthProbe = z.infer<typeof HealthProbe>;
+
+/**
+ * Docker's own health record for a running container that has a check
+ * (container inspect `State.Health`, plus the effective `Config.Healthcheck.Test`,
+ * which includes a check the image ships). Docker keeps only the last 5 probes.
+ */
+export const ContainerHealth = z.object({
+  status: z.enum(['starting', 'healthy', 'unhealthy', 'none']),
+  failingStreak: z.number().int().nonnegative().default(0),
+  test: z.array(z.string()).optional(),
+  probes: z.array(HealthProbe).max(10).default([]),
+});
+export type ContainerHealth = z.infer<typeof ContainerHealth>;
+
 export const ContainerInfo = z.object({
   id: z.string(),
   name: z.string(),
@@ -40,6 +63,12 @@ export const ContainerInfo = z.object({
   mounts: z
     .array(z.object({ type: z.string().optional(), source: z.string().optional(), target: z.string() }))
     .optional(),
+  /**
+   * Docker's health record (see `ContainerHealth`), for running containers
+   * with a check. Additive, NO default: absent = no check, not read yet, or an
+   * older agent — never "healthy".
+   */
+  health: ContainerHealth.optional(),
 });
 export type ContainerInfo = z.infer<typeof ContainerInfo>;
 

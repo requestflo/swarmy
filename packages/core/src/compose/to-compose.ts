@@ -1,4 +1,5 @@
 import type { ServiceModelOut } from './model';
+import type { ServiceSpecHealthcheck } from './to-spec';
 
 /**
  * canonical ServiceModel[] -> a plain compose object (compose-spec shape). PURE
@@ -28,7 +29,7 @@ export interface ComposeServiceOut {
   [key: string]: unknown;
 }
 
-interface ComposeHealthcheckOut {
+export interface ComposeHealthcheckOut {
   test?: string[];
   interval?: string;
   timeout?: string;
@@ -60,9 +61,31 @@ interface ComposeDeployOut {
   };
 }
 
-/** ns -> a canonical compose duration string our parser round-trips exactly. */
-function nsToDuration(ns: number): string {
+const DURATION_STEPS: [number, string][] = [
+  [3_600e9, 'h'],
+  [60e9, 'm'],
+  [1e9, 's'],
+  [1e6, 'ms'],
+  [1e3, 'us'],
+];
+
+/** ns -> the largest exact compose duration ("30s", "1500ms"); our parser round-trips it exactly. */
+export function nsToDuration(ns: number): string {
+  for (const [step, unit] of DURATION_STEPS) if (ns > 0 && ns % step === 0) return `${ns / step}${unit}`;
   return `${ns}ns`;
+}
+
+/** A health check (spec / model shape, ns durations) -> its compose `healthcheck:` block; undefined when empty. */
+export function composeHealthcheck(hc: ServiceSpecHealthcheck | undefined): ComposeHealthcheckOut | undefined {
+  if (!hc) return undefined;
+  const o: ComposeHealthcheckOut = {};
+  if (hc.test?.length) o.test = hc.test;
+  if (hc.intervalNs != null) o.interval = nsToDuration(hc.intervalNs);
+  if (hc.timeoutNs != null) o.timeout = nsToDuration(hc.timeoutNs);
+  if (hc.startPeriodNs != null) o.start_period = nsToDuration(hc.startPeriodNs);
+  if (hc.retries != null) o.retries = hc.retries;
+  if (hc.disable) o.disable = true;
+  return Object.keys(o).length ? o : undefined;
 }
 
 export interface ComposeFileOut {
@@ -145,17 +168,8 @@ export function modelToComposeService(model: ServiceModelOut): ComposeServiceOut
   }
   if (model.networks.length) out.networks = model.networks;
 
-  if (model.healthcheck) {
-    const hc = model.healthcheck;
-    const o: ComposeHealthcheckOut = {};
-    if (hc.test.length) o.test = hc.test;
-    if (hc.intervalNs != null) o.interval = nsToDuration(hc.intervalNs);
-    if (hc.timeoutNs != null) o.timeout = nsToDuration(hc.timeoutNs);
-    if (hc.startPeriodNs != null) o.start_period = nsToDuration(hc.startPeriodNs);
-    if (hc.retries != null) o.retries = hc.retries;
-    if (hc.disable) o.disable = true;
-    if (Object.keys(o).length) out.healthcheck = o;
-  }
+  const healthcheck = composeHealthcheck(model.healthcheck);
+  if (healthcheck) out.healthcheck = healthcheck;
   if (model.configs.length) {
     out.configs = model.configs.map((c) => ({ ...c }));
   }

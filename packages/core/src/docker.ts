@@ -1,6 +1,7 @@
 import os from 'node:os';
 import Docker from 'dockerode';
 import type {
+  ContainerHealth,
   ContainerInfo,
   ContainerState,
   NodeFacts,
@@ -9,6 +10,7 @@ import type {
   SwarmNodeInfo,
   SwarmState,
 } from './protocol';
+import { healthFromInspect } from './container-health';
 import { isSwarmyStackNetwork, summarizeTasks, SWARMY_OVERLAY_NETWORK, type TaskLike } from './inventory';
 import { isPlatformNetwork, OVERLAY_MTU_OPTION, stripPlatformAliases, SWARMY_CONTROL_NETWORK } from './network-policy';
 
@@ -367,6 +369,15 @@ export class DockerClient {
           target: m.Destination,
         })),
     }));
+  }
+
+  /**
+   * Docker's health record for one container (`State.Health` via container
+   * inspect): status, miss streak and the last probes Docker keeps (5).
+   * undefined when the container has no check.
+   */
+  async containerHealth(containerId: string): Promise<ContainerHealth | undefined> {
+    return healthFromInspect(await this.docker.getContainer(containerId).inspect());
   }
 
   /** Persistent stats stream for one container (consumer decimates). */

@@ -118,6 +118,37 @@ export const ServiceRestartInput = z.object({
 });
 export type ServiceRestartInput = z.infer<typeof ServiceRestartInput>;
 
+const healthSeconds = z.number().min(0).max(86_400);
+
+/**
+ * "How swarmy knows it's healthy" (Docker `ContainerSpec.Healthcheck`),
+ * merged over the live check by `applyHealthcheckEdit`: a field you send
+ * replaces that field, one you leave out is kept, and 0 hands a duration or
+ * `retries` back to Docker's default. Say what to ask for with `http` (a GET
+ * on a path inside the container) OR `test` (Docker's form: `["CMD", argv…]`,
+ * `["CMD-SHELL", "cmd"]`); `disable` switches the check off, the image's
+ * own included. Seconds here, nanoseconds on the spec.
+ */
+export const ServiceHealthcheckInput = z
+  .object({
+    http: z
+      .object({
+        path: z.string().max(512).regex(/^\/[^\s'"`\\]*$/, 'a path starting with /, no spaces or quotes'),
+        port: z.number().int().min(1).max(65535),
+      })
+      .optional(),
+    test: z.array(z.string().min(1).max(4096)).min(1).max(64).optional(),
+    intervalSeconds: healthSeconds.optional(),
+    timeoutSeconds: healthSeconds.optional(),
+    startPeriodSeconds: healthSeconds.optional(),
+    retries: z.number().int().min(0).max(100).optional(),
+    disable: z.boolean().optional(),
+  })
+  .refine((h) => [h.http, h.test, h.disable].filter(Boolean).length <= 1, {
+    message: 'send one of http, test or disable',
+  });
+export type ServiceHealthcheckInput = z.infer<typeof ServiceHealthcheckInput>;
+
 export const UpdateServiceInput = CreateServiceInput.partial().extend({
   id: z.string(),
   /**
@@ -136,6 +167,12 @@ export const UpdateServiceInput = CreateServiceInput.partial().extend({
   restartPolicy: ServiceRestartInput.optional(),
   /** "During a deploy": start the new copy first, or stop the old one first (`UpdateConfig.Order`). */
   updateOrder: z.enum(['start-first', 'stop-first']).optional(),
+  /**
+   * The health check (Docker `ContainerSpec.Healthcheck`), merged over the
+   * live one — see `ServiceHealthcheckInput`. `null` drops the service's own
+   * check so the image's HEALTHCHECK (if any) applies again.
+   */
+  healthcheck: ServiceHealthcheckInput.nullable().optional(),
   /** Service labels set (merged over the live set). */
   setLabels: z.record(z.string().min(1).max(255), z.string().max(4096)).optional(),
   /** Service labels removed (before `setLabels` is merged). */

@@ -59,7 +59,13 @@ export interface CommandResultMap {
   restartService: { serviceId: string };
   pullImage: { image: string; digest: string };
   applyIngress: { driver: IngressDriverName; reloaded: boolean };
-  execCommand: { exitCode: number };
+  execCommand: {
+    exitCode: number;
+    output?: string;
+    stderr?: string;
+    /** How long the command ran on the node (additive; older agents omit it). */
+    durationMs?: number;
+  };
   updateSwarmNode: { swarmNodeId: string };
   backupVolume: { snapshotId: string; sizeBytes: number; filesNew?: number; durationMs?: number };
   restoreVolume: { targetVolume: string; bytesRestored: number; durationMs?: number };

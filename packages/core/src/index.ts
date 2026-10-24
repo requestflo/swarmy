@@ -25,6 +25,8 @@ export * from './pull-errors';
 export * from './swarm-kv';
 export * from './app-secrets';
 export * from './service-inspect';
+export * from './healthcheck';
+export * from './container-health';
 export * from './clickhouse';
 export * from './telemetry';
 export * from './api-keys';
