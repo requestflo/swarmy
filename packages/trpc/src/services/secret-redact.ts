@@ -1,4 +1,4 @@
-import { looksSecret } from '@swarmy/core';
+import { looksSecret, redactArgs } from '@swarmy/core';
 import type { ResourceInput } from '@swarmy/abac';
 import type { OrgContext } from '../context';
 import { evaluateAccess } from '../abac';
@@ -41,9 +41,14 @@ export function restoreRedactedEnv<T extends { key: string; value: string; secre
   return entries.map((e) => (e.value === REDACTED && !e.secret && e.key in live ? { ...e, value: live[e.key]! } : e));
 }
 
+/** The argv lists of a spec: `ContainerSpec.Args`/`Command`, `Healthcheck.Test`. */
+const ARGV_KEYS = new Set(['Args', 'Command', 'Test']);
+const isStrings = (v: unknown): v is string[] => Array.isArray(v) && v.every((e) => typeof e === 'string');
+
 /**
  * Deep-copy a `docker service inspect` payload, masking every `Env` list
- * (ContainerSpec.Env, and any nested one) entry that looks secret.
+ * (ContainerSpec.Env, and any nested one) entry that looks secret, and the
+ * secret-looking values of every argv (`--requirepass x`, `redis-cli -a x`).
  */
 export function redactInspect<T>(value: T): T {
   if (Array.isArray(value)) return value.map((v) => redactInspect(v)) as T;
@@ -52,6 +57,8 @@ export function redactInspect<T>(value: T): T {
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
     if (k === 'Env' && Array.isArray(v)) {
       out[k] = v.map((e) => (typeof e === 'string' ? redactEnvEntry(e) : e));
+    } else if (ARGV_KEYS.has(k) && isStrings(v)) {
+      out[k] = redactArgs(v, REDACTED);
     } else {
       out[k] = redactInspect(v);
     }

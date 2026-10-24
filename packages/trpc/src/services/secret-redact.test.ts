@@ -19,6 +19,23 @@ describe('secret redaction without secrets.read', () => {
     expect(inspect.Spec.TaskTemplate.ContainerSpec.Env[0]).toBe('API_TOKEN=abc123');
   });
 
+  it('masks credentials in Args, Command and healthcheck Test (security review M3)', () => {
+    const spec = {
+      ContainerSpec: {
+        Command: ['sh', '-c', 'exec redis-server --requirepass hunter2'],
+        Args: ['--masterauth', 'pw', '--port', '6379'],
+        Healthcheck: { Test: ['CMD', 'redis-cli', '-a', 'hunter2', 'ping'] },
+      },
+    };
+    const out = redactInspect({ Spec: { TaskTemplate: spec }, PreviousSpec: { TaskTemplate: spec } });
+    for (const s of [out.Spec, out.PreviousSpec]) {
+      expect(s.TaskTemplate.ContainerSpec.Command).toEqual(['sh', '-c', `exec redis-server --requirepass ${REDACTED}`]);
+      expect(s.TaskTemplate.ContainerSpec.Args).toEqual(['--masterauth', REDACTED, '--port', '6379']);
+      expect(s.TaskTemplate.ContainerSpec.Healthcheck.Test).toEqual(['CMD', 'redis-cli', '-a', REDACTED, 'ping']);
+    }
+    expect(spec.ContainerSpec.Args[1]).toBe('pw');
+  });
+
   it('masks dotenv / yaml config lines and whole PEM keys', () => {
     const text = [
       'export DB_PASSWORD="p@ss"',

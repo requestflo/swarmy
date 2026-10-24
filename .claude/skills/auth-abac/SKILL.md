@@ -196,8 +196,10 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
   a grant). Container exec is governed on the service, node shells on the node.
   Two-resource mutations use `abacProcedureAll(action, [resolvers])` (e.g.
   `stacks.connect` checks the stack AND the peer). View filters use
-  `evaluateAccess` without an audit row: `services.inspect` and config contents
-  mask secret-looking values unless `secrets.read` (`secret-redact.ts`).
+  `evaluateAccess` without an audit row: `services.get`/`inspect`,
+  `inventory.get` (per service, `inventory-redact.ts`) and config contents
+  mask secret-looking values unless `secrets.read` (`secret-redact.ts`; argv
+  flags like `--requirepass` via `@swarmy/core` `redactArgs`).
 - **Coverage today**: `abacProcedure` gates the terminal AND every destructive
   mutation (owner decision 2026-09-24 — the action table is in
   `docs/product/governance-and-access.md`): service/stack/node remove, scale,

@@ -84,10 +84,13 @@ export async function buildPrincipal(ctx: OrgContext): Promise<Principal> {
   });
 }
 
-/** Load the org's ResourceGrant edges for a single resource (ReBAC). */
-async function loadGrants(db: DB, orgId: string, resource: ResourceInput): Promise<GrantEdge[]> {
+/**
+ * Load the org's ResourceGrant edges (ReBAC) for one resource, or for every
+ * resource of a type when `id` is omitted (one query for a whole list).
+ */
+export async function loadGrants(db: DB, orgId: string, resource: { type: string; id?: string }): Promise<GrantEdge[]> {
   const rows = await db.resourceGrant.findMany({
-    where: { orgId, resourceType: resource.type, resourceId: resource.id },
+    where: { orgId, resourceType: resource.type, ...(resource.id !== undefined ? { resourceId: resource.id } : {}) },
     select: { principalType: true, principalId: true, resourceType: true, resourceId: true, relation: true },
   });
   return rows.map((r) => ({
@@ -165,12 +168,14 @@ export async function decide(args: {
   action: Action;
   resource: ResourceInput | null;
   engine?: IPolicyEngine;
+  /** Preloaded grant edges (e.g. every service grant, for a list); extra rows are ignored. */
+  grants?: GrantEdge[];
   userAgent?: string | null;
 }): Promise<AccessResult> {
   const engine = args.engine ?? (await loadPolicyEngine(args.db, args.orgId));
   let resource: Resource | null = null;
   if (args.resource) {
-    const grants = await loadGrants(args.db, args.orgId, args.resource);
+    const grants = args.grants ?? (await loadGrants(args.db, args.orgId, args.resource));
     resource = buildAbacResource(args.resource, args.principal, grants);
   }
   const result = engine.evaluate({
