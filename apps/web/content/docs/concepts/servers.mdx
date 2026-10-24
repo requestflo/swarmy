@@ -13,7 +13,7 @@ In the dashboard, open **Nodes → Add a node**, pick a role and copy the
 one-liner:
 
 ```bash
-curl -fsSL http://<controller>:3021/install/loader.sh | SWARMY_JOIN_TOKEN=swt_… sh -s -- --controller http://<controller>:3021
+curl -fsSL https://<dashboard>/install/loader.sh | SWARMY_JOIN_TOKEN=swt_… sh -s -- --controller https://<dashboard>
 ```
 
 Run it as root on the new machine. It installs Docker if needed, installs the
@@ -22,8 +22,12 @@ seconds.
 
 - The join token is passed in an environment variable, not the URL, so it does
   not end up in proxy logs.
-- The loader pins the installer and the agent binary by checksum.
+- The loader pins the installer and the agent binary by checksum, and the
+  scripts are served over HTTPS only. See
+  [How node installs are protected](/docs/getting-started/install#how-node-installs-are-protected).
 - The scripts are POSIX `sh`, so they also run on Alpine and busybox hosts.
+- You can also mint join tokens with the [REST API](/docs/reference/api)
+  (`POST /join-tokens`) or Terraform (`swarmy_join_token`).
 
 ## The agent dials out
 

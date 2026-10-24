@@ -11,10 +11,17 @@ travel with the service and appear in a compose export.
 
 Every public HTTP service gets an HTTPS address as soon as it deploys:
 
-- If swarmy serves DNS for one of your zones, the address is
-  `<service>-<stack>.<your zone>`.
-- Otherwise it is `<service>-<stack>.<edge-ip>.sslip.io`. sslip.io answers any
-  name that embeds an IP with that IP, so there is no DNS step.
+- If swarmy serves DNS for one of your zones and you turned on app addresses
+  for it, the address is `<service>-<stack>.<your zone>`.
+- Else, if you set a **cluster zone** (the installer's `--zone`, or Network ›
+  Geo-DNS › Cluster zone), it is `<service>-<stack>.<edge-ip>.<cluster zone>`.
+  swarmy's own DNS answers any name that embeds one of your servers' public
+  IPs with that IP.
+- Else it is `<service>-<stack>.<edge-ip>.<base>`, where the base is a
+  wildcard-IP DNS service: the one set for your organisation, or
+  `SWARMY_AUTO_ADDRESS_BASE` on the controller, or `sslip.io`. sslip.io answers
+  any name that embeds an IP with that IP, so there is no DNS step. The
+  dashboard calls it the public convenience name, since swarmy doesn't run it.
 
 The address is a normal route. You can edit it or remove it, and once removed it
 stays removed. Adding a custom domain first means no automatic address is added.
@@ -32,8 +39,10 @@ row:
    nodes' public IPs, a CNAME for non-apex names, or NS delegation if the zone is
    served by swarmy.
 2. **It checks what the public sees.** The controller resolves the name through
-   two public resolvers (1.1.1.1 and 8.8.8.8) and points out the usual traps: an
-   old IP still propagating, Cloudflare's orange cloud, a stray AAAA record.
+   12 public resolvers run by different operators. The name goes live when at
+   least 3 of every 4 that answer point at your edges, 1.1.1.1 and 8.8.8.8
+   among them. It points out the usual traps: an old IP still propagating,
+   Cloudflare's orange cloud, a stray AAAA record.
 3. **No certificate is ordered until DNS verifies.** This avoids burning Let's
    Encrypt rate limits on names that cannot validate.
 

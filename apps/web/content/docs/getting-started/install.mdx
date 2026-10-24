@@ -98,8 +98,9 @@ non-interactive path.
 | `--admin-password <p>` | `SWARMY_ADMIN_PASSWORD` | Owner password on the command line. **Discouraged**: other users on the server can see it in `ps`, and it stays in your shell history. The installer warns. |
 | `--domain <host>` | `SWARMY_DOMAIN` | HTTPS domain for the dashboard. Point an A record at the server. |
 | `--no-https` / `--https` | `SWARMY_NO_HTTPS=1` | Keep the dashboard on plain `http://<ip>:<port>` only, or turn HTTPS back on. |
+| `--zone <name>` | `SWARMY_CLUSTER_ZONE` | A cluster zone you control, such as `apps.example.com`. swarmy's own DNS answers it, so apps get `<service>-<app>.<ip-with-dashes>.<zone>` instead of an `sslip.io` name. The installer prints the NS and glue records to add at your registrar (or the parent zone's DNS). The dashboard keeps its first-boot name. See [Domains](/docs/concepts/domains). |
 | `--ingress none\|caddy\|cloudflare` | `SWARMY_INGRESS` | Ingress for the dashboard. |
-| `--mesh none\|netbird-cloud\|netbird-external` | `SWARMY_MESH` | Mesh for the dashboard. |
+| `--mesh swarmy\|none\|netbird-cloud\|netbird-external` | `SWARMY_MESH` | The private network between your servers. Default `swarmy`: NetBird runs inside swarmy, started on this server before the swarm exists. `none` opts out. |
 | `--image <ref>` | `SWARMY_IMAGE` | Controller image. A release's installer pins it to the release (`<version>@sha256:…`). This flag overrides the pin, prints a warning, and is remembered for re-runs. |
 | `--agent-image <ref>` | `SWARMY_AGENT_IMAGE` | Agent image for node #1. Same rules as `--image`. |
 | | `SWARMY_REF` / `SWARMY_RAW_BASE` | Fetch the stack file from another git ref or base URL instead of using the one the installer carries. Prints a warning. |
@@ -110,7 +111,7 @@ non-interactive path.
 
 With `--ingress cloudflare`, also set `CF_API_TOKEN`, `CF_ACCOUNT_ID` and
 `CF_ZONE_ID`. With `--mesh netbird-*`, also set `NB_SERVICE_TOKEN` and
-`NB_MANAGEMENT_URL`.
+`NB_MANAGEMENT_URL`. `--mesh swarmy` needs neither.
 
 A re-run with no flags keeps the images, port and sign-up policy from the
 first install. It never switches them silently.

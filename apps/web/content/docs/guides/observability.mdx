@@ -35,9 +35,13 @@ Every query is scoped to your organisation on the server. Nobody gets raw access
 to the store.
 
 <Callout type="info">
-  The log store holds logs your apps send over OpenTelemetry. Collecting stdout
-  from apps with no OpenTelemetry SDK into the same store is coming. Live service
-  logs work for every app today.
+  The log store holds logs your apps send over OpenTelemetry. To keep what apps
+  with no OpenTelemetry SDK print too, turn on **Keep what every app prints**
+  under Activity › Telemetry: swarmy runs a small log reader on every server
+  and sends container output to the same store. It covers services deployed or
+  redeployed after you turn it on. Each line shows whether it came from stdout
+  or OpenTelemetry; set `swarmy.logs.stdout=off` on a service to leave it out.
+  Live service logs work for every app either way.
 </Callout>
 
 ## Alerts

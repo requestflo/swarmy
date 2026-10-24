@@ -44,8 +44,12 @@ On the **CI** page, connect a git host:
 
 - **GitHub**: one click. swarmy registers a GitHub App that belongs to you,
   through GitHub's manifest flow. No swarmy cloud is involved, and no personal
-  access token is needed.
+  access token is needed. Only the controller's owner can register the App;
+  any organisation's admins can then install it.
 - **GitLab**: an OAuth application, including self-managed GitLab.
+- **Gitea / Forgejo**: your server's URL plus an access token, or an OAuth2
+  application. **Test connection** names the server, the account and any
+  missing token scopes.
 - **Any other git host**: HTTPS with a token, or an SSH deploy key that swarmy
   generates.
 
