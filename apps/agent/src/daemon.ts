@@ -9,6 +9,7 @@ import { AgentConnection, strandedShouldExit } from './connection';
 import { collectMetrics } from './stats';
 import { sendContainerList, sendServiceState, sendNodeList } from './snapshots';
 import { applyMesh, lastSampledMeshCidr, sampleMeshState } from './handlers/mesh';
+import { withMeshMtu } from './handlers/mesh-mtu';
 import { checkOverlayKeying, ensureMeshPin } from './handlers/mesh-pin';
 import { defaultDiskDeps, mountReturningDisks } from './handlers/disk';
 import { checkOverlayCarrier } from './handlers/overlay-heal';
@@ -32,7 +33,8 @@ async function reportMeshState(
   if (!env.ALLOW_MESH) return;
   try {
     const state = await sampleMeshState();
-    if (state) conn.send('meshState', state);
+    // + the interface MTU and the overlays' MTUs (the overlay MTU check; additive).
+    if (state) conn.send('meshState', await withMeshMtu(new DockerClient(env.DOCKER_SOCKET), state));
     // Keep the register facts current: a re-register (rejoin, redial) must carry
     // the mesh IP as it is NOW, not as it was at startup (QA-063).
     if (state?.connected && state.meshIp) onAddressed?.(state.meshIp);

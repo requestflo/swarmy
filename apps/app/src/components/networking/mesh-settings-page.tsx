@@ -10,6 +10,7 @@ import { ControlPlaneCard } from './control-plane-card';
 import { DirectConnectSection } from './direct-connect-section';
 import { EnrollNodeCard } from './enroll-node-card';
 import { MeshDriverPick } from './mesh-driver-pick';
+import { MeshMtuCard } from './mesh-mtu-card';
 import { MeshPeersSection } from './mesh-peers-section';
 import { PeopleAccessCard } from './people-access-card';
 import { PrivateNetworkCode } from './private-network-code';
@@ -50,6 +51,7 @@ export function MeshSettingsPage(): React.JSX.Element {
       />
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_400px]">
         <div className="flex min-w-0 flex-col gap-5">
+          {n.live ? <MeshMtuCard /> : null}
           <MeshDriverPick n={n} isAdmin={isAdmin} natNames={natNames} />
           {n.live ? <MeshPeersSection n={n} nat={nat} /> : null}
           {n.live ? <DirectConnectSection isAdmin={isAdmin} /> : null}

@@ -13,11 +13,10 @@ import {
 } from './network-policy';
 
 describe('overlay MTU over the mesh', () => {
-  it('NetBird wt0 / Headscale tailscale0 1280 → overlay 1230 (VXLAN 50), 1170 encrypted', () => {
+  it('NetBird wt0 / Headscale tailscale0 1280 → the option is the link MTU (Docker takes VXLAN/ESP off itself)', () => {
     expect(meshLinkMtu('netbird')).toBe(1280);
     expect(meshLinkMtu('headscale')).toBe(1280);
-    expect(overlayMtuFor(1280)).toBe(1230);
-    expect(overlayMtuFor(1280, true)).toBe(1170);
+    expect(overlayMtuFor(1280)).toBe(1280);
   });
   it('no mesh → Docker default (unset)', () => {
     expect(meshLinkMtu('none')).toBeUndefined();
@@ -26,11 +25,12 @@ describe('overlay MTU over the mesh', () => {
   it('driver options: nothing for a mesh-less install; mtu when the mesh is on; driver_opts win', () => {
     expect(overlayDriverOptions({ meshDriver: 'netbird', meshEnabled: false })).toBeUndefined();
     expect(overlayDriverOptions({ meshDriver: 'netbird', meshEnabled: true })).toEqual({
-      'com.docker.network.driver.mtu': '1230',
+      'com.docker.network.driver.mtu': '1280',
     });
+    // Encrypted gets the same option: Docker subtracts the 26 ESP bytes itself (containers see 1204).
     expect(overlayDriverOptions({ meshDriver: 'netbird', meshEnabled: true, encrypted: true })).toEqual({
       encrypted: '',
-      'com.docker.network.driver.mtu': '1170',
+      'com.docker.network.driver.mtu': '1280',
     });
     expect(
       overlayDriverOptions({ meshDriver: 'netbird', meshEnabled: true, extra: { 'com.docker.network.driver.mtu': '1100' } }),

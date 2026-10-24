@@ -1298,15 +1298,17 @@ write_stack_file() {  # emit the chosen stack file to $STATE_DIR (self-contained
     || die "could not fetch the stack file from $url (set SWARMY_RAW_BASE or run from a checkout)."
   printf '%s' "$dst"
 }
-# Overlay MTU when the swarm data path rides the WireGuard mesh: VXLAN (50) +
-# IPsec ESP (≤60) must fit inside the tunnel MTU (NetBird wt0 = 1280 → 1170),
-# or large packets fragment/black-hole across nodes (TLS stalls, pings fine).
-# Mirrors overlayMtuFor() in packages/core/src/network-policy.ts.
+# Overlay MTU when the swarm data path rides the WireGuard mesh. Docker reads
+# com.docker.network.driver.mtu as the LINK MTU and takes VXLAN (50) and, when
+# encrypted, ESP (26) off itself, so the option is the tunnel MTU: wt0 1280 →
+# containers 1230 (1204 encrypted), frames exactly 1280. Bigger and large
+# packets fragment/black-hole across nodes (TLS stalls, pings fine).
+# Mirrors overlayMtuFor() in packages/core/src/overlay-mtu.ts.
 overlay_mtu() {
   local link=""
   [ -r "/sys/class/net/${NB_INTERFACE}/mtu" ] && link="$(cat "/sys/class/net/${NB_INTERFACE}/mtu" 2>/dev/null || true)"
   if [ -z "$link" ] && [ "$MESH" != none ]; then link=1280; fi
-  [ -n "$link" ] && printf '%s' "$((link - 50 - 60))"
+  [ -n "$link" ] && printf '%s' "$link"
 }
 
 # create_overlay NAME — encrypted, attachable, MTU-sized for the mesh. Idempotent;

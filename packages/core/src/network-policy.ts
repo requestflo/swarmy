@@ -33,6 +33,8 @@
  *                   of the control plane (ClickHouse, the store) is on it.
  */
 
+import { meshLinkMtu, OVERLAY_MTU_OPTION, overlayMtuFor } from './overlay-mtu';
+
 /** The shared platform-services ("edge") overlay. Mirrors `SWARMY_OVERLAY_NETWORK`. */
 export const SHARED_PLATFORM_NETWORK = 'swarmy';
 /** The private control-plane overlay. User services never join it. */
@@ -47,8 +49,6 @@ export const LINKS_LABEL = 'swarmy.links';
 export const LINK_ORG_LABEL = 'swarmy.link.org';
 export const LINK_STACKS_LABEL = 'swarmy.link.stacks';
 
-/** Docker overlay driver option carrying the MTU (a string, per Docker). */
-export const OVERLAY_MTU_OPTION = 'com.docker.network.driver.mtu';
 /** Docker overlay driver option turning on IPsec (value is ignored; `''` is conventional). */
 export const OVERLAY_ENCRYPTED_OPTION = 'encrypted';
 
@@ -67,41 +67,24 @@ export function isPlatformNetwork(name: string): boolean {
 }
 
 // ─────────────────────────────────────────────────────────────── MTU ──
+// The numbers (VXLAN 50, ESP 26, Docker's own subtraction) live in overlay-mtu.ts.
 
-/** VXLAN encapsulation overhead (outer IPv4 20 + UDP 8 + VXLAN 8 + inner Ethernet 14). */
-export const VXLAN_OVERHEAD = 50;
-/** Headroom for the IPsec ESP an encrypted overlay adds (SPI/seq 8 + IV 8 + pad/trailer ≤ 18 + ICV 16, rounded up). */
-export const IPSEC_OVERHEAD = 60;
-
-/**
- * The WireGuard interface MTU each mesh driver brings up. NetBird (`wt0`)
- * and Headscale's tailscale client (`tailscale0`) default to 1280.
- * `none` = no mesh, underlay MTU (1500) — Docker's default is already right.
- */
-export function meshLinkMtu(driver: string | null | undefined): number | undefined {
-  switch ((driver ?? 'none').toLowerCase()) {
-    case 'netbird':
-    case 'headscale':
-      return 1280;
-    default:
-      return undefined;
-  }
-}
+export {
+  DOCKER_DEFAULT_LINK_MTU,
+  IPSEC_OVERHEAD,
+  meshLinkMtu,
+  OVERLAY_MTU_OPTION,
+  overlayContainerMtu,
+  overlayFrameBytes,
+  overlayMtuFor,
+  parseMtuOption,
+  VXLAN_OVERHEAD,
+} from './overlay-mtu';
 
 /**
- * Overlay MTU that fits inside a `linkMtu` path: the VXLAN frame (and ESP,
- * when encrypted) must not exceed the underlay, or large packets fragment at
- * best and silently black-hole at worst (TLS handshakes and big responses
- * stall while pings succeed). `undefined` link = leave Docker's default.
- */
-export function overlayMtuFor(linkMtu: number | undefined, encrypted = false): number | undefined {
-  if (!linkMtu) return undefined;
-  return linkMtu - VXLAN_OVERHEAD - (encrypted ? IPSEC_OVERHEAD : 0);
-}
-
-/**
- * Driver options for a new overlay: `mtu` when the swarm data path rides a
- * mesh, `encrypted` when asked. Returns `undefined` when nothing needs setting
+ * Driver options for a new overlay: `mtu` (the link MTU; Docker subtracts
+ * VXLAN and ESP itself) when the swarm data path rides a mesh, `encrypted`
+ * when asked. Returns `undefined` when nothing needs setting
  * so payloads stay identical to before for mesh-less installs.
  */
 export function overlayDriverOptions(opts: {
@@ -113,7 +96,7 @@ export function overlayDriverOptions(opts: {
 }): Record<string, string> | undefined {
   const out: Record<string, string> = {};
   if (opts.encrypted) out[OVERLAY_ENCRYPTED_OPTION] = '';
-  const mtu = opts.meshEnabled ? overlayMtuFor(meshLinkMtu(opts.meshDriver), !!opts.encrypted || OVERLAY_ENCRYPTED_OPTION in (opts.extra ?? {})) : undefined;
+  const mtu = opts.meshEnabled ? overlayMtuFor(meshLinkMtu(opts.meshDriver)) : undefined;
   if (mtu) out[OVERLAY_MTU_OPTION] = String(mtu);
   Object.assign(out, opts.extra ?? {});
   return Object.keys(out).length ? out : undefined;

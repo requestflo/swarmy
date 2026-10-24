@@ -18,8 +18,9 @@
 #     - no non-platform service carries network ALIASES on `swarmy` or
 #       `swarmy-control` (an alias on a shared network can shadow a platform name).
 #     - overlay MTU vs the mesh interface (wt0 / tailscale0 / wg0): an overlay
-#       whose MTU is unset or > (mesh MTU - 50 VXLAN bytes) can black-hole
-#       large packets between mesh nodes.
+#       whose MTU option is unset (Docker's 1500) or > the mesh MTU can
+#       black-hole large packets between mesh nodes. Docker treats the option
+#       as the link MTU and subtracts VXLAN (50) / ESP (26) itself.
 #
 #   Functional (creates `swarmy-nettest-*` objects labelled swarmy.nettest=true,
 #   always removed on exit unless --keep)
@@ -326,8 +327,8 @@ for ifc in wt0 tailscale0 wg0; do
   if [ -r "/sys/class/net/$ifc/mtu" ]; then MESH_IF="$ifc"; MESH_MTU="$(cat "/sys/class/net/$ifc/mtu")"; break; fi
 done
 if [ -n "$MESH_IF" ]; then
-  max=$((MESH_MTU - 50))
-  report INFO "mesh interface" "$MESH_IF mtu=$MESH_MTU → overlay MTU must be ≤ $max"
+  max=$MESH_MTU
+  report INFO "mesh interface" "$MESH_IF mtu=$MESH_MTU → overlay MTU option must be ≤ $max (containers get $((max - 50)), $((max - 76)) encrypted)"
   for n in "$EDGE_NET" "$CONTROL_NET"; do
     [ -n "$(net_id "$n")" ] || continue
     m="$(net_mtu "$n")"

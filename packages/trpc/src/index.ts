@@ -334,6 +334,8 @@ export {
 } from './services/clusterVolume.service';
 export { mintSetupKeyForOrg } from './services/mesh.service';
 export { meshPeers, reconcileMeshPeer } from './services/mesh-peers';
+export { meshMtuLive } from './services/mesh-mtu.service';
+export type { MeshMtuView } from './services/mesh-mtu.service';
 export type { LiveMeshPeer } from './services/mesh-peers';
 export type { MintedSetupKey } from './services/mesh.service';
 export { submitRecoveryClaim, pollRecoveryClaim } from './services/recovery.service';

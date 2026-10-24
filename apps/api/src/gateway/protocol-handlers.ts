@@ -15,6 +15,7 @@ import {
   deployEventBus,
   enrollMeshNode,
   foreignSwarmOf,
+  meshMtuLive,
   orchestrateSwarmMembership,
   reconcileMeshPeer,
   stampDefaultBuilderRole,
@@ -243,6 +244,8 @@ export async function handleAgentMessage(ws: AgentSocket, raw: string, deps: Dep
       // A node that joined the mesh before registering gets its peer from its
       // first connected sample, so migration + direct-connect see its mesh IP.
       reconcileMeshPeer(orgId, nodeId, env.payload);
+      // Interface + overlay MTUs for the "too big for the mesh" check (newer agents).
+      meshMtuLive.report(orgId, nodeId, env.payload);
       return;
     }
     default:

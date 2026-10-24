@@ -184,14 +184,18 @@ For a whole cross-stack feature (db → protocol → service → router → UI) 
   it is privileged for a reason — never widen its caps casually. Its image
   (`NETBIRD_CLIENT_IMAGE`, and the installer's) is pinned by tag + digest
   (`packages/mesh/src/images.ts`, mirrored in the SYSTEM_IMAGES BOM; bump both).
-- Overlay MTU is mesh-aware (`overlayMtuFor` in `packages/core/src/network-policy.ts`):
-  NetBird `wt0` / Headscale `tailscale0` 1280 − VXLAN 50 = 1230 (1170
-  encrypted). The installer creates `swarmy`/`swarmy-control` with
+- Overlay MTU is mesh-aware (`packages/core/src/overlay-mtu.ts`). Docker reads
+  `com.docker.network.driver.mtu` as the LINK MTU and takes VXLAN (50) and ESP
+  (26) off itself, so the option is the tunnel MTU: `wt0`/`tailscale0` 1280 →
+  containers 1230 (1204 encrypted). Never pre-subtract (1230/1170 were the old,
+  over-cautious values). The installer creates `swarmy`/`swarmy-control` with
   it, stack overlays get it from `overlayOptionsFor(ctx)` when the org mesh is
   on, and the agent's `ensureNetwork` makes every new overlay without an MTU
   inherit the platform overlay's. An EXISTING overlay's MTU can't change in
-  place (recreate = disruptive): an old network keeps its MTU — `scripts/verify-networking.sh` (2 MB cross-node transfer)
-  tells you if that bites.
+  place (recreate = disruptive, no safe path): agents report `interfaceMtu` +
+  `overlays` in `meshState`, `mesh.mtu` runs `checkOverlayMtu`, and Mesh
+  settings shows "Networks are too big for the mesh" with the manual steps.
+  `scripts/verify-networking.sh` (2 MB cross-node transfer) tells you if it bites.
 - The network wall (`network-policy.ts`): the controller (its store is embedded) +
   ClickHouse live only on the private `swarmy-control` overlay; user specs may
   never join it nor alias names on the shared `swarmy` overlay (admission

@@ -9,6 +9,7 @@ import {
   setEnabled,
 } from '../services/mesh.service';
 import { nodesOnMesh } from '../services/mesh-onmesh';
+import { getMeshMtuCheck } from '../services/mesh-mtu.service';
 import { commandRejected } from '../errors';
 import { getControlPlaneCard, moveControlPlane, reconcileMeshControl, setBreakGlass } from '../services/mesh-control.service';
 import {
@@ -62,6 +63,9 @@ export const meshRouter = router({
     .mutation(({ ctx, input }) => setControlPlane(ctx, input)),
 
   listPeers: orgProcedure.query(({ ctx }) => listPeers(ctx)),
+
+  /** "Networks are too big for the mesh": wt0 MTU vs every overlay's (agent telemetry; null when the swarm isn't on the mesh). */
+  mtu: orgProcedure.query(({ ctx }) => getMeshMtuCheck(ctx)),
 
   /** Provision + dispatch `applyMesh` to join a node to the mesh. */
   enrollNode: adminProcedure

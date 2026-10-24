@@ -39,7 +39,7 @@ const TAILSCALE_CONTAINER = 'swarmy-tailscale';
 /** System roots + the client volume (where an extra CA is dropped). */
 export const CA_CERT_DIRS = '/etc/ssl/certs:/var/lib/netbird';
 
-interface ExecResult {
+export interface ExecResult {
   code: number;
   stdout: string;
 }
@@ -50,7 +50,7 @@ interface ExecResult {
  * binary, so CLI execs silently failed there and the mesh IP never reached the
  * controller (verified live). Captures demuxed stdout.
  */
-async function containerExecCapture(docker: DockerClient, container: string, cmd: string[]): Promise<ExecResult> {
+export async function containerExecCapture(docker: DockerClient, container: string, cmd: string[]): Promise<ExecResult> {
   const exec = await docker.docker.getContainer(container).exec({ Cmd: cmd, AttachStdout: true, AttachStderr: true });
   const stream = await exec.start({});
   let stdout = '';

@@ -123,6 +123,18 @@ export interface ApplyMeshResult {
 
 // ── Agent → controller: live mesh-state report (Phase 2+) ────────────────────
 
+/** One overlay network in `meshState.overlays` (mirrors `OverlayMtuSample` in overlay-mtu-check.ts). */
+export const OverlayMtuSampleSchema = z.object({
+  name: z.string().min(1),
+  /** The `com.docker.network.driver.mtu` option; absent = Docker's 1500. */
+  mtu: z.number().int().positive().optional(),
+  encrypted: z.boolean().default(false),
+  attachable: z.boolean().default(false),
+  managed: z.boolean().default(false),
+  ingress: z.boolean().default(false),
+  stack: z.string().optional(),
+});
+
 /**
  * Periodic telemetry the agent PUSHES (no round-trip) from `netbird status
  * --json` / `wg show` / `tailscale status`. Feeds the gateway snapshot store +
@@ -158,6 +170,13 @@ export const MeshStatePayload = z.object({
     )
     .default([]),
   error: z.string().optional(),
+  /**
+   * MTU of the WireGuard interface named in `interface` (`/sys/class/net/<if>/mtu`),
+   * for the overlay MTU check (`checkOverlayMtu`). Absent on older agents.
+   */
+  interfaceMtu: z.number().int().positive().optional(),
+  /** The overlay networks this node's Docker knows, with the MTU they were created with. Absent on older agents. */
+  overlays: z.array(OverlayMtuSampleSchema).max(1000).optional(),
   /**
    * The self-hosted control plane, when THIS node runs it (swarmy-mesh-control).
    * Declared lazily: MeshControlStatus is defined further down.

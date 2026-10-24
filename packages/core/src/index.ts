@@ -8,6 +8,7 @@ export * from './views';
 export * from './inputs';
 export * from './inventory';
 export * from './network-policy';
+export * from './overlay-mtu-check';
 export * from './controller-url';
 export * from './public-ip';
 export * from './manageddb-pg';
