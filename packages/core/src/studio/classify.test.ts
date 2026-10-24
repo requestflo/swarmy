@@ -32,7 +32,9 @@ describe('SQL classification — reads', () => {
 
   it('MySQL strings and backtick identifiers are not code', () => {
     expect(my("SELECT 'a;b', \"c;d\", `e;f` FROM t").class).toBe('read');
-    expect(my("SELECT 'it\\'s; DROP TABLE t'").blocked).toBeUndefined();
+    // One string by default, but two statements on a NO_BACKSLASH_ESCAPES server (sql-modes.test.ts).
+    expect(my("SELECT 'it\\'s; DROP TABLE t'").blocked).toContain('NO_BACKSLASH_ESCAPES');
+    expect(my("SELECT 'it''s; DROP TABLE t'").blocked).toBeUndefined();
     expect(my('SELECT 1 # comment; DROP TABLE t').class).toBe('read');
     expect(my('SELECT REPLACE(name, "a", "b") FROM t').class).toBe('read');
     expect(my('SELECT 1 INTO @x').class).toBe('read');

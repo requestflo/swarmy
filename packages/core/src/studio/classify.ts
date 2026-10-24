@@ -17,7 +17,8 @@
  * Postgres/MySQL, the agent-side allowlists the second wall for Mongo/Redis.
  * Pure and browser-safe, so the dashboard shows the same verdict live.
  */
-import { lexSql, type SqlDialect, type SqlToken } from './sql-lex';
+import { lexSql, type LexResult, type SqlDialect, type SqlToken } from './sql-lex';
+import { classifyAcrossModes } from './sql-modes';
 
 export type StatementClass = 'read' | 'write' | 'destructive';
 
@@ -325,9 +326,16 @@ function classifySqlStatement(tokens: SqlToken[], dialect: SqlDialect): Classifi
   return { class: cls, kind, reasons: [...new Set(reasons)] };
 }
 
-/** Classify a SQL input. Several statements chained with `;` are blocked. */
+/**
+ * Classify a SQL input. Several statements chained with `;` are blocked, and
+ * the verdict must hold under every server string mode (`sql-modes.ts`):
+ * text that reads differently under one counts as a write at least.
+ */
 export function classifySql(sql: string, dialect: SqlDialect): Classification {
-  const lexed = lexSql(sql, dialect);
+  return classifyAcrossModes(sql, dialect, (lexed) => classifyLexed(lexed, dialect));
+}
+
+function classifyLexed(lexed: LexResult, dialect: SqlDialect): Classification {
   if (lexed.error) return { class: 'destructive', kind: '?', reasons: [], blocked: `could not read the statement: ${lexed.error}` };
   if (lexed.statements.length === 0) return { class: 'read', kind: '', reasons: [], blocked: 'empty statement' };
   const parts = lexed.statements.map((s) => classifySqlStatement(s.tokens, dialect));

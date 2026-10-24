@@ -10,9 +10,22 @@
  *  - quoted identifiers: `"…"` (Postgres), `` `…` `` (MySQL);
  *  - `;` at top level splits statements.
  *
+ * Those are the servers' DEFAULT string modes. A server can run others (MySQL
+ * `ANSI_QUOTES` / `NO_BACKSLASH_ESCAPES`, Postgres
+ * `standard_conforming_strings=off`), and the studio can't know which, so
+ * {@link SqlLexMode} lets the classifier re-read the same text under each.
+ *
  * Unterminated strings/comments are reported, never guessed at.
  */
 export type SqlDialect = 'postgres' | 'mysql';
+
+/** A non-default server string mode to lex under. Omitted fields keep the dialect default. */
+export interface SqlLexMode {
+  /** `"…"` is an identifier (MySQL `ANSI_QUOTES`; always so in Postgres). */
+  doubleQuoteIdent?: boolean;
+  /** `\` escapes inside `'…'` (MySQL default; Postgres with `standard_conforming_strings=off`). */
+  backslashEscapes?: boolean;
+}
 
 export type SqlTokenKind = 'word' | 'ident' | 'string' | 'number' | 'punct' | 'param' | 'backslash';
 
@@ -38,7 +51,7 @@ export interface LexResult {
 const isWordStart = (c: string) => /[A-Za-z_\u0080-￿]/.test(c);
 const isWordChar = (c: string) => /[A-Za-z0-9_$\u0080-￿]/.test(c);
 
-export function lexSql(input: string, dialect: SqlDialect): LexResult {
+export function lexSql(input: string, dialect: SqlDialect, mode: SqlLexMode = {}): LexResult {
   const statements: LexedStatement[] = [];
   let tokens: SqlToken[] = [];
   let depth = 0;
@@ -46,6 +59,8 @@ export function lexSql(input: string, dialect: SqlDialect): LexResult {
   let i = 0;
   const n = input.length;
   const my = dialect === 'mysql';
+  const dqIdent = mode.doubleQuoteIdent ?? !my;
+  const bsEscapes = mode.backslashEscapes ?? my;
 
   const push = (kind: SqlTokenKind, value: string) => tokens.push({ kind, value, depth });
   const endStatement = (end: number) => {
@@ -106,7 +121,7 @@ export function lexSql(input: string, dialect: SqlDialect): LexResult {
           const close = input.indexOf('*/', i + 2);
           if (close < 0) return { statements, error: 'unterminated comment' };
           input = input.slice(0, i) + ' ' + input.slice(i + exec[0].length, close) + ' ' + input.slice(close + 2);
-          return lexSql(input, dialect);
+          return lexSql(input, dialect, mode);
         }
         const close = input.indexOf('*/', i + 2);
         if (close < 0) return { statements, error: 'unterminated comment' };
@@ -130,8 +145,8 @@ export function lexSql(input: string, dialect: SqlDialect): LexResult {
       continue;
     }
     // strings
-    if (c === "'" || (my && c === '"')) {
-      const r = readQuoted(c, my);
+    if (c === "'" || (!dqIdent && c === '"')) {
+      const r = readQuoted(c, bsEscapes);
       if (!r) return { statements, error: 'unterminated string' };
       push('string', r.body);
       i = r.end;
@@ -145,7 +160,7 @@ export function lexSql(input: string, dialect: SqlDialect): LexResult {
       i = r.end;
       continue;
     }
-    if (!my && c === '"') {
+    if (dqIdent && c === '"') {
       const r = readQuoted('"', false);
       if (!r) return { statements, error: 'unterminated identifier' };
       push('ident', r.body);
