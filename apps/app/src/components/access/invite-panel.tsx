@@ -18,7 +18,7 @@ export function InvitePanel({ callerRole, onClose }: { callerRole: RoleKey; onCl
     if (window.matchMedia?.('(max-width: 1279px)').matches) ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, []);
   return (
-    <section ref={ref} aria-labelledby="invite-title" className="calm-card flex flex-col gap-4 px-5 py-4">
+    <section ref={ref} aria-labelledby="invite-title" className="calm-card flex scroll-mt-20 flex-col gap-4 px-5 py-4">
       <div className="flex items-center gap-2">
         <h2 id="invite-title" className="font-display text-[18px] font-bold tracking-[-0.01em]">
           {issued ? 'Invite ready.' : 'Invite someone'}
