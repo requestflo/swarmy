@@ -294,14 +294,19 @@ if [ -n "$CTRL_ID" ]; then
   else
     report PASS "only platform services on '$CONTROL_NET'" ""
   fi
+  # Node #1's agent runs on the HOST network since QA-066 e and dials the
+  # controller through swarm (its node + host-mode port); older installs put
+  # it on '$CONTROL_NET'. Either reaches swarmy_controller; anything else can't.
   if docker ps --format '{{.Names}}' | grep -qx swarmy-agent; then
-    if docker inspect swarmy-agent --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' | tr ' ' '\n' | grep -qx "$CONTROL_NET"; then
-      report PASS "agent container on '$CONTROL_NET'" ""
+    if [ "$(docker inspect swarmy-agent --format '{{.HostConfig.NetworkMode}}')" = host ]; then
+      report PASS "agent container reaches the controller" "host network: dials swarmy_controller through swarm"
+    elif docker inspect swarmy-agent --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' | tr ' ' '\n' | grep -qx "$CONTROL_NET"; then
+      report PASS "agent container reaches the controller" "on '$CONTROL_NET'"
     else
-      report FAIL "agent container on '$CONTROL_NET'" "swarmy-agent can't reach swarmy_controller once it leaves '$EDGE_NET' — re-run the installer"
+      report FAIL "agent container reaches the controller" "swarmy-agent is neither on the host network nor on '$CONTROL_NET' — re-run the installer"
     fi
   else
-    report SKIP "agent container on '$CONTROL_NET'" "no swarmy-agent container on this host (systemd agent?)"
+    report SKIP "agent container reaches the controller" "no swarmy-agent container on this host (systemd agent?)"
   fi
 fi
 if [ -n "$ctl_on_edge" ]; then
