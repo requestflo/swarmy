@@ -14,13 +14,14 @@
  *   --keep                 leave nodes up (teardown step is skipped)
  *   --only a,b             run only these steps against the existing cluster
  *   --skip a,b             skip these steps
- *   --enable a,b           force flagged steps on (upgrade, controller-drain, controller-partition)
+ *   --enable a,b           force flagged steps on (upgrade, controller-drain, controller-partition, mesh-control-move)
  *   --reuse                don't delete an existing cluster before install
  *   --source head|tree|REF build from `git archive HEAD` (default), the working tree, or a git ref
  *   --no-build             reuse images already built (skip docker build)
  *   --hub-cache            nodes pull Docker Hub images via a host pull-through cache on
  *                          registry-port+1 (rate limits; bypasses the installer's own mirror)
  *   --mesh none|swarmy     swarmy = self-hosted mesh + node 3 behind a simulated NAT (experimental)
+ *   --mesh-domain HOST     the installer's --mesh-domain (a name you can re-point; mesh-control-move needs one)
  *   --upgrade-from REF     with --enable upgrade: install REF first (default: the parent of --source)
  *   --nodes N  --cpus N  --mem GiB  --disk GiB   (default 3 × 1 CPU / 1 GiB / 25 GiB, a 1 GB droplet)
  *   --reduced              CI mode: skip the steps a runner can't do (see REDUCED)
@@ -28,10 +29,16 @@
  *
  * Steps: install login servers templates compose-secret dns postgres
  *        mariadb-redis reschedule controller-move controller-drain
- *        controller-partition upgrade teardown
+ *        controller-partition mesh-control-move upgrade teardown
  *
  *   P3 drills (both promote every node to a manager; 3 nodes needed):
  *   bash scripts/e2e-cluster.sh --keep --enable controller-drain,controller-partition
+ *
+ *   Mesh control-plane move (clean move, then partition the old node: it
+ *   self-fences under the lease). Needs a mesh name that can follow the move:
+ *   behind the edge it does; served directly, give a re-point command:
+ *   SWARMY_E2E_MESH_REPOINT='<cmd using {host} {ip}>' bash scripts/e2e-cluster.sh \
+ *     --mesh swarmy --mesh-domain mesh.example.com --keep --enable mesh-control-move
  */
 import { mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -45,6 +52,7 @@ import * as platform from './steps/platform';
 import * as apps from './steps/apps';
 import * as data from './steps/data';
 import * as drills from './steps/controller-drills';
+import * as meshDrill from './steps/mesh-control-drill';
 
 interface StepDef {
   id: string;
@@ -68,6 +76,7 @@ const STEPS: StepDef[] = [
   // P3 done-gate drills: disruptive, so they Skip unless --enable names them.
   { id: 'controller-drain', title: 'drill: drain the controller node → restore from Garage, agents re-adopt', fn: drills.controllerDrain },
   { id: 'controller-partition', title: 'drill: partition the controller node → it self-fences, one controller after', fn: drills.controllerPartition },
+  { id: 'mesh-control-move', title: 'drill: move the mesh control plane, peers + setup keys survive; partition the old node → it self-fences', fn: meshDrill.meshControlMove },
   { id: 'upgrade', title: 'platform upgrade previous → current', fn: platform.upgrade },
   { id: 'teardown', title: 'teardown', fn: platform.teardown },
 ];
@@ -132,6 +141,7 @@ async function main() {
     registryPort: Number(a['registry-port'] ?? 5055),
     filePort: Number(a['file-port'] ?? 18088),
     mesh,
+    ...(a['mesh-domain'] ? { meshDomain: String(a['mesh-domain']) } : {}),
     adminEmail: 'e2e@example.com',
     tag: 'e2e',
     noBuild: !!a['no-build'],

@@ -23,6 +23,8 @@ export interface ClusterConfig {
   registryPort: number;
   filePort: number;
   mesh: Mesh;
+  /** --mesh-domain for the installer: a name you can re-point (the mesh-control-move drill needs one). */
+  meshDomain?: string;
   adminEmail: string;
   tag: string;
   /** Skip image builds and reuse the tags already in the local engine. */
@@ -278,6 +280,7 @@ export class Cluster {
       '--image', await this.image('controller', tag),
       '--agent-image', await this.image('agent', tag),
       '--mesh', this.cfg.mesh,
+      ...(this.cfg.meshDomain ? ['--mesh-domain', this.cfg.meshDomain] : []),
       // The harness enrols workers over the plain-HTTP fabric address; node
       // installs are HTTPS-only unless the controller opts in (H17).
       '--allow-insecure-install',
