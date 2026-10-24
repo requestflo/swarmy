@@ -20,6 +20,8 @@
  *   4. Call — retries with backoff, fallbacks/load-balancing across targets
  *      (ai/router.ts), translation per provider (ai/adapters.ts), streaming
  *      SSE re-encoded chunk by chunk.
+ *   4b. Answer cache — opt-in per route, per key (ai/route-cache*.ts): the
+ *      same question (normalised), then a similar one via `embed`.
  *   5. Meter + trace — one AiUsage row (cost ESTIMATE from the catalogue),
  *      an optional redacted AiRequestLog row, OTel GenAI spans linked to the
  *      caller's `traceparent`.
@@ -46,9 +48,11 @@ import {
   parseKeyPolicy,
   redactPii,
   probeModel,
+  registerAiCacheStats,
   registerAiGatewayRunner,
   registerAiProviderProbe,
   resolveModel,
+  unitVector,
   withDiscovered,
   type AiConfigDoc,
   type AiGatewayRunInput,
@@ -71,6 +75,8 @@ import { DEFAULT_RETRY, TargetHealth, parseRetryAfter, runChain, type AttemptRes
 import { SpanExporter, formatTraceparent, genAiAttributes, newSpanId, parseTraceparent, type SpanRecord, type TraceContext } from './ai/trace';
 import type { ChatChunk, ChatRequest, EmbeddingRequest } from './ai/wire';
 import { AuthFailureLimiter, RpmWindow, effectiveRpm } from './ai/limits';
+import { RouteCache } from './ai/route-cache';
+import { lookupRouteCache, planRouteCache, storeRouteCache } from './ai/route-cache-plan';
 
 export { costMicros };
 
@@ -222,6 +228,9 @@ const ABAC_TTL_MS = 30_000;
 const rpmWindow = new RpmWindow();
 const authFailures = new AuthFailureLimiter();
 const responseCache = new TtlLruCache<CachedResponse>(100, 5 * 60_000);
+/** Per-route answer cache (JS strings: ~2 bytes a char). */
+const routeCache = new RouteCache<CachedResponse>((v) => v.body.length * 2 + 256);
+const ROUTE_CACHE_MAX_BODY = 512 * 1024;
 const health = new TargetHealth();
 const exporter = new SpanExporter();
 const abacCache = new TtlLruCache<boolean>(2000, ABAC_TTL_MS);
@@ -392,10 +401,18 @@ interface UsageRecord {
   traceId: string;
 }
 
+function providerKind(p: string): AiProviderKind | null {
+  return (AI_PROVIDER_KINDS as readonly string[]).includes(p) ? (p as AiProviderKind) : null;
+}
+
+/** What a cached answer would have cost had it gone upstream (estimate). */
+function cachedCostMicros(v: CachedResponse): number {
+  return costMicros(v.model, v.inTokens, v.outTokens, providerKind(v.provider));
+}
+
 /** Write AiUsage (+AiRequestLog when the audit toggle is on). Best-effort. */
 async function recordUsage(r: UsageRecord): Promise<number> {
-  const kind = (AI_PROVIDER_KINDS as readonly string[]).includes(r.provider) ? (r.provider as AiProviderKind) : null;
-  const cost = r.cacheHit ? 0 : costMicros(r.model, r.inTokens, r.outTokens, kind);
+  const cost = r.cacheHit ? 0 : costMicros(r.model, r.inTokens, r.outTokens, providerKind(r.provider));
   try {
     await prisma.aiUsage.create({
       data: {
@@ -587,6 +604,28 @@ async function callUpstream(
   };
 }
 
+/**
+ * Embed a question for the answer cache through the org's `embed` route —
+ * metered to the same key (it costs what any embed call costs) and traced as
+ * a CLIENT span of the request. Null on any failure: the request carries on
+ * uncached.
+ */
+async function embedForCache(ctx: CallCtx, embed: ResolvedModel, text: string, usage: Omit<UsageRecord, 'provider' | 'model' | 'inTokens' | 'outTokens' | 'latencyMs' | 'status' | 'cacheHit' | 'attempts'>): Promise<Float32Array | null> {
+  const started = Date.now();
+  const call = await callUpstream({ ...ctx, op: 'embeddings', resolved: embed, maxTokens: null, temperature: null, topP: null }, (t) => buildEmbed(t, { model: t.model, input: text }));
+  if (!call.live) return null;
+  const target = call.live[0]!.target;
+  const jsons: unknown[] = [];
+  for (const l of call.live) {
+    jsons.push(await l.res.json().catch(() => null));
+    l.span.endMs = Date.now();
+    l.span.attributes['swarmy.ai.cache'] = 'embed';
+  }
+  const out = parseEmbed(target, jsons, estimateTokens(text));
+  await recordUsage({ ...usage, alias: embed.alias, auditOn: false, promptRedacted: null, provider: target.provider, model: target.model, inTokens: out.usage.prompt_tokens, outTokens: 0, latencyMs: Date.now() - started, status: 'ok', cacheHit: false, attempts: call.attempts.length });
+  return unitVector(out.data[0]?.embedding ?? []);
+}
+
 // ── The request pipeline ─────────────────────────────────────────────────────
 
 interface Pipeline {
@@ -720,20 +759,23 @@ async function runPipeline(p: Pipeline): Promise<PipelineResult> {
   const promptRedacted = rawPrompt && cfg.doc.settings.guardrails.redactPii ? redactPii(rawPrompt) : rawPrompt;
   const usageBase = { orgId: key.orgId, keyId: key.id, alias: resolved.alias, auditOn, promptRedacted, traceId: trace.traceId };
 
+  /** Answer from a cached response: metered as a free hit, no upstream call. */
+  const fromCache = async (hit: CachedResponse, cacheHeaders: Record<string, string>): Promise<PipelineResult> => {
+    Object.assign(meta, { provider: hit.provider, model: hit.model, inTokens: hit.inTokens, outTokens: hit.outTokens });
+    await recordUsage({ ...usageBase, provider: hit.provider, model: hit.model, inTokens: hit.inTokens, outTokens: hit.outTokens, latencyMs: Date.now() - started, status: 'ok', cacheHit: true, attempts: 0 });
+    finishSpans(key, hit.status, null);
+    doneResolve();
+    return {
+      response: new Response(hit.body, { status: hit.status, headers: { 'content-type': hit.contentType, ...cacheHeaders, 'x-swarmy-ai-provider': hit.provider, 'x-swarmy-ai-model': hit.model, ...traceHeaders } }),
+      meta,
+    };
+  };
+
   // ── cache (exact body, non-streaming, org+path scoped) ──
   const cacheKey = createHash('sha256').update(`${key.orgId}\n${p.path}\n${p.rawBody}`).digest('hex');
   if (cfg.doc.settings.cache && !wantsStream) {
     const hit = responseCache.get(cacheKey);
-    if (hit) {
-      Object.assign(meta, { provider: hit.provider, model: hit.model, inTokens: hit.inTokens, outTokens: hit.outTokens });
-      await recordUsage({ ...usageBase, provider: hit.provider, model: hit.model, inTokens: hit.inTokens, outTokens: hit.outTokens, latencyMs: Date.now() - started, status: 'ok', cacheHit: true, attempts: 0 });
-      finishSpans(key, hit.status, null);
-      doneResolve();
-      return {
-        response: new Response(hit.body, { status: hit.status, headers: { 'content-type': hit.contentType, 'x-swarmy-ai-cache': 'hit', 'x-swarmy-ai-provider': hit.provider, 'x-swarmy-ai-model': hit.model, ...traceHeaders } }),
-        meta,
-      };
-    }
+    if (hit) return fromCache(hit, { 'x-swarmy-ai-cache': 'hit' });
   }
 
   const ctx: CallCtx = {
@@ -748,6 +790,28 @@ async function runPipeline(p: Pipeline): Promise<PipelineResult> {
     temperature: typeof body.temperature === 'number' ? body.temperature : null,
     topP: typeof body.top_p === 'number' ? body.top_p : null,
   };
+
+  // ── answer cache (opt-in per route, per key): same question, then similar via `embed` ──
+  // Similar-question matching runs `embed` under this key's own allowlists and ABAC.
+  const routeCfg = resolved.alias ? cfg.doc.routeCache[resolved.alias] : undefined;
+  const embedRoute = routeCfg?.similarity != null ? resolveModel('embed', cfg.doc) : null;
+  const canEmbed =
+    embedRoute !== null &&
+    modelAllowed(embedRoute, [policy.models, app ? cfg.doc.apps[app]?.models : null]) &&
+    (!principal || (await mayUse(key.orgId, principal, embedRoute)));
+  const rcPlan = planRouteCache({ orgId: key.orgId, keyId: key.id, route: resolved.alias, path: p.path, op: p.op, stream: wantsStream, body, settings: cfg.doc.routeCache, canEmbed });
+  let rcVector: Float32Array | null = null;
+  if (rcPlan) {
+    const found = await lookupRouteCache(routeCache, rcPlan, {
+      embed: (text) => embedForCache(ctx, embedRoute!, text, usageBase),
+      savedMicros: cachedCostMicros,
+    });
+    rcVector = found.vector;
+    if (found.hit) {
+      const h = found.hit;
+      return fromCache(h.value, { 'x-swarmy-ai-cache': h.kind === 'same' ? 'hit' : 'similar', ...(h.score !== null ? { 'x-swarmy-ai-cache-score': h.score.toFixed(4) } : {}) });
+    }
+  }
 
   // Per target: how to build the upstream call(s) for this op.
   const nativeAnthropic = (t: Target): boolean => p.op === 'messages' && t.provider === 'anthropic';
@@ -866,7 +930,9 @@ async function runPipeline(p: Pipeline): Promise<PipelineResult> {
       outText = JSON.stringify(p.op === 'messages' ? openAIToAnthropicResponse(r, requested) : r);
     }
     await meter(inTokens, outTokens, 'ok', { responseModel, finish });
-    if (cfg.doc.settings.cache) responseCache.set(cacheKey, { status: 200, contentType: 'application/json', body: outText, inTokens, outTokens, provider: target.provider, model: target.model });
+    const answer: CachedResponse = { status: 200, contentType: 'application/json', body: outText, inTokens, outTokens, provider: target.provider, model: target.model };
+    if (cfg.doc.settings.cache) responseCache.set(cacheKey, answer);
+    if (rcPlan && outText.length <= ROUTE_CACHE_MAX_BODY) storeRouteCache(routeCache, rcPlan, rcVector, answer);
     return { response: new Response(outText, { status: 200, headers: { 'content-type': 'application/json', ...respHeaders } }), meta };
   }
 
@@ -1061,6 +1127,7 @@ export async function runGatewayInProcess(input: AiGatewayRunInput): Promise<AiG
 }
 
 registerAiGatewayRunner(runGatewayInProcess);
+registerAiCacheStats((orgId) => routeCache.view(orgId));
 
 // ── Provider probe (the "Test" button) ───────────────────────────────────────
 

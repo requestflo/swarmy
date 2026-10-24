@@ -2,7 +2,8 @@
  * The whole gateway pipeline over HTTP (Hono app.request) against a scratch
  * SQLite control.db and a mock upstream: auth, alias fallbacks + retries,
  * key and app allowlists, ABAC `ai.use`, the prompt-size cap, metering,
- * streaming translation on both surfaces, native Anthropic passthrough.
+ * streaming translation on both surfaces, native Anthropic passthrough, and
+ * the per-route answer cache (same question, then similar via `embed`).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
@@ -18,12 +19,21 @@ process.env.SWARMY_SECRET_KEY ??= 'test-secret-key-for-the-ai-gateway-pipeline-0
 const { prisma, ensureSchema, buildAdapter } = await import('@swarmy/db');
 const { encryptSecret } = await import('@swarmy/core/crypto');
 const { aiGatewayApp, configureUpstreamGuard, setRetryOptions } = await import('./ai-gateway');
+const { aiCacheStats } = await import('@swarmy/core/views');
 
 const ORG = 'org_ai';
+const CACHE_ORG = 'org_cache';
 const USER = 'user_member';
 const sha = (k: string): string => createHash('sha256').update(k).digest('hex');
 let upstream: ReturnType<typeof Bun.serve>;
 const hits: string[] = [];
+
+/** The mock embedder's vectors: two phrasings of one question sit close together. */
+const VECTORS: Record<string, number[]> = {
+  'What is the capital of France?': [1, 0, 0],
+  'Which city is the capital of France?': [0.97, 0.24, 0],
+  'Tell me a joke': [0, 0, 1],
+};
 
 const openAiReply = (model: string) => ({
   id: 'chatcmpl-mock',
@@ -53,6 +63,10 @@ beforeAll(async () => {
           stop_reason: 'end_turn',
           usage: { input_tokens: 5, output_tokens: 2 },
         });
+      }
+      if (url.pathname === '/ok/v1/embeddings') {
+        const input = String((body as { input?: unknown }).input ?? '');
+        return Response.json({ object: 'list', data: [{ object: 'embedding', index: 0, embedding: VECTORS[input] ?? [0, 1, 0] }], model: body.model, usage: { prompt_tokens: 3, total_tokens: 3 } });
       }
       if (url.pathname === '/ok/v1/chat/completions') {
         if (!body.stream) return Response.json(openAiReply(body.model ?? 'x'));
@@ -109,6 +123,25 @@ beforeAll(async () => {
       source: JSON.stringify({ roles: ['member'], actions: ['ai.use'], resourceTypes: ['aiModel'], resourceLabels: { 'swarmy.ai.cost': 'paid' } }),
     },
   });
+  // A second org for the answer cache: its own routes, `embed` in-cluster.
+  await prisma.organization.create({ data: { id: CACHE_ORG, name: 'Cache', slug: 'cache' } });
+  await prisma.aiProviderConfig.create({
+    data: {
+      orgId: CACHE_ORG,
+      providersJson: {
+        providers: [{ kind: 'vllm', baseUrl: `${base}/ok`, isDefault: true }],
+        routes: {
+          cached: { strategy: 'fallback', targets: [{ provider: 'vllm', model: 'qwen' }] },
+          exact: { strategy: 'fallback', targets: [{ provider: 'vllm', model: 'qwen' }] },
+          embed: { strategy: 'fallback', targets: [{ provider: 'vllm', model: 'embedder' }] },
+        },
+        routeCache: { cached: { ttlSeconds: 600, similarity: 0.9 }, exact: { ttlSeconds: 600, similarity: null } },
+      },
+    },
+  });
+  for (const id of ['c1', 'c2']) {
+    await prisma.aiVirtualKey.create({ data: { id, orgId: CACHE_ORG, name: id, keyHash: sha(`swk-ai-${id}`), limitsJson: {} } });
+  }
   setRetryOptions({ retries: 2, baseDelayMs: 1, maxDelayMs: 2, sleep: async () => {} });
   // The mock upstream is on loopback, which the SSRF guard refuses by default.
   configureUpstreamGuard({ allowHosts: ['127.0.0.1'] });
@@ -312,5 +345,56 @@ describe('AI gateway hardening (security review H13/H14)', () => {
     } finally {
       await prisma.aiProviderConfig.update({ where: { orgId: ORG }, data: { providersJson: { ...doc, providers: original } as object } });
     }
+  });
+});
+
+describe('answer cache: opt-in per route, per key', () => {
+  const ask = (key: string, model: string, q: string, extra: object = {}) => post('chat/completions', key, { model, messages: [{ role: 'user', content: q }], ...extra });
+
+  it('same question (normalised) and similar question (embed) answer without the model; other keys miss', async () => {
+    hits.length = 0;
+    const first = await ask('c1', 'cached', 'What is the capital of France?');
+    expect(first.status).toBe(200);
+    expect(first.headers.get('x-swarmy-ai-cache')).toBeNull();
+    expect(hits).toEqual(['/ok/v1/embeddings', '/ok/v1/chat/completions']);
+
+    hits.length = 0;
+    const same = await ask('c1', 'cached', 'What is  the capital of France?  ');
+    expect(same.headers.get('x-swarmy-ai-cache')).toBe('hit');
+    expect(((await same.json()) as { choices: Array<{ message: { content: string } }> }).choices[0]!.message.content).toBe('pong');
+    expect(hits).toEqual([]);
+
+    const similar = await ask('c1', 'cached', 'Which city is the capital of France?');
+    expect(similar.headers.get('x-swarmy-ai-cache')).toBe('similar');
+    expect(Number(similar.headers.get('x-swarmy-ai-cache-score'))).toBeGreaterThan(0.9);
+    expect(hits).toEqual(['/ok/v1/embeddings']);
+
+    hits.length = 0;
+    expect((await ask('c1', 'cached', 'Tell me a joke')).headers.get('x-swarmy-ai-cache')).toBeNull();
+    expect((await ask('c2', 'cached', 'What is the capital of France?')).headers.get('x-swarmy-ai-cache')).toBeNull();
+    expect((await ask('c1', 'cached', 'What is the capital of France?', { stream: true })).headers.get('x-swarmy-ai-cache')).toBeNull();
+    expect(hits.filter((h) => h.endsWith('/chat/completions'))).toHaveLength(3);
+  });
+
+  it('a route without similarity never calls embed; a bare model id is never cached', async () => {
+    hits.length = 0;
+    await ask('c1', 'exact', 'What is the capital of France?');
+    expect((await ask('c1', 'exact', 'Which city is the capital of France?')).headers.get('x-swarmy-ai-cache')).toBeNull();
+    expect((await ask('c1', 'exact', 'What is the capital of France?')).headers.get('x-swarmy-ai-cache')).toBe('hit');
+    await ask('c1', 'vllm/qwen', 'ping');
+    expect((await ask('c1', 'vllm/qwen', 'ping')).headers.get('x-swarmy-ai-cache')).toBeNull();
+    expect(hits).not.toContain('/ok/v1/embeddings');
+  });
+
+  it('hits are metered free, the embed calls are metered to the key, and the counters add up', async () => {
+    await Bun.sleep(20);
+    const rows = await prisma.aiUsage.findMany({ where: { orgId: CACHE_ORG, keyId: 'c1' }, orderBy: { at: 'asc' } });
+    expect(rows.filter((r) => r.cacheHit).map((r) => [r.model, Number(r.costMicros)])).toEqual([['qwen', 0], ['qwen', 0], ['qwen', 0]]);
+    expect(rows.filter((r) => r.model === 'embedder')).toHaveLength(3);
+    const stats = aiCacheStats()!(CACHE_ORG).routes;
+    expect(stats.map((r) => [r.route, r.lookups, r.sameHits, r.similarHits, r.entries])).toEqual([
+      ['cached', 5, 1, 1, 3],
+      ['exact', 3, 1, 0, 2],
+    ]);
   });
 });

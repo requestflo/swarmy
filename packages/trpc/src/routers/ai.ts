@@ -10,6 +10,7 @@ import {
   RemoveAiRouteInput,
   SetAiAppModelsInput,
   SetAiProviderInput,
+  SetAiRouteCacheInput,
   SetAiRouteInput,
   UpdateAiKeyInput,
 } from '@swarmy/core';
@@ -41,6 +42,7 @@ import {
   testProvider,
   usageSummary,
 } from '../services/ai.service';
+import { cacheStats, setRouteCache } from '../services/ai-cache.service';
 
 const StackInput = z.object({ stack: z.string().min(1).max(63) });
 
@@ -131,6 +133,14 @@ export const aiGatewayRouter = router({
 
   /** Recent request log rows (written only when the audit toggle is on). */
   logs: orgProcedure.input(AiLogsInput).query(({ ctx, input }) => listLogs(ctx, input)),
+
+  /** A route's answer cache (per key): same question, and similar via `embed`. Off = null. */
+  setRouteCache: adminProcedure
+    .input(SetAiRouteCacheInput)
+    .mutation(({ ctx, input }) => setRouteCache(ctx, input)),
+
+  /** Answer-cache counters per route since the gateway started (hit rate, saved $). */
+  cacheStats: orgProcedure.query(({ ctx }) => cacheStats(ctx)),
 
   /** Gateway toggles: request audit log + exact-match response cache. */
   settings: orgProcedure.query(({ ctx }) => getSettings(ctx)),

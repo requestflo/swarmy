@@ -1420,6 +1420,24 @@ export const SetAiRouteInput = z.object({
 });
 export type SetAiRouteInput = z.infer<typeof SetAiRouteInput>;
 
+/**
+ * Turn a route's answer cache on (same question; similar question too when
+ * `similarity` is set and `embed` resolves) or off (`cache: null`).
+ */
+export const SetAiRouteCacheInput = z.object({
+  route: z
+    .string()
+    .trim()
+    .regex(/^[a-z0-9][a-z0-9._:-]{0,62}$/i, 'letters, digits, . _ : - only'),
+  cache: z
+    .object({
+      ttlSeconds: z.number().int().min(60).max(7 * 86_400).default(3_600),
+      similarity: z.number().min(0.8).max(0.999).nullable().default(null),
+    })
+    .nullable(),
+});
+export type SetAiRouteCacheInput = z.infer<typeof SetAiRouteCacheInput>;
+
 export const RemoveAiRouteInput = z.object({ name: z.string().trim().min(1).max(63) });
 export type RemoveAiRouteInput = z.infer<typeof RemoveAiRouteInput>;
 

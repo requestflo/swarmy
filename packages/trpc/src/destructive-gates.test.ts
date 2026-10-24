@@ -367,6 +367,7 @@ describe('AI gateway provider credentials are admin-only (security review C5)', 
     ['ai.setProvider', { kind: 'openai', baseUrl: 'https://attacker.example' }],
     ['ai.removeProvider', { kind: 'openai' }],
     ['ai.setSettings', { auditLog: true }],
+    ['ai.setRouteCache', { route: 'smart', cache: { ttlSeconds: 3600, similarity: 0.95 } }],
     ['ai.setStackOutlet', { stack: 'shop', domain: 'ai.example.com' }],
     ['ai.mintKey', { name: 'k' }],
   ];

@@ -3,6 +3,7 @@ import { lookup } from 'node:dns/promises';
 import {
   AI_PROVIDERS,
   checkProviderUrl,
+  DEFAULT_ALIASES,
   type HostResolver,
   MODEL_CATALOG,
   aiGatewayRunner,
@@ -144,12 +145,12 @@ interface ConfigRow {
   configEnc: string | null;
 }
 
-async function loadConfig(ctx: OrgContext): Promise<ConfigRow> {
+export async function loadConfig(ctx: OrgContext): Promise<ConfigRow> {
   const row = await ctx.db.aiProviderConfig.findUnique({ where: { orgId: ctx.activeOrgId } });
   return row ?? { providersJson: [], configEnc: null };
 }
 
-async function saveConfig(ctx: OrgContext, doc: AiConfigDoc, configEnc: string | null): Promise<void> {
+export async function saveConfig(ctx: OrgContext, doc: AiConfigDoc, configEnc: string | null): Promise<void> {
   const providersJson = serializeConfigDoc(doc) as object;
   await ctx.db.aiProviderConfig.upsert({
     where: { orgId: ctx.activeOrgId },
@@ -348,7 +349,7 @@ export async function listModels(ctx: OrgContext): Promise<AiModelsView> {
     if (models.some((x) => x.name === name)) continue;
     models.push({ name, kind: m.kind, source: 'model', providers: [m.provider], inUsd: m.inUsd, outUsd: m.outUsd });
   }
-  return { models, routes, apps: doc.apps };
+  return { models, routes, apps: doc.apps, routeCache: doc.routeCache };
 }
 
 export async function setRoute(ctx: OrgContext, input: SetAiRouteInput): Promise<AiModelsView> {
@@ -373,6 +374,8 @@ export async function removeRoute(ctx: OrgContext, name: string): Promise<AiMode
   const doc = parseConfigDoc(row.providersJson);
   if (!doc.routes[name]) throw notFound('AI route', name);
   delete doc.routes[name];
+  // A default alias still exists without the org route; its cache setting stays.
+  if (!(DEFAULT_ALIASES as readonly string[]).includes(name)) delete doc.routeCache[name];
   await saveConfig(ctx, doc, row.configEnc);
   await writeAudit(ctx, { action: 'ai.route.remove', targetType: 'aiRoute', targetId: name });
   return listModels(ctx);

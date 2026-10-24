@@ -13,6 +13,8 @@ import { SettingsCard } from './settings-card';
 import { UsageCharts } from './usage-charts';
 import { KeyRows, ProviderRows, UsageRows } from './ai-summary';
 import { AiCode } from './ai-code';
+import { AnswerCacheCard } from './answer-cache-card';
+import { answerCacheLine, useAnswerCache } from './use-answer-cache';
 
 /**
  * The AI gateway: one endpoint for every model. Summary says what's ready
@@ -26,6 +28,7 @@ export function AiPage(): React.JSX.Element {
   const usage = useQuery({ ...trpc.ai.usage.queryOptions({ days: 14 }), refetchInterval: 10_000 });
   const keys = useQuery({ ...trpc.ai.keys.queryOptions(), refetchInterval: 10_000 });
   const settings = useQuery(trpc.ai.settings.queryOptions());
+  const cache = useAnswerCache();
 
   // The headline is a claim about the gateway — don't make it before we know.
   if (providers.isPending || usage.isPending) return <PageSkeleton variant="list" />;
@@ -74,6 +77,7 @@ export function AiPage(): React.JSX.Element {
             </div>
             <PlaygroundCard />
             <UsageCharts />
+            <AnswerCacheCard cache={cache} />
             <div id="ai-keys"><KeysCard /></div>
             <RequestLogCard />
           </Depth>
@@ -83,7 +87,7 @@ export function AiPage(): React.JSX.Element {
           <AlreadyOn
             items={[
               { what: 'Fallback', detail: 'fast, smart and embed switch provider if one is down' },
-              { what: 'Cache', detail: settings.data?.cache === false ? 'off' : 'repeated questions cost nothing' },
+              { what: 'Cache', detail: answerCacheLine(cache.routes, settings.data?.cache) },
               { what: 'Privacy', detail: settings.data?.guardrails.redactPii === false ? 'prompts logged as sent' : 'emails, cards and keys masked in the log' },
             ]}
           />

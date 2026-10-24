@@ -2609,7 +2609,10 @@ import type { InvServiceStatus as VectorServiceStatus } from './inventory';
 // Providers, catalogue, routes, allowlists, guardrails: the pure model layer.
 export * from './ai-gateway';
 export * from './ai-url-guard';
+export * from './ai-cache';
+export * from './ai-cache-stats';
 import type { AiProviderKind, AiGuardrailSettings, AiRoute, AiModelKind } from './ai-gateway';
+import type { AiRouteCache } from './ai-cache';
 
 /** One configured upstream provider. The API key itself is NEVER returned. */
 export interface AiProviderView {
@@ -2658,6 +2661,8 @@ export interface AiModelsView {
   routes: Record<string, AiRoute>;
   /** Per-app allowlists (`apps.<stack>.models`). */
   apps: Record<string, { models: string[] }>;
+  /** Routes with the answer cache on (`routeCache.<route>`). */
+  routeCache: Record<string, AiRouteCache>;
 }
 
 /** Result of one playground run (same key limits as the key itself). */

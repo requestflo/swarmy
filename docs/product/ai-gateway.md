@@ -44,7 +44,8 @@ swarmy gateway  (apps/api/src/ai-gateway.ts, spine-mounted at /ai on the control
    │  ③ route: model prefix → provider   (claude* → anthropic, gpt*/o-series → openai,
    │           else the org default)     creds vault-decrypted from configEnc
    │  ④ limits: RPM sliding window + today's budget from AiUsage → 429
-   │  ⑤ cache: exact-body LRU (non-stream, 5-min TTL) — a hit costs nothing
+   │  ⑤ cache: exact-body LRU (org toggle, 5 min) · answer cache per route + key
+   │           (same question, then similar via `embed`) — a hit costs nothing
    ▼
 provider API  (api.anthropic.com / api.openai.com / custom base URL)
    │  ⑥ meter: static $/MTok table → one AiUsage row  (+AiRequestLog if audit on)
@@ -164,8 +165,12 @@ older install.
   view: set it, test it, never read it back.
 - **Provider descriptors + gateway toggles are plain config**
   (`AiProviderConfig.providersJson`): which providers exist, their base URLs,
-  which is default, the audit/cache switches, and the stack→outlet-domain map.
-  No secrets here.
+  which is default, the audit/cache switches, which routes cache answers
+  (`routeCache`), and the stack→outlet-domain map. No secrets here.
+- **Cached answers live in the gateway's memory, nowhere else.** Prompts and
+  answers are sensitive and short-lived run state, so they never go to the
+  store, a label or a swarm config. A controller restart empties the cache and
+  its counters together; the long-run hit rate comes from `AiUsage.cacheHit`.
 - **Virtual keys are hashes** (`AiVirtualKey.keyHash`, sha-256 of `swk-ai-…`)
   plus a name, an optional `appRef`, and `limitsJson` (`rpm`,
   `dailyBudgetMicros`). The plaintext is returned exactly once at mint.
@@ -202,6 +207,32 @@ older install.
 - **The cache is exact-match and off by default.** Identical non-streaming
   bodies (scoped by org + path) served from a 5-minute LRU — "repeated calls cost
   nothing." It only runs when the org flips the cache toggle on.
+- **The answer cache is opt-in per route and scoped per virtual key** (the AI
+  page's Answer cache card; `ai.setRouteCache`, admin, audited). For a route
+  that has it (`smart`, `fast` or an org route; a bare model id never caches),
+  each non-streaming chat/messages request is looked up twice:
+  1. *Same question.* The conversation is normalised (Unicode NFKC, line
+     endings, trailing and repeated spaces; indentation, case and punctuation
+     still count) and hashed with every parameter that changes the answer
+     (model, temperature, tools, …; not `stream`, `user`, `metadata`).
+  2. *Similar question* — only when the route sets a `similarity` threshold
+     (0.8–0.999, default 0.95) and the org's `embed` route resolves and the
+     key may use it (allowlists + ABAC). The last user message is embedded
+     through `embed` (metered to the same key, so a free in-cluster embedder
+     makes it cost nothing) and matched by cosine against answers stored under
+     the same earlier conversation and parameters. Images or tool results in
+     the last message mean same-question only.
+  Answers are kept for the route's TTL (1 minute to 7 days, default 1 hour),
+  in a 64 MB in-memory store with LRU eviction and at most 256 answers per
+  key and route. A hit returns `x-swarmy-ai-cache: hit|similar` (plus
+  `x-swarmy-ai-cache-score`), is metered as a free `cacheHit` row, and adds
+  the estimated cost it avoided to the route's "saved" counter. The card
+  shows each route's hit rate since the gateway started.
+  Not built: storing the vectors in an in-swarm pgvector. The controller can't
+  reach a managed vector store (its own overlay, and credentials in a Docker
+  secret only attached apps mount), and keeping prompts in a user database
+  is a separate decision, so the vector index stays in memory next to the
+  answers.
 - **The audit log is opt-in and redacted.** With the toggle on, each request
   writes one `AiRequestLog` row with the last user message truncated to 200
   chars. Off by default; prompts are never stored unless the org asks.
@@ -239,8 +270,11 @@ older install.
   URL."
 - **Billing as fact.** No live price feed, no invoice pretence — a static table
   and a loud "estimate." Users reconcile against the provider's real bill.
-- **Caching streams or partial matches.** Only exact non-streaming bodies are
-  safe to replay; a "close enough" cache would return wrong answers.
+- **Caching streams, or "close enough" by default.** Only non-streaming
+  answers are replayed. Similar-question matching can return an answer to a
+  question that differs in a way that matters, so it is never on by itself:
+  an admin turns it on per route, with a high threshold, and only for the
+  same earlier conversation and parameters.
 
 ## Implementation map
 
@@ -255,12 +289,16 @@ the `ai:` schema is `packages/app-config/src/ai.ts`. Data plane (the pipeline,
 auth, limits, metering, cache): `apps/api/src/ai-gateway.ts`, mounted at `/ai`
 in `apps/api/src/index.ts`; translation per provider in `apps/api/src/ai/`
 (`adapters.ts`, `anthropic.ts`, `gemini.ts`, `bedrock.ts`, `sigv4.ts`,
-`framing.ts`), fallbacks/retries in `router.ts`, GenAI traces in `trace.ts`.
+`framing.ts`), fallbacks/retries in `router.ts`, GenAI traces in `trace.ts`, the answer
+cache in `route-cache.ts` (store) + `route-cache-plan.ts` (keys, lookup);
+its pure keys/codec in `packages/core/src/ai-cache{,-stats}.ts` and its
+control plane in `packages/trpc/src/services/ai-cache.service.ts`.
 ABAC `ai.use` lives in `packages/abac`. Persistence: `packages/db/prisma/schema/ai.prisma`
 (`AiProviderConfig` / `AiVirtualKey` / `AiUsage` / `AiRequestLog`); wire
 types/inputs in `packages/core/src/views.ts` + `packages/core/src/inputs.ts`.
 UI: `apps/app/src/routes/_authed/ai.tsx` → `apps/app/src/components/ai/*`
-(providers, keys, usage charts, request log, settings, per-stack grant/outlet).
+(providers, keys, usage charts, answer cache, request log, settings,
+per-stack grant/outlet).
 
 The **storage split** (encrypted controller-side keys in the DB vs the app-side
 key in a Docker secret) is the `docker-native-storage` skill's DB-exception rule.

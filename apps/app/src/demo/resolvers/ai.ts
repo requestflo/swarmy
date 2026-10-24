@@ -272,6 +272,7 @@ export const ai: DomainResolvers = {
       return {
         routes,
         apps: {},
+        routeCache: ((s.extra.aiCache as { routeCache?: AiModelsView['routeCache'] } | undefined)?.routeCache) ?? {},
         models: [
           ...Object.entries(routes).map(([name, r]) => ({
             name,

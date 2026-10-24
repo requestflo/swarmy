@@ -170,7 +170,7 @@ const routes: Array<[string, RegExp?]> = [
   ['/governance'],
   ['/blueprints'],
   ['/email'],
-  ['/ai'],
+  ['/ai', /answer repeat questions/],
   ['/data/buckets'],
   ['/data/buckets/storefront-media', /Who can reach it/],
   ['/device'],

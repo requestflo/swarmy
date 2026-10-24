@@ -16,6 +16,8 @@
  * No IO, no node:crypto — the browser bundle imports this through views.
  */
 
+import { parseRouteCache, type AiRouteCache } from './ai-cache';
+
 // ── providers ────────────────────────────────────────────────────────────────
 
 export const AI_PROVIDER_KINDS = [
@@ -382,6 +384,8 @@ export interface AiConfigDoc {
   routes: Record<string, AiRoute>;
   /** Per-app (stack) model allowlists, on top of each key's own. */
   apps: Record<string, { models: string[] }>;
+  /** Routes with the answer cache opted in (ai-cache.ts). Any effective route, defaults included. */
+  routeCache: Record<string, AiRouteCache>;
 }
 
 export const DEFAULT_GUARDRAILS: AiGuardrailSettings = { redactPii: true, maxPromptTokens: null };
@@ -421,7 +425,7 @@ function strList(v: unknown): string[] {
  * both call it.
  */
 export function parseConfigDoc(raw: unknown): AiConfigDoc {
-  const doc: AiConfigDoc = { providers: [], settings: defaultSettings(), outlets: {}, routes: {}, apps: {} };
+  const doc: AiConfigDoc = { providers: [], settings: defaultSettings(), outlets: {}, routes: {}, apps: {}, routeCache: {} };
   const obj = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : null;
   const list = Array.isArray(raw) ? raw : Array.isArray(obj?.providers) ? (obj!.providers as unknown[]) : [];
   for (const entry of list) {
@@ -478,6 +482,13 @@ export function parseConfigDoc(raw: unknown): AiConfigDoc {
       if (models.length) doc.apps[stack] = { models };
     }
   }
+  const rc = obj?.routeCache;
+  if (rc && typeof rc === 'object' && !Array.isArray(rc)) {
+    for (const [name, v] of Object.entries(rc as Record<string, unknown>)) {
+      const c = ROUTE_NAME_RE.test(name) ? parseRouteCache(v) : null;
+      if (c) doc.routeCache[name] = c;
+    }
+  }
   // At most one default; the first wins.
   let seenDefault = false;
   for (const p of doc.providers) {
@@ -495,6 +506,7 @@ export function serializeConfigDoc(doc: AiConfigDoc): Record<string, unknown> {
     outlets: doc.outlets,
     routes: doc.routes,
     apps: doc.apps,
+    routeCache: doc.routeCache,
   };
 }
 

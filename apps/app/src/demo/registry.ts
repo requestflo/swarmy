@@ -49,6 +49,7 @@ import { searchsvcIndexes } from './resolvers/searchsvc-indexes';
 import { searchsvcKey } from './resolvers/searchsvc-key';
 import { vector } from './resolvers/vector';
 import { ai } from './resolvers/ai';
+import { aiCache } from './resolvers/ai-cache';
 import { email } from './resolvers/email';
 import { security } from './resolvers/security';
 import { rum } from './resolvers/rum';
@@ -133,6 +134,7 @@ const MODULES: DomainResolvers[] = [
   searchsvcKey,
   vector,
   ai,
+  aiCache,
   email,
   security,
   studio,
