@@ -149,7 +149,8 @@ describe('PATCH /services/{id}', () => {
     expect(spec.labels).toMatchObject({ ...PROD_LABELS, tier: 'web', 'swarmy.managed': 'true' });
     // Not sent → carried from the live spec.
     expect(spec.restartPolicy).toEqual({ condition: 'any' });
-    expect(t.audit).toEqual(['authz.permit:service.configure', 'service.deploy']);
+    // A Warn/Off guardrail that Block would have tripped leaves its receipt (admission audit).
+    expect(t.audit).toEqual(['authz.permit:service.configure', 'guardrails.deploy.allowed', 'service.deploy']);
   });
 
   it('a guardrail refusal is a 412 listing the violations, and nothing is deployed', async () => {
