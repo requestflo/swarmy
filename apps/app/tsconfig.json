@@ -15,6 +15,7 @@
       "@swarmy/auth/client": ["../../packages/auth/src/client.ts"],
       "@swarmy/abac/model": ["../../packages/abac/src/model.ts"],
       "@swarmy/dns/steer": ["../../packages/dns/src/steer.ts"],
+      "@swarmy/app-config": ["../../packages/app-config/src/index.ts"],
       "@swarmy/trpc": ["../../packages/trpc/src/index.ts"]
     }
   },

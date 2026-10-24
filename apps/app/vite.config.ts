@@ -25,6 +25,8 @@ export default defineConfig({
       { find: /^@swarmy\/abac\/model$/, replacement: pkg('abac/src/model.ts') },
       // Pure geo steering (region coordinates, great-circle km) — the DNS engine's own math.
       { find: /^@swarmy\/dns\/steer$/, replacement: pkg('dns/src/steer.ts') },
+      // Pure swarmy.yaml parser, schema and toDesired — the Source tab editor validates with the controller's own code.
+      { find: /^@swarmy\/app-config$/, replacement: pkg('app-config/src/index.ts') },
     ],
   },
   server: {

@@ -34,6 +34,13 @@ body,
   --tone-info: oklch(0.5 0.13 245);
   --tone-mesh: oklch(0.5 0.16 292);
   --tone-idle: oklch(0.5 0.025 264);
+  /* swarmy.yaml syntax on the code panel — navy in both themes, so one set
+     that clears 4.5:1 on --code in each. */
+  --code-key: oklch(0.82 0.11 292);
+  --code-string: oklch(0.85 0.12 150);
+  --code-number: oklch(0.86 0.12 75);
+  --code-binding: oklch(0.82 0.1 238);
+  --code-comment: oklch(0.7 0.03 264);
 }
 .dark {
   /* Same specificity as :root above, so the dark coral is restated here. */
@@ -62,6 +69,11 @@ body,
   --color-nav-muted: var(--nav-muted);
   --color-code: var(--code);
   --color-code-foreground: var(--code-foreground);
+  --color-code-key: var(--code-key);
+  --color-code-string: var(--code-string);
+  --color-code-number: var(--code-number);
+  --color-code-binding: var(--code-binding);
+  --color-code-comment: var(--code-comment);
   --color-surface-2: var(--surface-2);
   --color-tone-ok: var(--tone-ok);
   --color-tone-warn: var(--tone-warn);

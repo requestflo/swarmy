@@ -61,6 +61,7 @@ import { jobsYesterday } from './resolvers/jobs-yesterday';
 import { appEnvironments } from './resolvers/app-environments';
 import { appPreviews } from './resolvers/app-previews';
 import { edgeGeoip } from './resolvers/edge-geoip';
+import { appsConfigFile } from './resolvers/apps-config-file';
 
 /**
  * Assembles every per-domain resolver module into flat lookup tables for the demo
@@ -131,6 +132,7 @@ const MODULES: DomainResolvers[] = [
   appEnvironments,
   appPreviews,
   edgeGeoip,
+  appsConfigFile,
 ];
 
 export const HANDLERS: Record<string, DemoHandler> = Object.assign(
