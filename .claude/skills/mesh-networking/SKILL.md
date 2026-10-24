@@ -66,7 +66,9 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
 10. **Every mesh mutation is org-scoped and audited.** `enrollNode`, `setDriver`,
     `setEnabled`, `setControlPlane`, `people.grant/revoke` all write `writeAudit`
     (`mesh.peer.join`, `mesh.setDriver`, …). Never mutate mesh
-    state without an audit row.
+    state without an audit row. Revoking a person's grant or device
+    (`mesh.people.revoke`/`revokeDevice`) is `abacProcedure('mesh.revoke')`,
+    owner/admin by default.
 
 ## Contracts between the layers
 
@@ -81,7 +83,7 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
   is netbird/headscale AND url+token are present, else an opaque-key stub. This
   is the mesh analog of ingress's `DriverDispatch`.
 - **Agent → controller telemetry**: the 20s `reportMeshState` loop in
-  `apps/agent/src/index.ts` calls `sampleMeshState()` and `conn.send('meshState',
+  `apps/agent/src/daemon.ts` calls `sampleMeshState()` and `conn.send('meshState',
   …)`. The gateway (`protocol-handlers.ts` `case 'meshState'`) folds it into
   the live peer map via `reconcileMeshPeer` (`packages/trpc/src/services/mesh-peers.ts`;
   a no-op for an unknown node unless it reports connected with an IP). Pure mapping
@@ -92,6 +94,15 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
   agent reports it, and a report without the field (an old agent) keeps what
   was known: never read a missing value as "direct". It is per SERVER, not per
   link, so the map draws every link of a relayed server through the relay.
+  Headscale's is read from `tailscale status --json` per ACTIVE peer
+  (`handlers/mesh-tailscale.ts`): a direct endpoint (`CurAddr`) is
+  peer-to-peer, `Relay`/`PeerRelay` without one is relayed, and with no active
+  peer the field is left out (unknown) — never a blanket `true`.
+- **A node that skips the mesh-first join says why.** `meshSkipReason`
+  (`apps/agent/src/mesh-startup.ts`) is the one line the daemon logs when
+  `SWARMY_ALLOW_MESH=false` or no setup key is configured; `doctor`'s mesh rung
+  shows it (see `skill("node-recovery")`). A repair one-liner moves the mesh
+  config as one unit (`apps/api/src/install/repair-env-sh.ts`).
 
 ## File map
 
@@ -109,8 +120,9 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
 | tRPC router (config/enroll/peers/people/control) | `packages/trpc/src/routers/mesh.ts` |
 | "Servers on the mesh" check (refuses turning the mesh off under them) | `packages/trpc/src/services/mesh-onmesh.ts` |
 | Encrypt/decrypt service token, random keys | `packages/core/src/crypto.ts` |
-| Agent: sidecar apply, `meshState` sampler | `apps/agent/src/handlers/mesh.ts` |
-| Agent: executor cases + `SWARMY_ALLOW_MESH` gate | `apps/agent/src/{executor,env,index}.ts` |
+| Agent: sidecar apply, `meshState` sampler | `apps/agent/src/handlers/mesh.ts` (Headscale's relayed: `mesh-tailscale.ts`; interface MTU + overlays: `mesh-mtu.ts`) |
+| Agent: executor cases + `SWARMY_ALLOW_MESH` gate + mesh-first join | `apps/agent/src/{executor,env,daemon,mesh-startup}.ts` |
+| Overlay MTU (option + check) and "Networks are too big for the mesh" | `packages/core/src/overlay-mtu{,-check}.ts`, `packages/trpc/src/services/mesh-mtu.service.ts` (`mesh.mtu`) |
 | Live peer map (no table) + `reconcileMeshPeer` | `packages/trpc/src/services/mesh-peers.ts` |
 | Gateway `meshState` → live peer map | `apps/api/src/gateway/protocol-handlers.ts` |
 | DB models | `packages/db/prisma/schema/mesh.prisma` (MeshRoute: `kind=person` grants) |

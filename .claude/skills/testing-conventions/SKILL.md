@@ -18,7 +18,7 @@ is defined below. To run the app under test locally, see `skill("run-local")`.
    test`, whose pipeline `dependsOn: ["^build"]` (turbo.json) so a package's deps
    are built before its tests run. Do not add a vitest/jest config.
 2. **Tests are colocated as `*.test.ts` next to the source they cover** —
-   `packages/dns/src/answer.test.ts`, `apps/agent/src/handlers/mesh.test.ts` — not
+   `packages/dns/src/answer.test.ts`, `apps/agent/src/handlers/mesh-pin.test.ts` — not
    a top-level `test/` tree. The file under test and its test are siblings so a
    package moves as one unit.
 3. **Fixtures are inline literals, not a `fixtures/` directory.** There is no
@@ -38,7 +38,17 @@ is defined below. To run the app under test locally, see `skill("run-local")`.
    migrated SQLite store in a temp dir (`db` + `telemetry` clients; call
    `close()` in `afterEach`). If a change is only testable against a real socket/DB, the logic
    is in the wrong place; move it into `packages/*` and test it there (same rule
-   the DNS/ingress "render pure, apply at the edge" split enforces).
+   the DNS/ingress "render pure, apply at the edge" split enforces). Two
+   sanctioned exceptions: `*.integration.test.ts` against a real engine,
+   self-skipping (`describe.skipIf`) so a laptop stays green — a real
+   ClickHouse from `SWARMY_CLICKHOUSE_URL` for the observability SQL builders,
+   a Docker daemon for the agent's Valkey queue test (a swarm manager for
+   swarm-kv's),
+   `SWARMY_STUDIO_IT=1` for the agent's studio engines; and rendered shell
+   snippets run against stub tools that record argv/stdin or a real temp file
+   (`cache-policy.test.ts`, the app-DB scripts, `repair-env-sh.test.ts`). A
+   test that waits out a script's own retry loop sets its own timeout
+   (`}, 30_000)`); bun's 5 s default flakes under a full parallel run.
 5. **Every protocol message has a round-trip / discriminated-union parse test.**
    The pattern (`packages/core/src/protocol/swarm.test.ts`): `safeParse` a minimal
    payload and assert defaults; `safeParse` a wrong/partial payload and assert
@@ -89,9 +99,13 @@ is defined below. To run the app under test locally, see `skill("run-local")`.
   `commitlint` lints PR commits; `pr-title.yml` lints the PR title; `e2e.yml`
   runs the headline self-host e2e (below); `release.yml` runs semantic-release on
   `main`. The `test` job runs `bun run test` (every workspace's unit gates) on
-  every push and PR. No database service is needed for it: DB-touching tests use
+  every push and PR — the dashboard's too, since `apps/app` gained its
+  `"test": "bun test"` script (2026-10-24; its suite had never run in CI, and
+  one golden had gone stale unseen). No database service is needed for it: DB-touching tests use
   `createTestDb()`. Tests that need a Docker daemon (e.g. the agent's real-Valkey
   queue test) skip when there is none, so a laptop without Docker stays green.
+  `e2e-cluster.yml` (nightly and on demand) runs the multi-node rehearsal on
+  docker-in-docker "nodes".
 - **Test → source purity**: a test importing from `@swarmy/core`,
   `@swarmy/ingress`, `@swarmy/dns`, `@swarmy/abac`, `@swarmy/mesh` gets pure
   functions; a test in `packages/trpc/src/services` mocks `OrgContext`/the hub.
@@ -108,14 +122,16 @@ is defined below. To run the app under test locally, see `skill("run-local")`.
 | Compose two-way golden round-trip corpus | `packages/core/src/compose/round-trip.test.ts`, `to-spec.test.ts` |
 | ABAC / Cedar policy units | `packages/abac/src/{engine,cedar,build,grants}.test.ts`, `packages/trpc/src/abac.test.ts`, `packages/{trpc,api-rest}/src/destructive-gates.test.ts` (every destructive mutation is policy-gated) |
 | GC "never delete in-prod digest" | `packages/trpc/src/services/image-gc.test.ts` (`computeGcPlan`, `bareDigest`) |
-| Ingress/render golden (site-block ordering) | `packages/ingress/src/render/{caddyfile,cold,nginx}.test.ts` |
+| Ingress/render golden (site-block ordering) | `packages/ingress/src/render/{caddyfile,cold,connector,app-auth,rum}.test.ts` |
 | DNS core (steer/answer/wire/compose/signature) | `packages/dns/src/*.test.ts` |
-| Controller-service units (mock `OrgContext`) | `packages/trpc/src/services/*.test.ts` (~50 files) |
-| Agent handler units | `apps/agent/src/handlers/{mesh,terminal,prune}.test.ts` |
+| Controller-service units (mock `OrgContext`) | `packages/trpc/src/services/*.test.ts` (~240 files) |
+| Agent handler units (+ the local exec veto and runOnce bind refusals) | `apps/agent/src/handlers/*.test.ts` (e.g. `{mesh-pin,terminal,prune}.test.ts`), `apps/agent/src/executor-veto.test.ts` |
+| Dashboard units (pure models and helpers beside the components) | `apps/app/src/**/*.test.ts` (run by `bun run test` + CI) |
+| Opt-in integration tests (self-skipping) | `**/*.integration.test.ts` (`packages/trpc/src/services/observability-*.clickhouse.integration.test.ts`, `apps/agent/src/handlers/{queue-op,studio}.integration.test.ts`, `packages/core/src/swarm-kv.integration.test.ts`) |
 | Marketing smoke (no backend) | `apps/e2e/tests/smoke.spec.ts`, `apps/e2e/playwright.config.ts` |
 | Demo smoke (built dashboard, no API/DB) | `apps/e2e/demo-smoke.ts` |
 | Headline self-host e2e (real install → ONLINE → deploy → HTTPS) | `scripts/e2e-smoke.sh`, `.github/workflows/e2e.yml` |
-| CI gates | `.github/workflows/{ci,e2e,pr-title,release,images}.yml` |
+| CI gates | `.github/workflows/{ci,e2e,e2e-cluster,pr-title,release,images}.yml` |
 | Conventional-commit rules (scopes = workspaces) | `commitlint.config.mjs` |
 
 ## Adding a test (the recipe)

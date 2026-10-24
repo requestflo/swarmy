@@ -7,7 +7,8 @@ description: Run swarmy locally — the dev servers (controller API :3021 + dash
 
 The controller needs **no backing services**. Its store is embedded SQLite
 (`bun:sqlite`, in-process): two files, `control.db` (every model) and
-`telemetry.db` (`MetricSample` only), in `SWARMY_DATA_DIR`. Unset, that is
+`telemetry.db` (history only: metric samples, edge traffic rollups, data and
+query history), in `SWARMY_DATA_DIR`. Unset, that is
 `<repo>/.swarmy/data` (gitignored). The controller creates the files and applies
 migrations on boot (`ensureSchema`). The dev servers (Bun/Vite via Turbo) read the
 repo-root `.env`.
@@ -42,8 +43,8 @@ bun dev:app                   # API :3021 + dashboard :3023
 ```
 
 Then open **http://localhost:3023**. With no session it redirects to `/login`;
-create an account (or "Sign up" for the first one), then **Settings → Tokens** to
-mint a node join token. Verify the API directly with
+create an account (or "Sign up" for the first one), then **Servers → Add a
+server** (`/nodes/new`) to mint a node join token. Verify the API directly with
 `curl http://localhost:3021/health` → `{"ok":true,...}`.
 
 When driving the browser to verify a change, **screenshot and actually look** —
@@ -81,8 +82,14 @@ troubleshooting (swarm init, socket perms, remote-node onboarding, demo mode):
 **Multi-node (real VMs)** — for a genuine multi-node swarm with the production
 install path (Bun-compiled agent binary under systemd, downloaded from the
 controller), use `bun run dev:vms up`. It launches [Lima](https://lima-vm.io)
-VMs (native arm64, QEMU + `hvf` on Apple Silicon) and enrolls each via
-`curl | sh`. See `scripts/local-vms.sh` and `docs/LOCAL-SWARM.md` §4.
+VMs (native arm64 on Virtualization.framework, Lima's `vz` type) and enrolls
+each via `curl | sh`. Each VM gets a 20 GiB disk (`SWARMY_VM_DISK`; fixed at
+creation, so `down` then `up` to grow an older one) and, by default
+(`SWARMY_VM_NETWORK=fabric`), `vzNAT` for the Mac plus `lima:user-v2` for
+VM-to-VM traffic, so two VMs form one swarm without the mesh; `slirp` keeps
+Lima's default, where VMs can't reach each other. With a NetBird account each
+VM gets its own single-use mesh key and `SWARMY_ALLOW_MESH=true`. See
+`scripts/local-vms.sh` and `docs/LOCAL-SWARM.md` §4.
 
 **Demo mode** — visit the dashboard with `?demo=1` for a zero-backend, in-memory
 interactive demo (no Docker/DB/agent needed). The flag is sticky in
@@ -93,7 +100,7 @@ interactive demo (no Docker/DB/agent needed). The flag is sticky in
 | File | Holds | Override |
 |---|---|---|
 | `$SWARMY_DATA_DIR/control.db` | every control-plane model | `SWARMY_DB_PATH` |
-| `$SWARMY_DATA_DIR/telemetry.db` | `MetricSample` only | `SWARMY_TELEMETRY_DB_PATH` |
+| `$SWARMY_DATA_DIR/telemetry.db` | history only (`MetricSample`, `EdgeTrafficRollup`, Pg query and data-stat samples) | `SWARMY_TELEMETRY_DB_PATH` |
 
 `SWARMY_DATA_DIR` defaults to `<repo>/.swarmy/data` in dev and is
 `/var/lib/swarmy/data` in prod. The files run in WAL mode, so you also see
@@ -112,7 +119,7 @@ interactive demo (no Docker/DB/agent needed). The flag is sticky in
   `ensureSchema` to a scratch file and fails on drift.
 - Restart the controller (or re-run `seed-dev`) to apply it locally.
 - There is no `db:push` / `db:migrate`. `prisma db push` can't be used: Prisma
-  renders `Json @default("{}")` unquoted in SQLite DDL; `scripts/migration.ts`
+  renders `Json @default("{}")` unquoted in SQLite DDL; `packages/db/scripts/migration.ts`
   fixes that in the generated SQL.
 
 ## How env reaches each tool
