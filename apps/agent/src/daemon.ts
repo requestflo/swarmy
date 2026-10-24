@@ -15,7 +15,7 @@ import { checkOverlayKeying, ensureMeshPin } from './handlers/mesh-pin';
 import { defaultDiskDeps, mountReturningDisks } from './handlers/disk';
 import { checkOverlayCarrier } from './handlers/overlay-heal';
 import { swarmRejoinInFlight } from './handlers/swarm';
-import { superviseMeshControl } from './handlers/mesh-control';
+import { meshControlLeaseTick, superviseMeshControl } from './handlers/mesh-control';
 import { superviseMeshRelay } from './handlers/mesh-relay';
 import { detectPublicIp, detectReachability, setObservedPublicIp } from './public-ip';
 import { sampleIngressStatus } from './handlers/ingress-status';
@@ -239,7 +239,18 @@ export async function runDaemon(): Promise<void> {
     if (line !== lastMeshRelay) log(`mesh relay ${line}`);
     lastMeshRelay = line;
   };
-  void meshControlTick().then(() => meshRelayTick());
+  // Its raft lease renews on its own 10 s timer (a slow converge must not
+  // starve the renewals); the first read comes before the first converge, so
+  // a restart never kills a Litestream that is still ours.
+  let lastMeshLease = '';
+  const meshLeaseTick = async () => {
+    const v = await meshControlLeaseTick(docker).catch(() => null);
+    const line = v ? `${v.state}${v.epoch != null ? ` (epoch ${v.epoch})` : ''}${v.state !== 'held' && v.why ? `: ${v.why}` : ''}` : '';
+    if (line && line !== lastMeshLease) log(`mesh control-plane lease ${line}`);
+    lastMeshLease = line;
+  };
+  void meshLeaseTick().then(() => meshControlTick()).then(() => meshRelayTick());
+  const meshLeaseTimer = setInterval(() => void meshLeaseTick(), 10_000);
   const meshControlTimer = setInterval(() => void meshControlTick().then(() => meshRelayTick()), 10_000);
 
   // QA-085: a swarmy disk that came back after a reboot unmounted (empty
@@ -627,6 +638,7 @@ export async function runDaemon(): Promise<void> {
     clearInterval(firewallTimer);
     clearInterval(forwarderTimer);
     clearInterval(meshControlTimer);
+    clearInterval(meshLeaseTimer);
     clearInterval(overlayHealTimer);
     stopBeacon();
     localSocket?.stop();

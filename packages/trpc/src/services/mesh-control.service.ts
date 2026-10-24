@@ -50,7 +50,7 @@ import { isMeshCidr } from './mesh-onmesh';
 import { objectStoreState, provisionSystemBucketKey, retireSupersededSystemKeys } from './buckets.service';
 import { reconcileEdgeRelays, relayCard, relayVhostsFor, relaysWanted } from './mesh-relay.service';
 import { meshRelayLive } from './mesh-relay-live';
-import { staleControlPlanes } from './mesh-control-fence';
+import { leaseWarning, movingAwayFrom, staleControlPlanes } from './mesh-control-fence';
 
 /** The swarmy OIDC client NetBird's Dex uses as its connector (confidential). */
 export const MESH_OIDC_CLIENT_ID = 'swarmy-mesh';
@@ -319,6 +319,8 @@ export async function getControlPlaneCard(ctx: OrgContext): Promise<ControlPlane
   else if (status.waitingForConfig) warnings.push('The control plane restarted and is waiting for its config from the agent.');
   else if (!status.healthy) warnings.push('The control plane is running but not answering its health check.');
   if (!m.litestream) warnings.push('Not backed up yet: turn on object storage and swarmy starts Litestream to it.');
+  const leaseLine = leaseWarning(status);
+  if (leaseLine) warnings.push(leaseLine);
   if (m.meshDomain.endsWith('.sslip.io')) warnings.push(`${m.meshDomain} follows this node's IP, so moving the control plane means everyone signs in again. Use a domain you control to make moves seamless.`);
   if (m.bootstrapTls && !m.handedOverAt) {
     warnings.push(
@@ -576,10 +578,17 @@ export async function moveControlPlane(ctx: OrgContext, targetNodeId: string): P
     });
   }
   if (!ctx.hub.isOnline(targetNodeId)) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'the target node is offline' });
+  // The lease lives in raft and the host renews it through its own socket.
+  if (!ctx.hub.managerNodes(ctx.activeOrgId).includes(targetNodeId)) {
+    throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'move the control plane to a swarm manager: only a manager can hold its lease' });
+  }
   const from = await controlNode(ctx, m);
   if (from === targetNodeId) return getControlPlaneCard(ctx);
-  if (from && ctx.hub.isOnline(from)) {
-    await ctx.hub.dispatch(from, 'mesh.control', { action: 'stop' }, { timeoutMs: 60_000 });
+  // Stop (and release the lease on) every online node that runs one, not just
+  // the one we think hosts it. A dark one can't answer: the target then waits
+  // out its lease (a full TTL), and it fences itself when it comes back.
+  for (const node of movingAwayFrom(from, meshControlLive.all(ctx.activeOrgId), targetNodeId)) {
+    if (ctx.hub.isOnline(node)) await ctx.hub.dispatch(node, 'mesh.control', { action: 'stop' }, { timeoutMs: 60_000 });
   }
   // An edge relay with STUN on the target holds UDP 3478, which NetBird takes
   // when it runs its own relay: stop it first (the relay reconcile re-adds it).
@@ -597,7 +606,7 @@ export async function moveControlPlane(ctx: OrgContext, targetNodeId: string): P
     action: 'mesh.control.move',
     targetType: 'meshConfig',
     targetId: ctx.activeOrgId,
-    metadata: { from, to: targetNodeId, restored: st.restored ?? null },
+    metadata: { from, to: targetNodeId, restored: st.restored ?? null, leaseEpoch: st.lease?.epoch ?? null },
   });
   return getControlPlaneCard(ctx);
 }

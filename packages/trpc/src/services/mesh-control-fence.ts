@@ -9,11 +9,13 @@
  * Pure. Never fences while the current control plane isn't up and healthy:
  * a stale `controlNodeId` must never take down the only running one.
  *
- * Still open (the plan's lease): a returning node runs the old control plane
- * until the controller hears from it (≤ one 30 s tick, longer if the
- * controller is dark too). A raft-backed `swarmy.mesh.control.lease` the
- * container must renew would close that window without the controller.
+ * Belt and braces since the raft lease (@swarmy/core/protocol
+ * mesh-control-lease.ts): the returning node's own agent now fences itself
+ * on its first lease read, before Litestream gets a config, with or without
+ * the controller. This catches what the lease can't see: a worker host
+ * (unleased) or an agent with the lease switched off.
  */
+import type { MeshControlStatus } from '@swarmy/core/protocol';
 import type { LiveMeshControl } from './mesh-peers';
 
 export function staleControlPlanes(reports: readonly LiveMeshControl[], controlNodeId: string | null | undefined): string[] {
@@ -24,4 +26,23 @@ export function staleControlPlanes(reports: readonly LiveMeshControl[], controlN
     .filter((r) => r.nodeId !== controlNodeId && r.status.running)
     .map((r) => r.nodeId)
     .sort();
+}
+
+/** Every node a move must stop first: the one we think hosts it, and any other that reports one running. */
+export function movingAwayFrom(from: string | null | undefined, reports: readonly LiveMeshControl[], target: string): string[] {
+  const nodes = new Set(reports.filter((r) => r.status.running).map((r) => r.nodeId));
+  if (from) nodes.add(from);
+  nodes.delete(target);
+  return [...nodes].sort();
+}
+
+/** The card's one line about the lease, in plain words (null = nothing to say). */
+export function leaseWarning(status: MeshControlStatus | null | undefined): string | null {
+  const l = status?.lease;
+  if (!l || !status?.running) return null;
+  const holder = l.holderHostname ?? l.holderNode ?? 'another server';
+  if (l.state === 'lost') return `This server lost the control-plane lease to ${holder} and stopped.`;
+  if (l.state === 'waiting') return `Waiting for ${holder} to let go of the control-plane lease (up to a minute after it stops renewing).`;
+  if (l.state === 'silent' && !l.replicate) return 'The swarm has not confirmed the control-plane lease lately, so backups to the replica are paused. NetBird keeps running.';
+  return null;
 }

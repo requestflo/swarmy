@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { CommandId } from './primitives';
 import { MeshRelayStatus } from './mesh-relay';
+import { MeshControlLeaseView } from './mesh-control-lease';
 import { RegistryAuth } from './commands';
 
 /**
@@ -289,6 +290,8 @@ export const MeshControlStatus = z.object({
     .optional(),
   restored: z.boolean().optional(),
   error: z.string().optional(),
+  /** This node's view of the control-plane lease (mesh-control-lease.ts). Absent on older agents. */
+  lease: MeshControlLeaseView.optional(),
 });
 export type MeshControlStatus = z.infer<typeof MeshControlStatus>;
 

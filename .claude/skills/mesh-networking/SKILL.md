@@ -130,6 +130,7 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
 | NetBird Admin API slice + the people/bootstrap diff (namespaced `swarmy:<c>:*`) | `packages/mesh/src/control-plane/{netbird-admin,people-sync}.ts` |
 | People access: names, `declaredPorts`, `buildPeopleAccessPlan`, `planUserSync`, `dexSubject` | `packages/mesh/src/people.ts` |
 | Agent: `swarmy-mesh-control` supervisor (tmpfs config, cold-boot copy, Litestream sidecar) | `apps/agent/src/handlers/mesh-control.ts` (+ 10 s tick in `daemon.ts`) |
+| Control-plane raft lease: rules (pure, pinned to the controller store's lease), the object (config labels, CAS), the agent's runner | `packages/core/src/protocol/mesh-control-lease.ts`, `apps/agent/src/handlers/mesh-control-lease{,-store}.ts`, pin `apps/api/src/controller-store/mesh-lease-pin.test.ts` |
 | Agent: `swarmy-access-<stack>` routers (+ VIP resolve over Docker DNS) | `apps/agent/src/handlers/access-router.ts` |
 | Controller: managed control plane (card, reconcile, connector, break-glass, move, edge vhost) | `packages/trpc/src/services/mesh-control.service.ts` |
 | Controller: people access (intent, routers, sync, connect info, who's connected, grants) | `packages/trpc/src/services/mesh-people.service.ts` |
@@ -175,6 +176,17 @@ For a whole cross-stack feature (db → protocol → service → router → UI) 
   store key) lives only in the container's tmpfs, written via `docker exec`;
   the agent's 0600 copy in its state dir restores it after a restart even when
   the controller is unreachable (cold-boot deadlock otherwise).
+- **One host, fenced by a raft lease.** The `swarmy.mesh.control.lease`
+  label on the Docker config `swarmy-mesh-control-lease` (config labels are
+  version-checked like a service spec), renewed every 10 s by the host's own
+  agent (a manager; a worker host runs unleased). Same rules as the controller
+  store: epoch fencing, takeover only after watching the same write for a full
+  TTL, holder fences TTL − margin after its last renewal was sent. Litestream
+  gets its config only under a fresh lease and is SIGKILLed at that deadline.
+  A node that sees another holder without being told to host (the returning
+  old node of a move) stops and forgets its control plane before Litestream
+  starts. Silence never stops NetBird itself: raft may ride the mesh after a
+  cold boot. A move's `restore` waits for the lease; `stop` releases it.
 - The combined server ignores `disableDefaultPolicy`: the bootstrap deletes the
   All↔All `Default` policy before any peer joins. `NB_DISABLE_GEOLOCATION=true`
   (not `disableGeoliteUpdate`) stops the 73 MB download. `:9000/health` is the

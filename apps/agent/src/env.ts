@@ -74,6 +74,10 @@ export const env = {
   TERM_MAX_OUTPUT_BYTES: Number(process.env.SWARMY_TERM_MAX_OUTPUT_BYTES ?? 64 * 1024 * 1024),
   // Mesh provisioning is on by default; a node can opt out (epic #6).
   ALLOW_MESH: (process.env.SWARMY_ALLOW_MESH ?? 'true') === 'true',
+  // The self-hosted mesh control plane runs (and replicates) only under its
+  // raft lease (handlers/mesh-control-lease.ts); `off` is the escape hatch
+  // back to the unleased behaviour.
+  MESH_CONTROL_LEASE: (process.env.SWARMY_MESH_CONTROL_LEASE ?? 'on') !== 'off',
   // Disk hygiene (periodic prune of stopped one-shots / unused images / build
   // cache) is on by default; SWARMY_ALLOW_HYGIENE=false vetoes it on this node.
   ALLOW_HYGIENE: (process.env.SWARMY_ALLOW_HYGIENE ?? 'true') !== 'false',

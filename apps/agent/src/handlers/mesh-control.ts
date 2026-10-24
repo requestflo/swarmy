@@ -32,8 +32,9 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { DockerClient, defaultContainerLogConfig } from '@swarmy/core/docker';
-import type { ApplyMeshControlPayload, MeshControlSpec, MeshControlStatus } from '@swarmy/core/protocol';
+import { MESH_LEASE, type ApplyMeshControlPayload, type MeshControlLeaseView, type MeshControlSpec, type MeshControlStatus } from '@swarmy/core/protocol';
 import { env } from '../env';
+import { leaseForHosting, leasePending, leaseTick, leaseView, mayReplicate, releaseLease, resetLease, type LeaseHooks } from './mesh-control-lease';
 import { enforceMeshFirewall } from './mesh-firewall';
 import { MESH_FRONT_CONTAINER, ensureMeshFront } from './mesh-front';
 import { agentPackaging } from './update';
@@ -347,8 +348,12 @@ async function restoreInto(docker: DockerClient, spec: MeshControlSpec): Promise
   return true;
 }
 
-/** Converge the container onto `spec`. Restart only when the image or config changed. */
-async function converge(docker: DockerClient, spec: MeshControlSpec): Promise<MeshControlStatus> {
+/**
+ * Converge the container onto `spec`. Restart only when the image or config
+ * changed. Litestream gets its config only while the lease lets it ship
+ * (`replicate`); otherwise it is left as it is (the lease's timer kills it).
+ */
+async function converge(docker: DockerClient, spec: MeshControlSpec, replicate: boolean): Promise<MeshControlStatus> {
   const d = docker.docker;
   const cur = await inspectOrNull(docker, MESH_CONTROL_CONTAINER);
   const wantHash = sha256(spec.configYaml);
@@ -371,6 +376,7 @@ async function converge(docker: DockerClient, spec: MeshControlSpec): Promise<Me
     if (spec.caPem) await writeInto(docker, MESH_CONTROL_CONTAINER, `${CONFIG_DIR}/extra-ca.pem`, spec.caPem);
     await writeInto(docker, MESH_CONTROL_CONTAINER, CONFIG_FILE, spec.configYaml);
   }
+  if (!replicate && spec.litestream) return statusOf(docker);
   const litestream = await ensureLitestream(docker, spec).catch((e: unknown) => ({
     running: false,
     lastError: e instanceof Error ? e.message : String(e),
@@ -392,33 +398,81 @@ async function statusOf(docker: DockerClient, extra: Partial<MeshControlStatus> 
     waitingForConfig: running && !hash,
     startedAt: cur.State?.StartedAt,
     ...(ls ? { litestream: ls } : {}),
+    lease: leaseView(),
     ...extra,
   };
 }
+
+/** Stop the control plane here and forget it (the volume stays). Never touches the lease. */
+async function stopLocal(docker: DockerClient): Promise<void> {
+  await docker.docker.getContainer(MESH_LITESTREAM_CONTAINER).remove({ force: true }).catch(() => undefined);
+  await docker.docker.getContainer(MESH_CONTROL_CONTAINER).remove({ force: true }).catch(() => undefined);
+  // …and the persisted copy a reboot would seed an old control plane from.
+  await docker.docker.getVolume(MESH_CONTROL_CONF_VOLUME).remove().catch(() => undefined);
+  await ensureMeshFront(docker, null, logFront);
+  await forgetLocal();
+}
+
+const leaseHooks = (docker: DockerClient): LeaseHooks => ({
+  fence: () => stopLocal(docker),
+  // SIGKILL, not stop: no final sync into a replica that may have a new writer.
+  killReplica: () => docker.docker.getContainer(MESH_LITESTREAM_CONTAINER).kill().then(() => undefined, () => undefined),
+  log: logFront,
+});
+/** A takeover waits out the old holder's write for a full TTL, plus a few renew rounds. */
+const HOSTING_LEASE_BUDGET_MS = MESH_LEASE.ttlMs + 15_000;
+let hosting = 0;
 
 /** The `applyMeshControl` command. */
 export async function applyMeshControl(docker: DockerClient, p: ApplyMeshControlPayload): Promise<MeshControlStatus> {
   if (p.action === 'status') return statusOf(docker);
   if (p.action === 'stop') {
-    // Fence: stop the server (and its replica writer), forget the local copy
-    // so a reboot doesn't bring an old control plane back. The volume stays.
-    await docker.docker.getContainer(MESH_LITESTREAM_CONTAINER).remove({ force: true }).catch(() => undefined);
-    await docker.docker.getContainer(MESH_CONTROL_CONTAINER).remove({ force: true }).catch(() => undefined);
-    // …and the persisted copy a reboot would seed an old control plane from.
-    await docker.docker.getVolume(MESH_CONTROL_CONF_VOLUME).remove().catch(() => undefined);
-    await ensureMeshFront(docker, null, logFront);
-    await forgetLocal();
+    // Fence: stop the server and its replica writer, forget the local copy so
+    // a reboot doesn't bring an old control plane back, THEN release the
+    // lease so the next host takes over at once (never before Litestream is gone).
+    await stopLocal(docker);
+    await releaseLease(docker);
     return { running: false, healthy: false, waitingForConfig: false };
   }
   if (!p.spec) throw new Error(`applyMeshControl ${p.action} needs a spec`);
-  let restored: boolean | undefined;
-  if (p.action === 'restore') {
-    await docker.docker.getContainer(MESH_CONTROL_CONTAINER).remove({ force: true }).catch(() => undefined);
-    restored = await restoreInto(docker, p.spec);
+  hosting++;
+  try {
+    // Only the lease holder runs the control plane: take it (or wait out the old holder) first.
+    const lease = await leaseForHosting(docker, leaseHooks(docker), HOSTING_LEASE_BUDGET_MS);
+    if (lease.state === 'waiting' || (lease.state === 'silent' && p.action === 'restore')) {
+      throw new Error(`the mesh control-plane lease is not ours: ${lease.why ?? lease.state}`);
+    }
+    let restored: boolean | undefined;
+    try {
+      if (p.action === 'restore') {
+        await docker.docker.getContainer(MESH_CONTROL_CONTAINER).remove({ force: true }).catch(() => undefined);
+        restored = await restoreInto(docker, p.spec);
+      }
+      await saveLocal(p.spec);
+    } catch (e) {
+      // Nothing runs here: hand the lease back so a retry elsewhere needn't wait a TTL.
+      if (p.action === 'restore') await releaseLease(docker);
+      throw e;
+    }
+    const st = await converge(docker, p.spec, mayReplicate());
+    return restored === undefined ? st : { ...st, restored };
+  } finally {
+    hosting--;
   }
-  await saveLocal(p.spec);
-  const st = await converge(docker, p.spec);
-  return restored === undefined ? st : { ...st, restored };
+}
+
+/**
+ * The 10 s lease tick (daemon.ts), independent of the controller and of the
+ * supervisor: renew while this node holds a spec (or is taking over).
+ */
+export async function meshControlLeaseTick(docker: DockerClient): Promise<MeshControlLeaseView | null> {
+  if (!env.ALLOW_MESH) return null;
+  if (!hosting && !(await loadLocalSpec())) {
+    // Nothing to hold here; keep a takeover's observation for its retry.
+    if (!leasePending()) resetLease();
+    return null;
+  }
+  return leaseTick(docker, leaseHooks(docker));
 }
 
 let supervising = false;
@@ -440,7 +494,17 @@ export async function superviseMeshControl(docker: DockerClient): Promise<MeshCo
       if (await inspectOrNull(docker, MESH_FRONT_CONTAINER)) await ensureMeshFront(docker, null, logFront);
       return null;
     }
-    const st = await converge(docker, spec);
+    // Litestream runs only while the lease lets it ship (an agent restart that
+    // can't confirm the lease must not leave the old one running).
+    const replicate = mayReplicate();
+    if (!replicate) await docker.docker.getContainer(MESH_LITESTREAM_CONTAINER).kill().catch(() => undefined);
+    const st = await converge(docker, spec, replicate);
+    // A fence (or a stop) that landed while we converged: it forgot the spec,
+    // so whatever this tick just (re)started must go too.
+    if (!(await loadLocalSpec())) {
+      await stopLocal(docker);
+      return null;
+    }
     // QA-066 (f): this node's mesh client must reach signal without the swarm edge.
     await ensureMeshFront(docker, spec.configYaml, logFront);
     // QA-014: metrics / legacy gRPC / health never answer off-host.
