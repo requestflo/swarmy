@@ -1,7 +1,8 @@
 # Test VMs (Lima, ~4.8G disk) chronically fill up from Docker/apt/kernel-header bloat
 
-**Status:** Open — environment/provisioning gap, not a swarmy code bug. Worked around manually
-each time it's hit during this session's testing.
+**Status:** Fixed (2026-10) in `scripts/local-vms.sh` — 20 GiB disks by default and a hygiene step
+before every enroll. The script is syntax-checked and the hygiene step was run in an
+`ubuntu:24.04` container; not yet run end to end on Lima VMs.
 
 ## Symptom
 
@@ -27,3 +28,36 @@ Either provision the test VMs with more disk headroom (`scripts/local-vms.sh`), 
 periodic/pre-flight disk-space check + cleanup (`docker system prune`, apt cache clean) to the
 VM provisioning script or to `swarmy-agent doctor`, so this doesn't silently recur on every
 extended local test session.
+
+## Fix applied (2026-10)
+
+`scripts/local-vms.sh`:
+
+- **Disk:** `SWARMY_VM_DISK` defaults to `20G` (was `6G`, about 4.8 GiB usable). It is still an env
+  knob. Lima fixes the size when a VM is created, so for an existing, smaller VM `up` and `reenroll`
+  print a warning to recreate it (`down`, then `up`).
+- **Hygiene before every (re-)enroll** (`prepare_vm`, as root on the VM, idempotent, time-boxed):
+  - journald capped with `SystemMaxUse=100M` (`SWARMY_VM_JOURNALD_MAX`) in
+    `/etc/systemd/journald.conf.d/zz-swarmy-vm.conf`, then vacuumed. This keeps the cap from this
+    session, and the file sorts after the installer's own `swarmy.conf` (500M), so it wins.
+  - apt keeps no downloaded `.deb`s: `APT::Keep-Downloaded-Packages "false"` plus a `DPkg::Post-Invoke`
+    cleanup, the same rule Docker's ubuntu image uses.
+  - Kernel headers never pile up: `path-exclude=/usr/src/linux-headers-*` in `/etc/dpkg/dpkg.cfg.d/`.
+    Kernel updates still install, but their header trees are not unpacked. Existing trees are
+    removed.
+  - Old kernels are removed with `apt-get autoremove --purge` (lock-bounded), then `apt-get clean`.
+  - The step prints the VM's disk use.
+- **Leaner VMs:** VMs are created with `--containerd=none`. Docker is the engine, so Lima's default
+  rootless containerd and nerdctl only cost disk and memory.
+- **Docker image bloat** is left to the product: the controller's node-hygiene worker
+  (`apps/api/src/workers/node-hygiene.ts`) prunes every 6 h, or after 30 min above 85% disk.
+  `swarmy-agent doctor`'s disk rung already warns at 85% and fails at 95%.
+
+Verified in an `ubuntu:24.04` container:
+
+- The apt and dpkg config parse.
+- Installing `linux-headers-generic` afterwards leaves `/usr/src` empty.
+- No `.deb`s stay cached.
+- A re-run is a no-op.
+
+Still to do: re-run on real Lima VMs.
