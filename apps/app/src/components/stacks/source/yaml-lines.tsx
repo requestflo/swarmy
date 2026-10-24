@@ -48,14 +48,17 @@ export const YamlLines = React.memo(function YamlLines({
         return (
           <div
             key={i}
-            className={cn('flex whitespace-pre', m?.changed ? 'bg-status-online/10' : n === cursorLine && 'bg-code-foreground/5')}
+            className={cn('flex whitespace-pre', m?.changed && !m.severity ? 'bg-status-online/10' : n === cursorLine && 'bg-code-foreground/5')}
             style={{ height: LINE_H, lineHeight: `${LINE_H}px` }}
           >
             <span className={cn('w-10 shrink-0 pr-2 text-right tabular-nums', n === cursorLine ? 'text-code-foreground' : 'text-code-comment')}>{n}</span>
             <span className="flex w-3.5 shrink-0 items-center justify-center">{dot ? <i className={cn('size-1.5 rounded-full', dot)} /> : null}</span>
-            <span className={cn('pl-2', m?.severity === 'error' && 'decoration-status-offline underline decoration-wavy underline-offset-[3px]')}>
+            <span className="pl-2">
               {highlightLine(line).map((t, k) => (
-                <span key={k} className={TOKEN[t.cls]}>
+                <span
+                  key={k}
+                  className={cn(TOKEN[t.cls], m?.severity === 'error' && t.text.trim() && 'decoration-status-offline underline decoration-wavy underline-offset-[3px]')}
+                >
                   {t.text}
                 </span>
               ))}

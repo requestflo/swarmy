@@ -8,10 +8,11 @@ import type { ConfigFileView } from './use-config-file';
 
 function Row({ k, children, chip }: { k: string; children: React.ReactNode; chip?: React.ReactNode }): React.JSX.Element {
   return (
-    <div className="border-border flex min-h-10 flex-wrap items-center gap-x-3 gap-y-1 border-b py-1.5 text-[13px] last:border-b-0">
-      <span className="text-muted-foreground w-28 shrink-0 text-[12.5px] font-semibold">{k}</span>
-      <span className="min-w-0 flex-1 break-words">{children}</span>
-      {chip ? <span className="ml-auto">{chip}</span> : null}
+    // Phone: label and chip on top, the value under them; wider: one row.
+    <div className="border-border grid min-h-10 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 border-b py-1.5 text-[13px] last:border-b-0 sm:grid-cols-[7rem_minmax(0,1fr)_auto]">
+      <span className="text-muted-foreground text-[12.5px] font-semibold">{k}</span>
+      <span className="order-3 col-span-2 min-w-0 break-words sm:order-2 sm:col-span-1">{children}</span>
+      <span className="order-2 justify-self-end sm:order-3">{chip}</span>
     </div>
   );
 }
@@ -51,7 +52,7 @@ export function SourceFacts({ app, branch, file, saved }: { app: GitApp; branch:
           {app.requireApproval ? 'Plans it, then waits for you' : 'Build, then deploy'}
         </Row>
         <Row k="Pull requests" chip={previews ? <ToneChip tone="info">previews on</ToneChip> : <ToneChip tone="idle">previews off</ToneChip>}>
-          {previews ? (base ? <>Preview at <span className="font-mono text-[12px]">pr-&lt;N&gt;.{base}</span></> : 'Previews on, once a base domain is set') : 'No previews'}
+          {previews ? (base ? <>Preview at{' '}<span className="font-mono text-[12px]">pr-&lt;N&gt;.{base}</span></> : 'Previews on, once a base domain is set') : 'No previews'}
         </Row>
       </div>
     </Section>

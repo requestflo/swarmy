@@ -26,6 +26,8 @@ describe('graphOf', () => {
     expect(byKind('job')).toEqual(['cache-warmup', 'reindex-search', 'sitemap']);
     expect(g.nodes.find((n) => n.id === 'service:web')?.meta).toBe('build ./web · ×3');
     expect(g.nodes.find((n) => n.id === 'resource:db')?.meta).toBe('postgres 16 · standby');
+    expect(g.nodes.find((n) => n.id === 'job:sitemap')?.meta).toBe('nightly at 03:30');
+    expect(g.nodes.find((n) => n.id === 'job:cache-warmup')?.meta).toBe('every hour');
   });
   it('links routes, jobs and bindings', () => {
     expect(g.edges).toContainEqual({ from: 'domain:shop.northwind.dev', to: 'service:web' });

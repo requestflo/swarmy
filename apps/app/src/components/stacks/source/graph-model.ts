@@ -1,4 +1,5 @@
 import type { ConfigIssue, DesiredApp, DesiredResource, DesiredService } from '@swarmy/app-config';
+import { scheduleWords } from '@/components/data/estate-data';
 
 /**
  * "What this file builds" (pure): app-config's `DesiredApp` as a graph —
@@ -57,7 +58,7 @@ export function graphOf(d: DesiredApp): Graph {
   const resources = new Set(d.resources.map((r) => r.name));
   const nodes: GraphNode[] = [
     ...d.routes.map((r) => ({ id: routeId(r.host, r.path), kind: 'domain' as const, name: clip(`${r.host}${r.path === '/' ? '' : r.path}`, 26), meta: '', sig: r.sig })),
-    ...d.jobs.map((j) => ({ id: `job:${j.name}`, kind: 'job' as const, name: j.name, meta: j.schedule, sig: j.sig })),
+    ...d.jobs.map((j) => ({ id: `job:${j.name}`, kind: 'job' as const, name: j.name, meta: clip(scheduleWords(j.schedule)), sig: j.sig })),
     ...d.services.map((s) => ({ id: `service:${s.name}`, kind: 'service' as const, name: s.name, meta: clip(serviceMeta(s)), sig: s.sig })),
     ...d.resources.map((r) => ({ id: `resource:${r.name}`, kind: 'resource' as const, name: r.name, meta: clip(resourceMeta(r)), sig: r.sig })),
   ];
