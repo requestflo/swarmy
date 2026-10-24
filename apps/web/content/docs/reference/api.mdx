@@ -37,14 +37,27 @@ dashboard apply to it.
 - Lists are paginated with a cursor: follow `next_cursor`.
 - Send an `Idempotency-Key` header on a POST, PUT, PATCH or DELETE to make a
   retry safe.
-- Deploys are asynchronous. Creating, scaling or restarting a service, or
-  deploying a stack, returns `202` with a deployment reference you can poll.
+- Deploys are asynchronous. Creating, updating (`PATCH /services/{id}`),
+  scaling or restarting a service, or deploying a stack, returns `202` with a
+  deployment reference you can poll.
+- A deploy a guardrail refuses returns `412` with each violation.
 
 ## Resources
 
-The API covers apps, git connections and repos, stacks, services, nodes, volumes,
-ingress domains, DNS records, mesh routes, registry credentials, backups,
-notifications, the audit log and API keys.
+The API covers apps, git connections and repos, stacks, services, nodes, join
+tokens, volumes, ingress domains, DNS records, mesh routes, registry
+credentials, backups, notifications, the audit log and API keys.
+
+`PATCH /services/{id}` changes a running service: its image, replicas,
+command, environment (including secret variables), resources, restart policy,
+update order and labels. Send only the fields you want to change. Ports,
+volumes, networks and placement can't be changed through it.
+
+Join tokens let a new server into the swarm. `POST /join-tokens` (admin only)
+returns the token once, with the mesh setup key when your organisation runs a
+mesh and the controller URL for the install one-liner. Only a hash is stored,
+so a lost token can't be shown again; revoke it with
+`DELETE /join-tokens/{id}` and mint another.
 
 ## SDKs
 
@@ -58,8 +71,20 @@ Each client takes an endpoint and an API key and appends `/api/v1` for you.
 
 ## Terraform
 
-The official provider, `requestflo/swarmy`, manages apps, git connections, git
-repos, stacks, services, nodes, domains and API keys as Terraform resources:
+The official provider, `requestflo/swarmy`, manages git connections, git repos,
+stacks, services, nodes, domains, API keys and join tokens as Terraform
+resources, and reads apps and nodes as data sources:
+
+- `swarmy_service` applies an image, env or command change with one
+  `PATCH /services/{id}` and waits for it to converge. A guardrail refusal
+  fails the apply with each violation.
+- `swarmy_join_token` mints a join token, imports one, and revokes it on
+  destroy. Changing `label`, `ttl_seconds`, `max_uses` or `profile` replaces
+  the token. The token, and the mesh setup key when your organisation runs a
+  mesh, are kept as sensitive values in state, with `install_url` for the
+  one-liner. A token revoked outside Terraform is recreated on the next apply.
+- `swarmy_api_key` refreshes by listing your keys; a key revoked or expired
+  outside Terraform is replaced on the next apply.
 
 ```hcl
 terraform {

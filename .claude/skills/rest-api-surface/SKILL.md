@@ -30,7 +30,9 @@ adapter contract.
    `resolveOrgContextFromBearer` (same file), which also accepts an OAuth JWT
    swarmy's OIDC provider issued for its own APIs (scopes `swarmy:read` /
    `swarmy:write`, audience `<base>/api/v1` or `<base>/mcp`; verifier in
-   `@swarmy/auth` `api-tokens.ts`). Never resolve a key anywhere
+   `@swarmy/auth` `api-tokens.ts`, which refuses a JWT whose `iat` is at or
+   before the user's `tokensRevokedAt`, stamped on sign-out and session
+   revocation). Never resolve a key anywhere
    else and never build a bespoke context for REST — downstream service calls
    must be byte-identical to a dashboard call. The `/mcp` endpoint
    (`apps/api/src/devx.ts`) has no principal of its own: its tools call REST
@@ -113,13 +115,40 @@ adapter contract.
 - **REST → services**: a handler gets `c.get('orgCtx')` (an `OrgContext`) and
   `c.get('apiKey')` (`{ id, scopes }`) off the Hono context (`RestEnv` in
   `middleware.ts`), then calls the service by name. Async mutations
-  (create/scale/restart service, deploy stack) return `202` + a
+  (create/update/scale/restart service, deploy stack) return `202` + a
   `DeploymentRefDto` (`{ id, deployment_id }`); clients poll the deployment to a
-  terminal phase.
+  terminal phase. `PATCH /services/{id}` is the twin of tRPC `services.update`
+  (image, replicas, command, env incl. secret vars, `remove_secret_keys`,
+  resources, restart policy, update order, labels; never ports, volumes,
+  networks or placement): `deploy` scope + `requireAction('service.configure')`,
+  and an admission refusal is a `412` carrying the violations.
+- **Join tokens over REST** (`routes/join-tokens.ts`, thin over
+  `token.service`): `GET /join-tokens` is `read`; `POST` is `write` +
+  `requireAdmin()` (the `adminProcedure` twin) and answers `201` with the
+  plaintext token ONCE, the mesh setup key when the org runs a mesh, and the
+  controller URL the one-liner should use; `DELETE /join-tokens/{id}` is
+  `write` + `requireAction('token.revoke')`. Only the hash is stored and the
+  list never carries it; app-scoped keys are refused (org-wide routes,
+  `app-scope.ts`).
 - **REST → wire spec**: the committed `packages/api-rest/openapi.json` is the
-  contract artifact. `terraform-provider-swarmy/openapi.json` and the SDKs are
-  generated from it (Speakeasy for Go; the Go SDK in `sdks/go` is reused as the
-  provider's client). Provider/SDK auth is `Authorization: Bearer swk_…`.
+  contract artifact. The SDKs' MODEL files (`sdks/{typescript/src/models.ts,
+  python/swarmy/models.py,go/models.go}`) are generated from it by
+  `scripts/gen-sdks.ts`; their client/resource layers are hand-written and must
+  gain each new route by hand (Go/Python/TS each have `services.update` and
+  join tokens). An optional `$ref` to an object becomes a Go pointer, and a
+  `$ref` to a nullable object is nullable in every language. The Terraform
+  provider has its OWN hand-written client
+  (`terraform-provider-swarmy/internal/client/*`) and keeps a copy of the spec
+  (`terraform-provider-swarmy/openapi.json`), refreshed with the contract.
+  Provider/SDK auth is `Authorization: Bearer swk_…`.
+- **Terraform resources ride existing routes**: `swarmy_service` applies image,
+  env and command changes through one `PATCH /services/{id}` polled to
+  convergence (a replica change alone stays a scale; a 412 lists each
+  violation); `swarmy_join_token` mints, imports and revokes join tokens
+  (`label`/`ttl_seconds`/`max_uses`/`profile` force a new token; the
+  plaintext and mesh key are sensitive and returned once; one revoked outside
+  Terraform is recreated); `swarmy_api_key` reads by listing `GET /api-keys`
+  (there is no per-key GET) and drops a key revoked outside Terraform.
 - **Pagination envelope**: list endpoints return `{ data: [...], next_cursor:
   string | null }` via `listEnvelope(item, name)` (`dto.ts`). Cursor is opaque;
   today several lists return `next_cursor: null` (full page) — keep the envelope
@@ -145,8 +174,10 @@ adapter contract.
 | Key lifecycle (mint/hash/list/revoke) | `packages/trpc/src/services/apiKeys.service.ts` |
 | Dashboard key management router | `packages/trpc/src/routers/apiKeys.ts` |
 | `/api/v1` mount + dep wiring | `apps/api/src/index.ts` |
-| Generated SDKs | `sdks/go`, `sdks/python`, `sdks/typescript` |
-| Terraform provider (SDK client + resources) | `terraform-provider-swarmy/internal/{client,provider}/*` |
+| SDKs (generated models + hand-written resources) | `sdks/go`, `sdks/python`, `sdks/typescript`; generator `scripts/gen-sdks.ts` |
+| Terraform provider (own client + resources, incl. `resource_join_token.go`) | `terraform-provider-swarmy/internal/{client,provider}/*`, examples `terraform-provider-swarmy/examples/resources/*` |
+| Join tokens + service update routes | `packages/api-rest/src/routes/{join-tokens,services}.ts` |
+| App-scoped key guard (org-wide routes refused) | `packages/api-rest/src/app-scope.ts` |
 
 ## Adding a REST endpoint (the recipe)
 
@@ -183,7 +214,7 @@ adapter contract.
   `idempotency.ts`) until the Prisma migration lands — mirror that pattern,
   don't add the column to the committed schema prematurely.
 - **Never widen a scope in a route to "make it work."** A GET is `read`;
-  shipping (deploy, create a stack or service, env patch, scale, restart,
+  shipping (deploy, create or update a stack or service, env patch, scale, restart,
   previews, promote, confirming held steps) is `deploy`; every other mutation
   is `write`. If a key lacks the scope it's
   `403 POLICY_DENIED`, which
