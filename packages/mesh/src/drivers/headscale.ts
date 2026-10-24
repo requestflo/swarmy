@@ -6,10 +6,12 @@ import type {
   MeshValidationResult,
   ProvisionNodeOpts,
 } from '../types';
+import { TAILSCALE_CLIENT_IMAGE_PINNED } from '../images';
 
 /** Headscale uses the official Tailscale client; default tailscale interface. */
 export const HEADSCALE_INTERFACE = 'tailscale0';
-export const HEADSCALE_CLIENT_IMAGE = 'tailscale/tailscale:latest';
+/** Pinned by digest through the SYSTEM_IMAGES BOM (`tailscaleClient`), never `:latest`. */
+export const HEADSCALE_CLIENT_IMAGE = TAILSCALE_CLIENT_IMAGE_PINNED;
 
 /**
  * Headscale driver — a self-hosted reimplementation of the Tailscale control

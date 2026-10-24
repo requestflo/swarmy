@@ -181,9 +181,11 @@ For a whole cross-stack feature (db → protocol → service → router → UI) 
 ## Operational gotchas
 
 - The sidecar needs `NET_ADMIN` + `/dev/net/tun` and runs `NetworkMode: 'host'`;
-  it is privileged for a reason — never widen its caps casually. Its image
-  (`NETBIRD_CLIENT_IMAGE`, and the installer's) is pinned by tag + digest
-  (`packages/mesh/src/images.ts`, mirrored in the SYSTEM_IMAGES BOM; bump both).
+  it is privileged for a reason — never widen its caps casually. Every mesh
+  image (NetBird client/server, Headscale's tailscale client, Litestream) is
+  pinned by tag + digest in the SYSTEM_IMAGES BOM, the one source:
+  `packages/mesh/src/images.ts` and the agent defaults derive from it
+  (`pinnedTaggedRef`), and a test holds the installer's defaults to it.
 - Overlay MTU is mesh-aware (`packages/core/src/overlay-mtu.ts`). Docker reads
   `com.docker.network.driver.mtu` as the LINK MTU and takes VXLAN (50) and ESP
   (26) off itself, so the option is the tunnel MTU: `wt0`/`tailscale0` 1280 →

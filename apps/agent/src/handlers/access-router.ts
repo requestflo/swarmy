@@ -14,10 +14,12 @@
  * node sidecar — the privilege is the same, the blast radius is one overlay.
  */
 import { DockerClient, defaultContainerLogConfig } from '@swarmy/core/docker';
+import { pinnedTaggedRef } from '@swarmy/core/system-images';
 import type { ApplyAccessRouterPayload, ApplyAccessRouterResult } from '@swarmy/core/protocol';
 import { putSecretFile } from './secret-file';
 
-const DEFAULT_IMAGE = 'ghcr.io/netbirdio/netbird:0.79.0@sha256:9d8480d87b7f7c10d67b820eecf332ecca5c2756792d4bdfa532182b4fc3005f';
+/** The NetBird client the node sidecar runs, pinned in the SYSTEM_IMAGES BOM. */
+const DEFAULT_IMAGE = pinnedTaggedRef('netbirdClient');
 const FORBIDDEN_NETWORKS = new Set(['swarmy-control', 'host', 'bridge', 'none', 'ingress']);
 
 export function accessRouterName(stackId: string): string {

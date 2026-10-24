@@ -52,6 +52,7 @@ export type SystemImageKey =
   | 'dockerCli'
   | 'netbirdServer'
   | 'netbirdClient'
+  | 'tailscaleClient'
   | 'litestream'
   | 'caddy'
   | 'caddySwarmy'
@@ -111,6 +112,9 @@ export const SYSTEM_IMAGES: readonly SystemImage[] = [
   // plane upgrades BEFORE the clients (NetBird's compatibility direction).
   { key: 'netbirdServer', ref: 'ghcr.io/netbirdio/netbird-server:0.79.0', digest: 'sha256:d1da0c0179c9e6f2ab7b48be54d06341b11037855a9426b9f2536aa79f13360b' },
   { key: 'netbirdClient', ref: 'ghcr.io/netbirdio/netbird:0.79.0', digest: 'sha256:9d8480d87b7f7c10d67b820eecf332ecca5c2756792d4bdfa532182b4fc3005f' },
+  // Headscale's client (the official tailscale image). v1.104.2 was the stable
+  // track on 2026-10-24 (the index digest of `tailscale/tailscale:stable` then).
+  { key: 'tailscaleClient', ref: 'tailscale/tailscale:v1.104.2', digest: 'sha256:b11583ad2e93e4671128538c88cf11f460444a5d7e449311dd1933a400ab849d' },
   // Litestream for the NetBird SQLite files (the controller bakes the same 0.5.17 into its image).
   { key: 'litestream', ref: 'litestream/litestream:0.5.17', digest: 'sha256:4b02b9859a6b6b4087d8b8944e15f7e984bd7957cba322bbeee38b0e27b9656a' },
   { key: 'caddy', ref: 'caddy:2-alpine', digest: 'sha256:6aeddd44c3078b0f9a35206472a11420648a79c184603ef95957d0a20044cb2b' },
@@ -356,6 +360,16 @@ export function pinnedSystemRef(
   const img = systemImage(key, images);
   const mirrored = mirror ? mirroredRefFor(img.ref, mirror.registryHost, mirror.labels, mirror.registryNodeId, images) : null;
   return mirrored ?? copySourceFor(img);
+}
+
+/**
+ * `<ref>@<digest>`: the tag stays for people, Docker pulls by digest. The form
+ * the mesh clients are dispatched in (agent defaults, `applyMesh`, routers);
+ * a floating entry returns its bare ref.
+ */
+export function pinnedTaggedRef(key: SystemImageKey, images: readonly SystemImage[] = SYSTEM_IMAGES): string {
+  const img = systemImage(key, images);
+  return img.digest ? `${img.ref}@${img.digest}` : img.ref;
 }
 
 /**

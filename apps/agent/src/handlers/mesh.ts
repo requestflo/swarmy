@@ -20,6 +20,7 @@
  * from `netbird status --json` / `tailscale status`).
  */
 import { DockerClient, defaultContainerLogConfig } from '@swarmy/core/docker';
+import { pinnedTaggedRef } from '@swarmy/core/system-images';
 import type {
   ApplyMeshResult,
   MeshStatePayload,
@@ -28,9 +29,9 @@ import type {
 import { sampleMeshControl } from './mesh-control';
 import { putSecretFile } from './secret-file';
 
-/** Default client images if the controller didn't pin one. */
-const DEFAULT_NETBIRD_IMAGE = 'ghcr.io/netbirdio/netbird:0.79.0@sha256:9d8480d87b7f7c10d67b820eecf332ecca5c2756792d4bdfa532182b4fc3005f';
-const DEFAULT_TAILSCALE_IMAGE = 'tailscale/tailscale:latest';
+/** Default client images if the controller didn't send one: the BOM's pins (`ref@digest`). */
+const DEFAULT_NETBIRD_IMAGE = pinnedTaggedRef('netbirdClient');
+const DEFAULT_TAILSCALE_IMAGE = pinnedTaggedRef('tailscaleClient');
 /** Stable names so re-applies reconcile the same container, never duplicate. */
 const NETBIRD_CONTAINER = 'swarmy-netbird';
 /** Named volume holding the NetBird client state (installer uses the same). */

@@ -11,6 +11,7 @@ import {
   mirroredRefFor,
   parseImageRef,
   parseMirrorOutput,
+  pinnedTaggedRef,
   planMirror,
   renderMirrorScript,
   systemImage,
@@ -34,6 +35,12 @@ describe('BOM', () => {
   test('third-party images are digest-pinned; only swarmy builds (and wal-g) float', () => {
     const floating = SYSTEM_IMAGES.filter((i) => !i.digest).map((i) => i.key).sort();
     expect(floating).toEqual(['agent', 'appAuth', 'caddySwarmy', 'controller', 'dns', 'walg']);
+  });
+  test('mesh clients are pinned (no :latest) and dispatched as ref@digest', () => {
+    for (const k of ['netbirdClient', 'tailscaleClient'] as const) expect(systemImage(k).ref).not.toMatch(/:latest$/);
+    expect(pinnedTaggedRef('tailscaleClient')).toBe(`${systemImage('tailscaleClient').ref}@${systemImage('tailscaleClient').digest}`);
+    expect(pinnedTaggedRef('curl', BOM)).toBe(`curlimages/curl:8.10.1@${D1}`);
+    expect(pinnedTaggedRef('dns', BOM)).toBe('ghcr.io/requestflo/swarmy-dns:latest');
   });
   test('the registry and the copier are never rewritten to the mirror', () => {
     expect(systemImage('registry').noRewrite).toBe(true);
