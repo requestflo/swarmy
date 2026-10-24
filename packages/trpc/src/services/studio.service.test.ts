@@ -173,12 +173,14 @@ describe('studio gate', () => {
     expect(h.audit.at(-1)!.metadata).toMatchObject({ status: 'failed' });
   });
 
-  it('history reads my console rows back from the audit log', async () => {
+  it('history reads my console rows back from the audit log, literals stripped', async () => {
     const h = harness('member');
-    await run(h, 'SELECT 1');
+    await run(h, "SELECT * FROM users WHERE email = 'ann@example.com' AND id = 7 -- ann's row");
     const rows = await studioHistory(h.ctx, { stack: 'shop', target: 'shop_db' });
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ statement: 'SELECT 1', class: 'read', status: 'ok' });
+    expect(rows[0]).toMatchObject({ statement: 'SELECT * FROM users WHERE email = ? AND id = ?', class: 'read', status: 'ok' });
+    // The audit row holds the shape only: no literal, no comment.
+    expect(JSON.stringify(h.audit)).not.toContain('ann');
   });
 });
 

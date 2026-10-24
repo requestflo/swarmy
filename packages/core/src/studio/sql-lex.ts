@@ -35,6 +35,9 @@ export interface SqlToken {
   value: string;
   /** Parenthesis depth the token sits at (within its statement). */
   depth: number;
+  /** Offsets of the token as written in {@link LexResult.source} (quotes included). */
+  start: number;
+  end: number;
 }
 
 export interface LexedStatement {
@@ -45,6 +48,8 @@ export interface LexedStatement {
 
 export interface LexResult {
   statements: LexedStatement[];
+  /** The text the token offsets index (the input, with MySQL executable comments inlined). */
+  source?: string;
   error?: string;
 }
 
@@ -62,8 +67,16 @@ export function lexSql(input: string, dialect: SqlDialect, mode: SqlLexMode = {}
   const dqIdent = mode.doubleQuoteIdent ?? !my;
   const bsEscapes = mode.backslashEscapes ?? my;
 
-  const push = (kind: SqlTokenKind, value: string) => tokens.push({ kind, value, depth });
+  // Every branch below pushes at most one token and then moves `i` to its end,
+  // so a token's end is wherever the next loop pass (or the statement) starts.
+  let tokStart = 0;
+  const push = (kind: SqlTokenKind, value: string) => tokens.push({ kind, value, depth, start: tokStart, end: -1 });
+  const closeToken = (at: number) => {
+    const last = tokens[tokens.length - 1];
+    if (last && last.end < 0) last.end = at;
+  };
   const endStatement = (end: number) => {
+    closeToken(end);
     if (tokens.length > 0) statements.push({ tokens, text: input.slice(stmtStart, end).trim() });
     tokens = [];
     depth = 0;
@@ -96,6 +109,8 @@ export function lexSql(input: string, dialect: SqlDialect, mode: SqlLexMode = {}
   };
 
   while (i < n) {
+    closeToken(i);
+    tokStart = i;
     const c = input[i]!;
     const next = input[i + 1] ?? '';
 
@@ -234,5 +249,5 @@ export function lexSql(input: string, dialect: SqlDialect, mode: SqlLexMode = {}
     i++;
   }
   endStatement(n);
-  return { statements };
+  return { statements, source: input };
 }

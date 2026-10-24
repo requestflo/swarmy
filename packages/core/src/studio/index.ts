@@ -8,6 +8,7 @@
  */
 export * from './sql-lex';
 export * from './classify';
+export * from './redact';
 export * from './sql';
 export * from './mongo';
 export * from './redis';

@@ -15,7 +15,8 @@
  *   read → `data.read` · write → `data.write` · destructive → `data.destroy`
  *   + the database name typed back · blocked → never dispatched.
  * Every run — reads included, browse and schema too — writes one `studio.query`
- * audit row: statement, who, where, how long, how many rows. Never values.
+ * audit row: the statement's shape (literals stripped), who, where, how long,
+ * how many rows. Never values.
  *
  * Docker is the truth for which databases exist; the history view reads the
  * audit rows; saved queries are the one table (`StudioSavedQuery`).
@@ -34,6 +35,7 @@ import {
   type SwarmServiceInfo,
 } from '@swarmy/core/protocol';
 import {
+  auditStatement,
   browseSql,
   classifyMongo,
   classifyRedis,
@@ -86,8 +88,6 @@ import { DB_CLUSTER_LABEL, DB_ENGINE_LABEL, DB_MEMBER_LABEL, DB_ROLE_LABEL } fro
 import { resolveExecTarget } from './live-resolve';
 
 export const STUDIO_AUDIT_ACTION = 'studio.query';
-/** Statement text kept on the audit row (the full text runs; the row is capped). */
-const AUDIT_STATEMENT_MAX = 4000;
 const MANAGED_PREFIXES = ['swarmy.db.', 'swarmy.cache.', 'swarmy.search.', 'swarmy.vector.'];
 
 // ── targets (live Docker truth) ──────────────────────────────────────────────
@@ -359,7 +359,8 @@ async function runPrepared(ctx: OrgContext, t: StudioTarget, p: PreparedStatemen
       metadata: {
         engine: t.engine,
         origin: o.origin,
-        statement: p.display.length > AUDIT_STATEMENT_MAX ? `${p.display.slice(0, AUDIT_STATEMENT_MAX)}…` : p.display,
+        // The shape, literals stripped and capped (`@swarmy/core/studio` redact.ts says why).
+        statement: auditStatement(p.op.kind === 'sql' ? { ...p.op, dialect: dialectOf(t.engine) } : p.op),
         class: p.classification.class,
         kind: p.classification.kind,
         database: database ?? (o.dbIndex != null ? `db${o.dbIndex}` : null),
