@@ -30,11 +30,12 @@ export {
   resolveStack,
   resolveStackByName,
   resolveNewService,
-  whoCan,
   canPrincipal,
   liveStackLabels,
 } from './abac';
-export type { AuthzGrant, ResolveResource, WhoCanRow } from './abac';
+export { whoCan } from './abac-who-can';
+export type { AuthzGrant, ResolveResource } from './abac';
+export type { WhoCanRow } from './abac-who-can';
 export type { ResolvedApiKeyContext, ResolveApiKeyDeps, ApiKeyScope } from './apiKeyContext';
 export { getNode, listNodes } from './services/node.service';
 export {

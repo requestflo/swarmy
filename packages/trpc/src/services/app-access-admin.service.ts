@@ -17,7 +17,7 @@ import { parsePolicyDoc } from '@swarmy/abac';
 import { isBroadWildcard } from '@swarmy/ingress';
 import type { OrgContext } from '../context';
 import { notFound } from '../errors';
-import { whoCan } from '../abac';
+import { whoCan } from '../abac-who-can';
 import { writeAudit } from './audit.service';
 import { listRoutesForOrg, type Route } from './ingress-routes';
 import { setServiceRoutes } from './ingress-routes-api';

@@ -11,7 +11,8 @@ import type { Action, PolicyDoc, ResourceInput } from '@swarmy/abac';
 import type { OrgContext } from '../context';
 import { notFound } from '../errors';
 import { writeAudit } from './audit.service';
-import { evaluateAccess, resolveNode, resolveService, resolveStack, whoCan, type WhoCanRow } from '../abac';
+import { evaluateAccess, resolveNode, resolveService, resolveStack } from '../abac';
+import { whoCan, type WhoCanRow } from '../abac-who-can';
 import { policyRepo, type PolicyRecord } from './policy-repo';
 import { assertNoOwnerLockout } from './policy-lockout';
 
@@ -185,6 +186,7 @@ export async function whoCanPolicy(
 ): Promise<{ action: Action; resource: ResourceInput | null; rows: WhoCanRow[] }> {
   if (!isAction(args.action)) throw new Error(`unknown action "${args.action}"`);
   let resource: ResourceInput | null = null;
+  const real = Boolean(args.resourceType && args.resourceId);
   if (args.resourceType && args.resourceId) {
     const resolver = { node: resolveNode, service: resolveService, stack: resolveStack }[args.resourceType];
     resource = (await resolver(ctx, { id: args.resourceId })) ?? null;
@@ -198,5 +200,7 @@ export async function whoCanPolicy(
       ...(args.env ? { env: args.env } : {}),
     };
   }
-  return { action: args.action, resource, rows: await whoCan(ctx.db, ctx.activeOrgId, args.action, resource) };
+  // A described resource has no grants of its own: count the members' grants on that type.
+  const rows = await whoCan(ctx.db, ctx.activeOrgId, args.action, resource, { hypothetical: !real });
+  return { action: args.action, resource, rows };
 }

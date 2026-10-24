@@ -100,8 +100,10 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
   `context.attrs`). `describePolicy` renders a doc as a sentence; the dashboard
   imports the browser-safe `@swarmy/abac/model` (no Cedar).
 - **Decision helpers**: `decide()` is the one path; `evaluateAccess(ctx, …,
-  { principal?, engine? })`, `whoCan(db, orgId, action, resource)` (every
-  member, pure over db — the simulator and the mesh group sync) and
+  { principal?, engine? })`, `whoCan(db, orgId, action, resource, {
+  hypothetical? })` (`abac-who-can.ts`; every member, pure over db — the
+  simulator and the mesh group sync; a described resource such as "a
+  production service" also counts each member's grants on that type) and
   `canPrincipal(db, orgId, userId, …)` all call it. Stored policies are read and
   written ONLY through `PolicyRepository` (`services/policy-repo.ts`).
 - **Env-aware resolvers**: `resolveStack` / `resolveStackByName` (live stack
