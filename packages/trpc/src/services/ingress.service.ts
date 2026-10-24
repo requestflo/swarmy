@@ -71,6 +71,7 @@ import {
 import { domainChecksOf } from './domain-checks.store';
 import { edgeGeoipInputs } from './edge-geoip.service';
 import { wildcardBaseFrom } from './auto-address-base.service';
+import { clusterZoneName } from './cluster-zone';
 import { ingressConfigRepo, type IngressDriverEnum } from './ingress-config.repo';
 import { observabilityConfigRepo } from './observability-config.repo';
 import { meshPeers } from './mesh-peers';
@@ -572,8 +573,9 @@ async function loadOrgConfig(
   const geoip = resolveEdgeGeoip(edgeGeoipInputs(settings as Record<string, unknown>));
   if (geoip.path) extraConfig.geoipMmdbPath = geoip.path;
   else delete extraConfig.geoipMmdbPath;
-  // A configured automatic-address base: private-IP names under it get the local CA.
-  const wildcardBase = wildcardBaseFrom(settings as Record<string, unknown>);
+  // A configured automatic-address base (the cluster zone first): private-IP
+  // names under it get the local CA.
+  const wildcardBase = wildcardBaseFrom(settings as Record<string, unknown>, process.env, await clusterZoneName(ctx));
   if (wildcardBase) extraConfig.autoAddressBase = wildcardBase;
   // Edge-per-node topology renders per node (region-aware) and each node's
   // agent writes its config INSIDE its local edge task, then reloads — see

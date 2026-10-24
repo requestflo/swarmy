@@ -22,6 +22,7 @@ import {
   updateZone,
 } from '../services/dns-zones.service';
 import { listRecords, removeRecord, upsertRecord } from '../services/dns-records.service';
+import { getClusterZone, setClusterZone } from '../services/cluster-zone.service';
 
 /**
  * Geo-DNS ("swarmy is the nameserver"). Zones are the registrar-facing
@@ -99,6 +100,13 @@ export const geodnsRouter = router({
   setZoneAutoAddresses: adminProcedure
     .input(z.object({ id: z.string(), enabled: z.boolean() }))
     .mutation(({ ctx, input }) => setZoneAutoAddresses(ctx, input.id, input.enabled)),
+
+  /** The cluster zone: `<a-b-c-d>.<zone>` synthesis, the address base, the registrar glue. */
+  clusterZone: orgProcedure.query(({ ctx }) => getClusterZone(ctx)),
+  /** Make a delegated swarmy-ns zone the org's cluster zone (or stop it being one). */
+  setClusterZone: adminProcedure
+    .input(z.object({ id: z.string(), enabled: z.boolean() }))
+    .mutation(({ ctx, input }) => setClusterZone(ctx, input.id, input.enabled)),
 
   checkDelegation: orgProcedure
     .input(z.object({ id: z.string() }))

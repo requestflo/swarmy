@@ -12,6 +12,7 @@ import { notFound } from '../errors';
 import { writeAudit } from './audit.service';
 import { composeZone, collectGeoEndpoints } from './dns-snapshot.service';
 import { dnsZoneRepo } from './geodns.repo';
+import { isClusterZone } from './cluster-zone';
 import { publicIpFromLabels } from './node.service';
 
 /**
@@ -41,6 +42,8 @@ export interface DnsZoneView {
   provider: { zoneId?: string; tokenEnv?: string; region?: string };
   /** This zone hosts the org's automatic app addresses (`<service>-<stack>.<zone>`). */
   autoAddresses: boolean;
+  /** The org's cluster zone: answers `<a-b-c-d>.<zone>` and is the auto-address base (cluster-zone.ts). */
+  clusterZone: boolean;
   conflicts?: ComposeConflict[];
 }
 
@@ -99,6 +102,7 @@ function toView(
     })),
     provider: providerOf(row.settings),
     autoAddresses: isAutoAddressZone(row.settings),
+    clusterZone: isClusterZone(row.settings),
     conflicts,
   };
 }

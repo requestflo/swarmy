@@ -16,6 +16,7 @@ import { publicIpFromLabels } from './node.service';
 import { challengeRecords } from './acme-challenges';
 import { emailRecordsForZone } from './email.service';
 import { bumpZoneSerial, dnsZoneRepo, zoneContentSig, type DnsZoneRow } from './geodns.repo';
+import { clusterNodeIps, isClusterZone } from './cluster-zone';
 
 /**
  * Snapshot composition — gathers the DERIVED inputs (invariant #5,
@@ -170,6 +171,9 @@ export async function composeZone(
     autoHosts: inZone.map((h) => ({ host: h.host, source: h.source })),
     endpoints,
     manualRecords,
+    // The cluster zone synthesises `<a-b-c-d>.<zone>` for the cluster's own
+    // public addresses (plans/self-reliance.md B2b) — carried on the snapshot.
+    ...(isClusterZone(row.settings) ? { synthIps: clusterNodeIps(ctx, endpoints.map((e) => e.ip)) } : {}),
   });
   return { row, snapshot, conflicts };
 }

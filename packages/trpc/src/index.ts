@@ -82,6 +82,8 @@ export {
   reconcileAutoAddressesForOrg,
 } from './services/auto-address.service';
 export { AUTO_ADDRESS_BASE_ENV, wildcardBaseFrom } from './services/auto-address-base.service';
+export { CLUSTER_ZONE_ENV } from './services/cluster-zone';
+export { ensureClusterZone, delegationGlue, type ClusterZoneView } from './services/cluster-zone.service';
 
 // Observability suite convergence (observability-reconcile worker).
 export {

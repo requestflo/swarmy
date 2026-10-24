@@ -34,6 +34,7 @@ import { readIngressSettingsRaw } from './domain-checks.store';
 import { INGRESS_ROUTES_LABEL, listRoutesForOrg, readRoutes, serializeRoutes, type Route } from './ingress-routes';
 import { ingressConfigRepo } from './ingress-config.repo';
 import { wildcardBaseFrom } from './auto-address-base.service';
+import { clusterZoneName } from './cluster-zone';
 
 const INGRESS_ENABLED_LABEL = 'swarmy.ingress';
 
@@ -49,10 +50,11 @@ export async function autoAddressZone(ctx: OrgContext): Promise<string | null> {
 /**
  * The base this org's apps get addresses under: the org's OWN zone served by
  * swarmy-dns when one is delegated and flagged (`<label>.<zone>` — no third
- * party in the path, `ownZone`), else the wildcard-IP fallback
- * `<label>.<edge-ip>.<base>` (sslip.io unless the org setting or
- * `SWARMY_AUTO_ADDRESS_BASE` says otherwise). Null when neither can be
- * formed (no edge IP yet, or behind a tunnel).
+ * party in the path, `ownZone`), else the wildcard-IP form
+ * `<label>.<edge-ip>.<base>`: base = the org's cluster zone (swarmy-dns
+ * synthesises it — also `ownZone`, so it goes through the DNS gate), else
+ * the org setting / `SWARMY_AUTO_ADDRESS_BASE`, else sslip.io. Null when
+ * nothing can be formed (no edge IP yet, or behind a tunnel).
  */
 export async function autoAddressBaseInfo(ctx: OrgContext): Promise<{ base: string; ownZone: boolean } | null> {
   const settings = await readIngressSettingsRaw(ctx);
@@ -60,12 +62,13 @@ export async function autoAddressBaseInfo(ctx: OrgContext): Promise<{ base: stri
   if (expected.tunnelCname) return null; // behind a tunnel there is no public edge IP to embed
   const zone = await autoAddressZone(ctx);
   if (zone) return { base: zone, ownZone: true };
+  const cluster = await clusterZoneName(ctx);
   const base = autoAddressBaseFor({
     dashboardDomain: typeof settings.dashboardDomain === 'string' ? settings.dashboardDomain : null,
     edgeIps: expected.ips,
-    base: wildcardBaseFrom(settings),
+    base: wildcardBaseFrom(settings, process.env, cluster),
   });
-  return base ? { base, ownZone: false } : null;
+  return base ? { base, ownZone: cluster !== null && base.endsWith(`.${cluster}`) } : null;
 }
 
 /** {@link autoAddressBaseInfo}'s base alone. */

@@ -77,7 +77,7 @@ describe('setAutoAddressBase', () => {
   it('normalises, persists in swarm-kv, clears with null, and refuses non-names', async () => {
     process.env[AUTO_ADDRESS_BASE_ENV] = 'nip.io';
     const { ctx } = ctxWith();
-    expect(await getAutoAddressBase(ctx)).toEqual({ base: null, envBase: 'nip.io', effective: 'nip.io', defaultBase: 'sslip.io' });
+    expect(await getAutoAddressBase(ctx)).toEqual({ base: null, envBase: 'nip.io', clusterZone: null, effective: 'nip.io', defaultBase: 'sslip.io' });
     expect((await setAutoAddressBase(ctx, ' IP.Acme.net. ')).effective).toBe('ip.acme.net');
     const doc = peekKv(ctx.hub as never, 'org_1', 'ingress', 'org_1') as { settings: Record<string, unknown> };
     expect(doc.settings.autoAddressBase).toBe('ip.acme.net');
