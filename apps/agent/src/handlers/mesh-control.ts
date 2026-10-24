@@ -89,7 +89,7 @@ interface ExecOut {
   stderr: string;
 }
 
-async function execIn(docker: DockerClient, name: string, cmd: string[]): Promise<ExecOut> {
+export async function execIn(docker: DockerClient, name: string, cmd: string[]): Promise<ExecOut> {
   const exec = await docker.docker.getContainer(name).exec({ Cmd: cmd, AttachStdout: true, AttachStderr: true });
   const stream = await exec.start({});
   let stdout = '';
@@ -112,7 +112,7 @@ async function execIn(docker: DockerClient, name: string, cmd: string[]): Promis
  * rides the exec's argv as base64: exec configs live only in dockerd's memory,
  * never on disk.
  */
-async function writeInto(docker: DockerClient, name: string, file: string, contents: string): Promise<void> {
+export async function writeInto(docker: DockerClient, name: string, file: string, contents: string): Promise<void> {
   const b64 = Buffer.from(contents, 'utf8').toString('base64');
   const r = await execIn(docker, name, [
     'sh',
@@ -125,7 +125,7 @@ async function writeInto(docker: DockerClient, name: string, file: string, conte
   if (r.code !== 0) throw new Error(`writing ${file} in ${name} failed: ${r.stderr.trim() || `exit ${r.code}`}`);
 }
 
-async function inspectOrNull(docker: DockerClient, name: string) {
+export async function inspectOrNull(docker: DockerClient, name: string) {
   return docker.docker
     .getContainer(name)
     .inspect()

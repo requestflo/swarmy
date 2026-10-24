@@ -27,6 +27,7 @@ import type {
   RenderedMesh,
 } from '@swarmy/core/protocol';
 import { sampleMeshControl } from './mesh-control';
+import { sampleMeshRelay } from './mesh-relay';
 import { resolveMeshClientImage, type MeshImageHint } from './mesh-image';
 import { parseTailscaleStatus } from './mesh-tailscale';
 import { putSecretFile } from './secret-file';
@@ -214,10 +215,13 @@ export async function sampleMeshState(docker: DockerClient = defaultDocker()): P
   // The node that hosts the self-hosted control plane reports it too, even
   // when its own client is down (that is when the card matters most).
   const control = await sampleMeshControl(docker).catch(() => undefined);
-  if (!control) return state;
+  // …and an edge that runs a relay (relays on edges) reports that.
+  const relay = await sampleMeshRelay(docker).catch(() => undefined);
+  if (!control && !relay) return state;
+  const extra = { ...(control ? { control } : {}), ...(relay ? { relay } : {}) };
   return state
-    ? { ...state, control }
-    : { driver: 'netbird', connected: false, relayed: false, advertisedRoutes: [], peers: [], control, sampledAt: Date.now() };
+    ? { ...state, ...extra }
+    : { driver: 'netbird', connected: false, relayed: false, advertisedRoutes: [], peers: [], ...extra, sampledAt: Date.now() };
 }
 
 /** The last `netbirdIp` with its prefix (`100.74.144.211/16`), for the reboot pin (mesh-pin.ts). */

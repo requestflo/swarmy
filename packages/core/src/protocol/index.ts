@@ -20,6 +20,7 @@ export * from './pitrWindow';
 export * from './swarmres';
 export * from './run-once-binds';
 export * from './mesh';
+export * from './mesh-relay';
 export * from './dns';
 export * from './terminal';
 export * from './hygiene';

@@ -23,6 +23,7 @@ import { applyDns } from './handlers/dns';
 import { localReload } from './handlers/ingress-local';
 import { applyMesh } from './handlers/mesh';
 import { applyMeshControl } from './handlers/mesh-control';
+import { applyMeshRelay } from './handlers/mesh-relay';
 import { applyAccessRouter } from './handlers/access-router';
 import { applyIngressConnector } from './handlers/ingress-connector';
 import { buildImage } from './handlers/build';
@@ -190,7 +191,8 @@ export async function handleCommand(
       return run(conn, commandId, () => applyMesh(docker, rendered, { mirrorImage, registryAuth }));
     }
     case 'applyMeshControl':
-    case 'applyAccessRouter': {
+    case 'applyAccessRouter':
+    case 'applyMeshRelay': {
       const p = envlp.payload;
       if (!env.ALLOW_MESH) {
         conn.send('commandResult', {
@@ -200,6 +202,7 @@ export async function handleCommand(
         });
         return;
       }
+      if (envlp.type === 'applyMeshRelay') return run(conn, p.commandId, () => applyMeshRelay(docker, envlp.payload));
       return envlp.type === 'applyMeshControl'
         ? run(conn, p.commandId, () => applyMeshControl(docker, envlp.payload))
         : run(conn, p.commandId, () => applyAccessRouter(docker, envlp.payload));

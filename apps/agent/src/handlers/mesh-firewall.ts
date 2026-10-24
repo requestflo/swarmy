@@ -20,10 +20,13 @@ import { runFirewallScript } from './registry-firewall';
 export const MESH_FIREWALL_CHAIN = 'SWARMY-MESH-CTL';
 export const MESH_FIREWALL_PORTS = [9000, 9090, 33073] as const;
 
-/** Pure: the idempotent POSIX-sh script. Ports are validated integers. */
-export function renderMeshFirewallScript(ports: readonly number[] = MESH_FIREWALL_PORTS): string {
+/**
+ * Pure: the idempotent POSIX-sh script. Ports are validated integers; the
+ * chain is one of ours (the edge relay has its own, `SWARMY-MESH-RELAY`).
+ */
+export function renderMeshFirewallScript(ports: readonly number[] = MESH_FIREWALL_PORTS, chain: string = MESH_FIREWALL_CHAIN): string {
   const ps = ports.filter((p) => Number.isInteger(p) && p > 0 && p < 65536).join(',');
-  const C = MESH_FIREWALL_CHAIN;
+  const C = /^SWARMY-[A-Z-]{1,20}$/.test(chain) ? chain : MESH_FIREWALL_CHAIN;
   return `set -u
 C=${C}
 found=0
@@ -70,13 +73,14 @@ done
 `;
 }
 
-/** Converge the floor on the control-plane node. Never throws. */
+/** Converge the floor on the control-plane node (or, with `opts`, an edge relay's). Never throws. */
 export async function enforceMeshFirewall(
   docker: DockerClient,
   packaging: 'binary' | 'container',
+  opts: { ports?: readonly number[]; chain?: string } = {},
 ): Promise<{ status: string; detail?: string }> {
   if (process.platform !== 'linux') return { status: 'skipped' };
   const inContainer = packaging === 'container' && existsSync('/.dockerenv');
   if (!inContainer && process.getuid?.() !== 0) return { status: 'skipped', detail: 'not root' };
-  return runFirewallScript(docker, renderMeshFirewallScript(), inContainer);
+  return runFirewallScript(docker, renderMeshFirewallScript(opts.ports, opts.chain), inContainer);
 }

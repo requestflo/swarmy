@@ -16,6 +16,7 @@ import { defaultDiskDeps, mountReturningDisks } from './handlers/disk';
 import { checkOverlayCarrier } from './handlers/overlay-heal';
 import { swarmRejoinInFlight } from './handlers/swarm';
 import { superviseMeshControl } from './handlers/mesh-control';
+import { superviseMeshRelay } from './handlers/mesh-relay';
 import { detectPublicIp, detectReachability, setObservedPublicIp } from './public-ip';
 import { sampleIngressStatus } from './handlers/ingress-status';
 import { EdgeTrafficScraper, dockerMetricsFetcher } from './handlers/edge-traffic';
@@ -228,8 +229,18 @@ export async function runDaemon(): Promise<void> {
     if (line !== lastMeshControl) log(`mesh control plane ${line}`);
     lastMeshControl = line;
   };
-  void meshControlTick();
-  const meshControlTimer = setInterval(() => void meshControlTick(), 10_000);
+  // The edge relay (relays on edges), when this node holds one: same rule —
+  // relayed pairs ride it, so it must not wait for the controller.
+  let lastMeshRelay = '';
+  const meshRelayTick = async () => {
+    const st = await superviseMeshRelay(docker);
+    if (!st) return;
+    const line = st.error ? `error: ${st.error}` : st.healthy ? 'healthy' : 'starting';
+    if (line !== lastMeshRelay) log(`mesh relay ${line}`);
+    lastMeshRelay = line;
+  };
+  void meshControlTick().then(() => meshRelayTick());
+  const meshControlTimer = setInterval(() => void meshControlTick().then(() => meshRelayTick()), 10_000);
 
   // QA-085: a swarmy disk that came back after a reboot unmounted (empty
   // mountpoint, declared in this box's fstab) is mounted now, before the

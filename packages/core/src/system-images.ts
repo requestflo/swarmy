@@ -52,6 +52,7 @@ export type SystemImageKey =
   | 'dockerCli'
   | 'netbirdServer'
   | 'netbirdClient'
+  | 'netbirdRelay'
   | 'tailscaleClient'
   | 'litestream'
   | 'caddy'
@@ -112,6 +113,9 @@ export const SYSTEM_IMAGES: readonly SystemImage[] = [
   // plane upgrades BEFORE the clients (NetBird's compatibility direction).
   { key: 'netbirdServer', ref: 'ghcr.io/netbirdio/netbird-server:0.79.0', digest: 'sha256:d1da0c0179c9e6f2ab7b48be54d06341b11037855a9426b9f2536aa79f13360b' },
   { key: 'netbirdClient', ref: 'ghcr.io/netbirdio/netbird:0.79.0', digest: 'sha256:9d8480d87b7f7c10d67b820eecf332ecca5c2756792d4bdfa532182b4fc3005f' },
+  // The standalone relay (+ STUN) swarmy runs on edge nodes when "relays on
+  // edges" is on (packages/mesh/src/control-plane/relays.ts). Same release.
+  { key: 'netbirdRelay', ref: 'ghcr.io/netbirdio/relay:0.79.0', digest: 'sha256:0ef3133050c7c5e596ba068d916d3e0f1675ac646d3d169e081331ef3ad2055e' },
   // Headscale's client (the official tailscale image). v1.104.2 was the stable
   // track on 2026-10-24 (the index digest of `tailscale/tailscale:stable` then).
   { key: 'tailscaleClient', ref: 'tailscale/tailscale:v1.104.2', digest: 'sha256:b11583ad2e93e4671128538c88cf11f460444a5d7e449311dd1933a400ab849d' },

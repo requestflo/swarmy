@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { CommandId } from './primitives';
+import { MeshRelayStatus } from './mesh-relay';
 import { RegistryAuth } from './commands';
 
 /**
@@ -202,6 +203,8 @@ export const MeshStatePayload = z.object({
    * Declared lazily: MeshControlStatus is defined further down.
    */
   control: z.lazy(() => MeshControlStatus).optional(),
+  /** The edge relay (`swarmy-mesh-relay`), when THIS node runs one. Absent on older agents. */
+  relay: MeshRelayStatus.optional(),
   sampledAt: z.number().int(),
 });
 export type MeshStatePayload = z.infer<typeof MeshStatePayload>;

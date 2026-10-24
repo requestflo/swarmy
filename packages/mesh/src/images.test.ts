@@ -5,6 +5,7 @@ import { NetbirdDriver } from './drivers/netbird';
 import {
   LITESTREAM_IMAGE_PINNED,
   NETBIRD_CLIENT_IMAGE_PINNED,
+  NETBIRD_RELAY_IMAGE_PINNED,
   NETBIRD_SERVER_IMAGE,
   NETBIRD_VERSION,
   TAILSCALE_CLIENT_IMAGE_PINNED,
@@ -20,6 +21,7 @@ describe('mesh images come from the SYSTEM_IMAGES BOM, by digest', () => {
     for (const [img, key] of [
       [NETBIRD_SERVER_IMAGE, 'netbirdServer'],
       [NETBIRD_CLIENT_IMAGE_PINNED, 'netbirdClient'],
+      [NETBIRD_RELAY_IMAGE_PINNED, 'netbirdRelay'],
       [TAILSCALE_CLIENT_IMAGE_PINNED, 'tailscaleClient'],
       [LITESTREAM_IMAGE_PINNED, 'litestream'],
     ] as const) {
@@ -33,6 +35,7 @@ describe('mesh images come from the SYSTEM_IMAGES BOM, by digest', () => {
     expect(NETBIRD_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
     expect(bom('netbirdServer').ref.endsWith(`:${NETBIRD_VERSION}`)).toBe(true);
     expect(bom('netbirdClient').ref.endsWith(`:${NETBIRD_VERSION}`)).toBe(true);
+    expect(bom('netbirdRelay').ref.endsWith(`:${NETBIRD_VERSION}`)).toBe(true);
   });
 
   it('both drivers render the pinned client by default', () => {
