@@ -21,3 +21,4 @@ export * from './email';
 export * from './from-compose';
 export { SWARMY_YAML_JSON_SCHEMA } from './json-schema';
 export { MINIMAL_EXAMPLE, FULL_EXAMPLE } from './examples';
+export * from './scan';
