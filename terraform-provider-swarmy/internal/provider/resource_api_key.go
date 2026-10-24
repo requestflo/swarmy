@@ -6,6 +6,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -53,7 +54,7 @@ func (r *apiKeyResource) Configure(_ context.Context, req resource.ConfigureRequ
 
 func (r *apiKeyResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "A swarmy API key. The token is returned only on creation and stored (sensitive) in state. Changing name or scopes forces a new key.",
+		Description: "A swarmy API key. The token is returned only on creation and stored (sensitive) in state. Changing name or scopes forces a new key; a key revoked outside Terraform is recreated.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:      true,
@@ -66,9 +67,10 @@ func (r *apiKeyResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
 			},
 			"scopes": schema.ListAttribute{
-				Required:    true,
-				ElementType: types.StringType,
-				Description: "Scopes granted to the key (e.g. read, write).",
+				Required:      true,
+				ElementType:   types.StringType,
+				Description:   "Scopes granted to the key: read, deploy, write, secrets.read.",
+				PlanModifiers: []planmodifier.List{listplanmodifier.RequiresReplace()},
 			},
 			"token": schema.StringAttribute{
 				Computed:      true,
@@ -104,7 +106,7 @@ func (r *apiKeyResource) Create(ctx context.Context, req resource.CreateRequest,
 
 	plan.ID = types.StringValue(key.ID)
 	plan.Name = types.StringValue(key.Name)
-	plan.Token = types.StringValue(key.Token)
+	plan.Token = types.StringValue(key.Key)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -122,6 +124,12 @@ func (r *apiKeyResource) Read(ctx context.Context, req resource.ReadRequest, res
 			return
 		}
 		resp.Diagnostics.AddError("Error reading API key", err.Error())
+		return
+	}
+	// A revoked or expired key no longer authenticates: treat it as gone so
+	// the next apply mints a new one.
+	if key.Status == "revoked" || key.Status == "expired" {
+		resp.State.RemoveResource(ctx)
 		return
 	}
 

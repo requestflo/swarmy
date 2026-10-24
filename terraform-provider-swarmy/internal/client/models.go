@@ -177,16 +177,19 @@ type SetNodeLabelsRequest struct {
 	Labels map[string]string `json:"labels"`
 }
 
-// APIKey mirrors the API key resource. NOTE: the public REST API does not yet
-// expose an /api-keys endpoint in openapi.json; these shapes follow the
-// documented convention (name + scopes in, token returned once on create). See
-// README "Caveats".
+// APIKey mirrors the ApiKey DTO (GET /api-keys) and, on create, ApiKeyIssued
+// (POST /api-keys), which adds the plaintext Key exactly once.
 type APIKey struct {
 	ID        string   `json:"id"`
 	Name      string   `json:"name"`
+	Prefix    string   `json:"prefix"`
 	Scopes    []string `json:"scopes"`
-	Token     string   `json:"token,omitempty"`
-	CreatedAt string   `json:"created_at,omitempty"`
+	Status    string   `json:"status"`
+	ExpiresAt *string  `json:"expires_at"`
+	CreatedAt string   `json:"created_at"`
+	RevokedAt *string  `json:"revoked_at"`
+	// Key is the plaintext swk_… key, set only in the create response.
+	Key string `json:"key,omitempty"`
 }
 
 // CreateAPIKeyRequest is the body for POST /api-keys.

@@ -180,7 +180,7 @@ SWARMY_ENDPOINT=… SWARMY_API_KEY=swk_… make testacc
 | `swarmy_service` | `POST/GET/PATCH/DELETE /services`, `/services/{id}/scale`, `GET /deployments/{id}` | Blocking: create, update and scale (202) poll the deployment to a terminal phase, then read back. `name`/`node_id` force replace; an `image`, `command` or `env` change is one `PATCH /services/{id}` (a replica change rides along), which applies the new image and can be refused by a guardrail (412, the apply fails listing each violation); `replicas` alone → scale. `env` is the plain variables as a whole; secret variables set elsewhere are kept. `timeouts { create, update }` (default 20m). Import by ID. |
 | `swarmy_stack` | `POST/GET/DELETE /stacks`, `GET /deployments/{id}`, `GET /deploys/{id}/events` | Blocking: deploy (202) polls `stack:<name>` until every service converges, then reads back. Update redeploys the compose source. `timeouts { create, update }` (default 20m). Import by ID. |
 | `swarmy_domain` | `GET/POST /ingress/domains`, `DELETE /ingress/domains/{id}` | Plain CRUD. No update endpoint, so attribute changes delete+recreate. Read filters the list by ID. Import by ID. |
-| `swarmy_api_key` | `POST/GET/DELETE /api-keys` | Token returned once on create, stored sensitive in state. `name`/`scopes` force replace. |
+| `swarmy_api_key` | `POST/GET /api-keys`, `DELETE /api-keys/{id}` | Token returned once on create, stored sensitive in state. `name`/`scopes` force replace. Read filters the list by ID (there is no per-key read); a key revoked or expired outside Terraform is dropped from state, so the next apply mints a new one. Import by ID (no token). |
 | `swarmy_git_connection` | `POST /git/connections`, `GET/DELETE /git/connections/{id}` | Token kinds only (`gitlab` token, `gitea`, `generic`) — GitHub App / GitLab OAuth need a browser (API returns 422 `BROWSER_FLOW_REQUIRED`); make those in the dashboard and pass their id to `swarmy_git_repo.connection_id`. `token` is sensitive + write-only; any change replaces. Import by ID (token adopted from config without replacement). |
 | `swarmy_git_repo` | `POST /git/repos`, `GET/PATCH/DELETE /git/repos/{id}`, `PUT /apps/{id}/require-approval` | Link a picked provider repo (`repo_id`+`full_name`+`clone_url`) or a raw `url`. `webhook_secret` (sensitive) and `deploy_key_public` are returned ONCE on create and kept in state (null after import). `branch`, `config_path`, `require_approval` and `enforce_drift` update in place; anything else re-links. Import by ID. |
 | `data.swarmy_app` | `GET /apps` | Read-only GitOps app for a linked repo: environments + each one's latest plan id/status/sha, live `previews` (PR or branch, with `data_from`/`data_scrub` when seeded from a backup), `kept_volumes` per environment, and the cached drift check (`drift_checked_at`, `drift`). Filters the list by `repo_id`. |
@@ -189,11 +189,6 @@ SWARMY_ENDPOINT=… SWARMY_API_KEY=swk_… make testacc
 
 ## Caveats
 
-- **`swarmy_api_key` has no spec backing yet.** `openapi.json` does not ship an
-  `/api-keys` endpoint. The client/resource follow the documented convention
-  (`POST /api-keys` with `{name, scopes}` returning a one-time `token`); wire the
-  paths to the real endpoint once it lands. Everything else maps to endpoints
-  present in `openapi.json`.
 - **Deploys block.** After a 202 the provider polls `GET /deployments/{id}`
   (the service id when a scale answers an empty `deployment_id`) every
   few seconds until the phase is `complete` (success) or `failed`,

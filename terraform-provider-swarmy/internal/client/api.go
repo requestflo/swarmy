@@ -201,11 +201,9 @@ func (c *Client) FindNodeByName(ctx context.Context, name string) (*Node, error)
 }
 
 // ---- API keys ----
-//
-// The public REST spec does not yet ship an /api-keys endpoint; these methods
-// follow the documented convention so the resource is usable once it lands.
 
-// CreateAPIKey mints a new API key. The token is returned only on creation.
+// CreateAPIKey mints a new API key (POST /api-keys). The plaintext key is in
+// the response's Key, and only there.
 func (c *Client) CreateAPIKey(ctx context.Context, body CreateAPIKeyRequest) (*APIKey, error) {
 	var k APIKey
 	if err := c.post(ctx, "/api-keys", body, &k); err != nil {
@@ -214,13 +212,29 @@ func (c *Client) CreateAPIKey(ctx context.Context, body CreateAPIKeyRequest) (*A
 	return &k, nil
 }
 
-// GetAPIKey reads an API key's metadata by ID (token is not returned again).
-func (c *Client) GetAPIKey(ctx context.Context, id string) (*APIKey, error) {
-	var k APIKey
-	if err := c.get(ctx, "/api-keys/"+url.PathEscape(id), &k); err != nil {
+// ListAPIKeys returns the org's API keys, revoked ones included (metadata
+// only, never a secret).
+func (c *Client) ListAPIKeys(ctx context.Context) ([]APIKey, error) {
+	var env listEnvelope[APIKey]
+	if err := c.get(ctx, "/api-keys", &env); err != nil {
 		return nil, err
 	}
-	return &k, nil
+	return env.Data, nil
+}
+
+// GetAPIKey reads an API key's metadata by ID. The REST API has no per-key
+// read, so this filters the list; an unknown ID is a 404 APIError.
+func (c *Client) GetAPIKey(ctx context.Context, id string) (*APIKey, error) {
+	keys, err := c.ListAPIKeys(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range keys {
+		if keys[i].ID == id {
+			return &keys[i], nil
+		}
+	}
+	return nil, &APIError{StatusCode: 404, RawBody: fmt.Sprintf("api key %q not found", id)}
 }
 
 // DeleteAPIKey revokes an API key.
