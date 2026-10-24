@@ -54,7 +54,16 @@ skill is the agent-and-protocol third of that.
 7. **The wire envelope is fixed: `{ v, id, ts, type, payload }`.** Parse every
    inbound frame with `parseControllerEnvelope` (Zod) and drop unparseable
    frames silently. Bump `PROTOCOL_VERSION` when the contract changes; the agent
-   advertises `protocolVersions` in its facts and the controller negotiates.
+   advertises `protocolVersions` in its facts. The controller judges skew on
+   EVERY register (`judgeAgentSkew` → pure `agentSkew` in
+   `@swarmy/core/protocol`): `incompatible` when the agent shares none of
+   `SUPPORTED_PROTOCOL_VERSIONS` (logged as a warning: the node looks
+   connected but its frames won't parse), else `behind`/`ahead` by semver
+   (the newest protocol decides for non-semver dev builds), else `ok`. The
+   result lives in the gateway store's `agentBuild` entry (process memory,
+   re-judged per register — never a DB column or a label) and reaches the
+   dashboard as `NodeSummary.agentSkew`. When a new protocol version lands
+   beside the old one, WIDEN `SUPPORTED_PROTOCOL_VERSIONS`; never narrow it.
 8. **Auth is join-once, session-thereafter, and rotates every register.** First
    contact uses `{ kind:'join', joinToken }`; thereafter `{ kind:'session',
    nodeId, sessionSecret }`. The controller mints a NEW `sessionSecret` (and
@@ -113,6 +122,7 @@ skill is the agent-and-protocol third of that.
 | `CommandName` → wire `type` registry | `packages/trpc/src/hub/types.ts` (`COMMAND_PROTOCOL_TYPE`) |
 | Controller-side dispatch / snapshot hub | `packages/trpc/src/hub/*`, `packages/trpc/src/services/dispatch.service.ts` |
 | Register / session handshake | `apps/api/src/gateway/protocol-handlers.ts` |
+| Agent ↔ controller version skew (pure rule; register-time judge; per-node build facts) | `packages/core/src/protocol/skew.ts` (+ `SUPPORTED_PROTOCOL_VERSIONS` in `constants.ts`), `apps/api/src/gateway/agent-skew.ts`, `apps/api/src/gateway/store.ts` (`agentBuild`); UI `apps/app/src/components/nodes/servers/agent-skew.tsx` |
 | Node roles/region/public-ip labels, drain | `packages/trpc/src/services/node.service.ts` |
 | Install script routes + agent binary serving | `apps/api/src/install/*`, `scripts/install-swarmy.sh` (WHY: `docs/product/compute-and-onboarding.md`) |
 
@@ -141,6 +151,8 @@ skill is the agent-and-protocol third of that.
 - Don't add a mutating route to any node-local admin API without a bearer gate
   (the DNS admin API is the pattern — see `skill("geo-edge-routing")`).
 - Verify: `bun --filter @swarmy/agent typecheck` and the protocol round-trip
-  tests (`parseControllerEnvelope` over your new message). Multi-node behaviour:
+  tests (`parseControllerEnvelope` over your new message); after a protocol
+  bump, also `packages/core/src/protocol/skew.test.ts` and
+  `apps/api/src/gateway/agent-skew.test.ts`. Multi-node behaviour:
   `scripts/local-vms.sh` (see `skill("run-local")` + LOCAL-SWARM.md) — enroll a
   VM, watch it reach ONLINE, `docker swarm leave` and watch `swarmLeft` fire.

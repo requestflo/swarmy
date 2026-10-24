@@ -8,17 +8,23 @@ skill for the how.**
 Someone with a swarmy account and a fresh Linux box should get from "empty VPS"
 to "node ONLINE in the dashboard" with a single pasted line:
 
-1. In the dashboard they open **Infrastructure → Add a node** (or Settings →
-   Enroll a node) and copy the one-liner:
+1. In the dashboard they open **Servers → Add a server**, say where it is (any
+   Linux, Hetzner, DigitalOcean, a Raspberry Pi, a home lab behind NAT) and
+   copy the one-liner:
    `curl -fsSL <controller>/install/loader.sh | SWARMY_JOIN_TOKEN=<token> sh -s -- --controller <controller>`.
+   The clouds get the same line wrapped as cloud-config, so the server joins
+   on its first boot.
 2. On the box they paste it. The script installs Docker if missing, installs the
    agent as a managed service, initializes or joins the org's Docker Swarm
    **locally**, and starts dialing out.
-3. Within seconds the node appears on the **Infrastructure** canvas — hostname,
-   role, cores, memory, live CPU/MEM — grouped under Control plane or Workers.
+3. While they wait, a radar of their servers listens for the new one to phone
+   home. Within seconds a receipt says it is in: when it phoned home, its role,
+   cores and memory and, with the private network on, whether it links direct
+   or through a relay. It is on the **Servers** map from then on.
 4. They flip its **ingress**/**outlet** switches, give it a **region**, set a
    monthly **cost**, and it starts carrying real traffic and showing up in
-   per-stack cost breakdowns.
+   per-stack cost breakdowns. To move a service's data onto it, they drag the
+   service onto it on the map (or use **Move…**).
 
 No SSH keys handed to a controller. No manager-vs-worker decision to agonize
 over. No "install Docker, then build the agent, then set five env vars, then
@@ -29,7 +35,7 @@ controller never reaches in.**
 ## How it works (enrollment path)
 
 ```
-fresh box                                       dashboard: "Add a node"
+fresh box                                       dashboard: "Add a server"
    │  ① curl <controller>/install/loader.sh | SWARMY_JOIN_TOKEN=… sh -s -- --controller …
    │     token (env, never the URL) resolves server-side to org, labels,
    │     role hint, profile; the loader pins version + checksums
@@ -47,7 +53,7 @@ registerAck { nodeId, sessionCredential, heartbeat/metrics intervals }
    │     heartbeats + metrics + container/service/node snapshots stream up;
    │     commands stream down and run against the LOCAL Docker socket
    ▼
-node ONLINE on the Infrastructure canvas
+node ONLINE on the Servers map
 ```
 
 Four ideas, one story:
@@ -122,6 +128,15 @@ Four ideas, one story:
   in-memory snapshots the agent already streams (containers, services, nodes,
   metrics). Only mutations dispatch a command to the node. This keeps the
   dashboard instant and the socket quiet.
+- **An agent out of step with the controller is named, not guessed at.** On
+  every register the controller compares the agent's release and protocol
+  versions with its own. A server whose agent is behind says so in plain words
+  ("This server's agent is two versions behind") with **Upgrade agent**; an
+  agent that is ahead says to upgrade swarmy. An agent that shares no protocol
+  version with the controller is called out as unable to talk to swarmy (its
+  frames won't parse, so it would otherwise look connected and do nothing),
+  and the controller logs a warning. The judgement is held in memory and
+  redone on every register; it is never stored.
 - **The agent is useless off-swarm, and says so.** A swarm-membership watchdog
   exits the agent if the swarm is *left* out from under a running node (operator
   ran `docker swarm leave`, or the node was removed) — but only after seeing the
@@ -143,6 +158,7 @@ Four ideas, one story:
 | Node lost every credential (session + token) | The recovery beacon: the agent prints a fingerprint in its journal and posts a claim; a dashboard banner lets the operator approve it after matching the fingerprint (SSH-host-key trust). |
 | Controller down, data at risk on a cut-off node | `swarmy-agent backup export`/`push` moves the node's volumes with zero controller contact. |
 | Docker not yet installed / unavailable | Install script installs Docker first; a running agent that can't reach Docker still reports OS-only node facts and stays connected rather than crash-looping. |
+| A service is moved to a server that can't take it | `decommission.moveService` checks every refusal before it starts (a global or multi-copy service, a managed Postgres primary, a move already running, an offline or draining destination, no named volumes) and returns the reason. Only then does the copy run in the background; its progress is the service's `swarmy.move.state` label and its outcome an audit row. |
 | A manager dies / quorum is at risk | The Swarm health card + resilience score say it in plain words ("3 managers, 1 offline — one more failure loses quorum") before it becomes an outage. Promote/demote are quorum-guarded: swarmy refuses a demote that would leave the swarm headless or below majority. With autolock on, the unlock key is stored encrypted next to the join tokens (or shown once for self-storage) so a restarted manager can always be unlocked. |
 
 ## Explicitly rejected
@@ -177,7 +193,7 @@ Four ideas, one story:
 
 ## Onboarding (the one part we hand-hold)
 
-The dashboard's "Add a node" flow is the only manual step, and it is guided: mint
+The dashboard's "Add a server" flow is the only manual step, and it is guided: mint
 or reuse a join token (optionally with labels + a role hint **and an install
 profile** — Default / Edge / Storage / Database / Private-mesh; the profile is a
 label bundle stamped once at enrollment, so an "edge" token yields a node that's
@@ -214,7 +230,10 @@ persistence, recovery beacon; `index.ts` is a back-compat daemon shim),
 `packages/core/src/protocol/*` (the wire contract),
 `packages/trpc/src/hub/types.ts` (`CommandName` → wire `type`),
 `apps/api/src/gateway/protocol-handlers.ts` (`register`/session handshake) +
-`apps/api/src/gateway/join-auth.ts` (the re-adoption decision),
+`apps/api/src/gateway/join-auth.ts` (the re-adoption decision) +
+`apps/api/src/gateway/agent-skew.ts` over `packages/core/src/protocol/skew.ts`
+(the version-skew judgement),
+`packages/trpc/src/services/volumeMove.service.ts` (`planServiceMove`, the move),
 `packages/trpc/src/services/node.service.ts` (roles/region/public-ip labels,
 drain), and the `apps/api/src/install/*` routes + `scripts/install-swarmy.sh`
 for the install script.
