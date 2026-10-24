@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { createPublicKey, verify } from 'node:crypto';
 import { createTestDb, type TestDb } from '@swarmy/db';
+import { noteSessionsRevoked } from '@swarmy/auth';
 import type { SwarmServiceInfo } from '@swarmy/core/protocol';
 import {
   APP_COOKIE_PLAIN,
@@ -211,6 +212,37 @@ describe('verify (forward-auth)', () => {
       expect(res.status).toBe(302);
     } finally {
       await t.db.session.update({ where: { id: 's_u_admin' }, data: { expiresAt: new Date(Date.now() + 86_400_000) } });
+    }
+  });
+});
+
+describe('decision cache vs session revocation', () => {
+  it('a cached permit is dropped the moment a session of that user ends', async () => {
+    const cookie = await signIn('u_admin');
+    expect((await verifyAppRequest(deps, ORG, edge('shop.example.com', { cookie }))).status).toBe(200);
+    await t.db.session.update({ where: { id: 's_u_admin' }, data: { expiresAt: new Date(Date.now() - 1000) } });
+    try {
+      // The permit is cached for DECISION_CACHE_MS…
+      expect((await verifyAppRequest(deps, ORG, edge('shop.example.com', { cookie }))).status).toBe(200);
+      // …until sign-out / revocation marks the user (token-revocation.ts), with no reset.
+      noteSessionsRevoked('u_admin');
+      expect((await verifyAppRequest(deps, ORG, edge('shop.example.com', { cookie }))).status).toBe(302);
+    } finally {
+      await t.db.session.update({ where: { id: 's_u_admin' }, data: { expiresAt: new Date(Date.now() + 86_400_000) } });
+    }
+    // A user whose own sessions are untouched keeps the cache.
+    const everyone = await t.db.policy.create({
+      data: { orgId: ORG, name: 'all', effect: 'permit', priority: 30, enabled: true, source: JSON.stringify({ actions: ['app.access'] }) },
+    });
+    try {
+      const c2 = await signIn('u_sales');
+      expect((await verifyAppRequest(deps, ORG, edge('shop.example.com', { cookie: c2 }))).status).toBe(200);
+      await t.db.session.update({ where: { id: 's_u_sales' }, data: { expiresAt: new Date(Date.now() - 1000) } });
+      noteSessionsRevoked('u_admin');
+      expect((await verifyAppRequest(deps, ORG, edge('shop.example.com', { cookie: c2 }))).status).toBe(200);
+    } finally {
+      await t.db.policy.delete({ where: { id: everyone.id } });
+      await t.db.session.update({ where: { id: 's_u_sales' }, data: { expiresAt: new Date(Date.now() + 86_400_000) } });
     }
   });
 });

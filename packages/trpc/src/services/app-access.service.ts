@@ -17,7 +17,8 @@
  *        → Set-Cookie on the APP's domain (host-only, HttpOnly) → 302 back to <url>
  *
  * The app cookie only REFERENCES the swarmy session (id + user), so signing
- * out of swarmy or revoking the session ends app access within the cache TTL.
+ * out of swarmy or revoking the session ends app access: a cached permit is
+ * dropped as soon as a session of that user ends (`sessionsRevokedSince`).
  * Who may enter is ABAC: the `app.access` action on the app's stack.
  *
  * Pure over its deps (db + live hub inventory + clock), so the HTTP adapter
@@ -28,7 +29,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import { buildInventory, UNGROUPED } from '@swarmy/core';
-import { displayEmail } from '@swarmy/auth';
+import { displayEmail, sessionsRevokedSince } from '@swarmy/auth';
 import type { ResourceInput } from '@swarmy/abac';
 import type { DB } from '@swarmy/db';
 import { APP_AUTH_ORIGINAL_URI_HEADER, APP_AUTH_MODE_HEADER, APP_AUTH_PATH_PREFIX, isBroadWildcard } from '@swarmy/ingress';
@@ -46,7 +47,11 @@ export const APP_COOKIE_PLAIN = 'swarmy-app';
 /** App cookie lifetime cap; the swarmy session's own expiry is the other bound. */
 export const APP_COOKIE_MAX_SECONDS = 12 * 3600;
 export const LOGIN_CODE_TTL_SECONDS = 60;
-/** How long a permit is reused for the same cookie + host (bounds revocation lag). */
+/**
+ * How long a permit is reused for the same cookie + host. Session revocation
+ * in this process skips the cache at once; this bounds the lag for policy
+ * edits and for sessions ended out of process (the reset-2fa CLI).
+ */
 export const DECISION_CACHE_MS = 15_000;
 
 export interface AppAccessDeps {
@@ -362,7 +367,7 @@ export async function verifyAppRequest(
 
   const cacheKey = `${raw}|${req.host}|${route.stack || route.serviceName}`;
   const hit = decisions.get(cacheKey);
-  if (hit && now - hit.at < DECISION_CACHE_MS) return hit.res;
+  if (hit && now - hit.at < DECISION_CACHE_MS && !sessionsRevokedSince(cookie.uid, hit.at)) return hit.res;
 
   const who = await liveSession(deps.db, cookie.sid, cookie.uid, now);
   if (!who) return unauthenticated(deps, req, true);
