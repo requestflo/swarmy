@@ -1,7 +1,7 @@
 /**
  * Git provider connections (git-apps Phase 2): the controller's own GitHub
- * App (manifest flow), org-bound installations, GitLab OAuth / token, generic
- * git (PAT or a swarmy deploy key), the repo + branch picker, JIT credentials
+ * App (manifest flow), org-bound installations, GitLab OAuth / token, Gitea /
+ * Forgejo (git-gitea.service), generic git (PAT or a swarmy deploy key), the repo + branch picker, JIT credentials
  * for clone/build, and `inspectCommit` (git.inspect over container.runOnce).
  *
  * Invariants (cicd-registry skill):
@@ -12,11 +12,10 @@
  *     only after the installing user's own OAuth token proves they can see it.
  *   - Everything that changes a connection is audited.
  */
-import { createHmac } from 'node:crypto';
 import { TRPCError } from '@trpc/server';
 import type { Auth } from '@swarmy/auth';
 import { composeToAppConfig } from '@swarmy/app-config';
-import { decryptSecret, encryptSecret, isVaultConfigured, randomToken } from '@swarmy/core/crypto';
+import { decryptSecret, encryptSecret, randomToken } from '@swarmy/core/crypto';
 import type { RunOnceResult } from '@swarmy/core/protocol';
 import type { DB } from '@swarmy/db';
 import type { OrgContext } from '../context';
@@ -24,6 +23,14 @@ import { mapDispatchError, notFound } from '../errors';
 import type { AgentHub } from '../hub/types';
 import { writeAudit } from './audit.service';
 import { resolveBuilderNode, systemContext } from './cicd.service';
+import {
+  KIND_TO_DB,
+  kindFromDb,
+  stateKey,
+  toConnectionView,
+  type GitConnectionView,
+} from './git-connection-view';
+import { createGiteaConnection, registerGiteaHook, type GiteaConnectionInput } from './git-gitea.service';
 import {
   connectionCredentials,
   controllerPublicUrl,
@@ -56,6 +63,8 @@ import {
   isSshGitUrl,
   listGithubBranches,
   listGitlabBranches,
+  listGiteaBranches,
+  listGiteaRepos,
   listGitlabProjects,
   listInstallationRepos,
   listUserInstallationIds,
@@ -75,33 +84,9 @@ import { type AppScanView, scanFromInspect, scanProbePaths } from './git-scan';
 
 type Deps = { db: DB; hub: AgentHub; auth: Auth };
 
-/** HMAC key for OAuth `state`, derived from the vault key (never the key itself). */
-function stateKey(): string {
-  const k = process.env.SWARMY_SECRET_KEY;
-  if (!k || !isVaultConfigured()) {
-    throw new TRPCError({
-      code: 'PRECONDITION_FAILED',
-      message:
-        'SWARMY_SECRET_KEY is not set — swarmy cannot store git credentials without its vault.',
-    });
-  }
-  return createHmac('sha256', k).update('swarmy:git-oauth-state:v1').digest('hex');
-}
-
 // ── views (secrets never included) ──────────────────────────────────────────
 
-export type GitConnectionKind = 'github' | 'gitlab' | 'gitea' | 'generic';
-
-export interface GitConnectionView {
-  id: string;
-  kind: GitConnectionKind;
-  displayName: string;
-  baseUrl: string;
-  account: string | null;
-  status: string;
-  repoCount: number;
-  createdAt: string;
-}
+export type { GitConnectionKind, GitConnectionView } from './git-connection-view';
 
 export interface GithubAppView {
   registered: boolean;
@@ -109,36 +94,6 @@ export interface GithubAppView {
   name: string | null;
   htmlUrl: string | null;
   webBase: string;
-}
-
-const KIND_TO_DB = {
-  github: 'GITHUB',
-  gitlab: 'GITLAB',
-  gitea: 'GITEA',
-  generic: 'GENERIC',
-} as const;
-const kindFromDb = (k: string): GitConnectionKind => k.toLowerCase() as GitConnectionKind;
-
-function toConnectionView(r: {
-  id: string;
-  kind: string;
-  displayName: string;
-  baseUrl: string;
-  account: string | null;
-  status: string;
-  createdAt: Date;
-  _count?: { repos: number };
-}): GitConnectionView {
-  return {
-    id: r.id,
-    kind: kindFromDb(r.kind),
-    displayName: r.displayName,
-    baseUrl: r.baseUrl,
-    account: r.account,
-    status: r.status,
-    repoCount: r._count?.repos ?? 0,
-    createdAt: r.createdAt.toISOString(),
-  };
 }
 
 export async function listConnections(ctx: OrgContext): Promise<GitConnectionView[]> {
@@ -378,6 +333,8 @@ export async function completeGithubSetup(
 export type CreateConnectionInput =
   | { kind: 'gitlab'; baseUrl?: string; mode: 'oauth'; clientId: string; clientSecret: string }
   | { kind: 'gitlab'; baseUrl?: string; mode: 'token'; token: string }
+  | ({ kind: 'gitea' } & GiteaConnectionInput)
+  /** Generic git — or Gitea with an optional token (REST and older clients). */
   | {
       kind: 'gitea' | 'generic';
       baseUrl: string;
@@ -395,6 +352,7 @@ export async function createConnection(
   ctx: OrgContext,
   input: CreateConnectionInput,
 ): Promise<{ connection: GitConnectionView; authorizeUrl?: string }> {
+  if (input.kind === 'gitea') return createGiteaConnection(ctx, input);
   const baseUrl = (input.baseUrl ?? GITLAB_WEB).replace(/\/+$/, '');
   if (!/^https?:\/\//.test(baseUrl))
     throw new TRPCError({ code: 'BAD_REQUEST', message: 'baseUrl must be http(s)' });
@@ -418,8 +376,7 @@ export async function createConnection(
       displayName:
         input.kind === 'gitlab'
           ? `GitLab · ${new URL(baseUrl).host}`
-          : (input.displayName ??
-            `${input.kind === 'gitea' ? 'Gitea' : 'Git'} · ${new URL(baseUrl).host}`),
+          : (input.displayName ?? `Git · ${new URL(baseUrl).host}`),
       baseUrl,
       account,
       createdById: ctx.user.id,
@@ -529,30 +486,8 @@ export async function listProviderRepos(
   }
   if (conn.kind === 'GITLAB')
     return listGitlabProjects(gitFetch, conn.baseUrl, creds.token, { search: input.search });
-  // Gitea: the same search endpoint shape GitHub's REST uses.
-  if (conn.kind === 'GITEA') {
-    const q = new URLSearchParams({ limit: '50', ...(input.search ? { q: input.search } : {}) });
-    const r = await requestJson<{
-      data: Array<{
-        id: number;
-        full_name: string;
-        clone_url: string;
-        html_url: string;
-        default_branch: string;
-        private: boolean;
-      }>;
-    }>(gitFetch, `${conn.baseUrl}/api/v1/repos/search?${q.toString()}`, {
-      headers: { authorization: `token ${creds.token}` },
-    });
-    return r.data.map((x) => ({
-      id: String(x.id),
-      fullName: x.full_name,
-      cloneUrl: x.clone_url,
-      htmlUrl: x.html_url,
-      defaultBranch: x.default_branch,
-      private: x.private,
-    }));
-  }
+  if (conn.kind === 'GITEA')
+    return listGiteaRepos(gitFetch, conn.baseUrl, creds.token, { search: input.search });
   return []; // generic git has no listing API — the URL is typed.
 }
 
@@ -567,14 +502,8 @@ export async function listProviderBranches(
     return listGithubBranches(gitFetch, githubApiBase(conn.baseUrl), creds.token, input.repo);
   if (conn.kind === 'GITLAB')
     return listGitlabBranches(gitFetch, conn.baseUrl, creds.token, input.repo);
-  if (conn.kind === 'GITEA') {
-    const r = await requestJson<Array<{ name: string; commit: { id: string } }>>(
-      gitFetch,
-      `${conn.baseUrl}/api/v1/repos/${input.repo}/branches?limit=50`,
-      { headers: { authorization: `token ${creds.token}` } },
-    );
-    return r.map((b) => ({ name: b.name, sha: b.commit.id }));
-  }
+  if (conn.kind === 'GITEA')
+    return listGiteaBranches(gitFetch, conn.baseUrl, creds.token, input.repo);
   return [];
 }
 
@@ -634,7 +563,7 @@ export async function linkRepo(ctx: OrgContext, input: LinkRepoInput): Promise<L
   });
 
   // GitHub: the App's single webhook already covers every installed repo.
-  // GitLab: register the project hook ourselves. Others: hand back URL + secret.
+  // GitLab / Gitea: register the repo hook ourselves. Others: hand back URL + secret.
   let webhook: LinkedRepoView['webhook'] = null;
   const hookUrl = `${controllerPublicUrl()}/webhooks/git/${row.id}`;
   if (conn?.kind === 'GITLAB' && input.repo) {
@@ -647,6 +576,11 @@ export async function linkRepo(ctx: OrgContext, input: LinkRepoInput): Promise<L
         webhook = { url: hookUrl, secret: webhookSecret }; // couldn't auto-register — show it
       });
     }
+  } else if (conn?.kind === 'GITEA' && input.repo) {
+    webhook = await registerGiteaHook(ctx.db, conn, input.repo.fullName, {
+      url: hookUrl,
+      secret: webhookSecret,
+    });
   } else if (conn?.kind !== 'GITHUB') {
     webhook = { url: hookUrl, secret: webhookSecret };
   }

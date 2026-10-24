@@ -1,6 +1,6 @@
 /**
  * Git provider connections (git-apps Phase 2): register the controller's
- * GitHub App, bind installations, connect GitLab/Gitea/generic git, pick a
+ * GitHub App, bind installations, connect GitLab / Gitea·Forgejo / generic git, pick a
  * repo + branch, link it as an app binding, and read a commit (git.inspect).
  * Secrets never leave the service layer; mutations are admin-only and
  * audited, removal is ABAC-gated (`cicd.remove`).
@@ -23,6 +23,7 @@ import {
   startGithubManifest,
   updateRepo,
 } from '../services/git-connections.service';
+import { createGiteaConnection, testGiteaConnection } from '../services/git-gitea.service';
 import { draftConfig } from '../services/git-scan';
 
 const httpUrl = z
@@ -67,35 +68,51 @@ export const gitConnectionsRouter = router({
 
   create: adminProcedure
     .input(
-      z.discriminatedUnion('mode', [
-        z.object({
-          kind: z.literal('gitlab'),
-          mode: z.literal('oauth'),
-          baseUrl: httpUrl.optional(),
-          clientId: z.string().min(1).max(200),
-          clientSecret: z.string().min(1).max(500),
+      z
+        .discriminatedUnion('mode', [
+          z.object({
+            kind: z.enum(['gitlab', 'gitea']),
+            mode: z.literal('oauth'),
+            baseUrl: httpUrl.optional(),
+            clientId: z.string().min(1).max(200),
+            clientSecret: z.string().min(1).max(500),
+          }),
+          z.object({
+            kind: z.enum(['gitlab', 'gitea']),
+            mode: z.literal('token'),
+            baseUrl: httpUrl.optional(),
+            token: z.string().min(8).max(500),
+          }),
+          z.object({
+            kind: z.enum(['gitea', 'generic']),
+            mode: z.literal('basic'),
+            baseUrl: httpUrl,
+            displayName: z.string().min(1).max(80).optional(),
+            token: z.string().min(1).max(500).optional(),
+            tokenUser: z.string().min(1).max(100).optional(),
+          }),
+        ])
+        .refine((v) => v.kind !== 'gitea' || Boolean(v.baseUrl), {
+          message: 'Gitea / Forgejo needs its server URL',
+          path: ['baseUrl'],
         }),
-        z.object({
-          kind: z.literal('gitlab'),
-          mode: z.literal('token'),
-          baseUrl: httpUrl.optional(),
-          token: z.string().min(8).max(500),
-        }),
-        z.object({
-          kind: z.enum(['gitea', 'generic']),
-          mode: z.literal('basic'),
-          baseUrl: httpUrl,
-          displayName: z.string().min(1).max(80).optional(),
-          token: z.string().min(1).max(500).optional(),
-          tokenUser: z.string().min(1).max(100).optional(),
-        }),
-      ]),
     )
     .mutation(({ ctx, input }) => {
-      if (input.kind === 'gitlab') return createConnection(ctx, input);
-      const { mode: _mode, ...rest } = input;
-      return createConnection(ctx, rest);
+      if (input.mode === 'basic') {
+        const { mode: _mode, kind, ...rest } = input;
+        return kind === 'gitea'
+          ? createGiteaConnection(ctx, rest)
+          : createConnection(ctx, { kind, ...rest });
+      }
+      if (input.kind === 'gitea')
+        return createGiteaConnection(ctx, { ...input, baseUrl: input.baseUrl ?? '' });
+      return createConnection(ctx, { ...input, kind: 'gitlab' });
     }),
+
+  /** "Test connection" for Gitea / Forgejo: server, account, missing scopes. Read-only; saves nothing. */
+  testGitea: adminProcedure
+    .input(z.object({ baseUrl: httpUrl, token: z.string().min(1).max(500).optional() }))
+    .mutation(({ input }) => testGiteaConnection(input)),
 
   remove: abacProcedure('cicd.remove')
     .input(z.object({ id: z.string().min(1) }))

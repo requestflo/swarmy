@@ -1,6 +1,6 @@
 /**
  * Signed, expiring `state` for provider redirects (GitHub App manifest +
- * setup, GitLab OAuth). It binds a round-trip through the provider to the
+ * setup, GitLab / Gitea OAuth). It binds a round-trip through the provider to the
  * swarmy org + user that started it, so a callback can't be replayed into
  * another org. HMAC-SHA256 over base64url JSON; the key is derived from
  * `SWARMY_SECRET_KEY` by the caller (never hard-coded here).
@@ -9,7 +9,7 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 export interface OAuthState {
   /** What the round-trip is for. */
-  purpose: 'github-manifest' | 'github-setup' | 'gitlab-oauth';
+  purpose: 'github-manifest' | 'github-setup' | 'gitlab-oauth' | 'gitea-oauth';
   orgId: string;
   userId: string;
   /** Extra context (e.g. the GitLab connection id being authorized). */

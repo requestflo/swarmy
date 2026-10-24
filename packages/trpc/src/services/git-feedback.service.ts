@@ -1,8 +1,8 @@
 /**
  * Git feedback (git-apps Phase 2): tell the provider what swarmy did with a
- * commit — a GitHub check run (falling back to a classic commit status) or a
- * GitLab commit status — and keep ONE sticky PR/MR comment (plan + preview
- * URL) edited in place.
+ * commit — a GitHub check run (falling back to a classic commit status), a
+ * GitLab or Gitea/Forgejo commit status — and keep ONE sticky PR/MR comment
+ * (plan + preview URL) edited in place.
  *
  * Best-effort by design: feedback never delays or fails a build or deploy.
  * Every function swallows provider errors (returning false) — a provider
@@ -10,11 +10,14 @@
  */
 import type { DB } from '@swarmy/db';
 import {
+  giteaFullName,
   githubApiBase,
   githubFullName,
+  setGiteaCommitStatus,
   setGithubCommitStatus,
   setGitlabCommitStatus,
   upsertCheckRun,
+  upsertGiteaStickyComment,
   upsertGithubStickyComment,
   upsertGitlabStickyNote,
   type CommitStatusInput,
@@ -80,6 +83,12 @@ export async function reportCommitStatus(
       await setGitlabCommitStatus(gitFetch, conn.baseUrl, token, projectId, input);
       return true;
     }
+    if (conn.kind === 'GITEA') {
+      const fullName = repo.fullName ?? giteaFullName(repo.url, conn.baseUrl);
+      if (!fullName) return false;
+      await setGiteaCommitStatus(gitFetch, conn.baseUrl, token, fullName, input);
+      return true;
+    }
     return false;
   } catch {
     return false;
@@ -122,6 +131,12 @@ export async function upsertPrComment(
         input.key,
         input.body,
       );
+      return true;
+    }
+    if (conn.kind === 'GITEA') {
+      const fullName = repo.fullName ?? giteaFullName(repo.url, conn.baseUrl);
+      if (!fullName) return false;
+      await upsertGiteaStickyComment(gitFetch, conn.baseUrl, token, fullName, input.pr, input.key, input.body);
       return true;
     }
     return false;

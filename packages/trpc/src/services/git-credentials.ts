@@ -1,8 +1,8 @@
 /**
  * JIT git credentials (git-apps): resolve a usable token / deploy key for a
  * connection or repo at the moment of use. GitHub installation tokens are
- * minted from the App key and cached in memory only (≤ 55 min); GitLab OAuth
- * tokens are refreshed before expiry. Nothing here returns to a client.
+ * minted from the App key and cached in memory only (≤ 55 min); GitLab and
+ * Gitea/Forgejo OAuth tokens are refreshed before expiry. Nothing here returns to a client.
  *
  * Kept separate from git-connections.service so cicd.service (builds) can
  * import it without a cycle.
@@ -14,6 +14,9 @@ import {
   createInstallationToken,
   githubApiBase,
   githubAppJwt,
+  GITEA_CALLBACK_PATH,
+  giteaTokenExpiry,
+  giteaTokenRequest,
   GITLAB_CALLBACK_PATH,
   gitlabTokenNeedsRefresh,
   isSshGitUrl,
@@ -86,21 +89,21 @@ export async function connectionCredentials(db: DB, conn: ConnectionRow): Promis
     });
     return { token: t.token, tokenUser: 'x-access-token' };
   }
-  if (conn.kind === 'GITLAB' && conn.refreshTokenEnc && conn.clientId && conn.clientSecretEnc) {
+  const oauth = conn.kind === 'GITLAB' || conn.kind === 'GITEA';
+  if (oauth && conn.refreshTokenEnc && conn.clientId && conn.clientSecretEnc) {
     if (gitlabTokenNeedsRefresh(conn.tokenExpiresAt)) {
-      const t = await refreshGitlabToken(gitFetch, {
+      const t = await refreshOAuth(conn.kind, {
         baseUrl: conn.baseUrl,
         clientId: conn.clientId,
         clientSecret: decryptSecret(conn.clientSecretEnc),
         refreshToken: decryptSecret(conn.refreshTokenEnc),
-        redirectUri: `${controllerPublicUrl()}${GITLAB_CALLBACK_PATH}`,
       });
       await db.gitConnection.update({
         where: { id: conn.id },
         data: {
           accessTokenEnc: encryptSecret(t.access_token),
           refreshTokenEnc: encryptSecret(t.refresh_token),
-          tokenExpiresAt: new Date((t.created_at + t.expires_in) * 1000),
+          tokenExpiresAt: t.expiresAt,
         },
       });
       return { token: t.access_token, tokenUser: 'oauth2' };
@@ -109,6 +112,26 @@ export async function connectionCredentials(db: DB, conn: ConnectionRow): Promis
   if (conn.accessTokenEnc)
     return { token: decryptSecret(conn.accessTokenEnc), tokenUser: conn.tokenUser ?? 'oauth2' };
   return {};
+}
+
+/** One OAuth refresh round-trip (GitLab or Gitea/Forgejo); refresh tokens rotate, so store the new one. */
+async function refreshOAuth(
+  kind: string,
+  app: { baseUrl: string; clientId: string; clientSecret: string; refreshToken: string },
+): Promise<{ access_token: string; refresh_token: string; expiresAt: Date }> {
+  if (kind === 'GITEA') {
+    const redirectUri = `${controllerPublicUrl()}${GITEA_CALLBACK_PATH}`;
+    const t = await giteaTokenRequest(gitFetch, { ...app, redirectUri }, {
+      grant_type: 'refresh_token',
+      refresh_token: app.refreshToken,
+    });
+    return { ...t, expiresAt: giteaTokenExpiry(t) };
+  }
+  const t = await refreshGitlabToken(gitFetch, {
+    ...app,
+    redirectUri: `${controllerPublicUrl()}${GITLAB_CALLBACK_PATH}`,
+  });
+  return { ...t, expiresAt: new Date((t.created_at + t.expires_in) * 1000) };
 }
 
 /** Credentials for one repo: connection token, legacy per-repo token, or deploy key. */
