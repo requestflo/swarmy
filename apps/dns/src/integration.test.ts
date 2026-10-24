@@ -263,3 +263,27 @@ describe('ACME DNS-01 + wildcards (end to end)', () => {
     expect((wild.answers ?? []).map((a) => [a.name, (a as { data: string }).data])).toEqual([['shop.example.com', '203.0.113.10']]);
   });
 });
+
+describe('cluster zone synthesis (end to end)', () => {
+  it('a pushed synth block answers <a-b-c-d> names over the wire; AAAA is NODATA', async () => {
+    const b = bundle(200);
+    b.zones.push({ ...b.zones[0]!, zone: 'apps.example.org', geoRecords: [], staticRecords: [], synth: { ips: ['5.9.10.200'] } });
+    const res = await adminFetch('/v1/snapshot', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(b),
+    });
+    expect(res.status).toBe(200);
+
+    const a = await udpQuery({ type: 'query', id: 9, flags: 0, questions: [{ type: 'A', name: 'web-shop.5-9-10-200.apps.example.org' }] });
+    expect((a.flags ?? 0) & dnsPacket.AUTHORITATIVE_ANSWER).toBeTruthy();
+    expect((a.answers ?? []).map((x) => (x as { data: string }).data)).toEqual(['5.9.10.200']);
+
+    const v6 = await udpQuery({ type: 'query', id: 10, flags: 0, questions: [{ type: 'AAAA', name: 'web-shop.5-9-10-200.apps.example.org' }] });
+    expect((v6 as unknown as { rcode: string }).rcode).toBe('NOERROR');
+    expect(v6.answers ?? []).toEqual([]);
+
+    const foreign = await udpQuery({ type: 'query', id: 11, flags: 0, questions: [{ type: 'A', name: '8-8-8-8.apps.example.org' }] });
+    expect((foreign as unknown as { rcode: string }).rcode).toBe('NXDOMAIN');
+  });
+});
