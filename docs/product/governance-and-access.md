@@ -132,8 +132,15 @@ Four ideas, one story:
   Default rules are managed: when the shipped set changes, every org's stored
   default rows are rewritten on its next decision (custom rules untouched), and
   the engine always evaluates the shipped rules, so no org runs stale defaults.
-  Admins may turn a default off, never rewrite it. Members may also
-  `mesh.connect` to non-production stacks.
+  Admins may turn a default off, never rewrite or rename it (a rename is
+  refused; it used to switch an "off" default back on). Members may also
+  `mesh.connect` to non-production stacks. A server nothing can describe (offline
+  since the controller started, and no manager lists it) is judged production,
+  and an id that doesn't resolve is `NOT_FOUND`, never "decide as the org".
+- **Owners can't be locked out of the rules.** A rule change after which no
+  owner may still change rules (a forbid that covers owners, or switching off
+  "Owners can do anything") is refused with `POLICY_LOCKOUT`, and nothing is
+  written.
 - **Guardrails are per-rule, prod-aware, and overridable on the record.** Each
   rule is `block` or `warn`. A **warn** surfaces in the deploy dialog and any
   member may confirm through it; a **block** refuses and only an admin may
@@ -142,8 +149,12 @@ Four ideas, one story:
   one); the reason is stored on the `service.deploy.override` audit row and
   shown in Recent decisions. **Production safety mode** forces every rule to `block` on production
   stacks (per-rule params still apply); prod-scoped rules stay silent everywhere
-  else. Every block and every override is an `AuditLog` row — the Recent decisions
-  feed is literally a query over them.
+  else. Every admission decision is an `AuditLog` receipt with each rule's
+  outcome: blocked, warned, overridden, and allowed-but-would-have-blocked (a
+  Warn or Off guardrail that, set to Block, would have refused the deploy). A
+  clean pass adds no row beyond the deploy's own. The Recent decisions feed is
+  literally a query over them, and `guardrails.tally` counts them per rule, so
+  the Guardrails page says what Block would have stopped before you turn it on.
 - **Guardrails defer, they don't duplicate.** `requireSignedImagesProd` emits
   nothing when the registry policy already enforces cosign signatures — the image
   evaluator does the real verify. One check, one owner.
@@ -162,7 +173,24 @@ Four ideas, one story:
   turns on the opt-in switches (docs/ACCOUNT-SECURITY.md). swarmy is itself an
   OIDC provider for in-cluster apps (NetBird), issuing `groups` claims.
   API keys and OAuth clients are admin-minted, hashed at rest, and
-  scoped — see the `rest-api-surface` skill.
+  scoped — see the `rest-api-surface` skill. An IdP account without email gets
+  a placeholder hashed from the provider id and subject, so two identities
+  never share one. Deleting an SSO provider deletes the accounts it vouched for
+  and retires its id to the org, so no other org can re-create the id to claim
+  them.
+- **Signing out ends API access too.** Sign-out, revoking a session and a 2FA
+  reset stamp `User.tokensRevokedAt`: an access token issued before it is
+  refused, the OAuth grants minted from that session are deleted, and an app
+  behind swarmy sign-in re-checks the session on its next request instead of
+  using its 15-second cached permit.
+- **Secret-looking values stay masked without `secrets.read`.** Service and
+  inventory views mask secret-looking env values and argv flags such as
+  `--requirepass <value>` for anyone without `secrets.read`.
+- **Apps behind swarmy sign-in.** A route with "Require login" asks the
+  controller about every request (forward-auth); who may enter is the
+  `app.access` policy on the app's stack. A wildcard over a public suffix
+  (`*.com`, `*.co.uk`, `*.github.io`) never matches, and turning on login for
+  one is refused.
 
 - **Every destructive action runs the policy gate — on both front doors.**
   (Owner decision 2026-09-24.) Removing, destroying, restoring over, draining,
@@ -176,7 +204,8 @@ Four ideas, one story:
   |---|---|
   | `service.remove` / `stack.remove` / `node.remove` | removing a service, a stack or preview env, a node |
   | `service.scale` / `service.restart` / `node.drain` | scale (incl. to 0), restart, drain/cordon |
-  | `data.destroy` | managed cache/search/vector/queue teardown or drain, bucket/key delete, object store disable, cluster-volume deregister |
+  | `data.destroy` | managed cache/search/vector/queue teardown or drain, bucket/key delete, a bucket's lifecycle (expiry) rules, object store disable, cluster-volume deregister, a moved volume's old copy |
+  | `data.configure` | a bucket's CORS rules (which websites a browser may fetch it from) |
   | `data.restore` | volume, DB, cache, search and controller restores (they overwrite live data) |
   | `data.failover` | confirming a managed-DB failover that may lose the last writes (see `managed-data.md`) |
   | `backup.remove` | removing a backup target or a backup schedule |
@@ -188,6 +217,7 @@ Four ideas, one story:
   | `service.deploy` / `stack.deploy` / `service.configure` | create a service, deploy/redeploy a compose stack, add an app to a stack, connect apps; edit a service or its scale-to-zero (env-aware, see above) |
   | `secrets.read` | revealing the swarm unlock key or a git webhook secret |
   | `mesh.connect` | joining an app stack's mesh network from a client (group sync reads `whoCan`) |
+  | `rum.remove` / `mesh.revoke` / `savedquery.remove` | erasing a visitor's analytics and replays (GDPR); revoking a person's private-network grant or device; deleting a saved studio query (members keep this one) |
 
   **Seeded defaults: owners and admins can do all of it (no lockout, even for an
   org whose defaults were persisted before these actions existed — their `*`
@@ -226,6 +256,8 @@ Four ideas, one story:
 | Audit write fails (DB hiccup) | `writeAudit` swallows the error — a logging failure never rolls back or blocks the underlying mutation. |
 | A `block` guardrail fires on a prod deploy | The deploy is refused with the exact rule + plain-words reason; an admin may override (on `/services/new`, with a required reason), and the block *and* the override are both audited. |
 | You switch to another org | The switch re-issues the session cookies and hands them to the browser, so the next request already reads the new org (it used to show the previous org for up to the 60 s cookie cache). |
+| A rule change would leave no owner able to change rules | Refused with `POLICY_LOCKOUT`; nothing is written. |
+| A session is signed out or revoked | Access tokens issued before it are refused, its OAuth grants are deleted, and forward-auth drops that user's cached permits. |
 | System actor (worker/webhook/GC) mutates | It writes an `AuditLog` row with `actorType:'system'` — automation is on the record exactly like a human. |
 
 ## Explicitly rejected
@@ -269,6 +301,7 @@ exposure/images evaluators), `packages/trpc/src/services/guardrails.service.ts`
 (config + Recent decisions), the identity routers under
 `packages/trpc/src/routers/*`, the Prisma models in
 `packages/db/prisma/schema/{access,governance,api,auth,cluster}.prisma`, and the
-UI at `apps/app/src/routes/_authed/{governance,exposure,settings_.access,audit,cost}.tsx`.
+UI at `apps/app/src/routes/_authed/{governance,settings_.access,audit,cost}.tsx`
+(exposure is a section of the Safety page, `governance.tsx`).
 Adding a governed mutation follows the `add-feature-slice` skill; the exposure
 half of the admission story pairs with the ingress-and-exposure doc.

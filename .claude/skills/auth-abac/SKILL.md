@@ -163,7 +163,8 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
   sign-in, JIT-adds SSO members and writes `attributes.ssoGroups` (audited via
   the host-injected `authRegistry.configure({ audit })` → `writeAudit`).
   An IdP placeholder is a hash of `providerId`+`sub` (never sanitised
-  inputs, which collide). An SSO provider id owns its `account` rows: delete
+  inputs, which collide; `idpPlaceholderEmail` in `identity-idp.ts`, server-only
+  because `identity.ts` ships to the browser). An SSO provider id owns its `account` rows: delete
   removes them, rename moves them, and the old id is retired to the org
   (`SsoProviderRetired`, `services/sso-identities.ts`).
 - **Ending a session ends its tokens.** The `session.delete` hook (and the
@@ -174,6 +175,12 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
   forward-auth's decision cache drops their permits
   (`packages/auth/src/token-revocation.ts`). A new path that deletes
   sessions outside Better Auth must call `revokeUserTokens` too.
+  Forward-auth ("Protect my app", `services/app-access.service.ts`, action
+  `app.access` on the app's stack) skips a cached permit made at or before
+  that mark (`sessionsRevokedSince`), never matches a wildcard over a public
+  suffix (`isBroadWildcard`, `@swarmy/ingress` `wildcard-scope.ts`; fails
+  closed), and turning on login for such a route is refused
+  (`app-access-admin.service.ts`).
   2FA is opt-in everywhere: social/SSO sessions are exempt, terminal step-up
   defaults off. swarmy is also an OIDC provider (`oidc-provider.ts`,
   `oidc-clients.ts` → `ensureNetbirdOidcClient`).
@@ -191,7 +198,9 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
   default rules (stored default rows only carry enable/disable + a real id) and
   rewrites drifted default rows automatically (`policy-repo` `ensureDefaults`,
   `defaultsDrift`). There is no "reset defaults"; admins may switch a default
-  off, never edit it. Editing `defaults.ts` changes every org on its next
+  off, never edit or rename it (`policies.set` refuses a rename; a stored
+  enable/disable is matched to its shipped default by name, else by source, so
+  a row renamed before the rule keeps its "off"). Editing `defaults.ts` changes every org on its next
   decision — cover it with a unit. The effective set is one pure function,
   `effectivePolicyInputs` (`services/policy-effective.ts`).
 - **Owners can't be locked out of the rules.** `setPolicy`/`deletePolicy` run
@@ -213,6 +222,7 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
   `docs/product/governance-and-access.md`): service/stack/node remove, scale,
   restart, drain; `data.destroy|restore|failover`; `backup.remove`;
   `secret.delete`; `dns.remove`; `ingress.remove|write`; `token.revoke`;
+  `data.configure` (bucket CORS; a bucket's lifecycle rides `data.destroy`);
   `member|policy|authconfig.write`; `cicd.remove`; plus deploys
   (`service.deploy`, `stack.deploy`, `service.configure` — member-permitted
   only outside production by the defaults), `secrets.read` and `mesh.connect`. The REST routes over the same
@@ -257,6 +267,11 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
 | Attribute paths, env normalisation, groups, conditions | `packages/abac/src/attrs.ts` |
 | Plain-words rules + action catalogue | `packages/abac/src/describe.ts`; browser entry `model.ts` |
 | Policy storage seam | `packages/trpc/src/services/policy-repo.ts` |
+| Effective rule set + owner-lockout refusal | `packages/trpc/src/services/{policy-effective,policy-lockout}.ts` |
+| who-can (incl. described resources) | `packages/trpc/src/abac-who-can.ts` |
+| Token/session revocation, IdP placeholder, SSO id ownership | `packages/auth/src/{token-revocation,identity-idp}.ts`, `packages/trpc/src/services/sso-identities.ts` |
+| Forward-auth ("Protect my app") + its admin side | `packages/trpc/src/services/app-access{,-admin}.service.ts`; edge snippets `packages/ingress/src/app-auth.ts` |
+| Secret masking in views (env, argv) | `packages/trpc/src/services/{secret-redact,inventory-redact}.ts`, `packages/core/src/secret-args.ts` |
 | Rules editor + who-can UI | `apps/app/src/components/access/{policies-tab,policy-*}.tsx` |
 | Principal/resource/grant builders + relation implication | `packages/abac/src/{build,grants}.ts` |
 | The one audit writer | `packages/trpc/src/services/audit.service.ts` |
@@ -269,7 +284,7 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
 | Better Auth wiring (runtime-built) | `packages/auth/src/{server,config,client}.ts` |
 | Access & auth models | `packages/db/prisma/schema/access.prisma` (`Policy`, `ResourceGrant`, `SsoProvider`, `AuthProviderConfig`) |
 | Governance config + identity + audit models | `packages/db/prisma/schema/{governance,api,auth}.prisma`; `AuditLog`/`JoinToken` in `cluster.prisma` |
-| UI surfaces | routes `apps/app/src/routes/_authed/{governance,exposure,settings_.access,audit,cost}.tsx` over `apps/app/src/components/{guardrails,exposure,access,auditlog,cost}/*` (the redesign moves these under Settings → Access and Activity — `plans/redesign-dashboard-2026-09.md` §B.2) |
+| UI surfaces | routes `apps/app/src/routes/_authed/{governance,settings_.access,audit,cost}.tsx` (exposure is a section of the Safety page, `governance.tsx`) over `apps/app/src/components/{guardrails,exposure,access,auditlog,cost}/*` (the redesign moves these under Settings → Access and Activity — `plans/redesign-dashboard-2026-09.md` §B.2) |
 
 ## Recipe: put a mutation behind a policy + audit it
 
@@ -304,10 +319,13 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
 - The seeded defaults are **behaviour-preserving on purpose** — changing one
   silently changes every org that never wrote a custom policy. Treat
   `defaults.ts` edits as breaking and cover them with a unit.
-- `abacProcedure` runs `resolveResource` on `opts.input`; a resolver that returns
+- `abacProcedure` runs `resolveResource` on the raw input; a resolver that returns
   `null` evaluates against the org (collection/instance scope). Returning `null`
-  for a *missing* row means the policy sees "no resource," not "denied" — enforce
-  existence in the resolver's org-scoped `findFirst`.
+  for a *missing* row means the policy sees "no resource" (non-production), not
+  "denied". The shared `resolveNode`/`resolveService`/`resolveStack` throw
+  `NOT_FOUND` for a supplied id that doesn't resolve; `resolveNode` falls back
+  to a manager's node list for an offline node and judges a node nothing
+  describes as production. A new resolver keeps both rules.
 - Guardrail `warn` vs `block` is a product distinction the deploy UI enforces
   (any member confirms a warn; only an admin overrides a block, and on
   `/services/new` only with a written reason); the spine itself only refuses on
