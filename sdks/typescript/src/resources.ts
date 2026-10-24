@@ -3,10 +3,23 @@ import type {
   AddDomainRequest,
   App,
   AppDeployResult,
+  AppDriftList,
+  AppEnforceDrift,
   AppList,
   AppPlan,
   AppPlanList,
+  AppPromoteResult,
+  AppRequireApproval,
+  ConfirmAppActionsResult,
+  DeployEvents,
   DeploymentStatus,
+  IngressDomainDetail,
+  IngressSettings,
+  NodeAvailability,
+  NodeLabels,
+  PurgeAppDataResult,
+  UpdateDomainRequest,
+  UpdateIngressSettingsRequest,
   LogLine,
   LogLineList,
   PatchServiceEnvResult,
@@ -200,6 +213,49 @@ export class AppsResource {
   preview(repoId: string, branch: string): Promise<PreviewResult> {
     return this.http.request<PreviewResult>('POST', `/apps/${encodeURIComponent(repoId)}/previews`, { body: { branch } });
   }
+
+  /** Confirm held steps of a plan by id, then apply them. A step the caller may not confirm fails the call (403). */
+  confirm(planId: string, actionIds: string[]): Promise<ConfirmAppActionsResult> {
+    return this.http.request<ConfirmAppActionsResult>('POST', `/apps/plans/${encodeURIComponent(planId)}/confirm`, {
+      body: { action_ids: actionIds },
+    });
+  }
+
+  /** Toggle "every step waits for confirmation" for an app. */
+  setRequireApproval(repoId: string, require: boolean): Promise<AppRequireApproval> {
+    return this.http.request<AppRequireApproval>('PUT', `/apps/${encodeURIComponent(repoId)}/require-approval`, {
+      body: { require_approval: require },
+    });
+  }
+
+  /** Compare each environment's last applied commit with live state (changes nothing). */
+  drift(repoId: string): Promise<AppDriftList> {
+    return this.http.request<AppDriftList>('GET', `/apps/${encodeURIComponent(repoId)}/drift`);
+  }
+
+  /** Opt an app in (or out) of re-applying drift on git-owned fields. */
+  setEnforceDrift(repoId: string, enforce: boolean): Promise<AppEnforceDrift> {
+    return this.http.request<AppEnforceDrift>('PUT', `/apps/${encodeURIComponent(repoId)}/enforce-drift`, {
+      body: { enforce_drift: enforce },
+    });
+  }
+
+  /**
+   * Permanently delete a REMOVED managed Postgres's volumes on every node.
+   * `confirm` must be exactly `<stack>/<resource>`. Irreversible.
+   */
+  purgeData(repoId: string, environment: string, body: { resource: string; confirm: string }): Promise<PurgeAppDataResult> {
+    return this.http.request<PurgeAppDataResult>(
+      'POST',
+      `/apps/${encodeURIComponent(repoId)}/environments/${encodeURIComponent(environment)}/purge`,
+      { body },
+    );
+  }
+
+  /** Plan production with the image digests a named environment (e.g. `staging`) runs now — no rebuild, same gates. */
+  promote(repoId: string, from: string): Promise<AppPromoteResult> {
+    return this.http.request<AppPromoteResult>('POST', `/apps/${encodeURIComponent(repoId)}/promote`, { body: { from } });
+  }
 }
 
 export class DeploymentsResource {
@@ -207,6 +263,11 @@ export class DeploymentsResource {
 
   get(id: string): Promise<DeploymentStatus> {
     return this.http.request<DeploymentStatus>('GET', `/deployments/${encodeURIComponent(id)}`);
+  }
+
+  /** A deploy's progress events (poll while it runs, until `done`). */
+  events(deployId: string): Promise<DeployEvents> {
+    return this.http.request<DeployEvents>('GET', `/deploys/${encodeURIComponent(deployId)}/events`);
   }
 }
 
@@ -298,6 +359,26 @@ export class NodesResource {
     return this.http.request<Node>('GET', `/nodes/${encodeURIComponent(id)}`);
   }
 
+  /** Remove a node from the swarm. */
+  remove(id: string): Promise<Removed> {
+    return this.http.request<Removed>('DELETE', `/nodes/${encodeURIComponent(id)}`);
+  }
+
+  /** Drain (cordon) a node: stop scheduling on it and move its tasks off. */
+  drain(id: string): Promise<NodeAvailability> {
+    return this.http.request<NodeAvailability>('POST', `/nodes/${encodeURIComponent(id)}/drain`);
+  }
+
+  /** Uncordon a node: restore availability `active`. */
+  uncordon(id: string): Promise<NodeAvailability> {
+    return this.http.request<NodeAvailability>('POST', `/nodes/${encodeURIComponent(id)}/uncordon`);
+  }
+
+  /** Replace a node's labels with `labels` (labels not named are removed). */
+  setLabels(id: string, labels: Record<string, string>): Promise<NodeLabels> {
+    return this.http.request<NodeLabels>('PUT', `/nodes/${encodeURIComponent(id)}/labels`, { body: { labels } });
+  }
+
   iterate(opts?: ListOptions): AsyncIterableIterator<Node> {
     return paginate((cursor) => this.list({ ...opts, cursor }));
   }
@@ -317,6 +398,34 @@ export class IngressResource {
 
   removeDomain(id: string): Promise<Removed> {
     return this.http.request<Removed>('DELETE', `/ingress/domains/${encodeURIComponent(id)}`);
+  }
+
+  /** Change a domain's apex ↔ www pairing; `www: null` clears it. */
+  updateDomain(id: string, body: UpdateDomainRequest): Promise<IngressDomain> {
+    return this.http.request<IngressDomain>('PATCH', `/ingress/domains/${encodeURIComponent(id)}`, { body });
+  }
+
+  /** The domain's DNS + certificate status, with the records to set. */
+  domainStatus(id: string): Promise<IngressDomainDetail> {
+    return this.http.request<IngressDomainDetail>('GET', `/ingress/domains/${encodeURIComponent(id)}/status`);
+  }
+
+  /** Re-check a domain's DNS and certificate now. */
+  verifyDomain(id: string): Promise<IngressDomainDetail> {
+    return this.http.request<IngressDomainDetail>('POST', `/ingress/domains/${encodeURIComponent(id)}/verify`);
+  }
+
+  /** The org's edge settings (secrets read back as set / not set). */
+  settings(): Promise<IngressSettings> {
+    return this.http.request<IngressSettings>('GET', '/ingress/settings');
+  }
+
+  /**
+   * Change the edge settings in one write (admins and owners). Fields left
+   * out keep their value; `null` clears a nullable one.
+   */
+  updateSettings(body: UpdateIngressSettingsRequest): Promise<IngressSettings> {
+    return this.http.request<IngressSettings>('PUT', '/ingress/settings', { body });
   }
 
   iterateDomains(opts?: ListOptions): AsyncIterableIterator<IngressDomain> {

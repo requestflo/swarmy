@@ -1,7 +1,9 @@
 # swarmy SDKs
 
-Official client SDKs for the swarmy public REST API (`/api/v1`), covering
-services, stacks, nodes, and ingress domains.
+Official client SDKs for the swarmy public REST API (`/api/v1`). Each one has a
+method for every route in the spec: services, stacks, nodes, ingress (domains
+and settings), apps and `git`, deployments, join tokens, API keys, DNS,
+backups, volumes, registry credentials, audit export and notify.
 
 | Language   | Package                              | Path               | Toolchain   |
 | ---------- | ------------------------------------ | ------------------ | ----------- |
@@ -19,8 +21,10 @@ Each SDK is split into two layers:
 
 - **Hand-written, stable** transport + resource layer:
   - a `SwarmyClient` configured with `{ endpoint, apiKey }`,
-  - resource groups (`services`, `stacks`, `nodes`, `ingress`, join tokens, …) with idiomatic
-    methods,
+  - resource groups (`services`, `stacks`, `nodes`, `ingress`, `apps`,
+    `deployments`, join tokens, API keys, `dns`, `backups`, `volumes`,
+    registry credentials, `audit`, `git`) with idiomatic methods, plus `me`
+    and `notify` on the client,
   - a `SwarmyApiError` / `APIError` that carries the RFC 9457
     `application/problem+json` document (including `swarmy_code`),
   - cursor-pagination helpers that follow `next_cursor`.

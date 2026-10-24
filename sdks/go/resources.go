@@ -1,9 +1,13 @@
 package swarmy
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
+	"io"
 	"net/url"
 	"strconv"
+	"strings"
 )
 
 // ServicesService groups service operations.
@@ -73,6 +77,123 @@ func (s *ServicesService) Remove(ctx context.Context, id string) (*Removed, erro
 		return nil, err
 	}
 	return &out, nil
+}
+
+// Env returns a service's environment. Secret values are nil unless
+// revealSecrets is set AND the key holds the secrets.read scope AND policy
+// permits it (each reveal is audited).
+func (s *ServicesService) Env(ctx context.Context, id string, revealSecrets bool) (*ServiceEnv, error) {
+	var q url.Values
+	if revealSecrets {
+		q = url.Values{"reveal_secrets": {"true"}}
+	}
+	var out ServiceEnv
+	if err := s.client.do(ctx, "GET", "/services/"+pathEscape(id)+"/env", q, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// PatchEnv merge-patches a service's environment: keys not named are kept.
+// Async rollout (202).
+func (s *ServicesService) PatchEnv(ctx context.Context, id string, body PatchServiceEnvBody) (*PatchServiceEnvResult, error) {
+	var out PatchServiceEnvResult
+	if err := s.client.do(ctx, "PATCH", "/services/"+pathEscape(id)+"/env", nil, body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// LogOptions tunes ServicesService.Logs and FollowLogs. Zero values use the
+// server defaults.
+type LogOptions struct {
+	// Tail is how many of the last lines to return.
+	Tail int
+	// Since only returns lines from this unix timestamp on.
+	Since int
+}
+
+func (o LogOptions) values() url.Values {
+	q := url.Values{}
+	if o.Tail > 0 {
+		q.Set("tail", strconv.Itoa(o.Tail))
+	}
+	if o.Since > 0 {
+		q.Set("since", strconv.Itoa(o.Since))
+	}
+	return q
+}
+
+// Logs returns the last lines of a service's logs, all tasks, oldest first.
+func (s *ServicesService) Logs(ctx context.Context, id string, opts LogOptions) (*LogLineList, error) {
+	var out LogLineList
+	if err := s.client.do(ctx, "GET", "/services/"+pathEscape(id)+"/logs", opts.values(), nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// FollowLogs follows a service's logs (Server-Sent Events), calling fn for
+// each line. It returns nil when the server ends the stream, fn's error when
+// fn fails, and ctx.Err() once ctx is cancelled. A malformed event is skipped.
+func (s *ServicesService) FollowLogs(ctx context.Context, id string, opts LogOptions, fn func(LogLine) error) error {
+	resp, err := s.client.stream(ctx, "GET", "/services/"+pathEscape(id)+"/logs/stream", opts.values())
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	var fnErr error
+	readErr := readSSE(resp.Body, func(data string) error {
+		var line LogLine
+		if json.Unmarshal([]byte(data), &line) != nil {
+			return nil
+		}
+		fnErr = fn(line)
+		return fnErr
+	})
+	if fnErr != nil {
+		return fnErr
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	return readErr
+}
+
+// readSSE reads a Server-Sent Events body, calling fn with each event's
+// `data:` payload (multi-line data joined by "\n"). It returns nil at EOF,
+// fn's first error, or the read error.
+func readSSE(body io.Reader, fn func(data string) error) error {
+	r := bufio.NewReader(body)
+	var data []string
+	flush := func() error {
+		if len(data) == 0 {
+			return nil
+		}
+		payload := strings.Join(data, "\n")
+		data = data[:0]
+		return fn(payload)
+	}
+	for {
+		line, err := r.ReadString('\n')
+		if len(line) > 0 || err == nil {
+			line = strings.TrimRight(line, "\r\n")
+			switch {
+			case line == "":
+				if ferr := flush(); ferr != nil {
+					return ferr
+				}
+			case strings.HasPrefix(line, "data:"):
+				data = append(data, strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " "))
+			}
+		}
+		if err == io.EOF {
+			return flush()
+		}
+		if err != nil {
+			return err
+		}
+	}
 }
 
 // Iterate calls fn for every service across all pages, following next_cursor.
@@ -175,6 +296,44 @@ func (s *StacksService) Disconnect(ctx context.Context, id, peer string) (*Stack
 	return &out, nil
 }
 
+// Telemetry says whether OpenTelemetry is on for a stack.
+func (s *StacksService) Telemetry(ctx context.Context, id string) (*StackTelemetry, error) {
+	var out StackTelemetry
+	if err := s.client.do(ctx, "GET", "/stacks/"+pathEscape(id)+"/telemetry", nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// SetTelemetry turns OpenTelemetry on or off for a stack (admins and owners).
+func (s *StacksService) SetTelemetry(ctx context.Context, id string, enabled bool) (*StackTelemetry, error) {
+	var out StackTelemetry
+	if err := s.client.do(ctx, "PUT", "/stacks/"+pathEscape(id)+"/telemetry", nil, SetStackTelemetryBody{Enabled: enabled}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Errors returns error tracking for a stack: its opt-in state and the
+// Sentry-compatible DSN.
+func (s *StacksService) Errors(ctx context.Context, id string) (*StackErrorsStatus, error) {
+	var out StackErrorsStatus
+	if err := s.client.do(ctx, "GET", "/stacks/"+pathEscape(id)+"/errors", nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// RotateErrorsKey issues a new DSN key for the stack; the old one stops
+// working at once (admins and owners).
+func (s *StacksService) RotateErrorsKey(ctx context.Context, id string) (*ErrorProject, error) {
+	var out ErrorProject
+	if err := s.client.do(ctx, "POST", "/stacks/"+pathEscape(id)+"/errors/rotate-key", nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // Iterate calls fn for every stack across all pages.
 func (s *StacksService) Iterate(ctx context.Context, limit int, fn func(Stack) error) error {
 	cursor := ""
@@ -211,6 +370,43 @@ func (s *NodesService) List(ctx context.Context, cursor string, limit int) (*Nod
 func (s *NodesService) Get(ctx context.Context, id string) (*Node, error) {
 	var out Node
 	if err := s.client.do(ctx, "GET", "/nodes/"+pathEscape(id), nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Remove removes a node from the swarm.
+func (s *NodesService) Remove(ctx context.Context, id string) (*Removed, error) {
+	var out Removed
+	if err := s.client.do(ctx, "DELETE", "/nodes/"+pathEscape(id), nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Drain drains (cordons) a node: nothing new is scheduled on it and its tasks
+// move off.
+func (s *NodesService) Drain(ctx context.Context, id string) (*NodeAvailability, error) {
+	var out NodeAvailability
+	if err := s.client.do(ctx, "POST", "/nodes/"+pathEscape(id)+"/drain", nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Uncordon restores a node's availability to active.
+func (s *NodesService) Uncordon(ctx context.Context, id string) (*NodeAvailability, error) {
+	var out NodeAvailability
+	if err := s.client.do(ctx, "POST", "/nodes/"+pathEscape(id)+"/uncordon", nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// SetLabels replaces a node's labels with labels.
+func (s *NodesService) SetLabels(ctx context.Context, id string, labels map[string]string) (*NodeLabels, error) {
+	var out NodeLabels
+	if err := s.client.do(ctx, "PUT", "/nodes/"+pathEscape(id)+"/labels", nil, SetNodeLabelsRequest{Labels: labels}, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -261,6 +457,55 @@ func (s *IngressService) AddDomain(ctx context.Context, body AddDomainRequest) (
 func (s *IngressService) RemoveDomain(ctx context.Context, id string) (*Removed, error) {
 	var out Removed
 	if err := s.client.do(ctx, "DELETE", "/ingress/domains/"+pathEscape(id), nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// UpdateDomain changes a domain's apex ↔ www pairing (a nil Www clears it).
+func (s *IngressService) UpdateDomain(ctx context.Context, id string, body UpdateDomainRequest) (*IngressDomain, error) {
+	var out IngressDomain
+	if err := s.client.do(ctx, "PATCH", "/ingress/domains/"+pathEscape(id), nil, body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// DomainStatus returns a domain's DNS + certificate status and the records
+// to set.
+func (s *IngressService) DomainStatus(ctx context.Context, id string) (*IngressDomainDetail, error) {
+	var out IngressDomainDetail
+	if err := s.client.do(ctx, "GET", "/ingress/domains/"+pathEscape(id)+"/status", nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// VerifyDomain re-checks a domain now and returns its status.
+func (s *IngressService) VerifyDomain(ctx context.Context, id string) (*IngressDomainDetail, error) {
+	var out IngressDomainDetail
+	if err := s.client.do(ctx, "POST", "/ingress/domains/"+pathEscape(id)+"/verify", nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Settings reads the org's ingress settings: driver, topology, image, target
+// nodes, TLS, tunnel and DNS provider. Secrets read back as set / not set.
+func (s *IngressService) Settings(ctx context.Context) (*IngressSettings, error) {
+	var out IngressSettings
+	if err := s.client.do(ctx, "GET", "/ingress/settings", nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// UpdateSettings changes the ingress settings in one write (admins and
+// owners; the edge converges once). Fields left unset keep their value; a
+// Nullable set to Null clears it. Returns the settings after the change.
+func (s *IngressService) UpdateSettings(ctx context.Context, body UpdateIngressSettingsRequest) (*IngressSettings, error) {
+	var out IngressSettings
+	if err := s.client.do(ctx, "PUT", "/ingress/settings", nil, body, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -516,8 +761,17 @@ func (s *AppsService) SetEnforceDrift(ctx context.Context, repoID string, enforc
 // node. confirm must be exactly "<stack>/<resource>". Irreversible.
 func (s *AppsService) PurgeData(ctx context.Context, repoID, environment, resource, confirm string) (*PurgeAppDataResult, error) {
 	var out PurgeAppDataResult
-	path := "/apps/" + pathEscape(repoID) + "/environments/" + pathEscape(environment) + "/purge"
-	if err := s.client.do(ctx, "POST", path, nil, PurgeAppDataBody{Resource: resource, Confirm: confirm}, &out); err != nil {
+	body := PurgeAppDataBody{Resource: resource, Confirm: confirm}
+	if err := s.client.do(ctx, "POST", "/apps/"+pathEscape(repoID)+"/environments/"+pathEscape(environment)+"/purge", nil, body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Preview builds branch and deploys it as a preview stack (a trial deploy). Async (202).
+func (s *AppsService) Preview(ctx context.Context, repoID, branch string) (*PreviewResult, error) {
+	var out PreviewResult
+	if err := s.client.do(ctx, "POST", "/apps/"+pathEscape(repoID)+"/previews", nil, CreatePreviewBody{Branch: branch}, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
