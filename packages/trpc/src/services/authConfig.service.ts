@@ -145,28 +145,32 @@ export async function setProvider(
 /** A button on the login page. Never carries secrets or org data. */
 export interface SignInOption {
   kind: 'social' | 'sso';
-  /** social: the provider type; sso: the genericOAuth providerId. */
+  /** social: the provider type; sso: the org SSO providerId. */
   id: string;
   label: string;
+  /** sso only, SAML providers: sign in with `signIn.sso` (OIDC: `signIn.oauth2`). */
+  protocol?: 'saml';
 }
 
 /**
  * The sign-in methods the login page offers, from what is configured and
  * enabled: social providers with credentials (stored or env), and every enabled
- * org OIDC provider. Username + password is always available.
+ * org OIDC or complete SAML provider. Username + password is always available.
  */
 export async function signInOptions(db: DB): Promise<SignInOption[]> {
   const [rows, sso] = await Promise.all([
     db.authProviderConfig.findMany({ where: { orgId: null } }),
-    db.ssoProvider.findMany({ where: { enabled: true, protocol: 'oidc' }, orderBy: { createdAt: 'asc' } }),
+    db.ssoProvider.findMany({ where: { enabled: true, protocol: { in: ['oidc', 'saml'] } }, orderBy: { createdAt: 'asc' } }),
   ]);
   const byType = new Map(rows.map((r) => [r.type, r]));
   const out: SignInOption[] = [];
   for (const p of sso) {
-    if (!p.clientId || !p.encryptedSecret) continue;
     const meta = (p.metadata ?? {}) as Record<string, unknown>;
+    const saml = p.protocol === 'saml';
+    // The same completeness rule buildAuth applies (samlReady / the OIDC filter).
+    if (saml ? !(p.issuer && meta.entryPoint && meta.cert) : !p.clientId || !p.encryptedSecret) continue;
     const label = typeof meta.displayName === 'string' && meta.displayName.trim() ? meta.displayName.trim() : p.providerId;
-    out.push({ kind: 'sso', id: p.providerId, label });
+    out.push({ kind: 'sso', id: p.providerId, label, ...(saml ? { protocol: 'saml' as const } : {}) });
   }
   for (const type of SOCIAL_PROVIDERS) {
     const row = byType.get(type);

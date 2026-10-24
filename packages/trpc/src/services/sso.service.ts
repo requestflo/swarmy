@@ -4,12 +4,13 @@ import type { OrgContext } from '../context';
 import { notFound } from '../errors';
 import { writeAudit } from './audit.service';
 import { assertProviderIdClaimable, retireProviderId } from './sso-identities';
+import { normalizeSamlInput, samlSetupView, type SamlSetupView } from './sso-saml';
 
 /**
- * Per-org enterprise SSO providers (OIDC via Better Auth's genericOAuth; SAML
- * stored but not yet wired — see INTEGRATION). Secrets (OIDC client secret / SAML
- * SP private key) are write-only and encrypted via the shared vault. The admin
- * UI gets the IdP-facing URLs (login start, callback) to paste into the IdP.
+ * Per-org enterprise SSO providers (OIDC via Better Auth's genericOAuth, SAML
+ * via @better-auth/sso — sso-saml.ts). The OIDC client secret is write-only
+ * and encrypted via the shared vault. The admin UI gets the IdP-facing URLs
+ * (OIDC callback; SAML SP metadata + ACS) to paste into the IdP.
  */
 
 const PUBLIC_BASE =
@@ -42,6 +43,8 @@ export interface SsoProviderView {
   mapping: Record<string, string>;
   callbackUrl: string;
   loginUrl: string;
+  /** SAML only: the SP URLs for the IdP and whether sign-in is live. */
+  saml: SamlSetupView | null;
 }
 
 function toView(row: {
@@ -69,6 +72,7 @@ function toView(row: {
     mapping: (row.mapping as Record<string, string>) ?? {},
     callbackUrl: ssoCallbackUrl(row.providerId),
     loginUrl: ssoLoginUrl(row.providerId),
+    saml: row.protocol === 'saml' ? samlSetupView(row) : null,
   };
 }
 
@@ -90,7 +94,7 @@ export interface UpsertSsoArgs {
   /** Write-only secret; omit to keep the stored one. */
   clientSecret?: string;
   enabled?: boolean;
-  /** OIDC discovery / endpoints / SAML IdP metadata. */
+  /** OIDC discovery / endpoints; SAML `entryPoint` + `cert` (or `idpMetadataXml`, read on save). */
   metadata?: Record<string, unknown>;
   /** claim → user/member attribute mapping. */
   mapping?: Record<string, string>;
@@ -109,7 +113,8 @@ const RESERVED_SSO_IDS = new Set<string>([
   ...SOCIAL_PROVIDERS,
 ]);
 
-export async function upsertSsoProvider(ctx: OrgContext, args: UpsertSsoArgs): Promise<SsoProviderView> {
+export async function upsertSsoProvider(ctx: OrgContext, input: UpsertSsoArgs): Promise<SsoProviderView> {
+  const args = input.protocol === 'saml' ? normalizeSamlInput(input) : input;
   if (!/^[a-z0-9-]{2,40}$/.test(args.providerId)) {
     throw new Error('providerId must be a slug (a-z, 0-9, dash; 2–40 chars)');
   }
