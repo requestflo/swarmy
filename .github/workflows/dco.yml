@@ -1,0 +1,55 @@
+name: DCO
+
+# Developer Certificate of Origin (CONTRIBUTING.md): every commit in a PR
+# carries a `Signed-off-by:` trailer whose name and email match the commit
+# author (`git commit -s`). PRs only: history already on main is not
+# re-checked, and pushes to main are not gated. Merge commits (e.g. GitHub's
+# "Update branch") are skipped; CONTRIBUTING names no bot exemption, so bot
+# authors are checked like anyone else.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dco-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  dco:
+    name: DCO sign-off
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Every PR commit is signed off by its author
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          total=0
+          missing=0
+          # Resolved up front so a bad range fails the job instead of checking nothing.
+          shas="$(git rev-list --no-merges "$BASE_SHA..$HEAD_SHA")"
+          for sha in $shas; do
+            total=$((total + 1))
+            author="$(git log -1 --format='%an <%ae>' "$sha")"
+            # Trailer values only (one per line), matched whole-line, case-insensitively.
+            signoffs="$(git log -1 --format='%(trailers:key=Signed-off-by,valueonly)' "$sha")"
+            if grep -Fqxi -- "$author" <<<"$signoffs"; then
+              continue
+            fi
+            missing=$((missing + 1))
+            echo "::error title=Missing DCO sign-off::$(git log -1 --format='%h %s' "$sha") needs 'Signed-off-by: $author'"
+          done
+          if [ "$missing" -gt 0 ]; then
+            echo "$missing of $total commit(s) lack a matching Signed-off-by trailer."
+            echo "Fix: git rebase --signoff $BASE_SHA && git push --force-with-lease"
+            exit 1
+          fi
+          echo "All $total commit(s) are signed off by their authors."

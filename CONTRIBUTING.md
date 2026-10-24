@@ -59,6 +59,9 @@ Signed-off-by: Your Name <you@example.com>
 The name/email must match the commit author. Forgot one? `git commit --amend -s`
 (or `git rebase --signoff` for a range) fixes it before you push.
 
+The [`DCO`](./.github/workflows/dco.yml) check enforces this on every PR
+commit (merge commits are skipped; there is no bot exemption).
+
 ## Branches & releases
 
 - Work on a feature branch, open a PR into `main`.
