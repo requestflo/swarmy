@@ -55,6 +55,7 @@ import {
   renderHtpasswd,
   type RegistryCreds,
 } from './registry-auth';
+import { registryIsReadOnly } from './registry-gc.spec';
 
 // ── Views (secrets never included) ──────────────────────────────────────────
 
@@ -694,6 +695,9 @@ export async function ensureRegistryDeployed(ctx: OrgContext): Promise<'noop' | 
  * secrets (no longer referenced once the service spec moved on).
  */
 async function deployAuthedRegistry(ctx: OrgContext, creds: RegistryCreds): Promise<void> {
+  // A read-write redeploy mid-GC would let pushes land while blobs are being swept.
+  const current = liveRegistryService(ctx);
+  if (current && registryIsReadOnly(current)) throw commandRejected('the registry is being cleaned up (read-only for a minute) — try again shortly');
   const node = await resolveManagerNode(ctx);
   const secretName = htpasswdSecretName(creds);
   const dataB64 = Buffer.from(await renderHtpasswd(creds), 'utf8').toString('base64');

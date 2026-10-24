@@ -17,6 +17,7 @@ import {
 } from '../services/cicd.service';
 import { runCacheGcForOrg, runImageGcForOrg } from '../services/image-gc.service';
 import { getBuild } from '../services/build-detail.service';
+import { runRegistryGcForOrg } from '../services/registry-gc.service';
 
 export const cicdRouter = router({
   // ── Repos ──
@@ -80,16 +81,15 @@ export const cicdRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => setGcPolicy(ctx, input)),
-  // Run GC now (or preview). `dryRun` reports the plan without removing anything.
+  // Run GC now (or preview): servers, then the registry. `dryRun` reports the plan without removing anything.
   runGc: adminProcedure
     .input(z.object({ dryRun: z.boolean().optional() }).optional())
-    .mutation(({ ctx, input }) =>
-      runImageGcForOrg(
-        { db: ctx.db, hub: ctx.hub, auth: ctx.auth },
-        ctx.activeOrgId,
-        { dryRun: input?.dryRun },
-      ),
-    ),
+    .mutation(async ({ ctx, input }) => {
+      const deps = { db: ctx.db, hub: ctx.hub, auth: ctx.auth };
+      const nodes = await runImageGcForOrg(deps, ctx.activeOrgId, { dryRun: input?.dryRun });
+      const registry = await runRegistryGcForOrg(deps, ctx.activeOrgId, { dryRun: input?.dryRun });
+      return { ...nodes, registry };
+    }),
   // Registry build-cache GC now (or preview): stale / over-budget `buildcache-*` tags.
   runCacheGc: adminProcedure
     .input(z.object({ dryRun: z.boolean().optional() }).optional())
