@@ -10,6 +10,7 @@
     "build:demo": "VITE_SWARMY_DEMO=1 vite build --outDir dist/demo",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
+    "test": "bun test",
     "clean": "rm -rf dist .turbo .tanstack"
   },
   "dependencies": {
