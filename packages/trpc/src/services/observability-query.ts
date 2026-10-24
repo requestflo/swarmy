@@ -83,11 +83,11 @@ export interface MetricsSummaryRow {
 }
 
 /** Single-quote-escape a literal for inlining into ClickHouse SQL. */
-function lit(value: string): string {
+export function lit(value: string): string {
   return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
 }
 
-function clampInt(n: number | undefined, def: number, min: number, max: number): number {
+export function clampInt(n: number | undefined, def: number, min: number, max: number): number {
   const v = Number.isFinite(n) ? Math.floor(n as number) : def;
   return Math.min(max, Math.max(min, v));
 }

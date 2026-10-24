@@ -102,10 +102,15 @@ describe('withExtras', () => {
       data: dataNodes(endpoints, {}),
       domain: { host: 'shop.dev', more: 0, https: true, rate: null, targets: ['w'] },
       metrics: new Map([['api', { rate: '12/min', tech: 't' }]]),
+      sparks: new Map([['web', [null, 3, 4]]]),
     });
     expect(g.nodes.filter((n) => n.type === 'data')).toHaveLength(3);
     expect(g.edges.map((e) => e.id).sort()).toEqual(['attach:a->data:postgres:db', 'attach:w->data:object-storage:media', 'door:w']);
     const api = g.nodes.find((n) => n.id === 'a');
     expect((api?.data as { metric?: unknown }).metric).toEqual({ rate: '12/min', tech: 't' });
+    expect((api?.data as { spark?: unknown }).spark).toBeUndefined();
+    const web = g.nodes.find((n) => n.id === 'w');
+    expect((web?.data as { spark?: unknown; metric?: unknown }).spark).toEqual([null, 3, 4]);
+    expect((web?.data as { metric?: unknown }).metric).toBeUndefined();
   });
 });

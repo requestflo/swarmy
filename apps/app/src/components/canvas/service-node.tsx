@@ -7,6 +7,7 @@ import { shortImage } from '@/components/apps/app-words';
 import { DnsHealthBadge } from '@/components/geo/dns-health-badge';
 import type { ServiceFlowNode } from './build-graph';
 import { DROP_TARGET, useConnectMode } from './connect/connect-context';
+import { PartSpark } from './part-spark';
 import { serviceRole } from './service-role';
 
 /** First ingress host on a service, from the `swarmy.ingress.routes` JSON label. */
@@ -37,7 +38,7 @@ const HANDLE: React.CSSProperties = {
  * bottom sheet shows the rest).
  */
 export function ServiceNode({ id, data, selected }: NodeProps<ServiceFlowNode>): React.JSX.Element {
-  const { service, tone, metric } = data;
+  const { service, tone, metric, spark } = data;
   const connect = useConnectMode();
   const drop = connect.on && !!connect.from && connect.from !== id;
   const { replicas, ports, status, scaleToZero } = service;
@@ -93,6 +94,7 @@ export function ServiceNode({ id, data, selected }: NodeProps<ServiceFlowNode>):
         <span className="truncate">{serviceRole(service)}</span>
         {metric ? <span className="text-foreground ml-auto shrink-0 font-mono text-[11px]">{metric.rate}</span> : null}
       </p>
+      {spark ? <PartSpark name={service.name} values={spark} warn={tone === 'warning'} /> : null}
       <Depth at="controls">
         <p className="text-muted-foreground mt-1.5 line-clamp-2 font-mono text-[11px] leading-snug">{tech}</p>
         {metric ? <p className="text-muted-foreground mt-0.5 font-mono text-[11px]">{metric.tech}</p> : null}

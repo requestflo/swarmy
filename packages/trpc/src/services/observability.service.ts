@@ -65,6 +65,14 @@ import {
   type ObservabilitySecretObject,
 } from './observability-stack';
 import {
+  buildRequestSeriesManyQuery,
+  groupRequestSeries,
+  requestSeriesNames,
+  type RequestSeriesManyQueryInput,
+  type RequestSeriesManyRow,
+  type RequestSeriesManySeries,
+} from './observability-request-many';
+import {
   buildTracesQuery,
   buildTraceDetailQuery,
   buildMetricsSeriesQuery,
@@ -434,6 +442,25 @@ export async function requestSeries(
   const rows = await clickhouseJson<RequestSeriesRow>(dsn, buildRequestSeriesQuery(ctx.activeOrgId, query));
   if (rows === null) return { status: 'unreachable', points: [] };
   return { status: 'ok', points: rows.map((r) => ({ ...r, calls: Number(r.calls), errors: Number(r.errors), p95_ms: Number(r.p95_ms) })) };
+}
+
+export interface RequestSeriesManyResult {
+  status: 'ok' | 'disabled' | 'unreachable';
+  /** One series per service that had entry spans in the window (none → absent, never a zero line). */
+  series: RequestSeriesManySeries[];
+}
+
+/** Several parts' request series in one query (the canvas sparklines). Org-scoped. */
+export async function requestSeriesMany(
+  ctx: OrgContext,
+  query: RequestSeriesManyQueryInput,
+): Promise<RequestSeriesManyResult> {
+  const dsn = await activeDsn(ctx);
+  if (!dsn) return { status: 'disabled', series: [] };
+  if (requestSeriesNames(query.services).length === 0) return { status: 'ok', series: [] };
+  const rows = await clickhouseJson<RequestSeriesManyRow>(dsn, buildRequestSeriesManyQuery(ctx.activeOrgId, query));
+  if (rows === null) return { status: 'unreachable', series: [] };
+  return { status: 'ok', series: groupRequestSeries(rows) };
 }
 
 /** Full span tree for one trace (the waterfall view). Org-scoped. */

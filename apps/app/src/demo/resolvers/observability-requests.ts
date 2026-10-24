@@ -9,7 +9,8 @@ import { serviceRequestSeries } from './observability-requests-service';
  * Asked for one part (`service`), it is that part's share of the calls, with
  * the week's error bursts the alert feed recorded (alerts.ts) — what the alert
  * rule editor replays for "would have fired".
- * Shapes mirror `RequestSeriesRow` in observability-query.ts.
+ * Shapes mirror `RequestSeriesRow` in observability-query.ts (and the
+ * batched `observability-request-many.ts`).
  */
 
 interface Row {
@@ -109,6 +110,23 @@ function partSeries(service: string, q: { stack?: string; windowMinutes?: number
   return { status: 'ok', points };
 }
 
+/**
+ * `observability.requestSeriesMany` (the canvas's per-part sparklines): spans
+ * carry each part's OTEL_SERVICE_NAME (`storefront-web`), so only those names
+ * answer, each with its part's day; other names have no spans, as in ClickHouse.
+ */
+const requestSeriesMany: DemoHandler = (i, s) => {
+  const q = i as { stack: string; services: string[]; windowMinutes?: number; bucketSeconds?: number };
+  const enabled = (s.extra.observability as { config?: { enabled?: boolean } } | undefined)?.config?.enabled ?? true;
+  if (!enabled) return { status: 'disabled', series: [] };
+  const series = [...new Set(q.services)]
+    .filter((name) => name.startsWith(`${q.stack}-`))
+    .map((service) => ({ service, points: serviceRequestSeries({ stack: q.stack, service, windowMinutes: q.windowMinutes ?? 60, bucketSeconds: q.bucketSeconds ?? 120 }) }))
+    .filter((x) => x.points.length > 0);
+  return { status: 'ok', series };
+};
+
 export const requestHandlers: Record<string, DemoHandler> = {
   'observability.requestSeries': requestSeries,
+  'observability.requestSeriesMany': requestSeriesMany,
 };

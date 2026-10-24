@@ -21,12 +21,14 @@ import {
   metricsSeries,
   metricsSummary,
   requestSeries,
+  requestSeriesMany,
   setEnabled,
   setRetention,
   stackTelemetryEnabled,
   traceDetail,
   traces,
 } from '../services/observability.service';
+import { REQUEST_SERIES_MANY_MAX } from '../services/observability-request-many';
 
 export const observabilityRouter = router({
   status: orgProcedure.query(({ ctx }) => getStatus(ctx)),
@@ -88,6 +90,22 @@ export const observabilityRouter = router({
       }),
     )
     .query(({ ctx, input }) => requestSeries(ctx, input)),
+
+  /**
+   * Several parts of one app in one query: a series per service name (the
+   * canvas's per-part sparklines). A part may be asked for under each name it
+   * could send spans as — its OTEL_SERVICE_NAME, swarm name or short name.
+   */
+  requestSeriesMany: orgProcedure
+    .input(
+      z.object({
+        stack: z.string().min(1).max(200),
+        services: z.array(z.string().min(1).max(200)).min(1).max(REQUEST_SERIES_MANY_MAX),
+        windowMinutes: z.number().int().min(1).max(60 * 24 * 7).optional(),
+        bucketSeconds: z.number().int().min(5).max(3600).optional(),
+      }),
+    )
+    .query(({ ctx, input }) => requestSeriesMany(ctx, input)),
 
   metricsSummary: orgProcedure
     .input(

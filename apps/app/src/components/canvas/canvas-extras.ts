@@ -15,6 +15,8 @@ export interface CanvasExtras {
   data: DataNodeSpec[];
   domain: DomainSpec | null;
   metrics: Map<string, ServiceMetric>;
+  /** Per part (short name): the last hour's calls, for its sparkline. */
+  sparks: Map<string, (number | null)[]>;
 }
 
 const MANAGED = ['swarmy.db.cluster', 'swarmy.cache.cluster', 'swarmy.search.engine', 'swarmy.vector.name'];
@@ -61,8 +63,10 @@ export function withExtras(graph: { nodes: CanvasNode[]; edges: CanvasEdge[] }, 
 
   const nodes: AnyCanvasNode[] = graph.nodes.map((n) => {
     if (n.type !== 'service') return n;
-    const metric = x.metrics.get(shortOf(x.stack, n.data.service.name));
-    return metric ? { ...n, data: { ...n.data, metric } } : n;
+    const short = shortOf(x.stack, n.data.service.name);
+    const metric = x.metrics.get(short);
+    const spark = x.sparks.get(short);
+    return metric || spark ? { ...n, data: { ...n.data, ...(metric ? { metric } : {}), ...(spark ? { spark } : {}) } } : n;
   });
   const edges: CanvasEdge[] = [...graph.edges];
 

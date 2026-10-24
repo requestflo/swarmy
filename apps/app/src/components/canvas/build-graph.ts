@@ -8,6 +8,8 @@ export interface ServiceNodeData extends Record<string, unknown> {
   tone: string;
   /** Live traffic from its own spans, when telemetry is on (canvas-extras). */
   metric?: { rate: string; tech: string };
+  /** Calls per bucket over the last hour (`observability.requestSeriesMany`); null = before it reported. */
+  spark?: (number | null)[];
 }
 /** One per-region summary chip on a logical-app frame (e.g. `eu × 5`). */
 export interface RegionBadge {
