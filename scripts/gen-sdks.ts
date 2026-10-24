@@ -32,6 +32,8 @@ interface JsonSchema {
   enum?: unknown[];
   nullable?: boolean;
   items?: JsonSchema;
+  /** `double`/`float` marks a fractional number (Go `float64`); bare `number` stays `int`. */
+  format?: string;
   $ref?: string;
 }
 
@@ -332,7 +334,9 @@ function goType(schema: JsonSchema, nestedName: string | undefined, nullable: bo
       break;
     case 'number':
     case 'integer':
-      base = 'int';
+      // Counts, ports and replicas are `number` in the spec and `int` in Go;
+      // a fractional field says `format: double` so it decodes (lat/lon).
+      base = schema.format === 'double' || schema.format === 'float' ? 'float64' : 'int';
       break;
     case 'boolean':
       base = 'bool';
