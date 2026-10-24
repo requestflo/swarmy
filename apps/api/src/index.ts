@@ -107,7 +107,8 @@ app.post('/ingress/acme-dns/:orgId/:action', async (c) => {
   return c.text(text, status);
 });
 
-// Live node installer: curl -fsSL <controller>/install.sh | SWARMY_JOIN_TOKEN=… sh
+// LEGACY node join script (deprecated for /install/loader.sh below; it says so
+// on stderr): curl -fsSL <controller>/install.sh | SWARMY_JOIN_TOKEN=… sh
 // Optional ?manager=1 adds a swarm-manager init hint for the first node.
 app.get('/install.sh', (c) => {
   const manager = c.req.query('manager') === '1';
