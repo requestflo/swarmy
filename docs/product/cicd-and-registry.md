@@ -16,9 +16,10 @@ No external CI."*
    `registry:2` service on the `swarmy` overlay. *"Every node pulls over the
    network — never public."* No credentials to a third party, no public
    surface.
-2. They **connect a repo** through the New app wizard (GitHub App, GitLab OAuth
-   or a generic SSH URL). The repo's swarmy.yaml describes the app; a compose-only
-   repo gets a converted starter to commit.
+2. They **connect a repo** through the New app wizard (GitHub App, GitLab OAuth,
+   Gitea / Forgejo, or a generic SSH URL). The repo's swarmy.yaml describes the
+   app; a compose-only repo gets a converted starter to commit, and a repo with
+   neither gets one drafted from what its code needs.
 3. They push. The webhook fires, a **BuildKit build runs on their own node**,
    the image is pushed to the in-swarm registry, and the app's plan **deploys the
    freshly-built digest**, no tag typed anywhere.
@@ -41,7 +42,8 @@ longer-running agent command that streams logs and returns a digest.
 ```
 git push / open PR                                dashboard: /ci "New app from Git"
    │  POST /webhooks/git/<repoId>   (controller = the only public surface)
-   │     verify HMAC (GitHub X-Hub-Signature-256 / GitLab X-Gitlab-Token)
+   │     verify HMAC (GitHub X-Hub-Signature-256 / GitLab X-Gitlab-Token /
+   │     Gitea X-Gitea-Signature), then drop a delivery already seen
    ▼
 controller resolves the GitRepo → SYSTEM build (audited actorType:system)
    │  ① resolve an online BUILDER node (swarmy.node.builder=true; none → actionable error)
@@ -94,7 +96,8 @@ Four ideas, one story:
   `Service`/`Deployment` DB row. A digest a node is running (or could pull) is
   never collected. See `skill("docker-native-storage")`.
 - **The registry and the builder are Docker-native.** The registry is a swarm
-  service; a builder is any node carrying the `swarmy.role=builder` label.
+  service; a builder is any node carrying the `swarmy.node.builder` label (the
+  legacy `swarmy.role=builder` still counts).
   Previews are git-app environments (see `epic-git-apps.md`): their plans are
   `AppPlan` history, their running state is the preview stack itself.
 - **The DB owns swarmy's own identity, config, secrets, and queryable history**:
@@ -154,7 +157,52 @@ Four ideas, one story:
   a compose file and no swarmy.yaml, it shows a converted starter
   (`@swarmy/app-config` `composeToAppConfig`): postgres/redis/meilisearch/qdrant/
   minio services become managed resources and the env vars pointing at them
-  become bindings; anything it can't carry over is listed in plain words.
+  become bindings. What didn't translate is listed per service with why
+  (privileged, host networking, devices, host folders, the Docker socket,
+  published ports, a database's data and credentials, and more). Literal
+  credentials become `${{ secrets.<name> }}`, so no value lands in a file headed
+  for git. An app already deployed from compose gets the same file from
+  **Convert to swarmy.yaml** on its Source tab (`apps.convertToConfig`,
+  read-only): swarmy can't write to git, so the next step is to commit the file
+  and connect the repo.
+- **A repo with no swarmy.yaml gets one drafted from its code.** Link & scan
+  reads up to 40 source files under the app folder and greps them on the node
+  (only matching lines come back). Detectors find Postgres, a Redis/Valkey cache
+  or queue, S3 buckets, background workers, cron and the web port, each with the
+  `file:line` that says so; the ticked ones become a swarmy.yaml where every
+  connection is a binding (`gitConnections.draftConfig`), checked by the
+  controller's parser and drawn as the app it creates. `swarmy check` and the
+  MCP `check_repo` tool run the same detectors locally.
+- **Git provider links can't be hijacked or widened.** Every OAuth/App flow
+  (GitHub, GitLab, Gitea) sets a 10-minute host-only cookie
+  (`__Host-swarmy-git-bind`) and signs its hash into the `state`, so the callback
+  only completes in the browser that started it. A GitHub installation token is
+  minted per job, for that one repo and only the permissions the job needs
+  (contents:read to clone or build; checks/statuses/PR comments to report). A
+  connection's credential is attached only to a clone URL on the connection's
+  own host. Only the instance owner may register the controller-wide GitHub App;
+  installing it stays open to every org's admins.
+- **A replayed push can't roll an app back.** Deliveries are remembered in the
+  controller store for 7 days, by the provider's delivery id and by the hash of
+  the signed body, so a redelivery or a replay under a fresh id is acknowledged
+  and dropped. Past that, the plan refuses a push of a commit that already ran in
+  this environment and has since been replaced (`stale`, audited
+  `app.plan.stale`), unless the push itself moved the branch off the live commit
+  (a force-push back). New commits, `git revert`, dashboard deploys and retries
+  are unaffected.
+- **Environments come from swarmy.yaml or from a clone.** Releases ›
+  Environments has **Clone as new environment**: a long-lived environment of a
+  git app (its own stack `<app>-<name>`, from a branch, re-planned on pushes to
+  it, never a preview and never swept). It lives in the dashboard until
+  swarmy.yaml names it. Secrets are never copied: each becomes an empty slot,
+  filled write-only into a Docker secret family of that environment's own
+  (`<family>.<env>`) and mounted where the app already reads it. Its Postgres
+  starts empty or as a copy of the source's newest backup, masked by
+  `previews.data.scrub` when asked. It needs `stack.deploy` on the source stack
+  and is audited `app.environment.clone`. The Variables tab shows **Shared
+  variables**: each app-wide value per environment and where it comes from
+  (service env › `environments.<name>.env` › shared `env:`), secrets masked. A
+  cloned environment can't be removed from the dashboard yet.
 - **Previews come from swarmy.yaml and tear themselves down.** A PR, an opted-in
   branch, or a trial deploy (`swarmy deploy --preview`) plans the branch's
   swarmy.yaml as its own preview environment (own stack, own URL under
@@ -186,6 +234,8 @@ Four ideas, one story:
 | GC racing a running service | The pinned set is computed from LIVE running digests each cycle, so a digest in use is never in the remove set; the agent ALSO refuses to delete a pinned digest (defence in depth) and `repoPrefix`-scopes to swarmy-pushed images only. |
 | Registry node down | Enable status shows `online:false`; builds can't push and fail cleanly. The registry is cache-rebuildable — you can always rebuild from git (S3 storage documented for anyone who needs HA). |
 | Webhook with a bad signature | HMAC/token verification fails → `401`, no build. Pings and non-watched branches are acknowledged and ignored. |
+| A signed push is replayed (redelivered, or captured and resent) | A delivery id or body seen in the last 7 days is acknowledged and dropped; an older replay of a replaced commit is refused at the plan (`stale`). Nothing rolls back. |
+| An OAuth/App callback arrives from a browser that didn't start it | Refused: the bind cookie is missing or doesn't match the signed state, so nothing is linked to the org. |
 | Unsigned / critical-CVE image at deploy | Admission blocks with a plain-words reason and an audited override path; signing-not-verifiable fails closed rather than waving it through. |
 
 ## Explicitly rejected
@@ -221,7 +271,14 @@ enable, GC policy, live logs), `packages/trpc/src/services/image-gc.service.ts`
 `packages/trpc/src/routers/{cicd,registryPolicy,apps}.ts` (the tRPC surface),
 `apps/agent/src/handlers/{build,prune}.ts` +
 `packages/core/src/protocol/build.ts` (the agent capability),
-`apps/api/src/webhooks.ts` (the git webhook receiver),
+`apps/api/src/webhooks.ts` (the git webhook receiver; durable dedupe in
+`webhook-dedupe.ts`, the stale-push rule in
+`packages/trpc/src/services/apps/stale-commit.ts`), the git providers
+(`packages/trpc/src/services/git-providers/*`, Gitea in `git-gitea.service.ts`,
+the browser bind in `git-browser-bind.ts`), environments and conversion
+(`services/apps/{clone,env-secrets,env-layers,convert}.ts` over
+`packages/app-config/src/{clone-env,env-layers,from-compose}.ts`), the repo scan
+(`packages/app-config/src/scan/*`, `services/git-scan.ts`),
 `apps/api/src/workers/{image-gc,app-reconcile}.ts` (the background sweeps),
 `packages/db/prisma/schema/cicd.prisma` (the models),
 `apps/app/src/routes/_authed/ci.tsx` (the `/ci` workspace), the Branch previews

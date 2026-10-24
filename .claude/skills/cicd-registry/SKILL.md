@@ -71,9 +71,17 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
    only `cosignPublicKey` + an `enabled` flag do.
 7. **The controller is the only public surface.** `POST /webhooks/git/:repoId`
    verifies the provider HMAC (`verifyWebhookSignature`: GitHub
-   `X-Hub-Signature-256`, GitLab constant-time `X-Gitlab-Token`) before doing any
+   `X-Hub-Signature-256`, GitLab constant-time `X-Gitlab-Token`, Gitea/Forgejo
+   `X-Gitea-Signature` via `verifyGiteaSignature`) before doing any
    work, filters to the watched branch, and triggers a SYSTEM build. Never build
-   on an unverified payload.
+   on an unverified payload. Dedupe is durable: each verified delivery is
+   recorded in control.db (`GitWebhookDelivery`, `apps/api/src/webhook-dedupe.ts`)
+   under its delivery id AND the sha256 of the raw body (the id is an unsigned
+   header), per endpoint, for 7 days. Past that the plan refuses a push of a
+   commit that already ran in the environment and was replaced
+   (`staleCommitReason`, `services/apps/stale-commit.ts`; status `stale`,
+   audited `app.plan.stale`) unless the push's `before` is the live sha. Never
+   go back to in-memory dedupe, and never let a push re-apply an old commit.
 8. **Scan/sign is fire-and-forget; admission is fail-closed.** `onImageBuilt`
    (Trivy scan + cosign sign) runs `void … .catch()` after a build — it must
    never delay or fail the build. `admission-images.evaluate` gates DEPLOYS only:
@@ -133,7 +141,35 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
     and only touches services stamped `swarmy.app.stack=<stack>`.
 14. **GitHub installation tokens are minted per use** (memory cache ≤ 55 min),
     never stored; an installation binds to an org only after the installing
-    user's own OAuth token proves they can see it. Fork PRs never build.
+    user's own OAuth token proves they can see it. Fork PRs never build. Each
+    token is narrowed to the job: `repositories: [name]` plus only its
+    permissions (`git-providers/github-token-scope.ts`: contents:read for
+    clone/inspect/build/branches, checks/statuses/pull_requests:write for
+    feedback, metadata only for the repo picker); a repo-scoped request without
+    a repo name throws instead of widening, and the cache key is installation ×
+    repo × permissions. A connection's credential attaches only to a remote on
+    the connection's own host (`git-providers/clone-host.ts`: same hostname,
+    same port per scheme, never https→http); `linkRepo`/`inspectSource` refuse
+    a mismatch before minting anything, and `repoCredentials` refuses old rows.
+15. **Every provider round-trip is bound to the browser that started it.**
+    Starting a GitHub App / GitLab / Gitea flow sets a 10-minute host-only
+    `__Host-swarmy-git-bind` cookie and signs only its sha256 into `state`
+    (`services/git-browser-bind.ts`, `git-providers/state.ts`); every callback
+    must present the matching cookie, and a flow can't start without an HTTP
+    response to carry it. Registering the controller-wide GitHub App is
+    `instanceOwnerProcedure` (`startGithubManifest`, re-checked in the manifest
+    callback); installing it stays open to every org's admins.
+16. **A dashboard environment is a clone, not a preview.**
+    `apps.cloneEnvironment` (`services/apps/clone.ts`, `abacProcedure
+    ('stack.deploy')` on the source, audited `app.environment.clone`) runs
+    `planCommit` with a `clone` (pure desired state: `@swarmy/app-config`
+    `clone-env.ts`): its own stack `<app>-<name>`, no TTL, never swept, marked
+    in the `AppPlan` desired until swarmy.yaml names it. Secrets are never
+    copied: each is an empty slot filled write-only by
+    `apps.setEnvironmentSecret` into the environment's own family
+    `<family>.<env>` (`services/apps/env-secrets.ts`), mounted at the path the
+    app already reads. `apps.envLayers` (pure `env-layers.ts`: service env ›
+    `environments.<name>.env` › shared) masks secret-looking values itself.
 
 ## Contracts between the layers
 
@@ -217,10 +253,13 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
 | Branch previews page (every preview, the rules read-only, the data story, a preview from any branch) | `routes/_authed/stacks/$name.config.previews.tsx` → `components/gitops/previews/*` (`previews-model.ts` pure + tested) |
 | Environments side by side + promote as a plan; PR plan as a graph | `components/gitops/environments/*`, `components/gitops/plan-graph{,-model}.ts(x)` |
 | git-apps: swarmy.yaml schema/parser/planner (pure) | `packages/app-config/src/*` (`plans/epic-git-apps.md`) |
-| git-apps: provider clients (GitHub App, GitLab, deploy keys, git.inspect program) | `packages/trpc/src/services/git-providers/*` |
-| git-apps: connections, JIT credentials, commit feedback | `services/git-{connections.service,credentials,feedback.service}.ts`, `routers/gitConnections.ts` |
-| git-apps: the GitOps loop (ledger, compose compiler, executor, planCommit/confirm/poll/drift) | `services/apps/{live,compile,apply}.ts`, `services/apps.service.ts`, `routers/apps.ts`, `apps/api/src/workers/app-reconcile.ts` |
-| git-apps: GitHub App webhook + OAuth callbacks | `apps/api/src/{webhooks,git-callback}.ts` |
+| git-apps: provider clients (GitHub App, GitLab, Gitea/Forgejo, deploy keys, git.inspect program + its source scan) | `packages/trpc/src/services/git-providers/*` (`gitea{,-auth,-feedback}.ts`, `inspect-scan.ts`), Gitea connections `services/git-gitea.service.ts` |
+| git-apps: connections, JIT credentials, commit feedback, browser bind | `services/git-{connections.service,credentials,feedback.service,browser-bind,connection-view}.ts`, `routers/gitConnections.ts` |
+| git-apps: the GitOps loop (ledger, compose compiler, executor, planCommit/confirm/poll/drift, stale-push rule) | `services/apps/{live,compile,apply,stale-commit}.ts`, `services/apps.service.ts`, `routers/apps.ts`, `apps/api/src/workers/app-reconcile.ts` |
+| git-apps: environments (clone, env layers, per-environment secrets) | `services/apps/{clone,env-layers,env-secrets,dashboard-envs}.ts`, `routers/apps-environments.ts`; pure `packages/app-config/src/{clone-env,env-layers}.ts` |
+| git-apps: compose → swarmy.yaml (what didn't translate, why) and Convert to swarmy.yaml | `packages/app-config/src/from-compose{,-read,-env,-gaps}.ts`, `services/apps/convert.ts` (`apps.convertToConfig`) |
+| git-apps: repo scan → drafted swarmy.yaml (detectors with `file:line` evidence) | `packages/app-config/src/scan/*`, `services/git-scan.ts` (`gitConnections.draftConfig`); local `packages/devkit/src/check/*` (`swarmy check`, MCP `check_repo`) |
+| git-apps: webhooks (GitHub, GitLab, Gitea dialect), durable dedupe, OAuth/App callbacks | `apps/api/src/{webhooks,webhook-verify,webhook-gitea,webhook-dedupe,git-callback}.ts`; `GitWebhookDelivery` in `cicd.prisma` |
 
 ## Adding a build/registry capability (the recipe)
 
