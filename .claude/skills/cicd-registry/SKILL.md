@@ -86,8 +86,14 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
    runs `planCommit` with `toDesired(cfg, { preview })` — its own stack, isolated
    resources, `AppPlan` rows (`environment: 'preview'`). `app-reconcile` tears
    them down past `previews.ttl`; a closed PR or deleted branch tears down at
-   once. The older compose-swap engine (`previews.service`) was removed
-   (2026-09).
+   once. The dashboard's Branch previews page uses the same engine over tRPC:
+   `apps.createPreview` (`orgProcedure`, the same guard as the REST route; the
+   plan's own gates still apply) and `apps.teardownPreview`
+   (`abacProcedure('stack.remove')` on the preview's live stack, audited
+   `app.preview.teardown` with a `user` actor). The rules it shows come from
+   production's last applied plan (`AppView.previewRules`, `previewRulesOf`)
+   and are read-only: changing them is a commit. The older compose-swap engine
+   (`previews.service`) was removed (2026-09).
 10. **Docker owns "what runs"; the DB owns swarmy's identity + history.** New CI
     state that describes a running thing (registry, builder role, preview stack)
     is a Docker label/service, not a Prisma column. `Build`/`ImageScan` are
@@ -139,7 +145,11 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
   as `pullAuths` (private `FROM` bases), merged into the one-shot docker config
   by `renderDockerConfig`. Creds are cached per org for 15s and invalidated on
   write. Never attach them at a call site. Use `resolveRegistryAuthFor` only when
-  the call doesn't go through the hub.
+  the call doesn't go through the hub. Ref splitting and the longest-prefix
+  match (`splitImageRef`, `matchCredential`) are pure in `@swarmy/core`
+  `image-ref.ts`, shared by the decorator and the dashboard's "which login will
+  this image use?" (`components/ci/registry-credentials-resolve.ts`), so both
+  answer the same way. Change the rule there, never in one caller.
 
 - **Controller → agent build**: `ctx.hub.dispatch(nodeId, 'image.build',
   { commandId, source:{url,ref,token?}, imageRefs, pushPolicy:'always',
@@ -194,7 +204,7 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
 | Build-log fan-out bus | `packages/trpc/src/services/build-log-bus.ts` |
 | Railpack program + meta capture (agent) | `apps/agent/src/handlers/build.ts` (`renderRailpackSteps`, `parseBuildMeta`) |
 | Builder/cache payload, cache refs + GC plan, wizard detection (pure) | `cicd.service.ts` `buildStrategyPayload`, `services/build-cache.ts`, `services/git-providers/detect-build.ts` |
-| Third-party registry creds (match/test pure core; CRUD + JIT resolver; hub decorator) | `packages/trpc/src/services/registry-credentials{,.service}.ts`, `registry-auth.ts` (`createRegistryAuthDecorator`), router `registryCredentials`, REST `routes/registry-credentials.ts` |
+| Third-party registry creds (match/test pure core; CRUD + JIT resolver; hub decorator) | `packages/core/src/image-ref.ts` (split + match, browser-safe), `packages/trpc/src/services/registry-credentials{,.service}.ts`, `registry-auth.ts` (`createRegistryAuthDecorator`), router `registryCredentials`, REST `routes/registry-credentials.ts`; UI `apps/app/src/components/ci/registry-credentials-{resolve,matcher,builtin}.ts(x)` |
 | tRPC surface | `packages/trpc/src/routers/{cicd,registryPolicy,apps}.ts` |
 | Agent: BuildKit build / image prune | `apps/agent/src/handlers/{build,prune}.ts` |
 | Build gate (`env.BUILD_OVERRIDE` + `buildGateAllows`) + executor cases | `apps/agent/src/{env,executor}.ts`, `packages/core/src/types.ts` |
@@ -203,7 +213,9 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
 | Git webhook receiver (HMAC verify → SYSTEM build / PR) | `apps/api/src/webhooks.ts` + `apps/api/src/webhook-verify.ts` |
 | Background sweeps (GC / preview TTL) | `apps/api/src/workers/{image-gc,app-reconcile}.ts` |
 | Prisma models | `packages/db/prisma/schema/cicd.prisma` (`GitRepo`/`Build`/`RegistryConfig`/`ImageGcPolicy`/`ImageScan`) |
-| `/ci` workspace UI | `apps/app/src/routes/_authed/ci.tsx` |
+| `/ci` workspace UI | `apps/app/src/routes/_authed/ci.tsx`; build logs (Follow, Only warnings, cached layers, digest + scan) `components/ci/{build-log-parse,build-log-toolbar,build-layers,build-image-card}.ts(x)`; Connect a repo wizard `components/ci/git-wizard.tsx` (+ `git-providers.ts`, `git-folder-tree.ts`) |
+| Branch previews page (every preview, the rules read-only, the data story, a preview from any branch) | `routes/_authed/stacks/$name.config.previews.tsx` → `components/gitops/previews/*` (`previews-model.ts` pure + tested) |
+| Environments side by side + promote as a plan; PR plan as a graph | `components/gitops/environments/*`, `components/gitops/plan-graph{,-model}.ts(x)` |
 | git-apps: swarmy.yaml schema/parser/planner (pure) | `packages/app-config/src/*` (`plans/epic-git-apps.md`) |
 | git-apps: provider clients (GitHub App, GitLab, deploy keys, git.inspect program) | `packages/trpc/src/services/git-providers/*` |
 | git-apps: connections, JIT credentials, commit feedback | `services/git-{connections.service,credentials,feedback.service}.ts`, `routers/gitConnections.ts` |

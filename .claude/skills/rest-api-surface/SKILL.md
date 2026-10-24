@@ -68,9 +68,16 @@ adapter contract.
    plaintext-once.** `swk_<prefix>_<secret>` — the whole string is
    `hashToken`ed (sha256) and stored; only the `prefix` is displayed; the
    plaintext is returned exactly ONCE at creation and is never recoverable
-   (`apiKeys.service.ts`). Scopes are `read` | `write`; `requireScope`
-   (`middleware.ts`) gates each route (write implies read). Never return a key
-   secret from a list/detail endpoint.
+   (`apiKeys.service.ts`). Scopes are `read` | `deploy` | `write` |
+   `secrets.read` (`API_KEY_SCOPES`, `@swarmy/core` `api-keys.ts`; the
+   dashboard presets are Read-only, Deploy = read + deploy, Admin);
+   `requireScope` (`middleware.ts`) gates each route by `scopeSatisfies`:
+   write ⊇ deploy ⊇ read, and `secrets.read` stands alone. An OAuth token's
+   `swarmy:write` maps to read + write. The MCP server
+   (`packages/devkit/src/mcp/server.ts`) registers each tool only for the scope
+   its REST route needs (`deploy`/`trial_deploy`/`env_set` need deploy;
+   `telemetry_toggle`/`remove_stack` need write). Never return a key secret
+   from a list/detail endpoint.
 8. **Path-major versioning; `/api/v1` is frozen-additive.** REST mounts at
    `app.route('/api/v1', restApp)` in `apps/api/src/index.ts` — **no new server,
    no new port**, just more routes on the running controller. Within `v1` you
@@ -175,8 +182,11 @@ adapter contract.
   delegate is reached through a narrow typed accessor (`models(db)` in
   `idempotency.ts`) until the Prisma migration lands — mirror that pattern,
   don't add the column to the committed schema prematurely.
-- **Never widen a scope in a route to "make it work."** A GET is `read`, a
-  mutation is `write`; if a key lacks the scope it's `403 POLICY_DENIED`, which
+- **Never widen a scope in a route to "make it work."** A GET is `read`;
+  shipping (deploy, create a stack or service, env patch, scale, restart,
+  previews, promote, confirming held steps) is `deploy`; every other mutation
+  is `write`. If a key lacks the scope it's
+  `403 POLICY_DENIED`, which
   is correct. Fine-grained ABAC attributes plug in at the `apiKeyContext` seam,
   not in the route.
 - **DTO decoupling is load-bearing, not overhead.** When a view field is

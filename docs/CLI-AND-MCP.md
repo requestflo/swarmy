@@ -38,12 +38,15 @@ Settings → API keys.
 | Scope | What it allows | Who can grant it |
 |---|---|---|
 | `read` (default) | See apps, services, logs, and env with secret values hidden | Any member |
-| `write` | Deploy, change env, create previews, toggle telemetry | Admins and owners |
+| `deploy` | Everything `read` allows, plus ship: deploy, trial-deploy previews, change env, scale, restart, promote, confirm held steps. No settings, no removal | Admins and owners, as a **Deploy** key from Settings → API keys |
+| `write` | Everything `deploy` allows, plus settings and removal: toggle telemetry, remove a stack, and every other change | Admins and owners |
 | `secrets.read` | Read secret values (`env pull --include-secrets`); every read is audited | Admins and owners |
 
 Ask for more with `swarmy login --scope read,write` (or `read,secrets.read`).
-A key never exceeds the current role of the person who approved it, and your
-org's ABAC policies still apply to every call.
+The device login asks only for `read`, `write` and `secrets.read`. For a
+Deploy key, create one in Settings → API keys and sign in with
+`swarmy login --api-key`. A key never exceeds the current role of the person
+who approved it, and your org's ABAC policies still apply to every call.
 
 Other ways to sign in:
 
@@ -120,20 +123,23 @@ Read-only tools are always available:
 | `env` | Returns a service's env. It never reveals secret values |
 | `explain_error` | Explains an error text, or reads a service's last error and logs and explains them |
 
-Mutating tools are registered only when the key has the `write` scope and
-`--read-only` is not set:
+Mutating tools are registered only when `--read-only` is not set, and each
+needs the scope its REST route needs (`write` includes `deploy`):
 
-| Tool | Purpose |
-|---|---|
-| `deploy` | Plans and applies a branch head. Destructive steps stay held for confirmation |
-| `trial_deploy` | Deploys a branch as a preview; production is untouched |
-| `env_set` | Sets, rotates or removes env vars (plain or secret) with a rolling update |
-| `telemetry_toggle` | Turns OpenTelemetry on or off for a stack (admin). Sampling is tail-based at the collector. Session replay and analytics will join this tool when they ship |
+| Tool | Needs | Purpose |
+|---|---|---|
+| `deploy` | `deploy` | Plans and applies a branch head. Destructive steps stay held for confirmation |
+| `trial_deploy` | `deploy` | Deploys a branch as a preview; production is untouched |
+| `env_set` | `deploy` | Sets, rotates or removes env vars (plain or secret) with a rolling update |
+| `telemetry_toggle` | `write` | Turns OpenTelemetry on or off for a stack (admin). Sampling is tail-based at the collector. Session replay and analytics will join this tool when they ship |
+| `remove_stack` | `write` | Removes one app environment (a stack). Its data is kept unless `delete_data` is true. The model must pass the stack name back as `confirm` after you agree |
 
 The server is **read-only by default**. A `read` key cannot even see the
-mutating tools. With a `write` key, the controller still applies your role and
-the org's ABAC policies to every call; a denied call comes back to the model
-as a tool error.
+mutating tools, and a Deploy key sees the shipping tools but not
+`telemetry_toggle` or `remove_stack`. Whatever the key, the controller still
+applies your role and the org's ABAC policies to every call; a denied call
+comes back to the model as a tool error. Settings → API keys (the CLI & MCP
+section) shows which key unlocks which tools.
 
 ### Claude Code
 

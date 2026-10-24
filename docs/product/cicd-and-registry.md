@@ -160,7 +160,20 @@ Four ideas, one story:
   swarmy.yaml as its own preview environment (own stack, own URL under
   `previews.base_domain`, optionally a scrubbed data copy). Closing the PR or
   deleting the branch tears it down; `app-reconcile` removes anything past
-  `previews.ttl`.
+  `previews.ttl`. An app's **Branch previews** page lists every preview with
+  its address, data and time left, starts one from any branch with no pull
+  request needed (`apps.createPreview`, any member, the plan's own gates
+  still apply), and tears one down now (`apps.teardownPreview`, the
+  `stack.remove` policy on the preview's stack, audited). It shows the
+  `previews:` rules production's swarmy.yaml declares, read-only: changing
+  them is a commit.
+- **An AI agent can ship with a Deploy key.** The MCP server registers each
+  tool for the scope its REST route needs: `deploy`, `trial_deploy` and
+  `env_set` need `deploy` (the dashboard's Deploy preset), and
+  `telemetry_toggle` and `remove_stack` need `write`. A Deploy key gives an
+  agent the shipping tools without settings or removal. The controller still
+  applies the person's role and the org's policies to every call. See
+  `docs/CLI-AND-MCP.md`.
 
 ## Failure modes (designed, not accidental)
 
@@ -210,5 +223,8 @@ enable, GC policy, live logs), `packages/trpc/src/services/image-gc.service.ts`
 `packages/core/src/protocol/build.ts` (the agent capability),
 `apps/api/src/webhooks.ts` (the git webhook receiver),
 `apps/api/src/workers/{image-gc,app-reconcile}.ts` (the background sweeps),
-`packages/db/prisma/schema/cicd.prisma` (the models), and
-`apps/app/src/routes/_authed/ci.tsx` (the `/ci` workspace).
+`packages/db/prisma/schema/cicd.prisma` (the models),
+`apps/app/src/routes/_authed/ci.tsx` (the `/ci` workspace), the Branch previews
+page (`routes/_authed/stacks/$name.config.previews.tsx` →
+`components/gitops/previews/*`), and the MCP server's tool registry
+(`packages/devkit/src/mcp/server.ts`).
