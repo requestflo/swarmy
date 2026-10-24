@@ -8,10 +8,12 @@ import { AnalyticsConsentWarning } from './analytics-consent-warning';
 import { AnalyticsKpis } from './analytics-kpis';
 import { AnalyticsModeBar } from './analytics-mode-bar';
 import { BreakdownList } from './breakdown-list';
+import { FunnelSection } from './funnel-section';
 import { compact, countryName, pct } from './rum-shared';
 import { RumStateNotice } from './rum-state-notice';
 import { SignedInVisitors } from './signed-in-visitors';
 import { useAnalyticsDelta } from './use-analytics-delta';
+import { useFunnels } from './use-funnels';
 import { useRumSettings } from './use-rum';
 import { VisitorsChart } from './visitors-chart';
 
@@ -30,6 +32,7 @@ export function AnalyticsPage({ stack }: { stack: string }): React.JSX.Element {
   const identified = s?.mode === 'identified';
   const host = settings.data?.routes[0]?.host;
   const delta = useAnalyticsDelta(stack, days, s?.retentionDays, q.data);
+  const funnels = useFunnels(stack).data?.funnels;
 
   if (q.isPending || settings.isPending) {
     return (
@@ -69,7 +72,7 @@ export function AnalyticsPage({ stack }: { stack: string }): React.JSX.Element {
   return (
     <div className="flex flex-col gap-4 pb-8">
       <SayHeader size="md" title={title} lede={lede} />
-      {s ? <RumCode stack={stack} settings={s} routes={settings.data?.routes ?? []} /> : null}
+      {s ? <RumCode stack={stack} settings={s} routes={settings.data?.routes ?? []} funnels={funnels} /> : null}
       <Depth at="controls">
         <AnalyticsModeBar stack={stack} settings={s} days={days} onDays={setDays} />
       </Depth>
@@ -95,6 +98,7 @@ export function AnalyticsPage({ stack }: { stack: string }): React.JSX.Element {
               format={countryName}
             />
           </div>
+          <FunnelSection stack={stack} days={days} identified={identified} />
           <Depth at="controls">
             <div className="grid gap-3 lg:grid-cols-3">
               <BreakdownList title="Devices" rows={d.devices} emptyKey="Unknown" limit={5} />

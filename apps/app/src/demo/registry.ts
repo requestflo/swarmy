@@ -56,6 +56,7 @@ import { aiCache } from './resolvers/ai-cache';
 import { email } from './resolvers/email';
 import { security } from './resolvers/security';
 import { rum } from './resolvers/rum';
+import { rumFunnel } from './resolvers/rum-funnel';
 import { studio } from './resolvers/studio';
 import { pgExtensions } from './resolvers/pg-extensions';
 import { studioSlow } from './resolvers/studio-slow';
@@ -149,6 +150,7 @@ const MODULES: DomainResolvers[] = [
   pgExtensions,
   studioSlow,
   rum,
+  rumFunnel,
   gaps,
   serviceSettings,
   serviceHealth,

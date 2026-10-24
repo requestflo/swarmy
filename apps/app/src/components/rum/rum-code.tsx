@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { CodeView } from '@/components/calm';
 import type { RumRoute, RumSettings } from './rum-shared';
+import { funnelsLabel, type Funnel } from './funnel-model';
 
 /** The `swarmy.rum` label exactly as swarmy serialises it (keys sorted, JSON). */
 export function rumLabel(s: RumSettings): string {
@@ -14,7 +15,18 @@ export function rumLabel(s: RumSettings): string {
  * reads (no redeploy), and each route's own override. There is no CLI or REST
  * for RUM settings yet, so this is read-only.
  */
-export function RumCode({ stack, settings, routes }: { stack: string; settings: RumSettings; routes: RumRoute[] }): React.JSX.Element {
+export function RumCode({
+  stack,
+  settings,
+  routes,
+  funnels,
+}: {
+  stack: string;
+  settings: RumSettings;
+  routes: RumRoute[];
+  /** Analytics only: the app's funnels (the `swarmy.rum.funnels` label). */
+  funnels?: Funnel[];
+}): React.JSX.Element {
   const label = [`# on every ${stack} service; the edge (swarmy_rum Caddy module) reads it on the next page view`, `swarmy.rum=${rumLabel(settings)}`].join('\n');
   const perRoute = routes.length
     ? routes.map((r) => `${r.host}${r.path && r.path !== '/' ? r.path : ''}  rum: ${r.override ?? 'follows the app'}${r.injected ? '' : '  (not injected)'}`).join('\n')
@@ -26,6 +38,9 @@ export function RumCode({ stack, settings, routes }: { stack: string; settings: 
       tabs={[
         { label: 'label', code: label },
         { label: 'routes', code: `# swarmy.ingress.routes: a route's own rum on|off wins over the app\n${perRoute}` },
+        ...(funnels
+          ? [{ label: 'funnels', code: funnels.length ? `# on every ${stack} service; read by rum.funnel, never by the edge\nswarmy.rum.funnels=${funnelsLabel(funnels)}` : '# no funnels yet: add one at Controls' }]
+          : []),
       ]}
     />
   );

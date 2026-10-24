@@ -2,7 +2,7 @@ import type { ReleaseView } from '@swarmy/core';
 import type { Tone } from '@/components/calm';
 
 /** "ghcr.io/northwind/web:1.9.0" → "v1.9.0"; digests and odd tags stay as they are. */
-export function releaseLabel(r: ReleaseView | undefined): string {
+export function releaseLabel(r: Pick<ReleaseView, 'images'> | undefined): string {
   const image = r?.images[0]?.image;
   if (!image) return 'this version';
   const at = image.lastIndexOf('@');
