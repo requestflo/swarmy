@@ -6,6 +6,7 @@ import { abacProcedure, authorize, resolveStackByName } from '../abac';
 import {
   dbBackupOverview,
   getDbBackupSchedule,
+  getDbPitrWindow,
   listDbBackups,
   restoreDb,
   runDbBackup,
@@ -31,6 +32,15 @@ const copyName = z
 export const dbBackupRouter = router({
   /** Org-wide coverage: every managed cluster with schedule + last backup + PITR window. */
   overview: orgProcedure.query(({ ctx }) => dbBackupOverview(ctx)),
+
+  /**
+   * The real PITR window, read from the cluster's WAL repo by its agent (a
+   * read-only `wal-g backup-list`). `source: 'unsupported'` on an agent that
+   * predates the check; the overview's estimate stands then.
+   */
+  pitrWindow: orgProcedure
+    .input(z.object({ stack: z.string().min(1), cluster: z.string().min(1) }))
+    .query(({ ctx, input }) => getDbPitrWindow(ctx, input)),
 
   /** The cluster's recurring-backup schedule, or null when none is set. */
   getSchedule: orgProcedure

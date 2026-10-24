@@ -35,6 +35,7 @@ export type CommandName =
   | 'backup.list'
   | 'db.backup' // data-plane: logical/physical DB backup (pg_dump/wal-g/…)
   | 'db.restore'
+  | 'db.pitrWindow' // read-only: a PITR cluster's base backups + recoverable window (agent capability `dbPitrWindow`)
   | 'appdb.backup' // compose MySQL/MariaDB/Mongo/Redis/Valkey logical dump → restic
   | 'appdb.restore'
   | 'appdb.verify' // backup-verify drill: dump → scratch container → sanity query
@@ -99,6 +100,7 @@ export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
   'backup.list': 'listSnapshots',
   'db.backup': 'dbBackup',
   'db.restore': 'dbRestore',
+  'db.pitrWindow': 'dbPitrWindow',
   'appdb.backup': 'appDbBackup',
   'appdb.restore': 'appDbRestore',
   'appdb.verify': 'appDbVerify',
@@ -211,6 +213,8 @@ export interface AgentHub {
     shellOverride?: 'allow' | 'deny';
     /** Version skew against this controller, judged on register (`agentSkew`). */
     skew?: AgentSkew;
+    /** Optional commands the agent advertised (`agentSupports`); absent on older agents. */
+    capabilities?: readonly string[];
   } | undefined;
 
   /**

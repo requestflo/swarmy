@@ -36,6 +36,7 @@ import type {
   DbBackupRunStatus,
   DbBackupScheduleView,
   DbBackupSnapshotView,
+  DbPitrWindowView,
   RunDbBackupInput,
   SetDbBackupScheduleInput,
 } from '@swarmy/core';
@@ -54,6 +55,7 @@ import type { AgentHub } from '../hub/types';
 import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { writeAudit } from './audit.service';
 import { runPitrRestore } from './dbPitrRestore.service';
+import { knownPitrWindow, pitrPreflight, pitrWindowView, readPitrWindow, rememberPitrWindow } from './dbPitrWindow.service';
 import { PRE_RESTORE_REASON, ensureSafetyCopy, latestRestorable, overwritesSource } from './dbRestoreSafety.service';
 import { auditRetentionOutcome, resticNetworkFor } from './backups.service';
 import { systemContext } from './cicd.service';
@@ -660,6 +662,9 @@ export async function dbBackupOverview(ctx: OrgContext): Promise<DbBackupOvervie
         }
       }
       const targetId = schedule?.targetId ?? null;
+      // The agent's last read of the WAL repo beats the schedule's estimate.
+      const read = knownPitrWindow(ctx.activeOrgId, `${p.stack}/${p.labels[DB_CLUSTER_LABEL] ?? ''}`, now.getTime());
+      const estimate = pitrWindow(schedule, lastRun, now);
       return {
         stack: p.stack,
         cluster: p.labels[DB_CLUSTER_LABEL] ?? '',
@@ -675,11 +680,38 @@ export async function dbBackupOverview(ctx: OrgContext): Promise<DbBackupOvervie
         lastError: lastRun?.error ?? null,
         lastSizeBytes: lastRun?.sizeBytes ?? null,
         nextRunAt,
-        pitrWindow: pitrWindow(schedule, lastRun, now),
+        pitrWindow: read ? read.window : estimate,
+        ...(read ? { pitrWindowSource: 'agent' as const } : schedule?.pitr ? { pitrWindowSource: 'estimate' as const } : {}),
         auto: schedule?.auto === true,
       };
     })
     .sort((a, b) => `${a.stack}/${a.cluster}`.localeCompare(`${b.stack}/${b.cluster}`));
+}
+
+/**
+ * The real recoverable window of a wal-g PITR cluster, read from its WAL repo
+ * by the agent on the node that holds its data (the restore's own read). An
+ * agent without the command answers `unsupported`; the estimate stays.
+ */
+export async function getDbPitrWindow(ctx: OrgContext, input: { stack: string; cluster: string }): Promise<DbPitrWindowView> {
+  const { primary } = findCluster(ctx, input.stack, input.cluster);
+  if (!primary) throw notFound('db cluster primary', input.cluster);
+  const schedule = parseScheduleLabel(primary.labels[DB_BACKUP_SCHEDULE_LABEL]);
+  if (!schedule?.pitr || schedule.engine !== 'wal-g') return pitrWindowView(null);
+  const target = await loadTarget(ctx, await resolveTargetId(ctx, undefined, schedule));
+  const node = await physicalNode(ctx, primary.labels);
+  try {
+    const read = await readPitrWindow(ctx, {
+      nodeId: node.id,
+      repo: toResticRepo(target),
+      network: clusterNetworkName(input.stack, input.cluster),
+      resticNetwork: resticNetworkFor(target.endpoint),
+    });
+    if (read.status === 'read') rememberPitrWindow(ctx.activeOrgId, `${input.stack}/${input.cluster}`, read.result);
+    return pitrWindowView(read);
+  } catch (e) {
+    throw mapDispatchError(e);
+  }
 }
 
 // ── list ────────────────────────────────────────────────────────────────────
@@ -781,6 +813,22 @@ export async function restoreDb(ctx: OrgContext, input: RestoreDbInput): Promise
     snapshotId = latest;
   }
 
+  // PITR: read the real window first, so a target outside it is refused
+  // before the safety copy and the stop. An older agent skips this (logged).
+  const pitrNode = input.mode === 'pitr' ? await physicalNode(ctx, primary.labels) : null;
+  if (pitrNode) {
+    await pitrPreflight(ctx, {
+      ref: `${input.stack}/${input.cluster}`,
+      engine: input.engine,
+      targetTime: input.targetTime,
+      snapshotId,
+      nodeId: pitrNode.id,
+      repo: toResticRepo(target),
+      network: clusterNetworkName(destStack, destCluster),
+      resticNetwork: resticNetworkFor(target.endpoint),
+    });
+  }
+
   // Writing over the source? Save its current data first, or refuse.
   const safety = await ensureSafetyCopy(ctx, input, (plan) =>
     backupDb(ctx, {
@@ -798,15 +846,14 @@ export async function restoreDb(ctx: OrgContext, input: RestoreDbInput): Promise
 
   // PITR owns the whole stop → aside + fetch → start → promote sequence and
   // needs no DB password up front (QA-087).
-  if (input.mode === 'pitr') {
-    const node = await physicalNode(ctx, primary.labels);
+  if (pitrNode) {
     const view = await runPitrRestore(ctx, {
       targetRef: `${destStack}/${destCluster}`,
       service: primary.name,
       desiredReplicas: primary.replicas.desired,
       passwordSecret: primary.labels[DB_PASSWORD_SECRET_LABEL] || undefined,
       replicationUser: envRecord(primary)[PG_ENV.replicationUser] || 'repl',
-      nodeId: node.id,
+      nodeId: pitrNode.id,
       dataVolume: dataVolume!,
       engine: input.engine,
       snapshotId,
