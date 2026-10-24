@@ -62,6 +62,7 @@ import {
 import { decryptSecret } from '@swarmy/core/crypto';
 import { prisma } from '@swarmy/db';
 import { canPrincipal } from '@swarmy/trpc';
+import { CLIENT_IP_HEADER } from '@swarmy/auth';
 import { hub } from './gateway';
 import { AdapterError, baseUrlOf, AZURE_DEFAULT_API_VERSION, buildChat, buildEmbed, chatStream, otelProviderName, parseChat, parseEmbed, type StreamTranslator, type Target, type Upstream } from './ai/adapters';
 import { anthropicToOpenAIRequest, openAIToAnthropicResponse, OpenAIToAnthropicStream, AnthropicToOpenAIStream, anthropicInputTokens, ANTHROPIC_DEFAULT_MAX_TOKENS } from './ai/anthropic';
@@ -69,27 +70,13 @@ import { AwsEventStreamDecoder, SseDecoder, encodeSse } from './ai/framing';
 import { DEFAULT_RETRY, TargetHealth, parseRetryAfter, runChain, type AttemptResult, type RetryOptions } from './ai/router';
 import { SpanExporter, formatTraceparent, genAiAttributes, newSpanId, parseTraceparent, type SpanRecord, type TraceContext } from './ai/trace';
 import type { ChatChunk, ChatRequest, EmbeddingRequest } from './ai/wire';
+import { AuthFailureLimiter, RpmWindow, effectiveRpm } from './ai/limits';
 
 export { costMicros };
 
 // ── Pure helpers (tested in ai-gateway.test.ts) ──────────────────────────────
 
-/** In-memory per-key sliding 60s window. Controller-local (single process). */
-export class RpmWindow {
-  private hits = new Map<string, number[]>();
-
-  /** Record + allow if under `rpm` in the last 60s. */
-  allow(keyId: string, rpm: number, now = Date.now()): boolean {
-    const kept = (this.hits.get(keyId) ?? []).filter((t) => now - t < 60_000);
-    if (kept.length >= rpm) {
-      this.hits.set(keyId, kept);
-      return false;
-    }
-    kept.push(now);
-    this.hits.set(keyId, kept);
-    return true;
-  }
-}
+export { RpmWindow };
 
 export interface CachedResponse {
   status: number;
@@ -233,6 +220,7 @@ const UPSTREAM_TIMEOUT_MS = 600_000;
 const ABAC_TTL_MS = 30_000;
 
 const rpmWindow = new RpmWindow();
+const authFailures = new AuthFailureLimiter();
 const responseCache = new TtlLruCache<CachedResponse>(100, 5 * 60_000);
 const health = new TargetHealth();
 const exporter = new SpanExporter();
@@ -280,14 +268,26 @@ function errResponse(op: Op, status: number, message: string, code = 'swarmy_gat
   });
 }
 
-async function loadKey(presented: string): Promise<KeyRow> {
-  const row = await prisma.aiVirtualKey.findUnique({
-    where: { keyHash: createHash('sha256').update(presented).digest('hex') },
-  });
-  if (!row) throw new GatewayError(401, 'unknown key');
+/**
+ * The presented key's row. An address that failed too many lookups this
+ * minute gets 429 before the lookup; each missing/unknown key counts.
+ */
+async function loadKey(presented: string | null, clientIp: string | null, missing = 'missing key'): Promise<KeyRow> {
+  if (authFailures.blocked(clientIp)) {
+    throw new GatewayError(429, 'too many failed key attempts from this address; try again in a minute', 'auth_rate_limited');
+  }
+  const row = presented
+    ? await prisma.aiVirtualKey.findUnique({ where: { keyHash: createHash('sha256').update(presented).digest('hex') } })
+    : null;
+  if (!row) {
+    authFailures.fail(clientIp);
+    throw new GatewayError(401, presented ? 'unknown key' : missing);
+  }
   if (row.disabled) throw new GatewayError(403, 'key disabled');
   return row;
 }
+
+const retryAfter = (e: GatewayError): Record<string, string> => (e.status === 429 ? { 'retry-after': '60' } : {});
 
 async function loadConfig(orgId: string): Promise<GatewayConfig> {
   const row = await prisma.aiProviderConfig.findUnique({ where: { orgId } });
@@ -597,6 +597,8 @@ interface Pipeline {
   playground?: { keyId: string; userId: string; orgId: string };
   rawBody: string;
   traceparent: string | null;
+  /** The caller's address (CLIENT_IP_HEADER), for the failed-key limiter. */
+  clientIp?: string | null;
 }
 
 interface PipelineResult {
@@ -621,8 +623,7 @@ async function authKey(p: Pipeline): Promise<KeyRow> {
     if (row.disabled) throw new GatewayError(403, 'key disabled');
     return row;
   }
-  if (!p.presented) throw new GatewayError(401, 'missing key (x-swarmy-ai-key or Authorization: Bearer)');
-  return loadKey(p.presented);
+  return loadKey(p.presented, p.clientIp ?? null, 'missing key (x-swarmy-ai-key or Authorization: Bearer)');
 }
 
 async function runPipeline(p: Pipeline): Promise<PipelineResult> {
@@ -669,7 +670,7 @@ async function runPipeline(p: Pipeline): Promise<PipelineResult> {
   try {
     key = await authKey(p);
   } catch (e) {
-    if (e instanceof GatewayError) return fail(null, e.status, e.message);
+    if (e instanceof GatewayError) return fail(null, e.status, e.message, e.code, retryAfter(e));
     throw e;
   }
 
@@ -705,8 +706,10 @@ async function runPipeline(p: Pipeline): Promise<PipelineResult> {
   if (cap !== null && promptTokens > cap) {
     return fail(key, 413, `prompt is ~${promptTokens} tokens; the limit is ${cap}`, 'prompt_too_large');
   }
-  if (policy.rpm !== null && !rpmWindow.allow(key.id, policy.rpm)) {
-    return fail(key, 429, `rate limit exceeded (${policy.rpm} requests/minute)`, 'rate_limited', { 'retry-after': '60' });
+  // The key's own RPM, else the controller default (SWARMY_AI_DEFAULT_RPM).
+  const rpm = effectiveRpm(policy.rpm);
+  if (rpm !== null && !rpmWindow.allow(key.id, rpm)) {
+    return fail(key, 429, `rate limit exceeded (${rpm} requests/minute)`, 'rate_limited', { 'retry-after': '60' });
   }
   if (policy.dailyBudgetMicros !== null && budgetExhausted(await spentToday(key, policy), policy.dailyBudgetMicros)) {
     return fail(key, 429, policy.budgetScope === 'app' ? "daily budget exhausted for this key's app" : 'daily budget exhausted for this key', 'budget_exhausted');
@@ -979,19 +982,18 @@ async function proxy(c: Context): Promise<Response> {
     presented: presentedKey((n) => c.req.header(n)),
     rawBody,
     traceparent: c.req.header('traceparent') ?? null,
+    clientIp: c.req.header(CLIENT_IP_HEADER) ?? null,
   });
   return r.response;
 }
 
 /** `GET /ai/v1/models` — the names this key may call (OpenAI list shape). */
 async function listModels(c: Context): Promise<Response> {
-  const presented = presentedKey((n) => c.req.header(n));
-  if (!presented) return errResponse('chat', 401, 'missing key');
   let key: KeyRow;
   try {
-    key = await loadKey(presented);
+    key = await loadKey(presentedKey((n) => c.req.header(n)), c.req.header(CLIENT_IP_HEADER) ?? null);
   } catch (e) {
-    if (e instanceof GatewayError) return errResponse('chat', e.status, e.message);
+    if (e instanceof GatewayError) return errResponse('chat', e.status, e.message, e.code, retryAfter(e));
     throw e;
   }
   const cfg = await loadConfig(key.orgId);

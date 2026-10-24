@@ -166,8 +166,11 @@ example a node-local published port). Tracked in the plan.
 - **Limits are per key, enforced at the edge of the proxy.** RPM is an in-memory
   60-second sliding window; the daily budget sums today's `AiUsage` cost (UTC
   day) and compares against `dailyBudgetMicros`. Either tripping is a clean
-  `429`, before the upstream call. Missing limits mean unlimited — opt-in caps,
-  not mandatory ones.
+  `429`, before the upstream call. A key without its own `rpm` gets the
+  controller default, 600/min (`SWARMY_AI_DEFAULT_RPM`; `0` or `off` for none),
+  so a leaked or runaway key is bounded; a missing budget means no budget. An
+  address that presents 20 bad keys in a minute gets `429` before any lookup
+  (`apps/api/src/ai/limits.ts`).
 - **Cost is honestly an estimate.** A static `$/MTok` table (longest-prefix
   match; unknown models bill at a middle rate) turns tokens into micro-dollars.
   Every usage view carries `costIsEstimate: true`; the UI says "cost est."
@@ -192,7 +195,7 @@ example a node-local published port). Tracked in the plan.
 
 | Failure | Behaviour |
 |---|---|
-| Unknown or disabled virtual key | `401` (unknown) / `403` (disabled) before any upstream call — no metering, no cost. |
+| Unknown or disabled virtual key | `401` (unknown) / `403` (disabled) before any upstream call — no metering, no cost. 20 unknown keys from one address in a minute → `429` for that address. |
 | Key over its RPM or daily budget | `429` with the reason; the upstream is never hit, so an over-budget app can't spend. |
 | Provider unreachable / upstream error | `502` (or the upstream status); an `AiUsage` row is still written with `status: error` so failures show in usage. |
 | No provider configured for the model | `400` "no provider configured" — the gateway refuses rather than guess. |

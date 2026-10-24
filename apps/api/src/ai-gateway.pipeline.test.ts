@@ -234,6 +234,38 @@ describe('AI gateway pipeline', () => {
   });
 });
 
+describe('AI gateway limits (default RPM, failed-key limiter)', () => {
+  it('a key with no rpm of its own gets the default (SWARMY_AI_DEFAULT_RPM)', async () => {
+    await prisma.aiVirtualKey.create({ data: { id: 'defaultrpm', orgId: ORG, name: 'd', keyHash: sha('swk-ai-defaultrpm'), limitsJson: {} } });
+    const saved = process.env.SWARMY_AI_DEFAULT_RPM;
+    process.env.SWARMY_AI_DEFAULT_RPM = '2';
+    try {
+      expect((await post('chat/completions', 'defaultrpm', chat('vllm/qwen'))).status).toBe(200);
+      expect((await post('chat/completions', 'defaultrpm', chat('vllm/qwen'))).status).toBe(200);
+      const res = await post('chat/completions', 'defaultrpm', chat('vllm/qwen'));
+      expect(res.status).toBe(429);
+      expect(res.headers.get('retry-after')).toBe('60');
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe('rate_limited');
+    } finally {
+      if (saved === undefined) delete process.env.SWARMY_AI_DEFAULT_RPM;
+      else process.env.SWARMY_AI_DEFAULT_RPM = saved;
+    }
+  });
+
+  it('an address that keeps presenting bad keys gets 429 before any lookup; others are unaffected', async () => {
+    const from = (ip: string) => ({ 'x-swarmy-client-ip': ip });
+    for (let i = 0; i < 20; i++) {
+      expect((await post('chat/completions', `guess${i}`, chat('vllm/qwen'), from('203.0.113.9'))).status).toBe(401);
+    }
+    const blocked = await post('chat/completions', 'free', chat('vllm/qwen'), from('203.0.113.9'));
+    expect(blocked.status).toBe(429);
+    expect(((await blocked.json()) as { error: { code: string } }).error.code).toBe('auth_rate_limited');
+    const models = await aiGatewayApp.request('/v1/models', { headers: { authorization: 'Bearer swk-ai-free', ...from('203.0.113.9') } });
+    expect(models.status).toBe(429);
+    expect((await post('chat/completions', 'free', chat('vllm/qwen'), from('203.0.113.10'))).status).toBe(200);
+  });
+});
+
 describe('AI gateway hardening (security review H13/H14)', () => {
   it('refuses an oversized chunked body (no Content-Length) with 413 before auth', async () => {
     const chunk = new Uint8Array(1024 * 1024);
