@@ -54,7 +54,7 @@ agent (Builder role, or SWARMY_ALLOW_BUILD=true): moby/buildkit:rootless + build
    │     (builder on the host network; rootlesskit buildkitd; workspace under $HOME)
    │     logChunk stream keyed by commandId (== Build.logsRef) → live viewer
    ▼
-in-swarm registry  localhost:5000  (single registry:2, port 5000 on the routing mesh)
+in-swarm registry  localhost:5000  (single registry:2 on the encrypted swarmy overlay; each node's loopback forwarder)
    │  ④ digest parsed from containerimage.digest → Build row SUCCEEDED
    │  ⑤ Trivy scan + cosign sign (fire-and-forget); admission gates future deploys
    ▼
@@ -72,15 +72,30 @@ Four ideas, one story:
   on the agent against its LOCAL Docker socket, streaming the exact `logChunk`
   frames service logs use. See `skill("agent-handlers")`.
 - **The registry is a swarm service swarmy manages.** Enabling it is one
-  `service.deploy` of `registry:2`, replicas 1, on the shared `swarmy` overlay,
-  with port 5000 published on the swarm routing mesh — so it answers at
-  `localhost:5000` on EVERY node. Docker trusts 127.0.0.0/8 registries as
-  insecure by default, so every node's dockerd pulls plain-HTTP with zero daemon
-  config. (The overlay name `swarmy-registry:5000` only resolves inside
-  containers on the overlay — node dockerd can never pull it; it is still
-  recognised as an org-registry prefix for legacy refs.) Port 5000 must be
-  firewalled from outside the swarm. Images live in a standard OCI registry any
-  tool can pull from — no lock-in.
+  `service.deploy` of `registry:2`, replicas 1, on the encrypted, attachable
+  `swarmy` overlay, publishing no port. Every node's agent keeps a loopback
+  forwarder (`swarmy-registry-forwarder`, a plain container on that overlay
+  bound to `127.0.0.1:5000` and `:5001`), so the registry answers at
+  `localhost:5000` on EVERY node and the Docker Hub pull-through cache at
+  `localhost:5001`, and the hop to the registry's node rides IPsec. Docker
+  trusts 127.0.0.0/8 registries as insecure by default, so every node's
+  dockerd pulls plain-HTTP with zero daemon config. The forwarder is restarted
+  by dockerd after a reboot and re-asserted by the agent, so pulls never
+  depend on the controller. (The overlay name `swarmy-registry:5000` only
+  resolves inside containers on the overlay — node dockerd can never pull it;
+  it is still recognised as an org-registry prefix for legacy refs.) Images
+  live in a standard OCI registry any tool can pull from — no lock-in.
+- **Older clusters move by themselves (security review M16).** Before the
+  forwarder, both ports were published on the swarm routing mesh, so the
+  registry's login crossed the unencrypted `ingress` overlay between nodes.
+  The controller moves a cluster onto the forwarders once every ready node's
+  agent reports one, using the GC window's pinned spec so the registry stays
+  on the node that holds its data, and never moves it back. Until then each
+  agent's `SWARMY-REGISTRY` firewall chain keeps the mesh ports off public
+  addresses; it stays afterwards as defence in depth. An installer re-run
+  warns if the `swarmy` overlay was created without `--opt encrypted` or
+  `--attachable`; Docker can't change either in place, so fixing it means
+  recreating the overlay.
 - **Deploy by digest, never by tag.** Every build resolves to
   `host/name@sha256:…`, and deploys pin that digest. This is what makes GC's
   "in prod" reasoning and rollback correct — a floating tag would break both.

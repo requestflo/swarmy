@@ -42,18 +42,28 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
    depth. `keepProd:false` is the explicit hobby opt-out.
 5. **The registry is a swarm service swarmy manages, never public.** Enabling it
    is one `service.deploy` of `registry:2` (`REGISTRY_IMAGE`), replicas 1, on the
-   `swarmy` overlay, volume `swarmy-registry-data`, port 5000 on the routing
-   mesh so every node's dockerd pulls `localhost:5000` (`DEFAULT_REGISTRY_HOST`;
-   127.0.0.0/8 is insecure-trusted by default). `swarmy-registry:5000` is the
+   encrypted, attachable `swarmy` overlay, volume `swarmy-registry-data`.
+   Every node's dockerd pulls `localhost:5000` (`DEFAULT_REGISTRY_HOST`;
+   127.0.0.0/8 is insecure-trusted by default) through the agent-supervised
+   loopback forwarder (security review M16: `@swarmy/core/registry-forwarder`,
+   `handlers/registry-forwarder.ts`; a plain Caddy container on `swarmy`
+   publishing 127.0.0.1:5000/:5001 only, restart `always`, re-asserted every
+   15s, independent of the controller). The registry's TOPOLOGY
+   (`registry-topology.ts`) decides how a (re)deploy publishes: `loopback` (no
+   port) once every ready node's agent reports `registryForwarder: on`, else
+   `mesh` (:5000/:5001 on the routing mesh, the old shape), and it never goes
+   back. EVERY registry/cache spec passes `registryTopologyFor(hub, orgId)`;
+   the `system-image-mirror` worker's topology tick migrates old clusters with
+   the GC window's pinned spec. `swarmy-registry:5000` is the
    LEGACY overlay-only host — `canonicalRegistryHost` maps it, and
    `isOrgRegistryImage` still recognises it. The builder runs host-network and
    pushes with `registry.insecure=true`; trivy/cosign `runOnce` use `host` too.
-   Swarm can't bind a published port to loopback, so EVERY agent keeps a
-   firewall floor (`handlers/registry-firewall.ts`: a `SWARMY-REGISTRY` chain
+   EVERY agent also keeps a firewall floor (defence in depth since M16;
+   `handlers/registry-firewall.ts`: a `SWARMY-REGISTRY` chain
    jumped from `DOCKER-USER`, re-asserted every 5 min) dropping forwarded
    traffic to :5000/:5001 except local docker bridges and
    `SWARMY_REGISTRY_FIREWALL_ALLOW`; `SWARMY_REGISTRY_FIREWALL=false` opts out.
-   Never publish a new registry-ish port without adding it there;
+   Never publish a new registry-ish port on the mesh or a non-loopback address;
    the agent never rewrites `/etc/docker/daemon.json` itself.
    The installers (never the agent) merge `registry-mirrors` → the Docker Hub
    pull-through cache (`swarmy-registry-cache`, :5001) into daemon.json.
@@ -235,6 +245,7 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
 | Trivy scan, cosign keygen/sign/verify, policy | `packages/trpc/src/services/registryPolicy.service.ts` |
 | Trivy DB cache (shared volume, stale fallback) + daily refresh | `packages/trpc/src/services/trivy-db{,.service}.ts`, worker `trivy-db-refresh` |
 | System-image BOM + mirror + Hub pull-through cache | `packages/core/src/system-images.ts`, `packages/trpc/src/services/system-images.service.ts`, worker `system-image-mirror`, `apps/api/src/install/docker-registry-mirror.ts` |
+| Registry reachability (M16): loopback forwarder spec, agent supervisor, topology rule + migration reconcile | `packages/core/src/registry-forwarder.ts`, `apps/agent/src/handlers/registry-forwarder.ts`, `packages/trpc/src/services/registry-topology{,.service}.ts` (ticked by `system-image-mirror`) |
 | Image admission decision (pure + evaluator) | `packages/trpc/src/services/admission-images.ts` |
 | Previews (PR / branch / trial) | `packages/trpc/src/services/apps.service.ts` (`planCommit`, `createAppPreview`, `teardownAppPreview*`) |
 | Build-log fan-out bus | `packages/trpc/src/services/build-log-bus.ts` |

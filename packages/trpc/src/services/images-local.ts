@@ -5,12 +5,18 @@
  *
  * Reachability: the controller sits on `swarmy-control`, not the `swarmy`
  * overlay the registry joins, so `swarmy-registry:5000` doesn't resolve for it.
- * The registry publishes :5000 on the swarm ROUTING MESH, so any swarm node's
- * address answers — the controller tries `SWARMY_REGISTRY_URL` (explicit
- * override), then each ready node's swarm address, then a non-loopback
- * configured host, and remembers the first that answers. Plain HTTP (the
- * registry is intra-swarm, firewalled from outside); htpasswd basic auth with
+ * The controller tries `SWARMY_REGISTRY_URL` (explicit override), then each
+ * ready node's swarm address at :5000, then a non-loopback configured host,
+ * and remembers the first that answers. Plain HTTP; htpasswd basic auth with
  * the org's auto-generated login.
+ *
+ * Known gap: the node addresses only answer on a cluster still publishing the
+ * registry on the routing mesh, and the agents' SWARMY-REGISTRY firewall chain
+ * already drops the controller container's (forwarded) connection there. Once
+ * the registry is on the loopback forwarders (security review M16) nothing
+ * listens on a node address at all, so without `SWARMY_REGISTRY_URL` this
+ * local section is empty. A catalog read through an agent one-shot (host
+ * network → `localhost:5000`, like trivy/regctl) would close it.
  *
  * Best-effort like the Hub proxy: any failure yields `null` (no local section),
  * never an error.

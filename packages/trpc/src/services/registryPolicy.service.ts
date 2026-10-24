@@ -39,8 +39,9 @@ const KEYGEN_VOLUME = 'swarmy-cosign-keygen';
 export const KEYGEN_USER = '0:0';
 const KEYGEN_SPLIT_MARKER = '@@SWARMY-COSIGN-SPLIT@@';
 /**
- * Canonical address of the in-swarm registry. The `registry:2` service publishes
- * 5000 on the swarm routing mesh, so `localhost:5000` answers on EVERY node — and
+ * Canonical address of the in-swarm registry. Each node's loopback forwarder
+ * (or, on a cluster not yet moved off it — registry-topology.ts — the swarm
+ * routing mesh) answers `localhost:5000` on EVERY node — and
  * dockerd trusts 127.0.0.0/8 registries as insecure by default, so every node
  * pulls plain-HTTP with zero daemon config. (The overlay name below only
  * resolves inside containers on the `swarmy` network, never for node dockerd.)
@@ -348,7 +349,7 @@ export async function scanDetail(ctx: OrgContext, id: string): Promise<ImageScan
 
 /**
  * Run a trivy scan of `imageRef` on a node (via `container.runOnce`, attached
- * to the host network so the routing-mesh registry at `localhost:5000` resolves) and persist the
+ * to the host network so the registry at `localhost:5000` resolves, as for dockerd) and persist the
  * `ImageScan`. Status is `passed` unless the exec/parse failed (`error`) —
  * criticals showing up is a *policy* matter, decided at admission time.
  */
@@ -384,8 +385,8 @@ async function runScan(
           // Reuse the registry auth builds push with (trivy reads TRIVY_USERNAME/PASSWORD).
           creds ? { TRIVY_USERNAME: creds.username, TRIVY_PASSWORD: creds.password } : {},
         ),
-        // Host network: reach the registry at `localhost:5000` via the routing
-        // mesh, exactly as the node's dockerd does.
+        // Host network: reach the registry at `localhost:5000` (the node's loopback
+        // forwarder, or the routing mesh before M16's move) exactly as dockerd does.
         networks: ['host'],
         timeoutMs: SCAN_TIMEOUT_MS,
       },
@@ -556,8 +557,8 @@ async function signImage(
         hostReachableRef(ref),
       ],
       env: { COSIGN_PRIVATE_KEY: privateKey, COSIGN_PASSWORD: password },
-      // Host network: reach the registry at `localhost:5000` via the routing
-      // mesh, exactly as the node's dockerd does.
+      // Host network: reach the registry at `localhost:5000` (the node's loopback
+      // forwarder, or the routing mesh before M16's move) exactly as dockerd does.
       networks: ['host'],
       timeoutMs: SIGN_TIMEOUT_MS,
     },
@@ -603,8 +604,8 @@ export async function verifyImageSignature(
         hostReachableRef(ref),
       ],
       env: { COSIGN_PUBLIC_KEY: cfg.cosignPublicKey },
-      // Host network: reach the registry at `localhost:5000` via the routing
-      // mesh, exactly as the node's dockerd does.
+      // Host network: reach the registry at `localhost:5000` (the node's loopback
+      // forwarder, or the routing mesh before M16's move) exactly as dockerd does.
       networks: ['host'],
       timeoutMs: VERIFY_TIMEOUT_MS,
     },

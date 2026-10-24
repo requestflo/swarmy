@@ -63,10 +63,10 @@ export function RegistryCard({ config }: RegistryCardProps): React.JSX.Element {
           <StatusBadge tone={online ? 'online' : 'neutral'} label={online ? 'Live' : 'Off'} />
         </CardTitle>
         <CardDescription>
-          A single-replica <span className="mono-data">registry:2</span> on the swarm routing mesh. Every node
-          pulls from <span className="mono-data">localhost:5000</span> with no Docker daemon config. Pushes and
-          pulls require an auto-generated login swarmy applies for you; still keep port 5000 firewalled from
-          outside the swarm.
+          A single-replica <span className="mono-data">registry:2</span> on the encrypted swarm network. Every
+          node pulls from <span className="mono-data">localhost:5000</span> through its own loopback forwarder,
+          with no Docker daemon config. Pushes and pulls require an auto-generated login swarmy applies for
+          you.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4">

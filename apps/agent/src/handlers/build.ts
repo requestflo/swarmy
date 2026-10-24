@@ -5,8 +5,9 @@
  * or the bundled `img`) via dockerode to: shallow-clone the git source, build the
  * Dockerfile, and push the resulting image to the in-swarm registry in one step
  * (`--output type=image,push=true,registry.insecure=true`), then parse the pushed
- * digest. The builder runs on the HOST network so it pushes to the routing-mesh
- * registry at `localhost:5000` — the same address every node's dockerd pulls.
+ * digest. The builder runs on the HOST network so it pushes to the registry at
+ * `localhost:5000` (this node's loopback forwarder, or the routing mesh before
+ * M16's move) — the same address every node's dockerd pulls.
  *
  * Mirrors `applyMesh`/`joinNetbird` in the executor: it consumes a resolved
  * payload and applies it on the node, streaming build output as `logChunk`s
@@ -550,8 +551,8 @@ export function tailLines(output: string, n = ERROR_TAIL_LINES): string[] {
 
 /**
  * dockerode `createContainer` options for the builder (pure, unit-tested).
- * Host networking so buildctl reaches the registry at `localhost:5000` via the
- * swarm routing mesh — exactly the address every node's dockerd pulls from.
+ * Host networking so buildctl reaches the registry at `localhost:5000` (the
+ * node's loopback forwarder) — exactly the address every node's dockerd pulls from.
  */
 export function builderContainerOptions(
   name: string,

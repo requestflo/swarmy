@@ -11,7 +11,7 @@ interface RegistryView {
   online: boolean;
 }
 
-/** The canonical in-swarm pull address (`DEFAULT_REGISTRY_HOST`): the routing mesh's port 5000 on every server. */
+/** The canonical in-swarm pull address (`DEFAULT_REGISTRY_HOST`): each server's loopback forwarder (or, before M16's move, the routing mesh). */
 const MESH_HOST = 'localhost:5000';
 /** Mirrors `RegistryUsageView` (registry-usage.ts): measured by the GC tick. */
 export interface RegistryUsage {
@@ -70,7 +70,7 @@ export function RegistrySummary({
           <p className="text-muted-foreground text-[13px]">
             Every server pulls from <span className="text-foreground font-mono">{MESH_HOST}</span> over the swarm network — never public.
           </p>
-          <Tech>registry:2 · port 5000 on the routing mesh · each agent drops outside traffic to :5000 (SWARMY-REGISTRY chain) unless SWARMY_REGISTRY_FIREWALL=false</Tech>
+          <Tech>registry:2 on the encrypted swarmy overlay · each node&apos;s swarmy-registry-forwarder binds 127.0.0.1:5000/:5001 · until every agent runs one: port 5000 on the routing mesh, outside traffic dropped (SWARMY-REGISTRY chain)</Tech>
         </div>
       ) : null}
     </Section>
