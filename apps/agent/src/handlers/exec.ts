@@ -128,8 +128,9 @@ export async function execCommand(
   docker: DockerClient,
   conn: AgentConnection,
   p: ExecCommandMsg['payload'],
-): Promise<{ exitCode: number; output: string; stderr: string }> {
+): Promise<{ exitCode: number; output: string; stderr: string; durationMs: number }> {
   let seq = 0;
+  const started = performance.now();
   const r = await execCapture(docker, p.target.containerId, {
     cmd: p.cmd,
     tty: p.tty,
@@ -141,6 +142,8 @@ export async function execCommand(
         }
       : {}),
   });
+  // How long the command ran on the node (additive; older agents omit it).
+  const durationMs = Math.round((performance.now() - started) * 10) / 10;
   if (p.stream) conn.send('logChunk', { commandId: p.commandId, stream: 'stdout', seq: seq++, data: '', eof: true });
-  return execResultView(r);
+  return { ...execResultView(r), durationMs };
 }

@@ -1,9 +1,18 @@
 import type { DockerClient } from '@swarmy/core/docker';
 import type { AgentConnection } from './connection';
+import { createHealthProber } from './health-probes';
+
+/** One health prober (and cache) per Docker client: folds `State.Health` into the snapshot. */
+const probers = new WeakMap<DockerClient, ReturnType<typeof createHealthProber>>();
+function proberFor(docker: DockerClient): ReturnType<typeof createHealthProber> {
+  let p = probers.get(docker);
+  if (!p) probers.set(docker, (p = createHealthProber((id) => docker.containerHealth(id))));
+  return p;
+}
 
 export async function sendContainerList(docker: DockerClient, conn: AgentConnection): Promise<void> {
   try {
-    const containers = await docker.listContainers(true);
+    const containers = await proberFor(docker)(await docker.listContainers(true));
     conn.send('containerList', { snapshotAt: Date.now(), containers });
   } catch {
     // docker unavailable
