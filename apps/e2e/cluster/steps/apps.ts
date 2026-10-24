@@ -7,7 +7,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Ctx } from '../context';
 import { REPO_ROOT } from '../lib/cluster';
-import { assert, log, poll, run, secret } from '../lib/util';
+import { crashLoop } from '../lib/crashloop';
+import { assert, Fatal, log, poll, run, secret } from '../lib/util';
 
 const dashed = (ip: string) => ip.replace(/\./g, '-');
 
@@ -54,12 +55,15 @@ export async function templates(ctx: Ctx) {
       log(`${id}: stack ${res.stackName}, url ${res.url}, steps ${res.steps.map((s) => `${s.label}=${s.status}`).join(', ')}`);
       assert(res.ok, `${id}: blueprint deploy not ok: ${bad.map((s) => `${s.label}: ${s.error ?? s.status}`).join('; ')}`);
       // Healthy = the app itself answers through the edge (2xx/3xx; a 502 is
-      // Caddy with no live upstream).
+      // Caddy with no live upstream). A crash-looping app fails now, with why.
       const got = await poll(
         `${id} answering at https://${host}/`,
         async () => {
           const r = await edgeGet(host, edge);
-          return r.code >= 200 && r.code < 400 ? r : null;
+          if (r.code >= 200 && r.code < 400) return r;
+          const looping = await crashLoop(ctx, res.stackName, 5);
+          if (looping) throw new Fatal(`${id}: ${looping}`);
+          return null;
         },
         { timeoutMs: 10 * 60_000, intervalMs: 10_000 },
       );
