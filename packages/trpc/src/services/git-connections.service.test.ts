@@ -344,6 +344,51 @@ describe('inspectCommit', () => {
       GIT_USER: 'oauth2',
     });
     expect(sent?.cmd.join(' ')).not.toContain('glpat-SECRET');
+    // The push path never pays for the wizard's source scan.
+    expect(sent?.cmd.join(' ')).not.toContain('SWARMY_SCANNED');
+    expect(res.found).toBeUndefined();
+  });
+
+  it('scan: true greps the app folder and returns what it needs, timed', async () => {
+    const { db, tables } = fakeDb();
+    tables.node?.push({ id: 'n1', name: 'builder', orgId: 'org-a' });
+    tables.gitRepo?.push({
+      id: 'r2',
+      orgId: 'org-a',
+      url: 'https://github.com/northwind/platform.git',
+      branch: 'main',
+      configPath: 'services/orders/swarmy.yaml',
+      provider: 'GITHUB',
+      tokenEnc: null,
+      connectionId: null,
+      deployKeyEnc: null,
+    });
+    let cmd = '';
+    const b64 = (s: string) => Buffer.from(s).toString('base64');
+    const h = hub((async (_node: string, _cmd: string, payload: unknown) => {
+      cmd = (payload as { cmd: string[] }).cmd.join(' ');
+      return {
+        exitCode: 0,
+        timedOut: false,
+        output: [
+          'SWARMY_BEGIN',
+          `SWARMY_HEAD ${'e'.repeat(40)}`,
+          'SWARMY_NOFILE\tservices/orders/swarmy.yaml',
+          `SWARMY_PROBE\tservices/orders/package.json\t${b64('{"dependencies": {"pg": "8"}}')}`,
+          'SWARMY_SCANNED\tservices/orders/src/db.ts',
+          'SWARMY_HIT\tservices/orders/src/db.ts\t4\tconst pool = new Pool({ connectionString: process.env.DATABASE_URL });',
+          'SWARMY_END',
+        ].join('\n'),
+      };
+    }) as never);
+    const res = await inspectCommit(orgCtx(db, h), { repoId: 'r2', scan: true });
+    expect(cmd).toContain("git ls-tree -r --name-only \"$H\" -- 'services/orders'");
+    expect(cmd).toContain('services/orders/.env.example');
+    expect(res.found).toMatchObject({ dir: 'services/orders', app: 'orders', files: 2, ms: expect.any(Number) });
+    expect(res.found?.detections.find((d) => d.id === 'postgres')?.evidence).toEqual([
+      { file: 'services/orders/package.json', line: 1, text: '{"dependencies": {"pg": "8"}}' },
+      { file: 'services/orders/src/db.ts', line: 4, text: 'const pool = new Pool({ connectionString: process.env.DATABASE_URL });' },
+    ]);
   });
 });
 

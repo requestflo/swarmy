@@ -39,14 +39,17 @@ export const SOURCE_SCAN_MAX_FILES = 40;
 export const SOURCE_SCAN_MAX_HITS_PER_FILE = 4;
 export const SOURCE_SCAN_MAX_HITS = 60;
 
-const SOURCE_EXT = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|py|rb|go|php)$/;
-const SKIP_DIR = /(^|\/)(node_modules|vendor|dist|build|out|coverage|\.next|\.git|tests?|__tests__|spec|fixtures|migrations)\//;
-const SKIP_FILE = /\.(test|spec|d)\.[a-z]+$|\.config\.[a-z]+$/;
+/** Source files worth grepping, and the ones never worth it (POSIX ERE, shared with git.inspect). */
+export const SOURCE_PATH_RE = '\\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|py|rb|go|php)$';
+export const SOURCE_SKIP_RE =
+  '(^|/)(node_modules|vendor|dist|build|out|coverage|\\.next|\\.git|tests?|__tests__|spec|fixtures|migrations)/|\\.(test|spec|d)\\.[a-z]+$|\\.config\\.[a-z]+$';
+const SOURCE_PATH = new RegExp(SOURCE_PATH_RE);
+const SOURCE_SKIP = new RegExp(SOURCE_SKIP_RE);
 
 /** A source file the scan greps (app code under `dir`, never tests, builds or vendored code). */
 export function isSourcePath(p: string, dir = ''): boolean {
   if (dir && !p.startsWith(`${dir}/`)) return false;
-  return SOURCE_EXT.test(p) && !SKIP_DIR.test(p) && !SKIP_FILE.test(p);
+  return SOURCE_PATH.test(p) && !SOURCE_SKIP.test(p);
 }
 
 export function scanFile(path: string, text: string): ScanFile {

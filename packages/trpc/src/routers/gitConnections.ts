@@ -6,6 +6,7 @@
  * audited, removal is ABAC-gated (`cicd.remove`).
  */
 import { z } from 'zod';
+import { DetectionSchema } from '@swarmy/app-config';
 import { abacProcedure } from '../abac';
 import { adminProcedure, orgProcedure, router } from '../trpc';
 import {
@@ -22,6 +23,7 @@ import {
   startGithubManifest,
   updateRepo,
 } from '../services/git-connections.service';
+import { draftConfig } from '../services/git-scan';
 
 const httpUrl = z
   .string()
@@ -140,9 +142,39 @@ export const gitConnectionsRouter = router({
           .regex(/^[0-9a-f]{40,64}$/)
           .optional(),
         paths: z.array(configPath).max(20).optional(),
+        /** Also scan the app's folder for what it needs (the wizard's "Here's what we found"). */
+        scan: z.boolean().optional(),
       }),
     )
     .mutation(({ ctx, input }) => inspectCommit(ctx, input)),
+
+  /**
+   * The ticked detections → a swarmy.yaml, checked by the controller's own
+   * parser, plus the app it would create. Pure: reads nothing, writes nothing.
+   */
+  draftConfig: orgProcedure
+    .input(
+      z.object({
+        app: z.string().min(1).max(80),
+        dir: z
+          .string()
+          .max(300)
+          .regex(/^[A-Za-z0-9._/@+-]*$/)
+          .refine((p) => !p.split('/').includes('..'), 'no .. segments'),
+        detections: z.array(DetectionSchema).max(24),
+        selected: z.array(z.string().max(80)).max(24),
+        build: z
+          .object({
+            path: z.string().max(300).optional(),
+            dockerfile: z.string().max(300).optional(),
+            target: z.string().max(100).optional(),
+            args: z.record(z.string().max(500)).optional(),
+            watch: z.array(z.string().max(300)).max(10).optional(),
+          })
+          .optional(),
+      }),
+    )
+    .query(({ input }) => draftConfig(input)),
 
   /** Read a repo before linking it (wizard: detect swarmy.yaml paths / Dockerfile / compose). */
   inspectSource: adminProcedure

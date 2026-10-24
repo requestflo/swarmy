@@ -15,6 +15,8 @@
  * golden-tested; `git-connections.service.ts` dispatches.
  */
 
+import { parseScanLines, renderScanLines, type SourceScan } from './inspect-scan';
+
 export const INSPECT_IMAGE = 'moby/buildkit:rootless';
 export const INSPECT_TIMEOUT_MS = 90_000;
 /** Per-file cap (raw bytes). runOnce keeps a 64 KB output tail, so stay well under. */
@@ -63,6 +65,8 @@ export interface InspectRequest {
   probePaths?: string[];
   /** Files whose presence alone matters (lockfiles). */
   presencePaths?: string[];
+  /** Grep this folder's source files for what the app needs (inspect-scan.ts); '' = the repo root. */
+  scanDir?: string;
 }
 
 export interface InspectResult {
@@ -74,6 +78,8 @@ export interface InspectResult {
   changedPaths?: string[];
   /** Present probe/presence files → their leading bytes ('' for presence-only). */
   probes?: Record<string, string>;
+  /** The source scan, when `scanDir` was asked for and found source files. */
+  scan?: SourceScan;
 }
 
 export function validateInspectRequest(r: InspectRequest): string | null {
@@ -85,6 +91,8 @@ export function validateInspectRequest(r: InspectRequest): string | null {
     return `invalid branch "${r.fallbackBranch}"`;
   }
   if (r.baseSha !== undefined && !/^[0-9a-f]{40,64}$/.test(r.baseSha)) return 'invalid base sha';
+  if (r.scanDir && (!PATH_RE.test(r.scanDir) || r.scanDir.split('/').includes('..') || r.scanDir.startsWith('/')))
+    return `invalid path "${r.scanDir}"`;
   for (const p of [...r.paths, ...(r.probePaths ?? []), ...(r.presencePaths ?? [])]) {
     if (!PATH_RE.test(p) || p.split('/').includes('..') || p.startsWith('/'))
       return `invalid path "${p}"`;
@@ -150,6 +158,7 @@ export function renderInspectProgram(r: InspectRequest): string {
   for (const p of r.presencePaths ?? []) {
     lines.push(`if git cat-file -e "$H":${shq(p)} 2>/dev/null; then printf 'SWARMY_PROBE\\t%s\\t\\n' ${shq(p)}; fi`);
   }
+  if (r.scanDir !== undefined) lines.push(...renderScanLines(r.scanDir));
   lines.push('echo SWARMY_END');
   return lines.join('\n');
 }
@@ -202,10 +211,12 @@ export function parseInspectOutput(output: string, requestedPaths: string[]): In
       throw new InspectError(`${a} is larger than ${INSPECT_MAX_FILE_BYTES / 1024} KB`);
   }
   if (!/^[0-9a-f]{40,64}$/.test(sha)) throw new InspectError('could not resolve the commit');
+  const scan = parseScanLines(lines);
   return {
     sha,
     files,
     tree,
+    ...(scan ? { scan } : {}),
     ...(changedKnown ? { changedPaths: changed } : {}),
     ...(Object.keys(probes).length ? { probes } : {}),
   };

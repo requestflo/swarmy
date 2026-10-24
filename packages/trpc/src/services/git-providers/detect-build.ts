@@ -110,6 +110,14 @@ const NODE_FRAMEWORKS: Array<[string, string, number]> = [
   ['vite', 'Vite', 80],
 ];
 
+const OTHER_FRAMEWORK_DEPS: Record<string, string> = { Django: 'django', FastAPI: 'fastapi', Flask: 'flask', Rails: 'rails', Laravel: 'laravel/framework' };
+
+/** The dependency that names a detected framework (`Next.js` → `next`) — the scan's port evidence. */
+export function frameworkDep(framework: string | undefined): string | undefined {
+  if (!framework) return undefined;
+  return NODE_FRAMEWORKS.find(([, name]) => name === framework)?.[0] ?? OTHER_FRAMEWORK_DEPS[framework];
+}
+
 export function detectBuild(files: Record<string, string>, dir = ''): BuildDetection {
   const d = dir.replace(/^\.?\/*|\/+$/g, '');
   const get = (f: string): string | undefined => files[d ? `${d}/${f}` : f];

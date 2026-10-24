@@ -7,6 +7,8 @@ export {
   SOURCE_SCAN_MAX_FILES,
   SOURCE_SCAN_MAX_HITS,
   SOURCE_SCAN_MAX_HITS_PER_FILE,
+  SOURCE_PATH_RE,
+  SOURCE_SKIP_RE,
   isSourcePath,
   scanFile,
   scanHits,

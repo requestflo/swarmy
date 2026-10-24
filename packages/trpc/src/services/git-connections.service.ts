@@ -71,6 +71,7 @@ import {
   type ProviderRepo,
 } from './git-providers';
 import { type BuildDetection, detectBuild, detectProbePaths } from './git-providers/detect-build';
+import { type AppScanView, scanFromInspect, scanProbePaths } from './git-scan';
 
 type Deps = { db: DB; hub: AgentHub; auth: Auth };
 
@@ -688,8 +689,10 @@ export async function inspectCommit(
     baseSha?: string;
     paths?: string[];
     fallbackBranch?: string;
+    /** Also scan the app's folder for what it needs (the wizard; never the push path). */
+    scan?: boolean;
   },
-): Promise<InspectResult & { configPaths: string[]; detected: BuildDetection }> {
+): Promise<InspectResult & InspectExtras> {
   const repo = await ctx.db.gitRepo.findFirst({
     where: { id: input.repoId, orgId: ctx.activeOrgId },
   });
@@ -703,8 +706,16 @@ export async function inspectCommit(
     paths: input.paths ?? [repo.configPath],
     ...(input.baseSha ? { baseSha: input.baseSha } : {}),
     ...(input.fallbackBranch ? { fallbackBranch: input.fallbackBranch } : {}),
+    ...(input.scan ? { scan: true } : {}),
     creds,
   });
+}
+
+/** What every read adds to the raw inspect result; `found` only when a scan was asked for. */
+export interface InspectExtras {
+  configPaths: string[];
+  detected: BuildDetection;
+  found?: AppScanView;
 }
 
 /**
@@ -714,9 +725,7 @@ export async function inspectCommit(
 export async function inspectSource(
   ctx: OrgContext,
   input: { connectionId?: string; cloneUrl: string; ref: string; paths?: string[] },
-): Promise<
-  InspectResult & { configPaths: string[]; detected: BuildDetection; composeDraft: ComposeDraft | null }
-> {
+): Promise<InspectResult & InspectExtras & { composeDraft: ComposeDraft | null }> {
   let creds: GitCredentials = {};
   if (input.connectionId) {
     const conn = await loadConnection(ctx, input.connectionId);
@@ -726,6 +735,7 @@ export async function inspectSource(
     url: input.cloneUrl,
     ref: input.ref,
     paths: [...(input.paths ?? ['swarmy.yaml']), ...COMPOSE_FILES],
+    scan: true,
     creds,
   });
   return { ...res, composeDraft: res.configPaths.length === 0 ? composeDraftFrom(res.files, input.cloneUrl) : null };
@@ -761,15 +771,24 @@ async function runInspect(
     creds: GitCredentials;
     /** Directory to run build detection in ('' = repo root). */
     detectDir?: string;
+    /** Scan `detectDir` for what the app needs (git-scan.ts). */
+    scan?: boolean;
   },
-): Promise<InspectResult & { configPaths: string[]; detected: BuildDetection }> {
+): Promise<InspectResult & InspectExtras> {
   const { creds, paths } = input;
   const detectDir = input.detectDir ?? '';
+  const probes = detectProbePaths(detectDir);
+  if (input.scan) {
+    const extra = scanProbePaths(detectDir);
+    probes.probePaths = [...new Set([...probes.probePaths, ...extra.probePaths])];
+    probes.presencePaths = [...new Set([...probes.presencePaths, ...extra.presencePaths])];
+  }
   const req = {
     url: input.url,
     ref: input.ref,
     paths,
-    ...detectProbePaths(detectDir),
+    ...probes,
+    ...(input.scan ? { scanDir: detectDir } : {}),
     ...(input.baseSha ? { baseSha: input.baseSha } : {}),
     ...(input.fallbackBranch ? { fallbackBranch: input.fallbackBranch } : {}),
     ...creds,
@@ -784,6 +803,7 @@ async function runInspect(
     });
   }
   const node = await resolveBuilderNode(ctx);
+  const started = Date.now();
   let res: RunOnceResult;
   try {
     res = await ctx.hub.dispatch<RunOnceResult>(
@@ -810,7 +830,13 @@ async function runInspect(
       message: e instanceof Error ? e.message : String(e),
     });
   }
-  return { ...parsed, configPaths: configPathsIn(parsed.tree), detected: detectBuild(parsed.probes ?? {}, detectDir) };
+  const detected = detectBuild(parsed.probes ?? {}, detectDir);
+  return {
+    ...parsed,
+    configPaths: configPathsIn(parsed.tree),
+    detected,
+    ...(input.scan ? { found: scanFromInspect(parsed, { dir: detectDir, repo: input.url, detected, ms: Date.now() - started }) } : {}),
+  };
 }
 
 /**
