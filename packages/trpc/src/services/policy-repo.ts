@@ -1,5 +1,6 @@
 import { defaultPolicyInputs } from '@swarmy/abac';
 import type { DB } from '@swarmy/db';
+import { storedDefaultFor } from './policy-effective';
 
 /**
  * Where an org's ABAC policies live. The enforcement seam (`loadPolicyEngine`
@@ -93,14 +94,15 @@ export function defaultsDrift(
   });
 }
 
-function defaultRows(orgId: string, actorId: string | null | undefined, disabled: Set<string> = new Set()) {
+/** The shipped defaults as rows, keeping each stored row's enable/disable (by name, else source). */
+function defaultRows(orgId: string, actorId: string | null | undefined, stored: readonly PolicyRecord[]) {
   return defaultPolicyInputs().map((p) => ({
     orgId,
     name: p.name,
     effect: p.effect,
     source: p.source,
     priority: p.priority,
-    enabled: !disabled.has(p.name),
+    enabled: storedDefaultFor(stored, p)?.enabled ?? true,
     isdefault: true,
     createdById: actorId ?? null,
   }));
@@ -165,10 +167,9 @@ export function prismaPolicyRepository(db: DB): PolicyRepository {
       const records = all.map(toRecord);
       const hasDefaults = records.some((r) => r.isDefault);
       if (hasDefaults && !defaultsDrift(records)) return false;
-      const disabled = new Set(records.filter((r) => r.isDefault && !r.enabled).map((r) => r.name));
       await db.$transaction([
         db.policy.deleteMany({ where: { orgId, isdefault: true } }),
-        db.policy.createMany({ data: defaultRows(orgId, actorId, disabled) }),
+        db.policy.createMany({ data: defaultRows(orgId, actorId, records) }),
       ]);
       return true;
     },

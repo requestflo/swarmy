@@ -72,10 +72,12 @@ export async function setPolicy(ctx: OrgContext, args: SetPolicyArgs): Promise<P
   const repo = policyRepo(ctx.db);
   if (args.id) {
     // Default rules are managed by swarmy (kept equal to the shipped set): an
-    // admin may turn one off or on, not rewrite it.
+    // admin may turn one off or on, not rewrite or rename it (a rename read as
+    // drift, and the rewrite that followed switched the rule back on).
     const existing = await repo.get(ctx.activeOrgId, args.id);
     if (existing?.isDefault) {
       const rewritten =
+        existing.name !== args.name ||
         existing.source !== args.source ||
         existing.effect !== args.effect ||
         (args.priority !== undefined && existing.priority !== args.priority);
