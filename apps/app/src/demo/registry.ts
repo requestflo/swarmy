@@ -53,6 +53,7 @@ import { email } from './resolvers/email';
 import { security } from './resolvers/security';
 import { rum } from './resolvers/rum';
 import { studio } from './resolvers/studio';
+import { pgExtensions } from './resolvers/pg-extensions';
 import { gaps } from './resolvers/gaps';
 import { serviceSettings } from './resolvers/service-settings';
 import { serviceHealth } from './resolvers/service-health';
@@ -133,6 +134,7 @@ const MODULES: DomainResolvers[] = [
   email,
   security,
   studio,
+  pgExtensions,
   rum,
   gaps,
   serviceSettings,

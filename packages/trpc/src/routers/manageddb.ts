@@ -17,6 +17,9 @@ import {
   getFailoverReadiness,
   setWriteRegion,
 } from '../services/manageddb.service';
+import { setDbExtension } from '../services/manageddb-extensions.service';
+import { getDbExtensions } from '../services/manageddb-extensions-view';
+import { PG_EXTENSION_NAMES } from '@swarmy/core';
 
 /** `postgres://user:secret@host` → `postgres://user:***@host`. */
 export function maskUrlPassword(url: string): string {
@@ -43,6 +46,7 @@ const regionName = z
   .regex(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/, 'invalid region');
 
 const topologyEnum = z.enum(DB_TOPOLOGIES);
+type PgExtName = (typeof PG_EXTENSION_NAMES)[number];
 
 /**
  * Managed DB topology (epic #8). Declare a Postgres primary/replica cluster for
@@ -155,6 +159,29 @@ export const managedDbRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => confirmFailover(ctx, input)),
+
+  /** pg_stat_statements / postgis: on, wanted, shipped by the image, and what the reconcile is doing now. */
+  extensions: orgProcedure
+    .input(z.object({ stack: stackName, cluster: clusterName }))
+    .query(({ ctx, input }) => getDbExtensions(ctx, input)),
+
+  /**
+   * Turn an extension on or off: rewrites `swarmy.db.extensions` on the primary;
+   * the reconcile converges it (a preload extension restarts the standbys
+   * first, then the main copy in place, then CREATE EXTENSION). Same gate as
+   * the other declare-and-converge changes (`stack.deploy`); audited
+   * `db.extension.enable|disable`.
+   */
+  setExtension: abacProcedure('stack.deploy', resolveStackByName)
+    .input(
+      z.object({
+        stack: stackName,
+        cluster: clusterName,
+        name: z.enum(PG_EXTENSION_NAMES as [PgExtName, ...PgExtName[]]),
+        on: z.boolean(),
+      }),
+    )
+    .mutation(({ ctx, input }) => setDbExtension(ctx, input)),
 
   /** Geo: pin the single writer to a node-label region (`swarmy.region==<region>`). */
   setWriteRegion: abacProcedure('stack.deploy', resolveStackByName)

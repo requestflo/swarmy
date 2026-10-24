@@ -37,6 +37,10 @@ import {
   dbFloatingPlacement,
   dbRolePlacementLabels,
   type DbPlacementNode,
+  DB_RESTART_PLANNED_LABEL,
+  PG_PRELOAD_ENV,
+  plannedRestartActive,
+  withPreloadEnv,
 } from '@swarmy/core';
 import { decryptSecret } from '@swarmy/core/crypto';
 import { pitrExtraConf } from '@swarmy/core/protocol';
@@ -57,6 +61,7 @@ import {
   renderWalCredsEnv,
 } from './manageddb-reconcile.core';
 import { restoreWatermark } from './manageddb-watermark.core';
+import { convergePgExtensions } from './manageddb-extensions';
 import { createWatermarkStore } from './manageddb-watermark';
 import {
   DB_PITR_ARCHIVE_CMD_LABEL,
@@ -321,13 +326,13 @@ export function regionReplicaSpec(
     name: `${c.base}-replica-${region}`,
     image: primary.image,
     mode: { replicated: { replicas: n } },
-    env: pgReplicaEnv({
+    env: withPreloadEnv(pgReplicaEnv({
       password,
       replicationUser: env[PG_ENV.replicationUser] ?? REPLICATION_USER,
       replicationPassword: env[PG_ENV.replicationPassword] ?? password,
       primaryHost: primary.name,
       primaryPort: PG_PORT,
-    }),
+    }), env[PG_PRELOAD_ENV] ?? ''),
     labels,
     networks: [clusterNet(c)],
     placement: { constraints: placed.constraints },
@@ -351,12 +356,12 @@ export function extraPrimarySpec(
     name: `${c.base}-primary-${index}`,
     image: primary.image,
     mode: { replicated: { replicas: 1 } },
-    env: pgPrimaryEnv({
+    env: withPreloadEnv(pgPrimaryEnv({
       password: env[PG_ENV.password] ?? '',
       database: env[PG_ENV.database] ?? DEFAULT_DATABASE,
       replicationUser: env[PG_ENV.replicationUser] ?? REPLICATION_USER,
       replicationPassword: env[PG_ENV.replicationPassword] ?? env[PG_ENV.password] ?? '',
-    }),
+    }), env[PG_PRELOAD_ENV] ?? ''),
     labels,
     networks: [clusterNet(c)],
   }, labels);
@@ -942,6 +947,52 @@ export function repointSpec(
   }, labels);
 }
 
+/**
+ * Nothing else is mid-flight on the writer: no held failover, no planned
+ * switch-over, and PITR settled (its own redeploy would race a restart).
+ */
+function extensionsSettled(primary: SwarmServiceInfo): boolean {
+  const l = primary.labels;
+  if (l[DB_FAILOVER_PENDING_LABEL] || l[DB_FAILOVER_CONFIRM_LABEL] || l[DB_SWITCHOVER_LABEL]) return false;
+  return (l[DB_BACKUP_PITR_LABEL] === 'true') === Boolean(l[DB_PITR_APPLIED_LABEL]);
+}
+
+/**
+ * A member rebuilt from live truth with `SWARMY_PG_PRELOAD=<preload>` — the
+ * extensions rolling restart. The primary keeps its PITR bits (archive volume
+ * + conf) when applied, and stamps `swarmy.db.restart.planned` so the failover
+ * logic stands down for the seconds it is restarting; region siblings and
+ * active-active writers go through their own builders (which copy the preload
+ * off the primary env handed in).
+ */
+export function preloadSpec(
+  c: Cluster,
+  m: SwarmServiceInfo,
+  preload: string,
+  nodes: readonly DbPlacementNode[],
+  multiNode: boolean,
+  plannedAt?: string,
+): ServiceSpec {
+  const withEnv = (s: SwarmServiceInfo): SwarmServiceInfo => ({
+    ...s,
+    env: Object.entries(withPreloadEnv(envRecord(s.env ?? []), preload)).map(([k, v]) => `${k}=${v}`),
+  });
+  const region = m.labels[DB_REGION_LABEL];
+  const index = Number.parseInt(m.labels[DB_MEMBER_LABEL] ?? '', 10);
+  if (c.primary && m.name !== c.primary.name && region) {
+    return regionReplicaSpec(c, withEnv(c.primary), region, m.desiredReplicas ?? 1, multiNode, nodes);
+  }
+  if (c.primary && m.name !== c.primary.name && Number.isFinite(index) && index >= 2) {
+    return extraPrimarySpec(c, withEnv(c.primary), index, m.labels[DB_PIN_NODE_LABEL]);
+  }
+  if (m.name !== c.primary?.name) return replicaStorageSpec(withEnv(m), m.labels, clusterNet(c), nodes);
+  const p = withEnv({ ...m, labels: plannedAt ? { ...m.labels, [DB_RESTART_PLANNED_LABEL]: plannedAt } : m.labels });
+  const pitr = m.labels[DB_PITR_APPLIED_LABEL];
+  if (!pitr) return stripPitrSpec(p, c);
+  const dataVolume = m.labels[DB_DATA_VOLUME_LABEL] ?? parseScheduleLite(m.labels[DB_BACKUP_SCHEDULE_LABEL])?.dataVolume;
+  return pitrPrimarySpec(p, c, clusterNet(c), pitr, dataVolume);
+}
+
 /** exec `SELECT pg_promote()` in one running task + verify recovery ended. */
 async function promoteInPlace(orgId: string, svc: SwarmServiceInfo): Promise<boolean> {
   const promote = await execIn(orgId, svc, psql(PG_PROMOTE_SQL), PROMOTE_TIMEOUT_MS);
@@ -1041,6 +1092,12 @@ async function maybePromote(
     }
     return;
   }
+
+  // A PLANNED in-place restart (an extension's shared_preload_libraries change
+  // restarts the writer on its own data): no alarm and no promotion while it is
+  // fresh. Past DB_RESTART_PLANNED_MAX_AGE_MS an unhealthy primary is a real
+  // outage again and goes through the grace window + decideFailover as usual.
+  if (plannedRestartActive(primary?.labels, now)) return;
 
   const ticks = (unhealthyTicks.get(key) ?? 0) + 1;
   unhealthyTicks.set(key, ticks);
@@ -1572,6 +1629,32 @@ async function reconcileOrg(orgId: string): Promise<void> {
     // (7) A2 — grace-windowed automatic failover promotion.
     if (contract) {
       await maybePromote(contract, orgId, node, c, topology, measured).catch(() => undefined);
+    }
+
+    // (8) Extensions (pg_stat_statements / postgis): one step per tick —
+    //     standbys restart first, then the writer in place, then CREATE.
+    if (primary && extensionsSettled(primary)) {
+      await convergePgExtensions(
+        {
+          key: warnKey,
+          ref: `${c.stack}/${c.cluster}`,
+          primary,
+          standbys: replicaMembers(c),
+          extraWriters: [...c.extraPrimaries.values()],
+        },
+        {
+          exec: (svc, script) => execIn(orgId, svc, script, PROMOTE_TIMEOUT_MS),
+          setLabels: (service, add, removeKeys = []) =>
+            hub.dispatch(node, 'service.updateLabels', { service, add, removeKeys }).catch(() => undefined),
+          deploy: (spec) => hub.dispatch(node, 'service.deploy', { spec, pullPolicy: 'missing' }).catch(() => undefined),
+          restartSpec: (m, preload, plannedAt) => preloadSpec(c, m, preload, nodes, multiNode, plannedAt),
+          audit: (action, metadata) =>
+            contract
+              ? contract.seams.writeAudit(contract.ctx, { action, actorType: 'system', targetType: 'dbCluster', targetId: `${c.stack}/${c.cluster}`, metadata }).catch(() => undefined)
+              : Promise.resolve(),
+          writersRedeployable: primaryPersistent,
+        },
+      ).catch(() => undefined);
     }
   }
   // One controller-store write per tick when a watermark moved.

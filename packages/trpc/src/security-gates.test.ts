@@ -131,6 +131,7 @@ const POLICY_GATES: Array<[string, unknown, string]> = [
   ['vector.attachToService', { ...shop, appService: 'web' }, 'service.configure'],
   ['vector.detach', { ...shop, appService: 'web' }, 'service.configure'],
   ['vector.enablePgvector', { ...shop }, 'stack.deploy'],
+  ['db.setExtension', { ...shop, name: 'pg_stat_statements', on: true }, 'stack.deploy'],
   ['dbBackups.setSchedule', { ...shop, enabled: false }, 'stack.deploy'],
   ['backups.backupVolume', { targetId: 't1', volume: 'shop_data', retentionDays: 1 }, 'data.destroy'],
   // H5 — production node
