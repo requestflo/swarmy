@@ -21,36 +21,12 @@ import type {
   SwarmSetAutolockPayload,
   SwarmSetAutolockResult,
 } from '@swarmy/core/protocol';
+import { agentOnHostNetwork, controllerHost, defaultAdvertiseAddr } from './swarm-advertise';
 
-/**
- * Local source address the kernel would use to reach `host` — a connected UDP
- * socket makes the routing decision without sending a packet. Docker refuses
- * `swarm init` with no advertise addr on multi-homed boxes (public + private
- * NIC is the NORMAL VPS shape), so when the controller doesn't pin one we
- * default to the interface that actually reaches the fabric: the controller
- * for init, the manager for join.
- */
-export async function localAddrToward(host: string, port = 53): Promise<string | undefined> {
-  try {
-    const s = await Bun.udpSocket({ connect: { hostname: host, port } });
-    const addr = s.address.address;
-    s.close();
-    return addr && addr !== '0.0.0.0' ? addr : undefined;
-  } catch {
-    return undefined;
-  }
-}
+export { localAddrToward } from './swarm-advertise';
 
-/** Host part of AGENT_WS_URL — the "toward the controller" routing anchor. */
-function controllerHost(): string | undefined {
-  const raw = process.env.AGENT_WS_URL;
-  if (!raw) return undefined;
-  try {
-    return new URL(raw).hostname || undefined;
-  } catch {
-    return undefined;
-  }
-}
+/** Whether this agent's routes are the host's (swarm-advertise.ts); injectable for tests. */
+export type HostNetworkProbe = () => Promise<boolean>;
 
 /**
  * True while a `rejoin` is between `swarm leave` and `swarm join`. The daemon's
@@ -81,8 +57,9 @@ async function waitSwarmState(docker: DockerClient, want: 'inactive', timeoutMs 
 async function rejoinSwarm(
   docker: DockerClient,
   p: SwarmJoinPayload & { joinToken: string; managerAddr: string },
+  onHostNetwork: boolean,
 ): Promise<SwarmJoinResult> {
-  const advertiseAddr = p.advertiseAddr ?? (await localAddrToward(controllerHost() ?? '1.1.1.1'));
+  const advertiseAddr = p.advertiseAddr ?? (await defaultAdvertiseAddr(controllerHost() ?? '1.1.1.1', onHostNetwork));
   const state = await docker.swarmState();
   if (state === 'active') {
     const current = (await docker.localSwarmAddr()).replace(/:\d+$/, '');
@@ -112,6 +89,7 @@ async function rejoinSwarm(
 export async function applySwarmJoin(
   docker: DockerClient,
   p: SwarmJoinPayload,
+  hostNetwork: HostNetworkProbe = () => agentOnHostNetwork(docker),
 ): Promise<SwarmJoinResult> {
   if (p.mode === 'init' && p.refreshOnly) {
     // Read-only token refresh: never `swarm init` here — a node that isn't an
@@ -125,7 +103,7 @@ export async function applySwarmJoin(
   }
   if (p.mode === 'init') {
     const advertiseAddr =
-      p.advertiseAddr ?? (await localAddrToward(controllerHost() ?? '1.1.1.1'));
+      p.advertiseAddr ?? (await defaultAdvertiseAddr(controllerHost() ?? '1.1.1.1', await hostNetwork()));
     const { swarmNodeId, managerAddr, joinTokens } = await docker.swarmInit(advertiseAddr);
     return { mode: 'init', swarmNodeId, managerAddr, joinTokens };
   }
@@ -134,9 +112,10 @@ export async function applySwarmJoin(
   if (!p.joinToken || !p.managerAddr) {
     throw new Error('swarmJoin: join mode requires joinToken and managerAddr');
   }
-  if (p.rejoin) return rejoinSwarm(docker, { ...p, joinToken: p.joinToken, managerAddr: p.managerAddr });
+  const onHostNetwork = p.advertiseAddr ? true : await hostNetwork();
+  if (p.rejoin) return rejoinSwarm(docker, { ...p, joinToken: p.joinToken, managerAddr: p.managerAddr }, onHostNetwork);
   const advertiseAddr =
-    p.advertiseAddr ?? (await localAddrToward(p.managerAddr.split(':')[0] ?? '1.1.1.1'));
+    p.advertiseAddr ?? (await defaultAdvertiseAddr(p.managerAddr.split(':')[0] ?? '1.1.1.1', onHostNetwork));
   const { swarmNodeId } = await docker.swarmJoin({
     managerAddr: p.managerAddr,
     joinToken: p.joinToken,
