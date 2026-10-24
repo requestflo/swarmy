@@ -54,6 +54,7 @@ import { security } from './resolvers/security';
 import { rum } from './resolvers/rum';
 import { studio } from './resolvers/studio';
 import { pgExtensions } from './resolvers/pg-extensions';
+import { studioSlow } from './resolvers/studio-slow';
 import { gaps } from './resolvers/gaps';
 import { serviceSettings } from './resolvers/service-settings';
 import { serviceHealth } from './resolvers/service-health';
@@ -135,6 +136,7 @@ const MODULES: DomainResolvers[] = [
   security,
   studio,
   pgExtensions,
+  studioSlow,
   rum,
   gaps,
   serviceSettings,

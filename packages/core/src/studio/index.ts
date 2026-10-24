@@ -11,3 +11,4 @@ export * from './classify';
 export * from './sql';
 export * from './mongo';
 export * from './redis';
+export * from './slow-queries';

@@ -40,6 +40,7 @@ import { startEmailReconcile } from './email-reconcile';
 import { startIntegrationsReconcile } from './integrations-reconcile';
 import { startOrphanReconcile } from './orphan-reconcile';
 import { startDiskReconcile } from './disk-reconcile';
+import { startPgSlowQueries } from './pg-slow-queries';
 
 export function startWorkers(): () => void {
   const stops = [
@@ -86,6 +87,7 @@ export function startWorkers(): () => void {
     startIntegrationsReconcile(),
     startOrphanReconcile(),
     startDiskReconcile(),
+    startPgSlowQueries(),
   ];
   return () => stops.forEach((s) => s());
 }

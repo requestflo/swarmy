@@ -467,3 +467,5 @@ export { checkEmailDomain, probePort25, ensureAppEmailCredential } from './servi
 export { observabilityStore, orgErrorRates, type ServiceErrorRate } from './services/observability.service';
 // ── per-edge request counting (Q4): rollup flush + prune for the edge-traffic worker ──
 export { flushTrafficRollups, pruneTrafficRollups } from './services/traffic.service';
+// ── studio slow queries (24 h): the pg-slow-queries worker's snapshot + prune ──
+export { prunePgQuerySamples, slowQueryTargets, snapshotSlowQueries } from './services/studio-slow.service';

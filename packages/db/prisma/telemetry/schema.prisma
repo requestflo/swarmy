@@ -63,3 +63,41 @@ model EdgeTrafficRollup {
   @@index([bucketStart])
   @@map("edge_traffic_rollup")
 }
+
+// Managed Postgres slow queries over 24 h (studio insights). pg_stat_statements
+// is cumulative, so the pg-slow-queries worker snapshots it every ~5 minutes
+// (the studio's bounded, audited system read) and keeps one row per statement
+// per snapshot holding the DELTA since the previous one. Pruned with the
+// metric samples (METRICS_RETENTION_DAYS). `target` = the studio target (the
+// managed cluster name); `queryId` = pg_stat_statements' queryid.
+model PgQuerySample {
+  id      Int      @id @default(autoincrement())
+  orgId   String
+  stack   String
+  target  String
+  queryId String
+  calls   Int
+  totalMs Float
+  rows    Int
+  ts      DateTime
+
+  @@index([orgId, stack, target, ts])
+  @@index([ts])
+  @@map("pg_query_sample")
+}
+
+// The normalized statement text for a queryId (literals are already `$n`),
+// kept once per statement rather than on every sample.
+model PgQueryText {
+  id       Int      @id @default(autoincrement())
+  orgId    String
+  stack    String
+  target   String
+  queryId  String
+  query    String
+  lastSeen DateTime
+
+  @@unique([orgId, stack, target, queryId])
+  @@index([lastSeen])
+  @@map("pg_query_text")
+}

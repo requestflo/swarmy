@@ -3,10 +3,11 @@ import { useQuery } from '@tanstack/react-query';
 import { GaugeIcon, LightbulbIcon } from 'lucide-react';
 import { useTRPC } from '@/integrations/trpc';
 import { CardSkeleton, ErrorState } from '@/components/states';
+import { StudioSlow24h } from './studio-slow-24h';
 import type { StudioScope } from './studio-types';
 
 const SOURCE: Record<string, string> = {
-  pg_stat_statements: 'From pg_stat_statements on the primary · slowest by total time.',
+  pg_stat_statements: 'Since the last reset (pg_stat_statements on the primary) · slowest by total time.',
   performance_schema: 'From performance_schema statement digests · slowest by total time.',
   slow_log: 'From the slow query log (mysql.slow_log).',
   profiler: 'From the database profiler (system.profile) · slowest recent operations.',
@@ -33,7 +34,10 @@ export function StudioInsights({ scope, onOpen }: { scope: StudioScope; onOpen: 
           </div>
         </div>
       ) : (
-        <p className="text-muted-foreground text-sm">{d.source ? SOURCE[d.source] : null}</p>
+        <>
+          {d.source === 'pg_stat_statements' && scope.target.kind === 'managed' ? <StudioSlow24h scope={scope} onOpen={onOpen} /> : null}
+          <p className="text-muted-foreground text-sm">{d.source ? SOURCE[d.source] : null}</p>
+        </>
       )}
       {d.slow.length > 0 ? (
         <div className="calm-card shadow-none overflow-hidden border-0">

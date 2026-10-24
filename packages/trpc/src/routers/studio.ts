@@ -20,6 +20,7 @@ import {
   studioKeyValue,
   studioSchema,
 } from '../services/studio.service';
+import { studioSlowQueries } from '../services/studio-slow.service';
 
 /**
  * Database studio, mounted as `studio`. The statement procedures are
@@ -111,6 +112,15 @@ export const studioRouter = router({
 
   /** Slow queries + what is running now, per engine; degrades with a reason and a hint. */
   insights: orgProcedure.input(z.object({ ...ref, database })).query(({ ctx, input }) => studioInsights(ctx, input)),
+
+  /**
+   * Slow queries over the last 24 h (managed Postgres with pg_stat_statements):
+   * calls, mean and an ESTIMATED p95 from the 5-minute snapshot deltas in
+   * telemetry.db. Read-only, this org's rows only; nothing runs on the database.
+   */
+  slowQueries: orgProcedure
+    .input(z.object({ ...ref, hours: z.number().int().min(1).max(24 * 7).optional() }))
+    .query(({ ctx, input }) => studioSlowQueries(ctx, input)),
 
   /** My console runs on this database (from the audit log). */
   history: orgProcedure

@@ -269,7 +269,7 @@ export function prepareStatement(engine: StudioEngine, text: string, name: strin
 
 // ── gate + run + audit ───────────────────────────────────────────────────────
 
-export type StudioOrigin = 'console' | 'browse' | 'schema' | 'edit' | 'insights' | 'saved';
+export type StudioOrigin = 'console' | 'browse' | 'schema' | 'edit' | 'insights' | 'saved' | 'snapshot';
 
 export interface StudioRunView extends DbQueryResult {
   statement: string;
@@ -328,10 +328,21 @@ export interface RunOptions {
   origin: StudioOrigin;
   rowCap?: number;
   statementTimeoutMs?: number;
+  /**
+   * A controller read with no user behind it (the slow-query snapshot): no
+   * principal to gate, so only a non-blocked READ runs, and the `studio.query`
+   * row is written by the `system` actor.
+   */
+  system?: boolean;
+}
+
+function systemReadGate(p: PreparedStatement): null {
+  if (p.classification.blocked || p.classification.class !== 'read') throw badRequest('a system read must be a read');
+  return null;
 }
 
 async function runPrepared(ctx: OrgContext, t: StudioTarget, p: PreparedStatement, o: RunOptions): Promise<StudioRunView> {
-  const policyId = await gate(ctx, t, p, o.confirm);
+  const policyId = o.system ? systemReadGate(p) : await gate(ctx, t, p, o.confirm);
   const database = isKv(t.engine) ? null : (o.database ?? t.defaultDatabase);
   const limits = {
     statementTimeoutMs: o.statementTimeoutMs ?? STUDIO_DEFAULTS.statementTimeoutMs,
@@ -342,6 +353,7 @@ async function runPrepared(ctx: OrgContext, t: StudioTarget, p: PreparedStatemen
   const audit = (metadata: Record<string, unknown>) =>
     writeAudit(ctx, {
       action: STUDIO_AUDIT_ACTION,
+      ...(o.system ? { actorType: 'system' as const } : {}),
       targetType: 'database',
       targetId: `${t.labels[STACK_LABEL] ?? ''}/${t.name}`,
       metadata: {
@@ -398,6 +410,18 @@ export async function executeStudio(
   const t = requireTarget(ctx, input.stack, input.target);
   const p = prepareStatement(t.engine, input.statement, t.name);
   return runPrepared(ctx, t, p, { database: input.database, dbIndex: input.dbIndex, confirm: input.confirm, origin: input.origin ?? 'console' });
+}
+
+/**
+ * The slow-query snapshot's read (studio-slow.service): the same bounded,
+ * audited path as every studio statement, run as the system actor.
+ */
+export async function studioSystemRead(
+  ctx: OrgContext,
+  input: { stack: string; target: string; statement: string; rowCap?: number },
+): Promise<StudioRunView> {
+  const t = requireTarget(ctx, input.stack, input.target);
+  return runPrepared(ctx, t, internal(t.engine, input.statement), { origin: 'snapshot', rowCap: input.rowCap, system: true });
 }
 
 /** Classify without running (the server's verdict; the dashboard also classifies live). */
@@ -669,7 +693,9 @@ export async function studioInsights(ctx: OrgContext, input: { stack: string; ta
       source: null,
       unavailable: preloaded
         ? { reason: 'pg_stat_statements is loaded but not installed in this database', hint: 'Run CREATE EXTENSION pg_stat_statements in the console (an admin action).' }
-        : { reason: 'pg_stat_statements is not loaded', hint: "Add shared_preload_libraries='pg_stat_statements' to the server command and restart it, then CREATE EXTENSION pg_stat_statements." },
+        : t.kind === 'managed'
+          ? { reason: 'pg_stat_statements is not loaded', hint: `Turn on pg_stat_statements on ${t.name}'s page (Extensions): swarmy restarts each copy, the standbys first, and the 24-hour view starts filling in.` }
+          : { reason: 'pg_stat_statements is not loaded', hint: "Add shared_preload_libraries='pg_stat_statements' to the server command and restart it, then CREATE EXTENSION pg_stat_statements." },
       slow: [],
       active: active ? activeOf(active) : [],
     };
