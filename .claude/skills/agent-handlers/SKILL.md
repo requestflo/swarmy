@@ -64,6 +64,13 @@ skill is the agent-and-protocol third of that.
    re-judged per register — never a DB column or a label) and reaches the
    dashboard as `NodeSummary.agentSkew`. When a new protocol version lands
    beside the old one, WIDEN `SUPPORTED_PROTOCOL_VERSIONS`; never narrow it.
+   An ADDITIVE command (one an older agent would drop as unparseable) is not
+   a protocol bump (that changes the WS subprotocol): list it in
+   `AGENT_CAPABILITIES` (`protocol/capabilities.ts`, append only). The agent
+   advertises them in `NodeFacts.capabilities`, the gateway keeps them in
+   `agentBuild`, and the controller dispatches only when
+   `agentSupports(ctx.hub.agentBuildFor?.(id)?.capabilities, …)`, falling
+   back to the old behaviour otherwise (`dbPitrWindow` is the reference).
 8. **Auth is join-once, session-thereafter, and rotates every register.** First
    contact uses `{ kind:'join', joinToken }`; thereafter `{ kind:'session',
    nodeId, sessionSecret }`. The controller mints a NEW `sessionSecret` (and

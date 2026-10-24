@@ -56,7 +56,13 @@ and where everything lives. Backups are dispatched to the agent as commands — 
    `pg_dump`. PITR starts from the newest base backup that finished at or
    before the target (`pickBaseBackup`, `apps/agent/src/handlers/pitr-restore.ts`);
    a target before every base backup is refused with the recoverable window
-   (it starts when the oldest base backup finished). Compose-DB dumps (`appdb.*`, MySQL/MariaDB/Postgres/Mongo/Redis/Valkey)
+   (it starts when the oldest base backup finished). The controller checks
+   that FIRST: `restoreDb`'s PITR path runs `pitrPreflight`
+   (`dbPitrWindow.service.ts` → read-only `db.pitrWindow` → agent
+   `handlers/pitr-window.ts`, a `wal-g backup-list` sidecar) before the safety
+   copy and the stop, and refuses a target outside the window in plain words.
+   It is skipped, and logged, for pgbackrest and for an agent that does not
+   advertise the `dbPitrWindow` capability (today's behaviour then). Compose-DB dumps (`appdb.*`, MySQL/MariaDB/Postgres/Mongo/Redis/Valkey)
    are a separate path: never a `DbBackupEngine` and never a `Snapshot` row
    (dr-reconcile would restore a dump file into a volume). Their catalog is
    restic tags `appdb:<stack>/<service>`, their history `appdb.backup`/
@@ -184,6 +190,7 @@ and where everything lives. Backups are dispatched to the agent as commands — 
 | Two destinations per schedule (primary + `secondaryTargetId` "also copy to") | `backupSchedule.service.ts` (`setScheduleSecondary`), worker `apps/api/src/workers/backup-scheduler.ts` (`backupToTarget`), UI `components/backups/schedule-secondary-select.tsx` |
 | DB backups: engines, `swarmy.db.backup.*` labels, schedule, PITR, restore | `packages/trpc/src/services/dbBackup.service.ts` (+ `routers/dbBackup.ts`) |
 | Pre-restore safety copy (`overwritesSource`, `safetyBackupPlan`, `latestRestorable`, `ensureSafetyCopy`) | `packages/trpc/src/services/dbRestoreSafety.service.ts` (+ `.test.ts`) |
+| PITR window check before a restore (preflight, last read per cluster, the dashboard's `dbBackups.pitrWindow`) | `packages/trpc/src/services/dbPitrWindow.{service,judge}.ts`, wire `packages/core/src/protocol/pitrWindow.ts`, agent `apps/agent/src/handlers/pitr-window.ts` |
 | PITR orchestration (stop, aside + fetch, start, promote) + base-backup pick | `packages/trpc/src/services/dbPitrRestore.service.ts`, agent `apps/agent/src/handlers/pitr-restore.ts` (`pickBaseBackup`) |
 | Controller brain: config, passphrase, bundle build/restore, re-adopt | `packages/trpc/src/services/controllerBackup.{service,bundle,snapshot}.ts` (+ `routers/controllerBackup.ts`) |
 | Standalone disaster-restore entrypoint (dashboard is down) | `apps/api/src/restore.ts` |
