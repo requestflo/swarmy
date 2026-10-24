@@ -53,6 +53,31 @@ interface OpenApi {
 const spec = JSON.parse(readFileSync(specPath, 'utf-8')) as OpenApi;
 const schemas = spec.components.schemas;
 
+// A component composed with `allOf` — a named schema plus fields of its own,
+// e.g. ApiKeyIssued = ApiKey + `key` — is flattened to one object schema so
+// every language emits it: the parts' properties are copied in order and their
+// `required` lists joined.
+{
+  const flattened = new Set<string>();
+  const flatten = (name: string): JsonSchema => {
+    const schema = schemas[name];
+    if (!schema) throw new Error(`gen-sdks: allOf references unknown schema "${name}"`);
+    if (!schema.allOf || schema.type || flattened.has(name)) return schema;
+    flattened.add(name);
+    const properties: Record<string, JsonSchema> = {};
+    const required = new Set<string>();
+    for (const part of schema.allOf) {
+      const s = part.$ref ? flatten(refName(part.$ref)) : part;
+      if (s.type && s.type !== 'object') throw new Error(`gen-sdks: ${name} composes a non-object schema`);
+      for (const [k, v] of Object.entries(s.properties ?? {})) properties[k] = structuredClone(v);
+      for (const r of s.required ?? []) required.add(r);
+    }
+    schemas[name] = { type: 'object', properties, required: [...required] };
+    return schemas[name];
+  };
+  for (const name of Object.keys(schemas)) flatten(name);
+}
+
 // zod-to-openapi emits a described/nullable reference to a named schema as
 // `allOf: [{ $ref }, { nullable, description }]`; fold that back to
 // `{ $ref, nullable }` so the generators below see a plain (nullable) ref.
@@ -126,7 +151,14 @@ const INLINE_OBJECT_NAMES: Record<string, string> = {
   'LinkGitRepoBody.repo': 'GitRepoRef',
   'App.drift': 'AppDriftCheck',
   'AppPreview.data': 'AppPreviewData',
+  'IngressDomainDetail.guidance': 'IngressDomainGuidance',
 };
+
+/** A string-keyed map (`z.record`): an object with `additionalProperties` and no fixed properties. */
+function mapValueSchema(schema: JsonSchema): JsonSchema | undefined {
+  if (schema.type !== 'object' || Object.keys(schema.properties ?? {}).length > 0) return undefined;
+  return typeof schema.additionalProperties === 'object' ? schema.additionalProperties : undefined;
+}
 
 const isRequired = (schema: JsonSchema, prop: string): boolean =>
   (schema.required ?? []).includes(prop);
@@ -220,10 +252,17 @@ function tsType(schema: JsonSchema): string {
       return 'number';
     case 'boolean':
       return 'boolean';
-    case 'array':
-      return `${tsType(schema.items!)}[]`;
-    case 'object':
+    case 'array': {
+      // A union element needs parentheses: `('a' | 'b')[]`, not `'a' | 'b'[]`.
+      const item = tsType(schema.items!);
+      return item.includes(' | ') ? `(${item})[]` : `${item}[]`;
+    }
+    case 'object': {
+      const value = mapValueSchema(schema);
+      if (value) return `Record<string, ${tsType(value)}>`;
+      if (Object.keys(schema.properties ?? {}).length === 0) return 'Record<string, unknown>';
       return tsInlineObject(schema);
+    }
     default:
       return 'unknown';
   }
@@ -284,8 +323,10 @@ function pyType(schema: JsonSchema, nestedName?: string): string {
       return 'bool';
     case 'array':
       return `List[${pyType(schema.items!)}]`;
-    case 'object':
-      return 'Dict[str, Any]';
+    case 'object': {
+      const value = mapValueSchema(schema);
+      return value ? `Dict[str, ${pyType(value)}]` : 'Dict[str, Any]';
+    }
     default:
       return 'Any';
   }
@@ -406,8 +447,10 @@ function goType(schema: JsonSchema, nestedName: string | undefined, nullable: bo
     case 'array':
       base = `[]${goType(schema.items!, undefined, false)}`;
       return base; // slices are nullable by nature
-    case 'object':
-      return 'map[string]any';
+    case 'object': {
+      const value = mapValueSchema(schema);
+      return value ? `map[string]${goType(value, undefined, false)}` : 'map[string]any';
+    }
     default:
       base = 'any';
   }

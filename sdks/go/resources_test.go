@@ -15,7 +15,7 @@ func TestServicesUpdateSendsOnlySetFields(t *testing.T) {
 		Env:           []ServiceEnvVarInput{{Key: "LOG_LEVEL", Value: "debug"}},
 		Resources:     &ServiceResources{Limits: &ServiceResourceSide{Cpus: 0.5}},
 		RestartPolicy: &ServiceRestartPolicy{Condition: "on-failure", MaxAttempts: Ptr(3)},
-		SetLabels:     map[string]any{"tier": "web"},
+		SetLabels:     map[string]string{"tier": "web"},
 	})
 	if err != nil {
 		t.Fatalf("Update: %v", err)

@@ -15,6 +15,13 @@ type EnvVar struct {
 	Value string `json:"value"`
 }
 
+type IngressDomainGuidance struct {
+	Mode         string          `json:"mode"`
+	Summary      string          `json:"summary"`
+	Records      []DnsRecordHint `json:"records"`
+	Alternatives []DnsRecordHint `json:"alternatives"`
+}
+
 type GitRepoWebhook struct {
 	URL    string `json:"url"`
 	Secret string `json:"secret"`
@@ -68,12 +75,12 @@ type NodeAvailability struct {
 }
 
 type NodeLabels struct {
-	ID     string         `json:"id"`
-	Labels map[string]any `json:"labels"`
+	ID     string            `json:"id"`
+	Labels map[string]string `json:"labels"`
 }
 
 type SetNodeLabelsRequest struct {
-	Labels map[string]any `json:"labels"`
+	Labels map[string]string `json:"labels"`
 }
 
 type Removed struct {
@@ -163,7 +170,7 @@ type UpdateServiceRequest struct {
 	Resources        *ServiceResources     `json:"resources,omitempty"`
 	RestartPolicy    *ServiceRestartPolicy `json:"restart_policy,omitempty"`
 	UpdateOrder      string                `json:"update_order,omitempty"`
-	SetLabels        map[string]any        `json:"set_labels,omitempty"`
+	SetLabels        map[string]string     `json:"set_labels,omitempty"`
 	RemoveLabels     []string              `json:"remove_labels,omitempty"`
 }
 
@@ -318,6 +325,22 @@ type DnsRecordHint struct {
 	Note  string `json:"note,omitempty"`
 }
 
+type IngressDomainDetail struct {
+	Host             string                `json:"host"`
+	State            string                `json:"state"`
+	Reason           string                `json:"reason"`
+	Warnings         []string              `json:"warnings"`
+	Gated            bool                  `json:"gated"`
+	VerifiedAt       *string               `json:"verified_at"`
+	VerifiedManually bool                  `json:"verified_manually"`
+	LastCheckedAt    *string               `json:"last_checked_at"`
+	NextCheckAt      *string               `json:"next_check_at"`
+	Dns              map[string]any        `json:"dns"`
+	Certificate      map[string]any        `json:"certificate"`
+	Guidance         IngressDomainGuidance `json:"guidance"`
+	Companion        *IngressDomainStatus  `json:"companion"`
+}
+
 type UpdateDomainRequest struct {
 	Www *string `json:"www"`
 }
@@ -401,6 +424,22 @@ type ApiKey struct {
 type ApiKeyList struct {
 	Data       []ApiKey `json:"data"`
 	NextCursor *string  `json:"next_cursor"`
+}
+
+type ApiKeyIssued struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Prefix      string   `json:"prefix"`
+	Scopes      []string `json:"scopes"`
+	Preset      string   `json:"preset"`
+	StackNames  []string `json:"stack_names"`
+	LastUsedAt  *string  `json:"last_used_at"`
+	ExpiresAt   *string  `json:"expires_at"`
+	CreatedAt   string   `json:"created_at"`
+	CreatedByID *string  `json:"created_by_id"`
+	RevokedAt   *string  `json:"revoked_at"`
+	Status      string   `json:"status"`
+	Key         string   `json:"key"`
 }
 
 type CreateApiKeyRequest struct {
@@ -604,12 +643,12 @@ type ClusterVolumeList struct {
 }
 
 type RegisterVolumeRequest struct {
-	Name          string         `json:"name"`
-	CsiDriver     string         `json:"csi_driver"`
-	AccessMode    string         `json:"access_mode,omitempty"`
-	CapacityBytes *int           `json:"capacity_bytes,omitempty"`
-	Options       map[string]any `json:"options,omitempty"`
-	ServiceID     string         `json:"service_id,omitempty"`
+	Name          string            `json:"name"`
+	CsiDriver     string            `json:"csi_driver"`
+	AccessMode    string            `json:"access_mode,omitempty"`
+	CapacityBytes *int              `json:"capacity_bytes,omitempty"`
+	Options       map[string]string `json:"options,omitempty"`
+	ServiceID     string            `json:"service_id,omitempty"`
 }
 
 type NotifyQueued struct {
@@ -618,12 +657,12 @@ type NotifyQueued struct {
 }
 
 type NotifyBody struct {
-	To       string         `json:"to"`
-	Subject  string         `json:"subject"`
-	Body     string         `json:"body,omitempty"`
-	Html     string         `json:"html,omitempty"`
-	Template string         `json:"template,omitempty"`
-	Vars     map[string]any `json:"vars,omitempty"`
+	To       string            `json:"to"`
+	Subject  string            `json:"subject"`
+	Body     string            `json:"body,omitempty"`
+	Html     string            `json:"html,omitempty"`
+	Template string            `json:"template,omitempty"`
+	Vars     map[string]string `json:"vars,omitempty"`
 }
 
 type RegistryCredential struct {
@@ -935,13 +974,13 @@ type PurgeAppDataBody struct {
 }
 
 type AppPromoteResult struct {
-	PlanID      *string        `json:"plan_id"`
-	Status      string         `json:"status"`
-	Environment *string        `json:"environment"`
-	Stack       *string        `json:"stack"`
-	Reason      *string        `json:"reason"`
-	Plan        *AppPlan       `json:"plan"`
-	Images      map[string]any `json:"images"`
+	PlanID      *string           `json:"plan_id"`
+	Status      string            `json:"status"`
+	Environment *string           `json:"environment"`
+	Stack       *string           `json:"stack"`
+	Reason      *string           `json:"reason"`
+	Plan        *AppPlan          `json:"plan"`
+	Images      map[string]string `json:"images"`
 }
 
 type PromoteAppBody struct {
@@ -978,9 +1017,9 @@ type PatchServiceEnvResult struct {
 }
 
 type PatchServiceEnvBody struct {
-	Set     map[string]any `json:"set,omitempty"`
-	Secrets map[string]any `json:"secrets,omitempty"`
-	Unset   []string       `json:"unset,omitempty"`
+	Set     map[string]string `json:"set,omitempty"`
+	Secrets map[string]string `json:"secrets,omitempty"`
+	Unset   []string          `json:"unset,omitempty"`
 }
 
 type LogLine struct {

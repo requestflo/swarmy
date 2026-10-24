@@ -38,11 +38,11 @@ export interface NodeAvailability {
 
 export interface NodeLabels {
   id: string;
-  labels: {  };
+  labels: Record<string, string>;
 }
 
 export interface SetNodeLabelsRequest {
-  labels: {  };
+  labels: Record<string, string>;
 }
 
 export interface Removed {
@@ -132,7 +132,7 @@ export interface UpdateServiceRequest {
   resources?: ServiceResources;
   restart_policy?: ServiceRestartPolicy;
   update_order?: 'start-first' | 'stop-first';
-  set_labels?: {  };
+  set_labels?: Record<string, string>;
   remove_labels?: string[];
 }
 
@@ -287,6 +287,22 @@ export interface DnsRecordHint {
   note?: string;
 }
 
+export interface IngressDomainDetail {
+  host: string;
+  state: 'waiting_dns' | 'verified' | 'issuing' | 'active' | 'error';
+  reason: string;
+  warnings: string[];
+  gated: boolean;
+  verified_at: string | null;
+  verified_manually: boolean;
+  last_checked_at: string | null;
+  next_check_at: string | null;
+  dns: { a: string[]; aaaa: string[]; cname: string[]; matched: string[]; resolvers: DomainDnsResolver[]; gate: DomainDnsGate } | null;
+  certificate: { issuer: string; expires_at: string; error: string; edges: { ip: string; ok: boolean; error?: string }[]; checked_at: string } | null;
+  guidance: { mode: 'records' | 'zone' | 'tunnel' | 'private'; summary: string; records: DnsRecordHint[]; alternatives: DnsRecordHint[] };
+  companion: IngressDomainStatus | null;
+}
+
 export interface UpdateDomainRequest {
   www: 'redirect-www-to-apex' | 'redirect-apex-to-www' | 'serve-both' | null;
 }
@@ -356,7 +372,7 @@ export interface ApiKey {
   id: string;
   name: string;
   prefix: string;
-  scopes: 'read' | 'deploy' | 'write' | 'secrets.read'[];
+  scopes: ('read' | 'deploy' | 'write' | 'secrets.read')[];
   preset: 'read' | 'deploy' | 'admin' | 'custom';
   stack_names: string[] | null;
   last_used_at: string | null;
@@ -372,10 +388,26 @@ export interface ApiKeyList {
   next_cursor: string | null;
 }
 
+export interface ApiKeyIssued {
+  id: string;
+  name: string;
+  prefix: string;
+  scopes: ('read' | 'deploy' | 'write' | 'secrets.read')[];
+  preset: 'read' | 'deploy' | 'admin' | 'custom';
+  stack_names: string[] | null;
+  last_used_at: string | null;
+  expires_at: string | null;
+  created_at: string;
+  created_by_id: string | null;
+  revoked_at: string | null;
+  status: 'active' | 'revoked' | 'expired';
+  key: string;
+}
+
 export interface CreateApiKeyRequest {
   name: string;
   preset?: 'read' | 'deploy' | 'admin';
-  scopes?: 'read' | 'deploy' | 'write' | 'secrets.read'[];
+  scopes?: ('read' | 'deploy' | 'write' | 'secrets.read')[];
   stack_names?: string[] | null;
   expiry?: '30d' | '90d' | '1y' | 'never';
 }
@@ -577,7 +609,7 @@ export interface RegisterVolumeRequest {
   csi_driver: string;
   access_mode?: 'single-writer' | 'multi-writer' | 'multi-reader';
   capacity_bytes?: number;
-  options?: {  };
+  options?: Record<string, string>;
   service_id?: string;
 }
 
@@ -592,7 +624,7 @@ export interface NotifyBody {
   body?: string;
   html?: string;
   template?: string;
-  vars?: {  };
+  vars?: Record<string, string>;
 }
 
 export interface RegistryCredential {
@@ -910,7 +942,7 @@ export interface AppPromoteResult {
   stack: string | null;
   reason: string | null;
   plan: AppPlan | null;
-  images: {  };
+  images: Record<string, string>;
 }
 
 export interface PromoteAppBody {
@@ -947,8 +979,8 @@ export interface PatchServiceEnvResult {
 }
 
 export interface PatchServiceEnvBody {
-  set?: {  };
-  secrets?: {  };
+  set?: Record<string, string>;
+  secrets?: Record<string, string>;
   unset?: string[];
 }
 

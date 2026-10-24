@@ -37,6 +37,23 @@ class EnvVar:
 
 
 @dataclass
+class IngressDomainGuidance:
+    mode: str
+    summary: str
+    records: List[DnsRecordHint]
+    alternatives: List[DnsRecordHint]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "IngressDomainGuidance":
+        return cls(
+            mode=d.get("mode"),
+            summary=d.get("summary"),
+            records=d.get("records"),
+            alternatives=d.get("alternatives"),
+        )
+
+
+@dataclass
 class GitRepoWebhook:
     url: str
     secret: str
@@ -154,7 +171,7 @@ class NodeAvailability:
 @dataclass
 class NodeLabels:
     id: str
-    labels: Dict[str, Any]
+    labels: Dict[str, str]
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "NodeLabels":
@@ -594,6 +611,41 @@ class DnsRecordHint:
 
 
 @dataclass
+class IngressDomainDetail:
+    host: str
+    state: str
+    reason: str
+    warnings: List[str]
+    gated: bool
+    verified_at: Optional[str]
+    verified_manually: bool
+    last_checked_at: Optional[str]
+    next_check_at: Optional[str]
+    dns: Optional[Dict[str, Any]]
+    certificate: Optional[Dict[str, Any]]
+    guidance: IngressDomainGuidance
+    companion: Optional[IngressDomainStatus]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "IngressDomainDetail":
+        return cls(
+            host=d.get("host"),
+            state=d.get("state"),
+            reason=d.get("reason"),
+            warnings=d.get("warnings"),
+            gated=d.get("gated"),
+            verified_at=d.get("verified_at"),
+            verified_manually=d.get("verified_manually"),
+            last_checked_at=d.get("last_checked_at"),
+            next_check_at=d.get("next_check_at"),
+            dns=d.get("dns"),
+            certificate=d.get("certificate"),
+            guidance=IngressDomainGuidance.from_dict(d.get("guidance") or {}),
+            companion=d.get("companion"),
+        )
+
+
+@dataclass
 class IngressTls:
     acme_email: Optional[str]
     on_demand: bool
@@ -744,6 +796,41 @@ class ApiKey:
             created_by_id=d.get("created_by_id"),
             revoked_at=d.get("revoked_at"),
             status=d.get("status"),
+        )
+
+
+@dataclass
+class ApiKeyIssued:
+    id: str
+    name: str
+    prefix: str
+    scopes: List[str]
+    preset: str
+    stack_names: Optional[List[str]]
+    last_used_at: Optional[str]
+    expires_at: Optional[str]
+    created_at: str
+    created_by_id: Optional[str]
+    revoked_at: Optional[str]
+    status: str
+    key: str
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "ApiKeyIssued":
+        return cls(
+            id=d.get("id"),
+            name=d.get("name"),
+            prefix=d.get("prefix"),
+            scopes=d.get("scopes"),
+            preset=d.get("preset"),
+            stack_names=d.get("stack_names"),
+            last_used_at=d.get("last_used_at"),
+            expires_at=d.get("expires_at"),
+            created_at=d.get("created_at"),
+            created_by_id=d.get("created_by_id"),
+            revoked_at=d.get("revoked_at"),
+            status=d.get("status"),
+            key=d.get("key"),
         )
 
 
@@ -1042,7 +1129,7 @@ class NotifyBody:
     body: Optional[str] = None
     html: Optional[str] = None
     template: Optional[str] = None
-    vars: Optional[Dict[str, Any]] = None
+    vars: Optional[Dict[str, str]] = None
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "NotifyBody":
@@ -1702,7 +1789,7 @@ class AppPromoteResult:
     stack: Optional[str]
     reason: Optional[str]
     plan: Optional[AppPlan]
-    images: Dict[str, Any]
+    images: Dict[str, str]
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "AppPromoteResult":
@@ -1800,8 +1887,8 @@ class PatchServiceEnvResult:
 
 @dataclass
 class PatchServiceEnvBody:
-    set: Optional[Dict[str, Any]] = None
-    secrets: Optional[Dict[str, Any]] = None
+    set: Optional[Dict[str, str]] = None
+    secrets: Optional[Dict[str, str]] = None
     unset: Optional[List[str]] = None
 
     @classmethod
