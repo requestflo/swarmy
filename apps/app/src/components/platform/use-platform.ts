@@ -43,7 +43,11 @@ export const STEP_TEXT: Record<string, { name: string; what: string; ifFails: st
     what: 'Garage major version: snapshot, a brief pause, all members together',
     ifFails: 'snapshot restored on the old version',
   },
-  verify: { name: 'Verify', what: 'Every server back, every system service converged', ifFails: 'the run stops and says why' },
+  verify: {
+    name: 'Verify',
+    what: 'Every server back, every system service converged, and a test request through every front door reaches swarmy',
+    ifFails: 'the run stops and says which front door failed',
+  },
 };
 
 export const NOTE_VARIANT: Record<string, 'info' | 'success' | 'muted' | 'warning' | 'destructive'> = {

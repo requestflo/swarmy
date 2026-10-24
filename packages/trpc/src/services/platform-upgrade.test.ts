@@ -345,6 +345,7 @@ describe('drivePlatformUpgrade (service over fakes)', () => {
       },
       agentRelease: () => ({ version: '1.3.0', commit: 'new' }),
       engine: { available: async () => null, start: async () => ({ id: 'x' }), read: async () => null },
+      edges: async () => ({ checked: ['node-1'] }),
       audit: async () => undefined,
       sleep: async () => undefined,
       now: () => new Date(),
@@ -405,6 +406,19 @@ describe('drivePlatformUpgrade (service over fakes)', () => {
     await drivePlatformUpgrade(w.ctx, 'run1', { ...d, self: () => ({ version: '1.2.0', commit: 'o' }) });
     expect(w.row()).toMatchObject({ status: 'failed', step: 'controller' });
     expect(w.row().error).toMatch(/Swarm rolled back/);
+  });
+
+  it('Verify fails when a request through an edge does not reach the controller; the release is not recorded', async () => {
+    const from = builtInManifest('1.2.0', 'o', BOM);
+    const target = buildPlatformManifest({ version: '1.3.0', channel: 'stable', commit: 'n', digests: { controller: NEW } });
+    const w = world(target, from);
+    await drivePlatformUpgrade(w.ctx, 'run1', w.deps(0));
+    w.swarmReplacesController(`ghcr.io/requestflo/swarmy-controller@${NEW}`);
+    const edges = async () => Promise.reject(new Error('a request to swarmy.example.com through the edges did not reach the controller — node-2: no answer from its edge (curl exit 7)'));
+    await drivePlatformUpgrade(w.ctx, 'run1', { ...w.deps(Date.now() + 1_000), edges });
+    expect(w.row()).toMatchObject({ status: 'failed', step: 'verify' });
+    expect(w.row().error).toMatch(/node-2: no answer from its edge/);
+    expect(w.currentManifest()).toBeNull();
   });
 
   it('refuses a tampered release at preflight (signature re-verified on every drive)', async () => {

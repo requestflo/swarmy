@@ -15,7 +15,7 @@ const DETAIL: Record<string, string> = {
   agents: '4 agent(s) upgraded, one at a time',
   system: '3 system service(s) upgraded',
   engines: 'object storage on dxflrs/garage:v2.4.1',
-  verify: '4 server(s) online, system services converged',
+  verify: '4 server(s) online, system services converged, 2 edge(s) answered',
 };
 const BACKING: Record<string, string> = {
   system: 'swarmy-dns: back to ghcr.io/requestflo/swarmy-dns@sha256:…',

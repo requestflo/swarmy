@@ -72,6 +72,7 @@ function world() {
     upgradeAgent: async (_c, id) => void (agentCommit[id] = 'new'),
     agentRelease: () => ({ version: '1.3.0', commit: 'new' }),
     engine: { available: async () => null, start: async () => ({ id: 'x' }), read: async () => null },
+    edges: async () => ({ checked: ['node-1'] }),
     audit: async (_c, e) => void audit.push(e.action),
     sleep: async () => undefined,
     now: () => new Date(),

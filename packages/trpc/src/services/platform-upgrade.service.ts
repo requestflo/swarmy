@@ -24,8 +24,10 @@
  *   engines    registered migrations that are not rolling — today the Garage
  *              major (`engine-upgrade.service`: snapshot → brief pause → v2,
  *              rollback = restore on v1), polled until it settles.
- *   verify     every node back, every system service converged; the release
- *              becomes the cluster's current manifest; audited.
+ *   verify     every node back, every system service converged, and one
+ *              request through every edge reaches the controller
+ *              (`platform-edge-verify.ts`); the release becomes the cluster's
+ *              current manifest; audited.
  *
  * Resumable: the run row carries per-step `data`; `resumePlatformUpgrades`
  * (the worker tick) re-drives any `running` / `abandoning` run this process
@@ -50,6 +52,7 @@ import { runControllerBackup } from './controllerBackup.service';
 import { engineUpgradeAvailable, getEngineUpgrade, startEngineUpgrade } from './engine-upgrade.service';
 import { isSameAgentBuild, upgradeAgent } from './node.service';
 import { invalidateEffectiveImages } from './platform-images';
+import { edgeVerifyIO, verifyEdges, type EdgeVerifyReport } from './platform-edge-verify';
 import {
   PROCESS_STARTED_AT,
   controllerBuild,
@@ -110,6 +113,8 @@ export interface PlatformUpgradeDeps {
     start: (ctx: OrgContext) => Promise<{ id: string }>;
     read: (ctx: OrgContext) => Promise<{ id: string; status: string; error?: string; to: string; from: string } | null>;
   };
+  /** Verify's edge leg: one request through every edge to the controller (throws when one keeps failing). */
+  edges: (ctx: OrgContext) => Promise<EdgeVerifyReport>;
   audit: typeof writeAudit;
   sleep: (ms: number) => Promise<void>;
   now: () => Date;
@@ -131,6 +136,7 @@ export const defaultDeps: PlatformUpgradeDeps = {
     start: (ctx) => startEngineUpgrade(ctx),
     read: async (ctx) => (await getEngineUpgrade(ctx)).run,
   },
+  edges: (ctx) => verifyEdges(edgeVerifyIO(ctx, (ms) => new Promise((r) => setTimeout(r, ms)), () => Date.now())),
   audit: writeAudit,
   sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
   now: () => new Date(),
@@ -506,6 +512,8 @@ export function buildHandlers(ctx: OrgContext, row: RunRow, deps: PlatformUpgrad
       if (deps.now().getTime() > deadline) throw new Error(`the cluster did not settle: ${problems.join(', ')}`);
       await deps.sleep(deps.pollMs * 2);
     }
+    const edges = await deps.edges(ctx);
+    c.note(edges.skipped ? `edge test skipped: ${edges.skipped}` : `a request through each edge reached the controller: ${edges.checked.join(', ')}`);
     await getConfigRow(ctx.db, ctx.activeOrgId);
     await ctx.db.platformConfig.update({ where: { orgId: ctx.activeOrgId }, data: { currentManifest: target as object } });
     invalidateEffectiveImages(ctx.activeOrgId);
@@ -513,7 +521,7 @@ export function buildHandlers(ctx: OrgContext, row: RunRow, deps: PlatformUpgrad
     if (preexisting.length) c.note(`still unhealthy, as before the upgrade: ${preexisting.join(', ')}`);
     return {
       status: 'done' as const,
-      detail: `${nodes.length} server(s) online, system services converged${preexisting.length ? ` (${preexisting.length} were already unhealthy before the upgrade)` : ''}`,
+      detail: `${nodes.length} server(s) online, system services converged${edges.checked.length ? `, ${edges.checked.length} edge(s) answered` : ''}${preexisting.length ? ` (${preexisting.length} were already unhealthy before the upgrade)` : ''}`,
     };
   };
 
