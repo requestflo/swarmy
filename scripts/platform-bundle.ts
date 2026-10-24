@@ -13,16 +13,25 @@
  *   tar xf swarmy-<ver>.tar && sh swarmy-bundle/push.sh [registry=localhost:5000]
  *   (SWARMY_REG_USER / SWARMY_REG_PASS for the built-in registry login)
  *
- * push.sh copies each image into the built-in registry at the SAME
- * `swarmy-system/<host>/<path>:<tag>` paths the system-image mirror uses.
- * Then Settings → Platform → Import release (platform.json + .sig): the
- * controller verifies the signature offline, adopts the pushed copies as
- * trusted mirror entries (labels on the registry service) and the normal
- * Upgrade runs against them — no egress needed.
+ * Load (the simple way): Settings → Platform → Import release → The bundle
+ * (.tar). The browser sends the file to the controller, which verifies the
+ * signature offline, pushes every image into the built-in registry at the
+ * system-image mirror's `swarmy-system/<host>/<path>:<tag>` paths, records
+ * the `swarmy.mirror.*` labels and offers the release — no egress needed
+ * (packages/trpc/src/services/platform-bundle.*).
+ *
+ * Or by hand, for a bundle too big to send through a browser: push.sh copies
+ * each image into the built-in registry at those same paths, then Import
+ * release → Only platform.json + .sig adopts the pushed copies as trusted
+ * mirror entries and the normal Upgrade runs against them.
+ *
+ * The signature is checked here first (`SWARMY_RELEASE_PUBKEY` overrides the
+ * built-in release key): a bundle the controller would refuse is never built.
+ * CI: .github/workflows/bundle.yml (manual).
  */
 import { mkdirSync, rmSync, writeFileSync, copyFileSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { parsePlatformManifest } from '../packages/core/src/platform-manifest';
+import { releasePublicKey, verifyPlatformManifest } from '../packages/core/src/platform-verify';
 import { SYSTEM_MIRROR_NAMESPACE, parseImageRef } from '../packages/core/src/system-images';
 
 const [manifestPath, sigPath, outTar] = process.argv.slice(2);
@@ -30,7 +39,12 @@ if (!manifestPath || !sigPath || !outTar) {
   console.error('usage: bun scripts/platform-bundle.ts platform.json platform.json.sig out.tar');
   process.exit(2);
 }
-const m = parsePlatformManifest(readFileSync(manifestPath, 'utf8'));
+const verified = verifyPlatformManifest(readFileSync(manifestPath, 'utf8'), readFileSync(sigPath, 'utf8'), releasePublicKey());
+if (!verified.ok) {
+  console.error(`refusing to bundle an unverified release: ${verified.reason}`);
+  process.exit(1);
+}
+const m = verified.manifest;
 const REGCTL = 'ghcr.io/regclient/regctl:v0.9.0-alpine';
 const work = resolve(`${outTar}.d`);
 const dir = join(work, 'swarmy-bundle');
@@ -65,7 +79,7 @@ for (const [key, c] of Object.entries(m.components)) {
   );
   n++;
 }
-push.push(`echo "done: ${n} image(s) in $REG. Now import platform.json + platform.json.sig in Settings → Platform → Import release."`);
+push.push(`echo "done: ${n} image(s) in $REG. Now import platform.json + platform.json.sig in Settings → Platform → Import release → Only platform.json + .sig."`);
 writeFileSync(join(dir, 'push.sh'), `${push.join('\n')}\n`, { mode: 0o755 });
 const t = Bun.spawnSync(['tar', '-cf', resolve(outTar), '-C', work, 'swarmy-bundle'], { stdout: 'inherit', stderr: 'inherit' });
 if (t.exitCode !== 0) throw new Error('tar failed');
