@@ -26,6 +26,8 @@ type Service struct {
 	NodeID         *string  `json:"node_id"`
 	StackID        *string  `json:"stack_id"`
 	UpdatedAt      string   `json:"updated_at"`
+	// LastError is the most recent task error Swarm reported (detail responses only).
+	LastError *string `json:"last_error,omitempty"`
 }
 
 // CreateServiceRequest is the body for POST /services.
@@ -43,10 +45,51 @@ type ScaleServiceRequest struct {
 	Replicas int64 `json:"replicas"`
 }
 
-// DeploymentRef is the 202 Accepted payload from async deploy endpoints.
+// DeploymentRef is the 202 Accepted payload from async deploy endpoints. Poll
+// DeploymentID at GET /deployments/{id} until it reaches a terminal phase.
+// Scale and restart answer an empty DeploymentID; the service ID (ID) polls
+// the same convergence. DeployID is set for traced (stack) deploys.
 type DeploymentRef struct {
 	ID           string `json:"id"`
 	DeploymentID string `json:"deployment_id"`
+	DeployID     string `json:"deploy_id,omitempty"`
+}
+
+// DeploymentStatus mirrors the DeploymentStatus DTO returned by
+// GET /deployments/{id} (declared in packages/api-rest/src/routes/devx.ts).
+// Phase is an open set: queued, pulling, creating, converging, complete,
+// failed, rolledback, canceled.
+type DeploymentStatus struct {
+	DeploymentID string  `json:"deployment_id"`
+	ServiceID    *string `json:"service_id"`
+	Kind         string  `json:"kind"`
+	Phase        string  `json:"phase"`
+	Desired      *int64  `json:"desired"`
+	Ready        *int64  `json:"ready"`
+	Message      *string `json:"message"`
+	StartedAt    string  `json:"started_at"`
+	FinishedAt   *string `json:"finished_at"`
+}
+
+// DeployEvent mirrors one DeployEvent of GET /deploys/{id}/events (declared in
+// packages/api-rest/src/routes/deploys.ts). Only the fields the provider reads.
+type DeployEvent struct {
+	Seq     int64   `json:"seq"`
+	At      int64   `json:"at"`
+	Stage   string  `json:"stage"`
+	Status  string  `json:"status"`
+	Node    string  `json:"node"`
+	Service *string `json:"service"`
+	Message string  `json:"message"`
+}
+
+// DeployEvents mirrors the DeployEvents DTO: a traced deploy's events so far.
+type DeployEvents struct {
+	DeployID  string        `json:"deploy_id"`
+	Stack     string        `json:"stack"`
+	StartedAt int64         `json:"started_at"`
+	Done      bool          `json:"done"`
+	Data      []DeployEvent `json:"data"`
 }
 
 // Removed is the payload from a successful DELETE.

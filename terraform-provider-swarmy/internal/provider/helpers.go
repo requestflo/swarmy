@@ -6,6 +6,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	tfpath "github.com/hashicorp/terraform-plugin-framework/path"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	"github.com/requestflo/terraform-provider-swarmy/internal/client"
@@ -52,4 +53,24 @@ func valueToStringPtr(v types.String) *string {
 // stringsToList converts a []string into a framework types.List of strings.
 func stringsToList(ctx context.Context, in []string) (types.List, diag.Diagnostics) {
 	return types.ListValueFrom(ctx, types.StringType, in)
+}
+
+// unsetKeepsState is stringplanmodifier.UseStateForUnknown that also keeps a
+// null prior value. An Optional+Computed attribute left unset in config keeps
+// what state holds (null included) instead of going unknown on every update;
+// next to RequiresReplace, unknown-vs-null would replace the resource on any
+// change.
+type unsetKeepsState struct{}
+
+func (unsetKeepsState) Description(context.Context) string {
+	return "When unset in config, the value stays as it is in state (null included)."
+}
+
+func (m unsetKeepsState) MarkdownDescription(ctx context.Context) string { return m.Description(ctx) }
+
+func (unsetKeepsState) PlanModifyString(_ context.Context, req planmodifier.StringRequest, resp *planmodifier.StringResponse) {
+	if req.State.Raw.IsNull() || !req.PlanValue.IsUnknown() || !req.ConfigValue.IsNull() {
+		return
+	}
+	resp.PlanValue = req.StateValue
 }

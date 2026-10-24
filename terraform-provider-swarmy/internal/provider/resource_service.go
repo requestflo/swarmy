@@ -2,7 +2,9 @@ package provider
 
 import (
 	"context"
+	"time"
 
+	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -27,14 +29,15 @@ type serviceResource struct {
 
 // serviceModel is the Terraform state model for swarmy_service.
 type serviceModel struct {
-	ID       types.String `tfsdk:"id"`
-	Name     types.String `tfsdk:"name"`
-	Image    types.String `tfsdk:"image"`
-	Replicas types.Int64  `tfsdk:"replicas"`
-	Command  types.List   `tfsdk:"command"`
-	Env      types.Map    `tfsdk:"env"`
-	NodeID   types.String `tfsdk:"node_id"`
-	Status   types.String `tfsdk:"status"`
+	ID       types.String   `tfsdk:"id"`
+	Name     types.String   `tfsdk:"name"`
+	Image    types.String   `tfsdk:"image"`
+	Replicas types.Int64    `tfsdk:"replicas"`
+	Command  types.List     `tfsdk:"command"`
+	Env      types.Map      `tfsdk:"env"`
+	NodeID   types.String   `tfsdk:"node_id"`
+	Status   types.String   `tfsdk:"status"`
+	Timeouts timeouts.Value `tfsdk:"timeouts"`
 }
 
 // NewServiceResource is the resource factory.
@@ -55,9 +58,12 @@ func (r *serviceResource) Configure(_ context.Context, req resource.ConfigureReq
 	r.client = c
 }
 
-func (r *serviceResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+func (r *serviceResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "A swarmy service. Create/update dispatch an async deploy; the provider reads the service back to populate computed fields.",
+		Description: "A swarmy service. Create, scale and redeploy are async on the controller; the provider polls the deployment until it converges (or fails, which fails the apply), bounded by the timeouts block (default 20m), then reads the service back.",
+		Blocks: map[string]schema.Block{
+			"timeouts": timeouts.Block(ctx, timeouts.Opts{Create: true, Update: true}),
+		},
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:      true,
@@ -92,9 +98,12 @@ func (r *serviceResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Optional:    true,
 				Computed:    true,
 				Description: "Pin the service to a node. Changing this forces a new service.",
+				// unsetKeepsState runs first: left unset, node_id keeps its
+				// (usually null) state value, so a replicas change is a scale,
+				// not a replacement.
 				PlanModifiers: []planmodifier.String{
+					unsetKeepsState{},
 					stringplanmodifier.RequiresReplace(),
-					stringplanmodifier.UseStateForUnknown(),
 				},
 			},
 			"status": schema.StringAttribute{
@@ -133,15 +142,44 @@ func (r *serviceResource) Create(ctx context.Context, req resource.CreateRequest
 		return
 	}
 
+	timeout, diags := plan.Timeouts.Create(ctx, defaultDeployTimeout)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	deadline := time.Now().Add(timeout)
+
 	ref, err := r.client.CreateService(ctx, body)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating service", err.Error())
 		return
 	}
 
-	// The create is async (202) and returns the new service ID; read it back to
-	// populate computed fields (status, replicas, node_id).
-	svc, err := r.client.GetService(ctx, ref.ID)
+	// The create is async (202): block until the deployment converges, then
+	// read the service back to populate computed fields (status, replicas,
+	// node_id).
+	st, waitDiags := waitForDeployment(ctx, r.client, ref, deadline, "service "+body.Name)
+	id := liveServiceID(ref, st)
+	svc, err := r.client.GetService(ctx, id)
+	if waitDiags.HasError() {
+		// The service exists but did not converge: record it so Terraform
+		// marks it tainted (replaced on the next apply) instead of orphaning it.
+		if err == nil {
+			r.mapServiceToState(svc, &plan)
+		} else {
+			plan.ID = types.StringValue(id)
+			plan.Status = types.StringNull()
+			if plan.Replicas.IsUnknown() {
+				plan.Replicas = types.Int64Null()
+			}
+			if plan.NodeID.IsUnknown() {
+				plan.NodeID = types.StringNull()
+			}
+		}
+		resp.Diagnostics.Append(waitDiags...)
+		resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+		return
+	}
 	if err != nil {
 		resp.Diagnostics.AddError("Error reading service after create", err.Error())
 		return
@@ -182,10 +220,24 @@ func (r *serviceResource) Update(ctx context.Context, req resource.UpdateRequest
 
 	id := state.ID.ValueString()
 
+	timeout, diags := plan.Timeouts.Update(ctx, defaultDeployTimeout)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	// One deadline for the whole update (a scale and a redeploy share it). On
+	// a failed wait the prior state is kept, so the next apply retries.
+	deadline := time.Now().Add(timeout)
+
 	// Scale if the desired replica count changed.
 	if !plan.Replicas.IsNull() && !plan.Replicas.IsUnknown() && plan.Replicas.ValueInt64() != state.Replicas.ValueInt64() {
-		if _, err := r.client.ScaleService(ctx, id, plan.Replicas.ValueInt64()); err != nil {
+		ref, err := r.client.ScaleService(ctx, id, plan.Replicas.ValueInt64())
+		if err != nil {
 			resp.Diagnostics.AddError("Error scaling service", err.Error())
+			return
+		}
+		if _, d := waitForDeployment(ctx, r.client, ref, deadline, "service "+state.Name.ValueString()+" to scale"); d.HasError() {
+			resp.Diagnostics.Append(d...)
 			return
 		}
 	}
@@ -193,8 +245,13 @@ func (r *serviceResource) Update(ctx context.Context, req resource.UpdateRequest
 	// Redeploy if the image changed. The REST API exposes restart as the in-place
 	// redeploy primitive; image changes are picked up on redeploy.
 	if !plan.Image.Equal(state.Image) {
-		if _, err := r.client.RestartService(ctx, id); err != nil {
+		ref, err := r.client.RestartService(ctx, id)
+		if err != nil {
 			resp.Diagnostics.AddError("Error redeploying service", err.Error())
+			return
+		}
+		if _, d := waitForDeployment(ctx, r.client, ref, deadline, "service "+state.Name.ValueString()+" to redeploy"); d.HasError() {
+			resp.Diagnostics.Append(d...)
 			return
 		}
 	}

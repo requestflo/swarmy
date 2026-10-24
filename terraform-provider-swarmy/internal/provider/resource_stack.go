@@ -2,7 +2,9 @@ package provider
 
 import (
 	"context"
+	"time"
 
+	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -26,11 +28,12 @@ type stackResource struct {
 
 // stackModel is the Terraform state model for swarmy_stack.
 type stackModel struct {
-	ID            types.String `tfsdk:"id"`
-	Name          types.String `tfsdk:"name"`
-	ComposeSource types.String `tfsdk:"compose_source"`
-	ServiceCount  types.Int64  `tfsdk:"service_count"`
-	Status        types.String `tfsdk:"status"`
+	ID            types.String   `tfsdk:"id"`
+	Name          types.String   `tfsdk:"name"`
+	ComposeSource types.String   `tfsdk:"compose_source"`
+	ServiceCount  types.Int64    `tfsdk:"service_count"`
+	Status        types.String   `tfsdk:"status"`
+	Timeouts      timeouts.Value `tfsdk:"timeouts"`
 }
 
 // NewStackResource is the resource factory.
@@ -51,9 +54,12 @@ func (r *stackResource) Configure(_ context.Context, req resource.ConfigureReque
 	r.client = c
 }
 
-func (r *stackResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+func (r *stackResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "A swarmy stack deployed from a compose document. Deploys are async; the provider reads the stack back to populate computed fields.",
+		Description: "A swarmy stack deployed from a compose document. Deploys are async on the controller; the provider polls the stack's deployment until every service converges (or it fails, which fails the apply), bounded by the timeouts block (default 20m), then reads the stack back.",
+		Blocks: map[string]schema.Block{
+			"timeouts": timeouts.Block(ctx, timeouts.Opts{Create: true, Update: true}),
+		},
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:      true,
@@ -87,6 +93,13 @@ func (r *stackResource) Create(ctx context.Context, req resource.CreateRequest, 
 		return
 	}
 
+	timeout, diags := plan.Timeouts.Create(ctx, defaultDeployTimeout)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	deadline := time.Now().Add(timeout)
+
 	ref, err := r.client.DeployStack(ctx, client.DeployStackRequest{
 		Name:          plan.Name.ValueString(),
 		ComposeSource: plan.ComposeSource.ValueString(),
@@ -96,7 +109,22 @@ func (r *stackResource) Create(ctx context.Context, req resource.CreateRequest, 
 		return
 	}
 
+	_, waitDiags := waitForDeployment(ctx, r.client, ref, deadline, "stack "+plan.Name.ValueString())
 	stack, err := r.client.GetStack(ctx, ref.ID)
+	if waitDiags.HasError() {
+		// The stack exists but did not converge: record it so Terraform marks
+		// it tainted (redeployed on the next apply) instead of orphaning it.
+		if err == nil {
+			r.mapStackToState(stack, &plan)
+		} else {
+			plan.ID = types.StringValue(ref.ID)
+			plan.ServiceCount = types.Int64Null()
+			plan.Status = types.StringNull()
+		}
+		resp.Diagnostics.Append(waitDiags...)
+		resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+		return
+	}
 	if err != nil {
 		resp.Diagnostics.AddError("Error reading stack after create", err.Error())
 		return
@@ -135,6 +163,13 @@ func (r *stackResource) Update(ctx context.Context, req resource.UpdateRequest, 
 		return
 	}
 
+	timeout, diags := plan.Timeouts.Update(ctx, defaultDeployTimeout)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	deadline := time.Now().Add(timeout)
+
 	// A stack update is a redeploy of the new compose source under the same name.
 	ref, err := r.client.DeployStack(ctx, client.DeployStackRequest{
 		Name:          plan.Name.ValueString(),
@@ -142,6 +177,12 @@ func (r *stackResource) Update(ctx context.Context, req resource.UpdateRequest, 
 	})
 	if err != nil {
 		resp.Diagnostics.AddError("Error redeploying stack", err.Error())
+		return
+	}
+	// On a failed wait the prior state (old compose_source) is kept, so the
+	// next apply redeploys again.
+	if _, d := waitForDeployment(ctx, r.client, ref, deadline, "stack "+plan.Name.ValueString()); d.HasError() {
+		resp.Diagnostics.Append(d...)
 		return
 	}
 

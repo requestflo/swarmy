@@ -13,6 +13,13 @@ resource "swarmy_service" "web" {
     LOG_LEVEL = "info"
     PORT      = "80"
   }
+
+  # Create/scale/redeploy wait until the deployment converges and fail the
+  # apply if it fails. Bound the wait (default 20m each):
+  timeouts {
+    create = "10m"
+    update = "10m"
+  }
 }
 
 # Import an existing service by ID:

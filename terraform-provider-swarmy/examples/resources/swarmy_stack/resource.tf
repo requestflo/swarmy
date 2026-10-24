@@ -9,6 +9,13 @@ resource "swarmy_stack" "platform" {
       worker:
         image: ghcr.io/acme/worker:1.4.0
   EOT
+
+  # A deploy waits until every service converges and fails the apply if the
+  # deployment fails. Bound the wait (default 20m each):
+  timeouts {
+    create = "15m"
+    update = "15m"
+  }
 }
 
 # Or load from a file:

@@ -177,8 +177,8 @@ SWARMY_ENDPOINT=… SWARMY_API_KEY=swk_… make testacc
 
 | Terraform | REST backing | Lifecycle |
 |---|---|---|
-| `swarmy_service` | `POST/GET/DELETE /services`, `/services/{id}/scale`, `/services/{id}/restart` | Async create (202) → read-back. `name`/`node_id` force replace; `replicas` → scale; `image` → restart/redeploy. Import by ID. |
-| `swarmy_stack` | `POST/GET/DELETE /stacks` | Async deploy (202) → read-back. Update redeploys the compose source. Import by ID. |
+| `swarmy_service` | `POST/GET/DELETE /services`, `/services/{id}/scale`, `/services/{id}/restart`, `GET /deployments/{id}` | Blocking: create, scale and redeploy (202) poll the deployment to a terminal phase, then read back. `name`/`node_id` force replace; `replicas` → scale; `image` → restart/redeploy. `timeouts { create, update }` (default 20m). Import by ID. |
+| `swarmy_stack` | `POST/GET/DELETE /stacks`, `GET /deployments/{id}`, `GET /deploys/{id}/events` | Blocking: deploy (202) polls `stack:<name>` until every service converges, then reads back. Update redeploys the compose source. `timeouts { create, update }` (default 20m). Import by ID. |
 | `swarmy_domain` | `GET/POST /ingress/domains`, `DELETE /ingress/domains/{id}` | Plain CRUD. No update endpoint, so attribute changes delete+recreate. Read filters the list by ID. Import by ID. |
 | `swarmy_api_key` | `POST/GET/DELETE /api-keys` | Token returned once on create, stored sensitive in state. `name`/`scopes` force replace. |
 | `swarmy_git_connection` | `POST /git/connections`, `GET/DELETE /git/connections/{id}` | Token kinds only (`gitlab` token, `gitea`, `generic`) — GitHub App / GitLab OAuth need a browser (API returns 422 `BROWSER_FLOW_REQUIRED`); make those in the dashboard and pass their id to `swarmy_git_repo.connection_id`. `token` is sensitive + write-only; any change replaces. Import by ID (token adopted from config without replacement). |
@@ -193,10 +193,18 @@ SWARMY_ENDPOINT=… SWARMY_API_KEY=swk_… make testacc
   (`POST /api-keys` with `{name, scopes}` returning a one-time `token`); wire the
   paths to the real endpoint once it lands. Everything else maps to endpoints
   present in `openapi.json`.
-- **Async reconcile is read-after-create**, not deployment-phase polling. Create/
-  update dispatch the async deploy (202) and immediately read the resource back
-  to populate computed fields. A future revision can poll the returned
-  `deployment_id` to a terminal phase.
+- **Deploys block.** After a 202 the provider polls `GET /deployments/{id}`
+  (the service id when scale/restart answer an empty `deployment_id`) every
+  few seconds until the phase is `complete` (success) or `failed`,
+  `rolledback` or `canceled` (the apply fails). Any other phase keeps waiting;
+  a 404 counts as "not visible yet" for two minutes. When it fails or the
+  `timeouts` value runs out, the error carries the last phase and message, the
+  service's last Swarm task error, and a stack's failed deploy events. A
+  create that fails is kept in state as tainted, so the next apply replaces it;
+  a failed update keeps the prior state, so the next apply tries again.
+- **Changing `image` does not apply the new image yet.** It calls
+  `/services/{id}/restart`, which redeploys the current spec; the REST API has
+  no service-update route (tRPC `updateService` has no REST twin).
 - **`image`/`command`/`env`/`compose_source` are not echoed** by the read DTOs,
   so they are preserved from plan/state rather than refreshed from the API.
 

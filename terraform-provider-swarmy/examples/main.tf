@@ -24,7 +24,8 @@ data "swarmy_node" "first" {
 }
 
 # Manage a service declaratively. Create/update dispatch an async deploy; the
-# provider reads the service back to populate computed fields (id, status).
+# provider waits for it to converge (failing the apply if it fails), then reads
+# the service back to populate computed fields (id, status).
 resource "swarmy_service" "web" {
   name     = "web"
   image    = "nginx:1.27"
