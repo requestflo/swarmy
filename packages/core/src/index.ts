@@ -40,6 +40,7 @@ export * from './api-keys';
 export * from './alert-targets';
 export * from './alert-quiet-hours';
 export * from './alert-render';
+export * from './alert-receipt';
 export * from './alert-render-apps';
 export * from './cost-budget';
 export * from './doh-resolvers';

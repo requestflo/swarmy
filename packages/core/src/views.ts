@@ -1354,6 +1354,20 @@ export interface NotificationChannelView {
   /** Webhook channels: whether deliveries are HMAC-signed. */
   hasSecret: boolean;
   createdAt: string;
+  /** The last Send test (from the audit log); null = never tested. Only `alerts.channels` fills it. */
+  lastTest?: ChannelTestReceiptView | null;
+}
+
+/** One saved test receipt (board 55): when, whether it arrived, and what happened in plain words. */
+export interface ChannelTestReceiptView {
+  at: string;
+  ok: boolean;
+  /** What the transport said ("HTTP 404"), redacted. */
+  detail: string;
+  /** `channelResultWords(ok, detail)`: what it means and what to do. */
+  words: string;
+  /** Who sent the test (their name), when a person did. */
+  by: string | null;
 }
 
 /** One alert rule (defaults are seeded per signal; thresholds editable). */

@@ -12,6 +12,7 @@ import type {
 import {
   ALERT_SIGNALS,
   ALERT_SIGNAL_INFO,
+  channelResultWords,
   inQuietHours,
   normalizeAlertSelector,
   selectorMatches,
@@ -64,6 +65,7 @@ function makeRule(signal: AlertSignal, over: Partial<AlertRuleView> = {}): Alert
 
 export const alerts: DomainResolvers = {
   seed: (store) => {
+    const receipt = (ok: boolean, detail: string, minAgo: number) => ({ at: agoIso(minAgo), ok, detail, words: channelResultWords(ok, detail), by: 'Calum' });
     const email: NotificationChannelView = {
       id: id('ch'),
       name: 'On-call email',
@@ -72,6 +74,8 @@ export const alerts: DomainResolvers = {
       target: 'oncall@northwind.dev',
       hasSecret: false,
       createdAt: agoIso(60 * 24 * 30),
+      // Saved test receipts (board 55): one arrived, one failed, one never tested.
+      lastTest: receipt(true, 'sent email to oncall@northwind.dev', 60 * 26),
     };
     const slack: NotificationChannelView = {
       id: id('ch'),
@@ -81,6 +85,7 @@ export const alerts: DomainResolvers = {
       target: 'hooks.slack.com',
       hasSecret: false,
       createdAt: agoIso(60 * 24 * 21),
+      lastTest: receipt(false, 'HTTP 404: no_service', 42),
     };
     const phones: NotificationChannelView = {
       id: id('ch'),
@@ -90,6 +95,7 @@ export const alerts: DomainResolvers = {
       target: 'ntfy.northwind.dev/ops',
       hasSecret: true,
       createdAt: agoIso(60 * 24 * 9),
+      lastTest: null,
     };
     const rules = ALERT_SIGNALS.map((signal) =>
       makeRule(signal, {
@@ -363,9 +369,10 @@ export const alerts: DomainResolvers = {
       const { id: channelId } = i as { id: string };
       const channel = getState(s).channels.find((c) => c.id === channelId);
       if (!channel) throw new Error('channel not found');
-      return channel.kind === 'email'
-        ? { ok: true, detail: 'handed to the mail server' }
-        : { ok: true, detail: 'delivered (HTTP 200)' };
+      const r = channel.kind === 'email' ? { ok: true, detail: `sent email to ${channel.target}` } : { ok: true, detail: 'delivered (HTTP 200)' };
+      // Saved like the controller's audit row, so the receipt survives a reload.
+      channel.lastTest = { at: new Date().toISOString(), ...r, words: channelResultWords(r.ok, r.detail), by: s.user.name };
+      return r;
     },
   },
 };

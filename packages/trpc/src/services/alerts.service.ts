@@ -37,6 +37,7 @@ import {
 import type { OrgContext } from '../context';
 import { badRequest, commandRejected, notFound } from '../errors';
 import { writeAudit } from './audit.service';
+import { lastChannelTests, TEST_CHANNEL_ACTION } from './alerts-receipts';
 import { releaseHeld } from './alerts-fire';
 import {
   buildChannelRequest,
@@ -332,7 +333,8 @@ export async function listChannels(ctx: OrgContext): Promise<NotificationChannel
     where: { orgId: ctx.activeOrgId },
     orderBy: { createdAt: 'asc' },
   });
-  return rows.map((r) => toChannelView(r as ChannelRow));
+  const receipts = await lastChannelTests(ctx, rows.map((r) => r.id));
+  return rows.map((r) => ({ ...toChannelView(r as ChannelRow), lastTest: receipts.get(r.id) ?? null }));
 }
 
 export async function createChannel(
@@ -417,7 +419,7 @@ export async function testChannel(
   if (!existing) throw notFound('notification channel', input.id);
   const result = await deliverToChannel(ctx, existing as ChannelRow, testNotification(new Date().toISOString()));
   await writeAudit(ctx, {
-    action: 'alerts.testChannel',
+    action: TEST_CHANNEL_ACTION,
     targetType: 'notificationChannel',
     targetId: existing.id,
     metadata: { ok: result.ok, detail: result.detail },

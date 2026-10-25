@@ -5,6 +5,7 @@ import { Button, cn } from '@swarmy/ui';
 import { CodeView } from '@/components/calm';
 import { AddChannelCard } from './add-channel-card';
 import { alertsCode } from './alerts-code';
+import { channelReach } from './channel-reach';
 import { ChannelRow } from './channel-row';
 import { QuietHoursRow } from './quiet-hours-row';
 
@@ -18,14 +19,13 @@ interface ChannelsColumnProps {
 }
 
 /**
- * CHANNELS · encrypted · never shown again: one row per channel with Send test
- * and Edit, then Add a channel for every kind createChannel accepts, then the
+ * CHANNELS · encrypted · never shown again: one row per channel with how many
+ * rules reach it, Send test and its saved receipt, and Edit, then Add a channel for every kind createChannel accepts, then the
  * workspace quiet hours. At Code depth the rule, channels and quiet hours sit
  * on top as read-only JSON.
  */
 export function ChannelsColumn({ channels, rules, rule, quietHours, className }: ChannelsColumnProps): React.JSX.Element {
   const [adding, setAdding] = React.useState(false);
-  const usedBy = (id: string): number => rules.filter((r) => r.channelIds.includes(id)).length;
   return (
     <aside aria-label="Channels" className={cn('flex min-w-0 flex-col gap-3', className)}>
       <CodeView title="Alerts as code" tabs={alertsCode(rule, rules, channels, quietHours)} note="Dashboard setting · no REST yet" />
@@ -40,7 +40,7 @@ export function ChannelsColumn({ channels, rules, rule, quietHours, className }:
       ) : (
         <ul className="flex flex-col gap-2.5">
           {channels.map((c) => (
-            <ChannelRow key={c.id} channel={c} usedBy={usedBy(c.id)} />
+            <ChannelRow key={c.id} channel={c} reach={channelReach(c, rules)} />
           ))}
         </ul>
       )}
