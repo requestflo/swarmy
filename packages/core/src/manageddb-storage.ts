@@ -34,6 +34,7 @@ import {
   type PgBootSpecLike,
   type PgCredentialSpecLike,
 } from './manageddb-pg';
+import { applyPgMemory, type MemorySpecLike } from './manageddb-memory';
 
 /** Named volume this member's data root (`/var/lib/postgresql/data`) lives on. */
 export const DB_DATA_VOLUME_LABEL = 'swarmy.db.dataVolume';
@@ -140,12 +141,13 @@ export function applyDbStorage<S extends StorageSpecLike>(
  * command + PGDATA). Use this — not a bare `applyDbStorage` — for every
  * Postgres member spec, so no rebuild can drop the entrypoint.
  */
-export function applyPgMember<S extends StorageSpecLike & PgBootSpecLike & PgCredentialSpecLike>(
+export function applyPgMember<S extends StorageSpecLike & PgBootSpecLike & PgCredentialSpecLike & MemorySpecLike>(
   spec: S,
   labels: Record<string, string> | undefined,
 ): S {
   // Credential: the password secret file (never plaintext env) — see applyPgCredential.
-  return applyPgBoot(applyPgCredential(applyDbStorage(spec, labels), labels));
+  // Memory: the limit + shared_buffers the member was last restarted with (manageddb-memory).
+  return applyPgMemory(applyPgBoot(applyPgCredential(applyDbStorage(spec, labels), labels)), labels);
 }
 
 /** One mount as reported by the agent (service spec or container inspect). */

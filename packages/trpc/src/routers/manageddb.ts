@@ -20,7 +20,8 @@ import {
 import { setDbExtension } from '../services/manageddb-extensions.service';
 import { getDbExtensions } from '../services/manageddb-extensions-view';
 import { getDbReplication } from '../services/manageddb-replication.service';
-import { PG_EXTENSION_NAMES } from '@swarmy/core';
+import { setDbMemory } from '../services/manageddb-memory.service';
+import { PG_EXTENSION_NAMES, PG_MEMORY_MAX_MB, PG_MEMORY_MIN_MB } from '@swarmy/core';
 
 /** `postgres://user:secret@host` → `postgres://user:***@host`. */
 export function maskUrlPassword(url: string): string {
@@ -192,6 +193,22 @@ export const managedDbRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => setDbExtension(ctx, input)),
+
+  /**
+   * Set the memory limit per copy (null removes it): rewrites
+   * `swarmy.db.memoryMb` on the primary; the reconcile restarts each standby
+   * with the new limit, shared_buffers (25%) and effective_cache_size (75%),
+   * then the main copy in place. Gate `stack.deploy`; audited `db.memory.set`.
+   */
+  setMemory: abacProcedure('stack.deploy', resolveStackByName)
+    .input(
+      z.object({
+        stack: stackName,
+        cluster: clusterName,
+        memoryMb: z.number().int().min(PG_MEMORY_MIN_MB).max(PG_MEMORY_MAX_MB).nullable(),
+      }),
+    )
+    .mutation(({ ctx, input }) => setDbMemory(ctx, input)),
 
   /** Geo: pin the single writer to a node-label region (`swarmy.region==<region>`). */
   setWriteRegion: abacProcedure('stack.deploy', resolveStackByName)

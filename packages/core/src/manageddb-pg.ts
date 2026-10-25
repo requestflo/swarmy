@@ -82,6 +82,9 @@ export const PG_ENV = {
   rejoin: 'SWARMY_PG_REJOIN',
   /** `shared_preload_libraries` written on every start (manageddb-extensions). */
   preload: 'SWARMY_PG_PRELOAD',
+  /** `shared_buffers` / `effective_cache_size` written on every start (manageddb-memory). */
+  sharedBuffers: 'SWARMY_PG_SHARED_BUFFERS',
+  effectiveCacheSize: 'SWARMY_PG_EFFECTIVE_CACHE_SIZE',
 } as const;
 
 /** Container-local conf the boot layer writes `shared_preload_libraries` into. */
@@ -98,6 +101,26 @@ export function pgPreloadLines(conf: string = MANAGED_PG_PRELOAD_CONF): string[]
     `PRELOAD="\${${PG_ENV.preload}:-}"`,
     'case "$PRELOAD" in *[!a-z0-9_,]*) log "ignoring SWARMY_PG_PRELOAD (not a library list)"; PRELOAD="";; esac',
     `if [ -n "$PRELOAD" ]; then echo "shared_preload_libraries = '$PRELOAD'" > "${conf}"; else rm -f "${conf}"; fi`,
+  ];
+}
+
+/** Container-local conf the boot layer writes the memory settings into. */
+export const MANAGED_PG_MEMORY_CONF = `${MANAGED_PG_CONF_DIR}/swarmy-memory.conf`;
+
+/**
+ * Boot-script lines: `SWARMY_PG_SHARED_BUFFERS` / `SWARMY_PG_EFFECTIVE_CACHE_SIZE`
+ * (sized by the controller from the cluster's memory limit) → a conf the
+ * server includes, written fresh on every start like the preload. Only a
+ * plain `<n>MB` is taken; anything else is ignored, never interpolated.
+ */
+export function pgMemoryLines(conf: string = MANAGED_PG_MEMORY_CONF): string[] {
+  return [
+    `SB="\${${PG_ENV.sharedBuffers}:-}"; ECS="\${${PG_ENV.effectiveCacheSize}:-}"`,
+    'case "$SB" in *MB) case "${SB%MB}" in ""|*[!0-9]*) SB="";; esac;; *) SB="";; esac',
+    'case "$ECS" in *MB) case "${ECS%MB}" in ""|*[!0-9]*) ECS="";; esac;; *) ECS="";; esac',
+    `rm -f "${conf}"`,
+    `if [ -n "$SB" ]; then echo "shared_buffers = '$SB'" >> "${conf}"; fi`,
+    `if [ -n "$ECS" ]; then echo "effective_cache_size = '$ECS'" >> "${conf}"; fi`,
   ];
 }
 
@@ -445,6 +468,7 @@ export function pgBootScript(): string {
     '  fi',
     'fi',
     ...pgPreloadLines(),
+    ...pgMemoryLines(),
     'exec docker-entrypoint.sh postgres',
   ].join('\n');
 }

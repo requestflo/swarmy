@@ -24,7 +24,11 @@ export const MODE_WORDS: Record<PgMode, { label: string; hint: string }> = {
   'active-active': { label: 'Active-active', hint: 'every region writes' },
 };
 
-export type PgTopoMember = PgMember & { region?: string };
+export type PgTopoMember = PgMember & {
+  region?: string;
+  /** The memory limit this copy was last restarted with (MB). */
+  memoryMb?: number;
+};
 
 export interface PgTopoInput {
   /** The shape drawn (the picked preview). */

@@ -3014,6 +3014,8 @@ export interface DbClusterMemberView {
    * Absent = not measured yet (primary itself, exec disabled, or member down).
    */
   lagSeconds?: number;
+  /** The memory limit this member was last restarted with (`swarmy.db.memoryMb.applied`), MB. */
+  memoryMb?: number;
 }
 
 /** The per-cluster wal-shipper sidecar (PITR WAL archiving), when provisioned. */

@@ -22,6 +22,10 @@ import {
   pgPrimaryEnv,
   pgReplicaEnv,
   pgPreloadEnv,
+  pgMemoryCarry,
+  parseMemoryMb,
+  DB_MEMORY_LABEL,
+  DB_MEMORY_APPLIED_LABEL,
   DB_DATA_VOLUME_LABEL,
   DB_FAILOVER_CONFIRM_LABEL,
   DB_FAILOVER_PENDING_LABEL,
@@ -555,6 +559,8 @@ export function managedPgSpecs(input: ManagedPgSpecInput): {
     ...dbLabels(stack, cluster, 'replica', input.replicas, topologyOf(primaryLabels)),
     ...dbStorageLabels({ dataVolume: input.replicaVolume, ...(avoidNode ? { avoidNode } : {}) }),
     ...credential,
+    // A fresh standby starts at the cluster's declared memory (manageddb-memory).
+    ...pgMemoryCarry(input.carryLabels),
   }, placed);
   const replicaSpec: ServiceSpec = applyPgMember<ServiceSpec>(
     {
@@ -1115,6 +1121,8 @@ export interface DbClusterView {
   regionReplicas?: Record<string, number>;
   /** active-active: declared number of writable primaries. */
   primaries?: number;
+  /** The declared memory limit per copy (`swarmy.db.memoryMb`), MB; absent = no limit. */
+  memoryMb?: number;
   /**
    * A failover the reconcile HELD because no replica is provably caught up
    * (`swarmy.db.failover.pending`): the target it would promote and the
@@ -1170,6 +1178,7 @@ export function getDbTopology(ctx: OrgContext, stack: string): DbTopologyView {
     const leader = primary?.labels[DB_LEADER_LABEL];
     const regionReplicas = parseRegionReplicas(primary?.labels ?? {});
     const primariesDeclared = Number.parseInt(primary?.labels[DB_PRIMARIES_LABEL] ?? '', 10);
+    const memoryMb = parseMemoryMb(primary?.labels[DB_MEMORY_LABEL]);
 
     // Replication lag: the reconcile stamps `swarmy.db.lag.<member>` seconds on
     // the primary each tick — one anchor read yields every member's lag.
@@ -1181,6 +1190,7 @@ export function getDbTopology(ctx: OrgContext, stack: string): DbTopologyView {
       .map((s): DbMemberView => {
         const role = s.labels[DB_ROLE_LABEL];
         const lag = lagByMember[s.name];
+        const memoryMb = parseMemoryMb(s.labels[DB_MEMORY_APPLIED_LABEL]);
         return {
           service: s.name,
           role: role === 'primary' || role === 'dcs' ? role : 'replica',
@@ -1191,6 +1201,7 @@ export function getDbTopology(ctx: OrgContext, stack: string): DbTopologyView {
           desired: s.replicas.desired,
           running: s.replicas.running,
           ...(lag !== undefined ? { lagSeconds: lag } : {}),
+          ...(memoryMb !== null ? { memoryMb } : {}),
         };
       })
       .sort((a, b) => a.service.localeCompare(b.service));
@@ -1240,6 +1251,7 @@ export function getDbTopology(ctx: OrgContext, stack: string): DbTopologyView {
         : {}),
       ...(storage ? { storage } : {}),
       ...(pendingFailover ? { pendingFailover } : {}),
+      ...(memoryMb !== null ? { memoryMb } : {}),
     });
   }
 

@@ -5,13 +5,14 @@ import { Button, EmptyState } from '@swarmy/ui';
 import { SayHeader, SectionLink } from '@/components/calm';
 import { ErrorState, PageSkeleton } from '@/components/states';
 import { PgConnectSection } from './pg-connect-section';
-import { PgDetailCode, PgMemorySection } from './pg-detail-code';
+import { PgDetailCode } from './pg-detail-code';
 import { pgDetailHeadline } from './pg-detail-headline';
 import { PgExtensionsSection } from './pg-extensions-section';
 import { PgFailoverSection } from './pg-failover-section';
 import { PgModeApply } from './pg-mode-apply';
 import { standbyBoxStats } from './pg-replication';
 import { PgReplicationSection } from './pg-replication-section';
+import { PgSizeSection } from './pg-size-section';
 import { PgTopologySection } from './pg-topology-section';
 import type { PgMode } from './pg-topology';
 import { usePgDetail } from './use-pg-detail';
@@ -31,7 +32,7 @@ function Back({ stack }: { stack: string }): React.JSX.Element {
  * One managed Postgres database (board 39, PgDetail): the sentence, how it's
  * laid out (a diagram that morphs with the picked shape, what you could lose
  * and how long it's down), extensions; the aside carries the code, the
- * switch-over rule with "Simulate <region> outage", Connect and its memory.
+ * switch-over rule with "Simulate <region> outage", Connect and its size.
  */
 export function PgDetailPage({ stack, cluster }: { stack: string; cluster: string }): React.JSX.Element {
   const d = usePgDetail(stack, cluster);
@@ -89,7 +90,7 @@ export function PgDetailPage({ stack, cluster }: { stack: string; cluster: strin
           <PgDetailCode stack={stack} d={d} mode={mode} />
           <PgFailoverSection stack={stack} d={d} />
           <PgConnectSection stack={stack} d={d} />
-          <PgMemorySection d={d} />
+          <PgSizeSection stack={stack} d={d} />
         </aside>
       </div>
     </div>

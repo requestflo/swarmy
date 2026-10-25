@@ -11,6 +11,8 @@ export type PgDetailCluster = PgCluster & {
   writeRegion?: string;
   regionReplicas?: Record<string, number>;
   primaries?: number;
+  /** Declared memory limit per copy (MB); absent = no limit. */
+  memoryMb?: number;
 };
 
 /**

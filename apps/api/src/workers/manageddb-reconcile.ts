@@ -41,6 +41,11 @@ import {
   PG_PRELOAD_ENV,
   plannedRestartActive,
   withPreloadEnv,
+  DB_MEMORY_APPLIED_LABEL,
+  applyPgMemory,
+  envPreload,
+  pgMemoryCarry,
+  primaryDeclarations,
 } from '@swarmy/core';
 import { decryptSecret } from '@swarmy/core/crypto';
 import { pitrExtraConf } from '@swarmy/core/protocol';
@@ -62,6 +67,7 @@ import {
 } from './manageddb-reconcile.core';
 import { restoreWatermark } from './manageddb-watermark.core';
 import { convergePgExtensions } from './manageddb-extensions';
+import { convergePgMemory } from './manageddb-memory';
 import { createWatermarkStore } from './manageddb-watermark';
 import {
   DB_PITR_ARCHIVE_CMD_LABEL,
@@ -315,6 +321,7 @@ export function regionReplicaSpec(
   const placed = dbFloatingPlacement({ nodes, region, replicas: n, ...(avoidNode ? { avoidNode } : {}) });
   const labels = dbRolePlacementLabels(memberLabels(c, 'replica', 'geo', {
     ...credentialLabel(primary),
+    ...pgMemoryCarry(primary.labels),
     [DB_REGION_LABEL]: region,
     [DB_REPLICAS_LABEL]: String(n),
     ...dbStorageLabels({
@@ -349,6 +356,7 @@ export function extraPrimarySpec(
   const env = envRecord(primary.env ?? []);
   const labels = memberLabels(c, 'primary', 'active-active', {
     ...credentialLabel(primary),
+    ...pgMemoryCarry(primary.labels),
     [DB_MEMBER_LABEL]: String(index),
     ...dbStorageLabels({ dataVolume: extraPrimaryDataVolumeName(c.base, index), pinNode }),
   });
@@ -993,6 +1001,26 @@ export function preloadSpec(
   return pitrPrimarySpec(p, c, clusterNet(c), pitr, dataVolume);
 }
 
+/**
+ * A member rebuilt for the memory rolling restart: its own preload kept and
+ * `swarmy.db.memoryMb.applied` set (or dropped), so `applyPgMember` derives
+ * the limit and shared_buffers from it. A writer stamps the planned restart.
+ */
+export function memorySpec(
+  c: Cluster,
+  m: SwarmServiceInfo,
+  memoryMb: number | null,
+  nodes: readonly DbPlacementNode[],
+  multiNode: boolean,
+  plannedAt?: string,
+): ServiceSpec {
+  const base = preloadSpec(c, m, envPreload(envRecord(m.env ?? [])), nodes, multiNode, plannedAt);
+  const labels = { ...(base.labels ?? {}) };
+  if (memoryMb === null) delete labels[DB_MEMORY_APPLIED_LABEL];
+  else labels[DB_MEMORY_APPLIED_LABEL] = String(memoryMb);
+  return applyPgMemory({ ...base, labels }, labels);
+}
+
 /** exec `SELECT pg_promote()` in one running task + verify recovery ended. */
 async function promoteInPlace(orgId: string, svc: SwarmServiceInfo): Promise<boolean> {
   const promote = await execIn(orgId, svc, psql(PG_PROMOTE_SQL), PROMOTE_TIMEOUT_MS);
@@ -1223,7 +1251,8 @@ async function maybePromote(
     hub.dispatch(node, 'service.updateLabels', { service, add, removeKeys: [] }).catch(() => undefined);
 
   // Labels-only flips: the promoted task keeps its promoted in-memory state.
-  await setLabels(target.name, { [DB_ROLE_LABEL]: 'primary', [DB_LEADER_LABEL]: target.name });
+  // The writer's declarations (memory, extensions) follow it to the new primary.
+  await setLabels(target.name, { [DB_ROLE_LABEL]: 'primary', [DB_LEADER_LABEL]: target.name, ...primaryDeclarations(primary?.labels) });
   const others = [primary, ...replicaMembers(c)].filter(
     (s): s is SwarmServiceInfo => Boolean(s) && s!.name !== target.name,
   );
@@ -1634,7 +1663,13 @@ async function reconcileOrg(orgId: string): Promise<void> {
     // (8) Extensions (pg_stat_statements / postgis): one step per tick —
     //     standbys restart first, then the writer in place, then CREATE.
     if (primary && extensionsSettled(primary)) {
-      await convergePgExtensions(
+      const audit = (action: string, metadata: Record<string, unknown>) =>
+        contract
+          ? contract.seams.writeAudit(contract.ctx, { action, actorType: 'system', targetType: 'dbCluster', targetId: `${c.stack}/${c.cluster}`, metadata }).catch(() => undefined)
+          : Promise.resolve();
+      const exec = (svc: SwarmServiceInfo, script: string) => execIn(orgId, svc, script, PROMOTE_TIMEOUT_MS);
+      const deploySpec = (spec: ServiceSpec) => hub.dispatch(node, 'service.deploy', { spec, pullPolicy: 'missing' }).catch(() => undefined);
+      const ext = await convergePgExtensions(
         {
           key: warnKey,
           ref: `${c.stack}/${c.cluster}`,
@@ -1643,18 +1678,29 @@ async function reconcileOrg(orgId: string): Promise<void> {
           extraWriters: [...c.extraPrimaries.values()],
         },
         {
-          exec: (svc, script) => execIn(orgId, svc, script, PROMOTE_TIMEOUT_MS),
+          exec,
           setLabels: (service, add, removeKeys = []) =>
             hub.dispatch(node, 'service.updateLabels', { service, add, removeKeys }).catch(() => undefined),
-          deploy: (spec) => hub.dispatch(node, 'service.deploy', { spec, pullPolicy: 'missing' }).catch(() => undefined),
+          deploy: deploySpec,
           restartSpec: (m, preload, plannedAt) => preloadSpec(c, m, preload, nodes, multiNode, plannedAt),
-          audit: (action, metadata) =>
-            contract
-              ? contract.seams.writeAudit(contract.ctx, { action, actorType: 'system', targetType: 'dbCluster', targetId: `${c.stack}/${c.cluster}`, metadata }).catch(() => undefined)
-              : Promise.resolve(),
+          audit,
           writersRedeployable: primaryPersistent,
         },
-      ).catch(() => undefined);
+      ).catch(() => null);
+      // (9) Memory (`swarmy.db.memoryMb`): only once the extensions have nothing
+      //     to do, so two rolling restarts never build specs off the same tick.
+      if (ext && (ext.kind === 'steady' || ext.kind === 'blocked')) {
+        await convergePgMemory(
+          { key: warnKey, primary, standbys: replicaMembers(c), extraWriters: [...c.extraPrimaries.values()] },
+          {
+            exec,
+            deploy: deploySpec,
+            restartSpec: (m, mb, plannedAt) => memorySpec(c, m, mb, nodes, multiNode, plannedAt),
+            audit,
+            writersRedeployable: primaryPersistent,
+          },
+        ).catch(() => undefined);
+      }
     }
   }
   // One controller-store write per tick when a watermark moved.

@@ -1,6 +1,5 @@
 import * as React from 'react';
-import { CodeView, Section, Tech, toYaml, withHeader } from '@/components/calm';
-import { bytes } from '@/lib/format';
+import { CodeView, toYaml, withHeader } from '@/components/calm';
 import type { PgMode } from './pg-topology';
 import type { PgDetailData } from './use-pg-detail';
 
@@ -27,6 +26,7 @@ export function PgDetailCode({ stack, d, mode }: { stack: string; d: PgDetailDat
     `swarmy.db.replicas=${replicas}`,
     ...(c.writeRegion ? [`swarmy.db.writeRegion=${c.writeRegion}`] : []),
     ...Object.entries(c.regionReplicas ?? {}).map(([r, n]) => `swarmy.db.region.${r}.replicas=${n}`),
+    ...(c.memoryMb ? [`swarmy.db.memoryMb=${c.memoryMb}`] : []),
     ...(d.pgvector?.enabled ? ['swarmy.vector.pgvector=true'] : []),
   ].join('\n');
   return (
@@ -39,22 +39,5 @@ export function PgDetailCode({ stack, d, mode }: { stack: string; d: PgDetailDat
         { label: 'CLI', code: `# after committing swarmy.yaml\nswarmy check\nswarmy deploy --app ${stack}` },
       ]}
     />
-  );
-}
-
-/** Memory the main copy uses right now (`services.usage`). */
-export function PgMemorySection({ d }: { d: PgDetailData }): React.JSX.Element | null {
-  const c = d.cluster!;
-  if (c.primary.status !== 'running') return null;
-  const u = d.usage;
-  return (
-    <Section title="Size">
-      <p className="text-[13.5px]">
-        <span className="text-muted-foreground">Memory </span>
-        {u ? <b className="font-semibold">{bytes(u.memBytes.peak)} in use by the main copy</b> : <span className="text-muted-foreground">not reported yet</span>}
-        {d.backup?.lastSizeBytes ? <span className="text-muted-foreground"> · the last save was {bytes(Number(d.backup.lastSizeBytes))}</span> : null}
-      </p>
-      {u ? <Tech>container stats · {u.sampled} {u.sampled === 1 ? 'copy' : 'copies'} sampled {new Date(u.ts).toLocaleTimeString()} · {c.primary.service}</Tech> : null}
-    </Section>
   );
 }
