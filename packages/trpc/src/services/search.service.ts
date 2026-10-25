@@ -17,6 +17,7 @@ import {
   type SearchStatsView,
 } from '@swarmy/core';
 import { decryptSecret } from '@swarmy/core/crypto';
+import { requireDataImage } from '@swarmy/core/data-images';
 import type { AttachSearchInput, ProvisionSearchInput } from '@swarmy/core';
 import type {
   BackupVolumeResult,
@@ -76,9 +77,10 @@ const MANAGED_LABEL = 'swarmy.managed';
 const SCALE_TO_ZERO_EXEMPT_LABEL = 'swarmy.scaleToZero.exempt';
 
 // ── Engine constants ──────────────────────────────────────────────────────────
+/** The engine images, from the BOM's data section (the decorator deploys them at the release's digest). */
 export const SEARCH_IMAGES: Record<SearchEngine, string> = {
-  meilisearch: 'getmeili/meilisearch:v1.12',
-  typesense: 'typesense/typesense:27.1',
+  meilisearch: requireDataImage('meilisearch').ref,
+  typesense: requireDataImage('typesense').ref,
 };
 export const SEARCH_PORTS: Record<SearchEngine, number> = {
   meilisearch: 7700,

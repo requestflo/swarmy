@@ -57,6 +57,10 @@
       "types": "./src/system-images.ts",
       "import": "./src/system-images.ts"
     },
+    "./data-images": {
+      "types": "./src/data-images.ts",
+      "import": "./src/data-images.ts"
+    },
     "./registry-forwarder": {
       "types": "./src/registry-forwarder.ts",
       "import": "./src/registry-forwarder.ts"

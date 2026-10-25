@@ -141,7 +141,7 @@ export interface BuildManifestInput {
   commit: string;
   publishedAt?: string;
   minUpgradeFrom?: string;
-  /** Digests CI resolved for floating (own-build) entries, by BOM key. */
+  /** Digests CI resolved for floating entries (own builds, upstream data images), by BOM key. */
   digests?: Partial<Record<SystemImageKey, string>>;
   /** The tag CI published own builds under (`1.2.0`, `sha-abc1234`). */
   tag?: string;
@@ -156,7 +156,8 @@ export interface BuildManifestInput {
 
 /**
  * Build `platform.json` from the BOM. Third-party entries keep their pinned
- * digest; own builds take CI's digest. Throws when a digest is malformed.
+ * digest; own builds and upstream-floating data images take CI's digest.
+ * Throws when a digest is malformed.
  */
 export function buildPlatformManifest(input: BuildManifestInput): PlatformManifest {
   const bom = input.bom ?? SYSTEM_IMAGES;
@@ -169,7 +170,9 @@ export function buildPlatformManifest(input: BuildManifestInput): PlatformManife
       throw new Error(`${img.key} is pinned to ${img.digest} in system-images.ts; CI resolved ${resolved}`);
     }
     const digest = img.digest ?? resolved;
-    const own = !img.digest;
+    // swarmy's own builds carry the release tag; an upstream-floating data
+    // image keeps its upstream tag (CI only resolved the digest).
+    const own = !img.digest && !img.upstream;
     components[img.key] = {
       ref: img.ref,
       image: input.images?.[img.key] ?? `${p.host}/${p.path}`,

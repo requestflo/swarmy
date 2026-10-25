@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { dataImage } from '../data-images';
 import { CommandId } from './primitives';
 
 /** Reusable command preamble (every controller→agent command carries these). */
@@ -57,8 +58,8 @@ export const ResticRepo = z.object({
 });
 export type ResticRepo = z.infer<typeof ResticRepo>;
 
-/** Pinned restic image the agent runs as a short-lived sidecar. */
-export const DEFAULT_RESTIC_IMAGE = 'restic/restic:0.16.4';
+/** Pinned restic image the agent runs as a short-lived sidecar (the BOM's data section). */
+export const DEFAULT_RESTIC_IMAGE = dataImage('restic').ref;
 
 // ── backupVolume ───────────────────────────────────────────────────────────
 

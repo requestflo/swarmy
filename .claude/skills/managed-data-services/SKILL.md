@@ -108,6 +108,11 @@ state belongs see `skill("docker-native-storage")`.
     fall back to the image entrypoint. Caches run `valkey/valkey` / `redis`
     official images with `sh -c` wrappers; sentinels are the engine's own
     `*-sentinel` from the same image. No `bitnami*` image anywhere.
+    Every image this domain runs (engines and backup/dump/move helpers) is
+    an entry in the BOM's data section (`@swarmy/core` `system-images-data.ts`,
+    lookups `data-images.ts`: `dataImage`, `dataImageFor(engine, major)`);
+    code names the entry, never a literal ref, and the hub decorator deploys
+    it at the release's digest, tag kept. A platform upgrade never rolls them.
 11. **Cluster volumes register against an EXISTING CSI driver.** swarmy ships no
     storage driver. `register`/`removeVolume` ride `volume.provision`/
     `volume.remove` agent commands with `cluster:true`; restic backups

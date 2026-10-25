@@ -20,9 +20,10 @@
  * Every script is fixed text + validated names — nothing from a user is
  * interpolated unquoted.
  */
+import { dataImage } from './data-images';
 
-/** Mover image; rsync is installed on start when missing. */
-export const MOVER_IMAGE = 'alpine:3.20';
+/** Mover image (the BOM's data section); rsync is installed on start when missing. */
+export const MOVER_IMAGE = dataImage('alpine').ref;
 /** rsync daemon port on the overlay (never published). */
 export const MOVER_RSYNC_PORT = 8730;
 /** A serve service that outlives this is stopped by its own timeout. */

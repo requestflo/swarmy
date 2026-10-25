@@ -32,9 +32,20 @@ describe('BOM', () => {
     expect(new Set(SYSTEM_IMAGES.map((i) => i.ref)).size).toBe(SYSTEM_IMAGES.length);
     for (const i of SYSTEM_IMAGES) if (i.digest) expect(i.digest).toMatch(/^sha256:[a-f0-9]{64}$/);
   });
-  test('third-party images are digest-pinned; only swarmy builds (and wal-g) float', () => {
-    const floating = SYSTEM_IMAGES.filter((i) => !i.digest).map((i) => i.key).sort();
+  test('third-party images are digest-pinned; only swarmy builds (and wal-g) and upstream data images float', () => {
+    const floating = SYSTEM_IMAGES.filter((i) => !i.digest && !i.upstream).map((i) => i.key).sort();
     expect(floating).toEqual(['agent', 'appAuth', 'caddySwarmy', 'controller', 'dns', 'walg']);
+    for (const i of SYSTEM_IMAGES.filter((x) => x.upstream)) {
+      expect(i.digest).toBeUndefined(); // the release pins it, never a stale pin here
+      expect(i.ref).not.toMatch(/:latest$|^ghcr\.io\/requestflo\//);
+    }
+  });
+  test('the online mirror never copies a bundle-only image', () => {
+    const only = SYSTEM_IMAGES.filter((i) => i.bundleOnly);
+    expect(only.length).toBeGreaterThan(0);
+    const todo = planMirror({}, 'node-1').map((i) => i.key);
+    for (const i of only) expect(todo).not.toContain(i.key);
+    expect(todo).toContain('valkey'); // copied online before the data section existed: still is
   });
   test('mesh clients are pinned (no :latest) and dispatched as ref@digest', () => {
     for (const k of ['netbirdClient', 'tailscaleClient'] as const) expect(systemImage(k).ref).not.toMatch(/:latest$/);

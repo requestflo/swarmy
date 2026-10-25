@@ -43,6 +43,7 @@ import {
   systemImageForRef,
   type SystemImage,
 } from '@swarmy/core/system-images';
+import { dataDeployRef, isDataImage } from '@swarmy/core/data-images';
 import type { AgentHub, CommandName } from '../hub/types';
 import type { OrgContext } from '../context';
 import { commandRejected, mapDispatchError } from '../errors';
@@ -204,7 +205,11 @@ export function rewriteSystemImages<P>(
   const p = payload as Record<string, unknown> & { spec?: Record<string, unknown> };
   if (cmd === 'service.deploy' && p?.spec) {
     const to = map(p.spec.image);
-    return to ? ({ ...p, spec: { ...p.spec, image: to } } as P) : payload;
+    if (!to) return payload;
+    // A data image keeps its tag (`…/pgvector:pg17@sha256:…`): the engine version
+    // people read, and what a re-provision carries forward.
+    const img = typeof p.spec.image === 'string' ? systemImageForRef(p.spec.image, images) : undefined;
+    return { ...p, spec: { ...p.spec, image: isDataImage(img) ? dataDeployRef(to, img) : to } } as P;
   }
   if (cmd === 'container.runOnce') {
     const to = map(p?.image);
@@ -274,17 +279,18 @@ export function bareSystemRef(image: unknown, images: readonly SystemImage[] = S
 /**
  * Deploy by digest even without a mirror (plans/epic-platform-upgrades.md §1:
  * no floating tags in running services): a `service.deploy` of an exact
- * system ref whose release digest is known becomes `<upstream repo>@<digest>`.
- * Runs AFTER {@link rewriteSystemImages} (a mirrored ref is no longer an
- * upstream ref, so it is left alone). One-shots keep their tag: they stage
- * images by tag for `pull: false` runs. Pure.
+ * system ref whose release digest is known becomes `<upstream repo>@<digest>`
+ * (a data image `<ref>@<digest>`, tag kept). A data image whose release pins
+ * no digest deploys by its tag. Runs AFTER {@link rewriteSystemImages} (a
+ * mirrored ref is no longer an upstream ref, so it is left alone). One-shots
+ * keep their tag: they stage images by tag for `pull: false` runs. Pure.
  */
 export function pinSystemImages<P>(cmd: CommandName, payload: P, images: readonly SystemImage[] = SYSTEM_IMAGES): P {
   const p = payload as Record<string, unknown> & { spec?: Record<string, unknown> };
   if (cmd !== 'service.deploy' || !p?.spec || typeof p.spec.image !== 'string') return payload;
   const img = systemImageForRef(p.spec.image, images);
   if (!img?.digest || img.noRewrite) return payload;
-  return { ...p, spec: { ...p.spec, image: copySourceFor(img) } } as P;
+  return { ...p, spec: { ...p.spec, image: isDataImage(img) ? `${img.ref}@${img.digest}` : copySourceFor(img) } } as P;
 }
 
 // ── Mirror tick ──────────────────────────────────────────────────────────────

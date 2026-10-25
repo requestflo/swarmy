@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { SWARMY_OVERLAY_NETWORK } from '@swarmy/core';
+import { systemImage } from '@swarmy/core/system-images';
 
 /**
  * Pure helpers for the storage-reconcile worker (WS5 — Garage lifecycle):
@@ -18,7 +19,7 @@ import { SWARMY_OVERLAY_NETWORK } from '@swarmy/core';
 
 // ── Mirrored constants ────────────────────────────────────────────────────────
 export const STORE_SERVICE_NAME = 'swarmy-garage';
-export const CURL_IMAGE = 'curlimages/curl:8.10.1';
+export const CURL_IMAGE = systemImage('curl').ref;
 export const GARAGE_ADMIN_PORT = 3903;
 export const GARAGE_RPC_PORT = 3901;
 /** The overlay the store joins (publishes NO ports) — admin one-shots attach here. */

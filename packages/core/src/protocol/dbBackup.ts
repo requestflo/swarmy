@@ -11,6 +11,8 @@
  * Subpath: `@swarmy/core/protocol` (re-exported from `index.ts`).
  */
 import { z } from 'zod';
+import { dataImage, dataImageOfRef, engineImages, requireDataImage } from '../data-images';
+import { parseImageRef } from '../system-images';
 import { CommandId } from './primitives';
 import { DbName, DockerVolumeName, IsoTimestamp, ResticRepo, SnapshotRef } from './backup';
 import { ResticSnapshotInfo, RetentionOutcome } from './backup';
@@ -44,10 +46,13 @@ const cmd = { commandId: CommandId, timeoutMs: z.number().int().positive().optio
  * `pgvector/pgvector:pg16`); the reconcile worker clones new members from the
  * live primary's image, so the service image IS the Docker-truth per-cluster
  * setting.
+ *
+ * Every major swarmy offers is an entry in the BOM's data section
+ * (`system-images-data.ts`): the default is the entry flagged default.
  */
-export const MANAGED_PG_IMAGE_REPO = 'pgvector/pgvector';
-export const MANAGED_PG_DEFAULT_TAG = 'pg17';
-export const DEFAULT_MANAGED_PG_IMAGE = `${MANAGED_PG_IMAGE_REPO}:${MANAGED_PG_DEFAULT_TAG}`;
+export const DEFAULT_MANAGED_PG_IMAGE = requireDataImage('postgres').ref;
+export const MANAGED_PG_IMAGE_REPO = DEFAULT_MANAGED_PG_IMAGE.slice(0, DEFAULT_MANAGED_PG_IMAGE.lastIndexOf(':'));
+export const MANAGED_PG_DEFAULT_TAG = DEFAULT_MANAGED_PG_IMAGE.slice(DEFAULT_MANAGED_PG_IMAGE.lastIndexOf(':') + 1);
 
 /** `imageTag` → the managed repo's tag: a bare major ("16") maps to "pg16". */
 export function managedPgTag(tag: string): string {
@@ -55,10 +60,32 @@ export function managedPgTag(tag: string): string {
   return /^\d+$/.test(t) ? `pg${t}` : t;
 }
 
+/**
+ * The image for a chosen `imageTag`: the BOM's entry for a major swarmy offers
+ * ("16", "pg16"); any other tag of the managed repo passes through as the
+ * user's own choice ("pg17-bookworm") — it is not in the BOM, so no release
+ * pins it and no offline bundle carries it.
+ */
+export function managedPgImageForTag(tag: string): string {
+  const t = managedPgTag(tag);
+  const hit = engineImages('postgres').find((i) => parseImageRef(i.ref).tag === t);
+  return hit?.ref ?? `${MANAGED_PG_IMAGE_REPO}:${t}`;
+}
+
+/** A live Postgres image back to its BOM ref (pinned or mirrored forms), else the image minus its digest. */
+export function managedPgImageOfLive(image: string): string {
+  return dataImageOfRef(image)?.ref ?? image.split('@')[0]!.trim();
+}
+
 /** Pinned default images for the DB engines. */
 export const DEFAULT_PG_CLIENT_IMAGE = DEFAULT_MANAGED_PG_IMAGE;
-/** swarmy's own wal-g build (docker/walg): there is no upstream wal-g image. Same ref as the `walg` system image. */
-export const DEFAULT_WALG_IMAGE = 'ghcr.io/requestflo/swarmy-walg:latest';
+/** swarmy's own wal-g build (docker/walg): there is no upstream wal-g image. The BOM's `walg` entry. */
+export const DEFAULT_WALG_IMAGE = dataImage('walg').ref;
+/**
+ * Not in the BOM: no `pgbackrest/pgbackrest` image is published upstream, so
+ * the pgbackrest engine needs an `engineImage` the operator supplies, and no
+ * release can pin or bundle this default (allowlisted in data-images.literals.test.ts).
+ */
 export const DEFAULT_PGBACKREST_IMAGE = 'pgbackrest/pgbackrest:2.51';
 
 /**

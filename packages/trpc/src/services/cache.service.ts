@@ -22,6 +22,7 @@ import {
   CACHE_TOPOLOGIES,
 } from '@swarmy/core';
 import { decryptSecret } from '@swarmy/core/crypto';
+import { requireDataImage } from '@swarmy/core/data-images';
 import type { AttachCacheInput, ProvisionCacheInput } from '@swarmy/core';
 import type {
   BackupVolumeResult,
@@ -127,9 +128,10 @@ export function cacheRegionReplicasLabelKey(region: string): string {
 // ── Engine constants ──────────────────────────────────────────────────────────
 export const CACHE_PORT = 6379;
 export const SENTINEL_PORT = 26379;
+/** The engine images, from the BOM's data section (the decorator deploys them at the release's digest). */
 export const CACHE_IMAGES: Record<CacheEngine, string> = {
-  valkey: 'valkey/valkey:8',
-  redis: 'redis:7.4',
+  valkey: requireDataImage('valkey').ref,
+  redis: requireDataImage('redis').ref,
 };
 /** Sentinels run the cluster engine's own image (`<engine>-sentinel` binary). */
 export function sentinelImage(engine: CacheEngine): string {

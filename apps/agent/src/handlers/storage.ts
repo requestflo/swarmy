@@ -14,6 +14,7 @@ import path from 'node:path';
 import type { DockerClient } from '@swarmy/core/docker';
 import type { ServiceSpec } from '@swarmy/core/protocol';
 import { parseDiskVolumeDevice } from '@swarmy/core';
+import { systemImage } from '@swarmy/core/system-images';
 import { runOnce } from './swarmres';
 import { defaultDiskDeps, ensureDiskVolumeDir } from './disk';
 
@@ -195,8 +196,8 @@ export async function applyStorageNode(
   return { driver: r.driver, serviceId, layoutApplied };
 }
 
-/** Pinned curl image for overlay admin calls (mirrors the controller's CURL_IMAGE). */
-export const ADMIN_CURL_IMAGE = 'curlimages/curl:8.10.1';
+/** Pinned curl image for overlay admin calls (the BOM's `curl`, as the controller's CURL_IMAGE). */
+export const ADMIN_CURL_IMAGE = systemImage('curl').ref;
 const ADMIN_STATUS_MARKER = '__SWARMY_STATUS__:';
 
 /** One-shot admin call: `curl` on `network`; env-only secrets. True on HTTP 2xx. */

@@ -13,11 +13,12 @@
  *
  * Pure — unit-tested against the v2 OpenAPI operation list.
  */
+import { systemImage } from '@swarmy/core/system-images';
 
 export type GarageMajor = 1 | 2;
 
-/** What pre-v2 clusters run (no `engineImage` recorded on their row). */
-export const LEGACY_GARAGE_IMAGE = 'dxflrs/garage:v1.0.1';
+/** What pre-v2 clusters run (no `engineImage` recorded on their row): the BOM's `garageV1`. */
+export const LEGACY_GARAGE_IMAGE = systemImage('garageV1').ref;
 
 /** Garage major version from an image ref (`dxflrs/garage:v2.4.1` → 2); unknown ⇒ 1. */
 export function garageMajorOf(image: string | null | undefined): GarageMajor {

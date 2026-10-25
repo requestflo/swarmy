@@ -40,6 +40,7 @@ import {
 import { TRPCError } from '@trpc/server';
 import { decryptSecret, encryptSecret } from '@swarmy/core/crypto';
 import type { RunOnceResult } from '@swarmy/core/protocol';
+import { systemImage } from '@swarmy/core/system-images';
 import type { OrgContext } from '../context';
 import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { writeAudit } from './audit.service';
@@ -54,8 +55,8 @@ import { platformKeyPurpose, planPlatformKeyGc, reservedKeyNameReason, type GcKe
 
 // Keep in lockstep with replicatedStore.service.ts (same deployment).
 const STORE_SERVICE_NAME = 'swarmy-garage';
-/** Pinned curl image for one-shot admin calls (no jq — parsing is controller-side). */
-export const CURL_IMAGE = 'curlimages/curl:8.10.1';
+/** Pinned curl image for one-shot admin calls (no jq — parsing is controller-side): the BOM's `curl`. */
+export const CURL_IMAGE = systemImage('curl').ref;
 const DISPATCH_TIMEOUT_MS = 45_000;
 
 // ── Docker-truth labels stamped on ATTACHED app services ─────────────────────

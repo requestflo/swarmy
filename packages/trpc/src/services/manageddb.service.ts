@@ -54,8 +54,8 @@ import {
 } from '@swarmy/core';
 import {
   DEFAULT_MANAGED_PG_IMAGE,
-  MANAGED_PG_IMAGE_REPO,
-  managedPgTag,
+  managedPgImageForTag,
+  managedPgImageOfLive,
   type ContainerInfo,
   type RunOncePayload,
   type RunOnceResult,
@@ -432,10 +432,11 @@ export function isBitnamiImage(image: string): boolean {
 
 /**
  * Resolve the engine image for a (re-)provision: explicit `image` → explicit
- * `imageTag` → the live primary's image (so re-provisioning keeps a per-cluster
- * override) → the pinned default. A live Bitnami image (the pre-B5 engine, a
- * different env/path contract the boot layer cannot drive) is never carried
- * forward — the default replaces it.
+ * `imageTag` (the BOM's image for that major, `managedPgImageForTag`) → the
+ * live primary's image (so re-provisioning keeps a per-cluster override; a
+ * pinned or mirrored form maps back to its BOM ref) → the BOM default. A live
+ * Bitnami image (the pre-B5 engine, a different env/path contract the boot
+ * layer cannot drive) is never carried forward — the default replaces it.
  */
 export function resolveManagedPgImage(
   input: Pick<ProvisionDbInput, 'image' | 'imageTag'>,
@@ -444,10 +445,11 @@ export function resolveManagedPgImage(
   const explicit = input.image?.trim();
   if (explicit) return explicit;
   const tag = input.imageTag?.trim();
-  if (tag) return `${MANAGED_PG_IMAGE_REPO}:${managedPgTag(tag)}`;
-  // Inventory images can carry a pinned digest (`repo:tag@sha256:…`); drop it so
-  // a rewritten repo is not pinned to a digest from the old namespace.
-  const live = existingImage?.split('@')[0]?.trim();
+  if (tag) return managedPgImageForTag(tag);
+  // Inventory images can carry a pinned digest (`repo:tag@sha256:…`) or be the
+  // built-in registry's copy; back to the BOM ref, so the dispatch decorator
+  // pins it to the running release (a private image just loses its digest).
+  const live = existingImage?.trim() ? managedPgImageOfLive(existingImage) : '';
   if (live && !isBitnamiImage(live)) return live;
   return DEFAULT_MANAGED_PG_IMAGE;
 }

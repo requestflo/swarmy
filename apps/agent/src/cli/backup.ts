@@ -24,13 +24,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { DockerClient } from '@swarmy/core/docker';
 import { DEFAULT_RESTIC_IMAGE, type ResticRepo, type ResticSnapshotInfo } from '@swarmy/core/protocol';
+import { MOVER_IMAGE } from '@swarmy/core';
 import { ensureRepo, repoEnv, runSidecar, parseSummary } from '../handlers/backup';
 import { env } from '../env';
 import { versionInfo } from '../version';
 import { confirmYesNo, fail, fmt, say } from './context';
 
 const STACK_LABEL = 'com.docker.stack.namespace';
-const TAR_IMAGE = 'alpine:3.20';
+/** The BOM's alpine (the volume mover's image): tar for the export/restore legs. */
+const TAR_IMAGE = MOVER_IMAGE;
 
 interface ExportManifest {
   kind: 'swarmy-rescue-export';

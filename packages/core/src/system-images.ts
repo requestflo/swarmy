@@ -26,10 +26,16 @@
  * upstream ref to `<registry>/swarmy-system/<path>@sha256:…` when it is
  * mirrored (and trusted), so every node pulls swarmy's images from the cluster.
  *
+ * Two sections: the platform images above, and the data images swarmy runs
+ * for managed databases, caches, search, vector indexes and their backups
+ * (`system-images-data.ts`; lookups in `data-images.ts`).
+ *
  * Pure module — no I/O. Unit-tested in `system-images.test.ts`.
  */
+import { DATA_IMAGES, type DataImageKey } from './system-images-data';
 
-export type SystemImageKey =
+/** The platform section: images the platform run moves (and swarmy's tooling around them). */
+export type PlatformImageKey =
   | 'registry'
   | 'regctl'
   | 'buildkit'
@@ -40,14 +46,11 @@ export type SystemImageKey =
   | 'trivy'
   | 'cosign'
   | 'busybox'
-  | 'restic'
-  | 'walg'
   | 'garage'
   | 'garageV1'
   | 'clickhouse'
   | 'otelCollector'
   | 'curl'
-  | 'valkey'
   | 'maddy'
   | 'dockerCli'
   | 'netbirdServer'
@@ -62,6 +65,8 @@ export type SystemImageKey =
   | 'controller'
   | 'appAuth';
 
+export type SystemImageKey = PlatformImageKey | DataImageKey;
+
 export interface SystemImage {
   key: SystemImageKey;
   /** The ref EXACTLY as swarmy's code dispatches it (short Docker Hub names kept). */
@@ -73,10 +78,22 @@ export interface SystemImage {
    * itself, and the copier must be pullable when the registry is empty.
    */
   noRewrite?: boolean;
+  /**
+   * A third-party image that follows its upstream tag instead of a pin here:
+   * CI resolves the tag's digest into each release's platform.json
+   * (`scripts/data-image-digests.ts`), and the manifest keeps the upstream tag.
+   */
+  upstream?: true;
+  /**
+   * Only an offline bundle copies it into the built-in registry; the online
+   * mirror tick leaves it to the Docker Hub pull-through cache (gigabytes of
+   * engines a cluster may never run). Still rewritten once a bundle seeded it.
+   */
+  bundleOnly?: true;
 }
 
 /** Digests resolved 2026-09-24 against the upstream registries (multi-arch index digests). */
-export const SYSTEM_IMAGES: readonly SystemImage[] = [
+export const PLATFORM_IMAGES: readonly SystemImage[] = [
   { key: 'registry', ref: 'registry:2', digest: 'sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373', noRewrite: true },
   { key: 'regctl', ref: 'ghcr.io/regclient/regctl:v0.9.0-alpine', digest: 'sha256:9e5b4ad04dd7ee9b37b360289231eb4ebadfe3a72f3ddaa1cd6a585efb6d1e4c', noRewrite: true },
   { key: 'buildkit', ref: 'moby/buildkit:rootless', digest: 'sha256:80b15f0735e87bab7bf59ec4d695dfb4a7cfb25521cf56dc75d6f256285b63ef' },
@@ -95,13 +112,11 @@ export const SYSTEM_IMAGES: readonly SystemImage[] = [
   { key: 'trivy', ref: 'aquasec/trivy:0.58.1', digest: 'sha256:ab70a02200597efa04748f210f793936eb647cbcdb0ea69cc30b226d6f5a22c7' },
   { key: 'cosign', ref: 'gcr.io/projectsigstore/cosign:v2.4.1', digest: 'sha256:b03690aa52bfe94054187142fba24dc54137650682810633901767d8a3e15b31' },
   { key: 'busybox', ref: 'busybox:1.36', digest: 'sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662' },
-  { key: 'restic', ref: 'restic/restic:0.16.4', digest: 'sha256:dad38b8042cfb1a759a958ed0061b888ebd05b1e780125a1fb4e2d687c6c0556' },
   { key: 'garage', ref: 'dxflrs/garage:v2.4.1', digest: 'sha256:9c96caa2612d3411acc5b0e6701fb238dbfba33e533a6d7d3d811a4b12d0d020' },
   { key: 'garageV1', ref: 'dxflrs/garage:v1.0.1', digest: 'sha256:a5706cf1f3d7b349ac5133ec59ad8181b709270b75e5f2fa7b3e1a5c07d67137' },
   { key: 'clickhouse', ref: 'clickhouse/clickhouse-server:24.8-alpine', digest: 'sha256:b002e56ed5c16e224c312527f6fcba7e77216fec5d7a88a7828f59efc614feb5' },
   { key: 'otelCollector', ref: 'otel/opentelemetry-collector-contrib:0.111.0', digest: 'sha256:a2a52e43c1a80aa94120ad78c2db68780eb90e6d11c8db5b3ce2f6a0cc6b5029' },
   { key: 'curl', ref: 'curlimages/curl:8.10.1', digest: 'sha256:d9b4541e214bcd85196d6e92e2753ac6d0ea699f0af5741f8c6cccbfcf00ef4b' },
-  { key: 'valkey', ref: 'valkey/valkey:8', digest: 'sha256:640c5e62cea04b6d6f2084232651d0cc70362d31f4f805e7be94dbed6855e8f2' },
   // Email service MTA (epic developer-platform §8): one Go binary with submission,
   // DKIM, a retry queue and smarthost routing, ~20–30 MB RSS (fits 1 GB nodes).
   { key: 'maddy', ref: 'foxcpp/maddy:0.9.5', digest: 'sha256:de42151adff6388edb5e4ee88f60334fa1ab85e309485193ecb1c2db20203315' },
@@ -128,11 +143,10 @@ export const SYSTEM_IMAGES: readonly SystemImage[] = [
   { key: 'controller', ref: 'ghcr.io/requestflo/swarmy-controller:latest' },
   // Per-app Better Auth service for `auth:` in swarmy.yaml (docker/app-auth, dev-platform §2B).
   { key: 'appAuth', ref: 'ghcr.io/requestflo/swarmy-app-auth:latest' },
-  // wal-g for managed Postgres PITR (docker/walg). wal-g ships release binaries, not
-  // images, so swarmy builds this from the checksum-verified v3.0.3 Postgres build;
-  // CI's platform.json pins its digest like the other swarmy builds (bom: walg).
-  { key: 'walg', ref: 'ghcr.io/requestflo/swarmy-walg:latest' },
 ];
+
+/** The whole BOM: the platform section, then the data section (system-images-data.ts). */
+export const SYSTEM_IMAGES: readonly SystemImage[] = [...PLATFORM_IMAGES, ...DATA_IMAGES];
 
 /** Repo namespace inside the built-in registry that holds the mirrored copies. */
 export const SYSTEM_MIRROR_NAMESPACE = 'swarmy-system';
@@ -264,14 +278,15 @@ export function mirroredRefFor(
  * Which entries a mirror tick copies. Pinned entries already trusted are
  * skipped (bytes can't change). Floating entries (swarmy's own `:latest`) are
  * re-copied every tick so the mirror follows upstream; a failed copy keeps the
- * previous label, so an offline tick never loses the mirror.
+ * previous label, so an offline tick never loses the mirror. Bundle-only
+ * entries are never copied online (an offline bundle seeds them).
  */
 export function planMirror(
   labels: Record<string, string>,
   registryNodeId: string | null,
   images: readonly SystemImage[] = SYSTEM_IMAGES,
 ): SystemImage[] {
-  return images.filter((img) => !img.digest || trustedMirrorDigest(img, labels, registryNodeId) === null);
+  return images.filter((img) => !img.bundleOnly && (!img.digest || trustedMirrorDigest(img, labels, registryNodeId) === null));
 }
 
 export const MIRROR_OK_MARKER = '@@SWARMY-MIRROR-OK@@';

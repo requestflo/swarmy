@@ -20,14 +20,14 @@ import { spawn } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { ResticRepo } from '@swarmy/core/protocol';
+import { DEFAULT_RESTIC_IMAGE, type ResticRepo } from '@swarmy/core/protocol';
 import {
   decryptWithPassphrase,
   encryptWithPassphrase,
 } from '@swarmy/core/crypto';
 
 export const CONTROLLER_BACKUP_TAG = 'swarmy.controller-state';
-export const DEFAULT_RESTIC_IMAGE = 'restic/restic:0.16.4';
+export { DEFAULT_RESTIC_IMAGE };
 const BUNDLE_FILE = 'bundle.swcb';
 /** Bundle member holding the control.db snapshot. */
 export const SNAPSHOT_MEMBER = 'control.db';

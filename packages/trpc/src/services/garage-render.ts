@@ -11,6 +11,7 @@
  */
 import { garageMajorOf, toGarageRequest } from './garage-admin';
 import { createHash } from 'node:crypto';
+import { systemImage } from '@swarmy/core/system-images';
 import { STACK_LABEL, SWARMY_CONTROL_NETWORK, SWARMY_OVERLAY_NETWORK, SYSTEM_STACK, SYSTEM_STACK_LABEL } from '@swarmy/core';
 
 /**
@@ -54,8 +55,9 @@ export interface RenderedStoreDeployment {
  * an engine upgrade moves it — a major is not a rolling upgrade, so a redeploy
  * must never pick this up silently. v2 is also what makes uploads from current
  * AWS SDKs work (unsigned-trailer + CRC64NVME checksums; v1.x rejects them).
+ * The BOM's `garage` entry (platform section: the platform run moves Garage).
  */
-export const DEFAULT_GARAGE_IMAGE = 'dxflrs/garage:v2.4.1';
+export const DEFAULT_GARAGE_IMAGE = systemImage('garage').ref;
 
 export const GARAGE_S3_PORT = 3900;
 export const GARAGE_RPC_PORT = 3901;

@@ -20,6 +20,7 @@ import type {
   SigningStatusView,
 } from '@swarmy/core/views';
 import type { RunOnceResult } from '@swarmy/core/protocol';
+import { systemImage } from '@swarmy/core/system-images';
 import { hasBuilderLabel } from '@swarmy/core';
 import type { OrgContext } from '../context';
 import { mapDispatchError, notFound } from '../errors';
@@ -33,7 +34,7 @@ import { timeStage } from './build-stages.service';
 
 export const TRIVY_IMAGE = 'aquasec/trivy:0.58.1';
 export const COSIGN_IMAGE = 'gcr.io/projectsigstore/cosign:v2.4.1';
-const KEYGEN_SHELL_IMAGE = 'busybox:1.36';
+const KEYGEN_SHELL_IMAGE = systemImage('busybox').ref;
 const KEYGEN_VOLUME = 'swarmy-cosign-keygen';
 /** Root, so cosign can write into the lazily-created root-owned keygen volume. */
 export const KEYGEN_USER = '0:0';
