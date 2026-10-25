@@ -5128,6 +5128,131 @@
             ]
           }
         }
+      },
+      "GuardrailRuleId": {
+        "type": "string",
+        "enum": [
+          "noLatestTagInProd",
+          "minDbReplicasProd",
+          "requireBackupPolicy",
+          "requireHealthcheck",
+          "requireResourceLimits",
+          "requireSignedImagesProd",
+          "noPrivilegedContainers",
+          "noHostPortsProd"
+        ],
+        "description": "A guardrail rule. Open enum: new rules may be added."
+      },
+      "GuardrailRule": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/GuardrailRuleId"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "block",
+              "warn"
+            ],
+            "description": "`block` refuses the deploy (an admin may override in the dashboard); `warn` asks for a confirmation."
+          },
+          "params": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000
+            },
+            "description": "Numeric rule parameters, e.g. `{ \"n\": 2 }` for minDbReplicasProd."
+          },
+          "prod_only": {
+            "type": "boolean",
+            "description": "Applies only to production stacks (`swarmy.env=production`)."
+          }
+        },
+        "required": [
+          "id",
+          "enabled",
+          "severity",
+          "params",
+          "prod_only"
+        ]
+      },
+      "Guardrails": {
+        "type": "object",
+        "properties": {
+          "org_id": {
+            "type": "string"
+          },
+          "production_safety_mode": {
+            "type": "boolean",
+            "description": "On: every rule is enforced at `block` on production stacks."
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GuardrailRule"
+            }
+          }
+        },
+        "required": [
+          "org_id",
+          "production_safety_mode",
+          "rules"
+        ]
+      },
+      "GuardrailRuleUpdate": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/GuardrailRuleId"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "block",
+              "warn"
+            ],
+            "description": "`block` refuses the deploy (an admin may override in the dashboard); `warn` asks for a confirmation."
+          },
+          "params": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000
+            },
+            "description": "Merged into the rule’s params (keys left out keep their value)."
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "description": "Fields left out keep their configured value."
+      },
+      "UpdateGuardrailsRequest": {
+        "type": "object",
+        "properties": {
+          "production_safety_mode": {
+            "type": "boolean"
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GuardrailRuleUpdate"
+            },
+            "maxItems": 64,
+            "description": "Only the rules named change; the rest keep their state."
+          }
+        },
+        "description": "Partial: what already holds is not rewritten (and writes no audit row)."
       }
     },
     "parameters": {}
@@ -10428,6 +10553,94 @@
             }
           },
           "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/guardrails": {
+      "get": {
+        "tags": [
+          "Guardrails"
+        ],
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "summary": "Get the guardrails: production safety mode and every deploy rule",
+        "responses": {
+          "200": {
+            "description": "Guardrails",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Guardrails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Guardrails"
+        ],
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "summary": "Change production safety mode and/or rules (enabled, severity, params)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateGuardrailsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Guardrails as they now are",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Guardrails"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
             "description": "Problem",
             "content": {
               "application/problem+json": {

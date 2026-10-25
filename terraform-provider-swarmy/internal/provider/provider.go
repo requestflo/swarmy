@@ -140,6 +140,7 @@ func (p *swarmyProvider) Resources(_ context.Context) []func() resource.Resource
 		NewIngressResource,
 		NewAlertRuleResource,
 		NewNotificationChannelResource,
+		NewGuardrailsResource,
 	}
 }
 

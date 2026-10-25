@@ -49,6 +49,7 @@ const ADMIN_ROUTES: Array<[string, string, unknown, string]> = [
   ['PUT', '/apps/gr1/enforce-drift', { enforce_drift: true }, 'apps.setEnforceDrift'],
   ['POST', '/apps/gr1/promote', { from: 'staging' }, 'apps.promote'],
   ['PUT', '/ingress/settings', { enabled: true }, 'ingress.updateSettings'],
+  ['PATCH', '/guardrails', { production_safety_mode: true }, 'guardrails.setSafetyMode'],
 ];
 
 const call = (role: Role, method: string, path: string, body: unknown) =>

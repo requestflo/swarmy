@@ -1167,3 +1167,29 @@ export interface UpdateNotificationChannelRequest {
   enabled?: boolean;
   config?: NotificationChannelConfig;
 }
+
+export interface GuardrailRule {
+  id: 'noLatestTagInProd' | 'minDbReplicasProd' | 'requireBackupPolicy' | 'requireHealthcheck' | 'requireResourceLimits' | 'requireSignedImagesProd' | 'noPrivilegedContainers' | 'noHostPortsProd';
+  enabled: boolean;
+  severity: 'block' | 'warn';
+  params: Record<string, number>;
+  prod_only: boolean;
+}
+
+export interface Guardrails {
+  org_id: string;
+  production_safety_mode: boolean;
+  rules: GuardrailRule[];
+}
+
+export interface GuardrailRuleUpdate {
+  id: 'noLatestTagInProd' | 'minDbReplicasProd' | 'requireBackupPolicy' | 'requireHealthcheck' | 'requireResourceLimits' | 'requireSignedImagesProd' | 'noPrivilegedContainers' | 'noHostPortsProd';
+  enabled?: boolean;
+  severity?: 'block' | 'warn';
+  params?: Record<string, number>;
+}
+
+export interface UpdateGuardrailsRequest {
+  production_safety_mode?: boolean;
+  rules?: GuardrailRuleUpdate[];
+}

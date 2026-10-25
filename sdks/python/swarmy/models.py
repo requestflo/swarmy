@@ -2224,3 +2224,54 @@ class NotificationChannelConfig:
             token=d.get("token"),
         )
 
+
+@dataclass
+class GuardrailRule:
+    id: str
+    enabled: bool
+    severity: str
+    params: Dict[str, int]
+    prod_only: bool
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "GuardrailRule":
+        return cls(
+            id=d.get("id"),
+            enabled=d.get("enabled"),
+            severity=d.get("severity"),
+            params=d.get("params"),
+            prod_only=d.get("prod_only"),
+        )
+
+
+@dataclass
+class Guardrails:
+    org_id: str
+    production_safety_mode: bool
+    rules: List[GuardrailRule]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "Guardrails":
+        return cls(
+            org_id=d.get("org_id"),
+            production_safety_mode=d.get("production_safety_mode"),
+            rules=d.get("rules"),
+        )
+
+
+@dataclass
+class GuardrailRuleUpdate:
+    id: str
+    enabled: Optional[bool] = None
+    severity: Optional[str] = None
+    params: Optional[Dict[str, int]] = None
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "GuardrailRuleUpdate":
+        return cls(
+            id=d.get("id"),
+            enabled=d.get("enabled"),
+            severity=d.get("severity"),
+            params=d.get("params"),
+        )
+

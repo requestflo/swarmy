@@ -1205,3 +1205,29 @@ type UpdateNotificationChannelRequest struct {
 	Enabled *bool                      `json:"enabled,omitempty"`
 	Config  *NotificationChannelConfig `json:"config,omitempty"`
 }
+
+type GuardrailRule struct {
+	ID       string         `json:"id"`
+	Enabled  bool           `json:"enabled"`
+	Severity string         `json:"severity"`
+	Params   map[string]int `json:"params"`
+	ProdOnly bool           `json:"prod_only"`
+}
+
+type Guardrails struct {
+	OrgID                string          `json:"org_id"`
+	ProductionSafetyMode bool            `json:"production_safety_mode"`
+	Rules                []GuardrailRule `json:"rules"`
+}
+
+type GuardrailRuleUpdate struct {
+	ID       string         `json:"id"`
+	Enabled  *bool          `json:"enabled,omitempty"`
+	Severity string         `json:"severity,omitempty"`
+	Params   map[string]int `json:"params,omitempty"`
+}
+
+type UpdateGuardrailsRequest struct {
+	ProductionSafetyMode *bool                 `json:"production_safety_mode,omitempty"`
+	Rules                []GuardrailRuleUpdate `json:"rules,omitempty"`
+}

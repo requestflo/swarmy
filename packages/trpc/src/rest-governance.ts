@@ -16,3 +16,5 @@ export {
 } from './services/alerts.service';
 export { getAlertRule, getNotificationChannel } from './services/governance-lookup';
 export { resolveConfigRow } from './abac-config';
+export { getConfig as getGuardrailsConfig } from './services/guardrails.service';
+export { updateGuardrails, type GuardrailsPatch } from './services/guardrails-update';
