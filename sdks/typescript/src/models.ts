@@ -1193,3 +1193,30 @@ export interface UpdateGuardrailsRequest {
   production_safety_mode?: boolean;
   rules?: GuardrailRuleUpdate[];
 }
+
+export interface Policy {
+  id: string;
+  name: string;
+  description: string | null;
+  effect: 'permit' | 'forbid';
+  source: string;
+  priority: number;
+  enabled: boolean;
+  is_default: boolean;
+  sentence: string;
+  updated_at: string;
+}
+
+export interface PolicyList {
+  data: Policy[];
+  next_cursor: string | null;
+}
+
+export interface PolicyRequest {
+  name: string;
+  description?: string;
+  effect: 'permit' | 'forbid';
+  source: string;
+  priority?: number;
+  enabled?: boolean;
+}

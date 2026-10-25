@@ -39,5 +39,10 @@ export function memTable(prefix: string, rows: Row[] = []) {
       const i = rows.findIndex((r) => matches(r, where));
       return rows.splice(i, 1)[0];
     },
+    deleteMany: async ({ where }: { where?: Row } = {}) => {
+      const gone = rows.filter((r) => matches(r, where));
+      for (const r of gone) rows.splice(rows.indexOf(r), 1);
+      return { count: gone.length };
+    },
   };
 }

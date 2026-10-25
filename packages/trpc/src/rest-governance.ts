@@ -14,7 +14,9 @@ export {
   updateChannel as updateNotificationChannel,
   updateRule as updateAlertRule,
 } from './services/alerts.service';
-export { getAlertRule, getNotificationChannel } from './services/governance-lookup';
+export { getAlertRule, getNotificationChannel, getPolicy } from './services/governance-lookup';
+export { deletePolicy, listPolicies, setPolicy, type PolicyView } from './services/policies.service';
+export { SetPolicyInput } from './services/policy-input';
 export { resolveConfigRow } from './abac-config';
 export { getConfig as getGuardrailsConfig } from './services/guardrails.service';
 export { updateGuardrails, type GuardrailsPatch } from './services/guardrails-update';

@@ -2275,3 +2275,32 @@ class GuardrailRuleUpdate:
             params=d.get("params"),
         )
 
+
+@dataclass
+class Policy:
+    id: str
+    name: str
+    description: Optional[str]
+    effect: str
+    source: str
+    priority: int
+    enabled: bool
+    is_default: bool
+    sentence: str
+    updated_at: str
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "Policy":
+        return cls(
+            id=d.get("id"),
+            name=d.get("name"),
+            description=d.get("description"),
+            effect=d.get("effect"),
+            source=d.get("source"),
+            priority=d.get("priority"),
+            enabled=d.get("enabled"),
+            is_default=d.get("is_default"),
+            sentence=d.get("sentence"),
+            updated_at=d.get("updated_at"),
+        )
+

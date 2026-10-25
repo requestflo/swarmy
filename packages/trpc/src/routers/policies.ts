@@ -11,6 +11,7 @@ import {
   whoCanPolicy,
 } from '../services/policies.service';
 import { simulateInvitePolicy } from '../services/invite-preview.service';
+import { SetPolicyInput } from '../services/policy-input';
 
 /**
  * ABAC policy management. Reads are org-members; writes are admin-only and
@@ -70,18 +71,9 @@ export const policiesRouter = router({
     .query(({ ctx, input }) => simulateInvitePolicy(ctx, input)),
 
 
+  /** Create (no id) or update a policy; REST POST/PUT /policies share the schema. */
   set: abacProcedure('policy.write')
-    .input(
-      z.object({
-        id: z.string().optional(),
-        name: z.string().min(1).max(120),
-        description: z.string().max(500).optional(),
-        effect: z.enum(['permit', 'forbid']),
-        source: z.string().min(2),
-        priority: z.number().int().min(0).max(1000).optional(),
-        enabled: z.boolean().optional(),
-      }),
-    )
+    .input(SetPolicyInput)
     .mutation(({ ctx, input }) => setPolicy(ctx, input)),
 
   delete: abacProcedure('policy.write')

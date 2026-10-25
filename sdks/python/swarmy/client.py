@@ -15,7 +15,7 @@ from .resources import (
     _compact,
 )
 from .resources_alerts import AlertRulesResource, NotificationChannelsResource
-from .resources_governance import GuardrailsResource
+from .resources_governance import GuardrailsResource, PoliciesResource
 from .resources_extra import (
     ApiKeysResource,
     AppsResource,
@@ -64,6 +64,7 @@ class SwarmyClient:
         self.alert_rules = AlertRulesResource(self._http)
         self.notification_channels = NotificationChannelsResource(self._http)
         self.guardrails = GuardrailsResource(self._http)
+        self.policies = PoliciesResource(self._http)
 
     def me(self) -> Principal:
         """Who this credential acts as (org, user, role) and its scopes."""

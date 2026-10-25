@@ -19,7 +19,7 @@ import {
   VolumesResource,
 } from './resources-extra.js';
 import { AlertRulesResource, NotificationChannelsResource } from './resources-alerts.js';
-import { GuardrailsResource } from './resources-governance.js';
+import { GuardrailsResource, PoliciesResource } from './resources-governance.js';
 
 export * from './models.js';
 export { SwarmyApiError } from './error.js';
@@ -57,6 +57,7 @@ export class SwarmyClient {
   readonly alertRules: AlertRulesResource;
   readonly notificationChannels: NotificationChannelsResource;
   readonly guardrails: GuardrailsResource;
+  readonly policies: PoliciesResource;
 
   private readonly http: HttpTransport;
 
@@ -79,6 +80,7 @@ export class SwarmyClient {
     this.alertRules = new AlertRulesResource(this.http);
     this.notificationChannels = new NotificationChannelsResource(this.http);
     this.guardrails = new GuardrailsResource(this.http);
+    this.policies = new PoliciesResource(this.http);
   }
 
   /** Who this credential acts as (org, user, role) and its scopes. */

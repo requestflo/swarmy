@@ -28,22 +28,6 @@ var (
 // argument but `signal` updates in place (one PATCH carrying the whole rule).
 type alertRuleResource struct{ client *client.Client }
 
-type alertRuleModel struct {
-	ID         types.String  `tfsdk:"id"`
-	Name       types.String  `tfsdk:"name"`
-	Signal     types.String  `tfsdk:"signal"`
-	App        types.String  `tfsdk:"app"`
-	Server     types.String  `tfsdk:"server"`
-	Service    types.String  `tfsdk:"service"`
-	Threshold  types.Float64 `tfsdk:"threshold"`
-	ForSeconds types.Int64   `tfsdk:"for_seconds"`
-	ChannelIDs types.Set     `tfsdk:"channel_ids"`
-	Enabled    types.Bool    `tfsdk:"enabled"`
-	IsDefault  types.Bool    `tfsdk:"is_default"`
-	MutedUntil types.String  `tfsdk:"muted_until"`
-	CreatedAt  types.String  `tfsdk:"created_at"`
-}
-
 // NewAlertRuleResource is the resource factory.
 func NewAlertRuleResource() resource.Resource { return &alertRuleResource{} }
 

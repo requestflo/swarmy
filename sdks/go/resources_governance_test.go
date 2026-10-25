@@ -29,3 +29,50 @@ func TestGuardrails(t *testing.T) {
 			`{"production_safety_mode":false,"rules":[{"id":"requireHealthcheck","enabled":false,"severity":"warn"}]}`)
 	})
 }
+
+const policyJSON = `{"id":"p 1","name":"Members restart","description":null,"effect":"permit","source":"{\"roles\":[\"member\"]}",
+	"priority":0,"enabled":true,"is_default":false,"sentence":"Members can restart","updated_at":"2026-10-01T00:00:00.000Z"}`
+
+func TestPolicies(t *testing.T) {
+	t.Run("List", func(t *testing.T) {
+		var out *PolicyList
+		cap := roundTrip(t, 200, `{"data":[`+policyJSON+`],"next_cursor":null}`, func(c *Client) (err error) {
+			out, err = c.Policies.List(bg)
+			return
+		})
+		expectRequest(t, cap, "GET", "/api/v1/policies", "", "")
+		if len(out.Data) != 1 || out.Data[0].Description != nil || out.Data[0].Source != `{"roles":["member"]}` {
+			t.Errorf("list = %+v", out)
+		}
+	})
+	t.Run("Get", func(t *testing.T) {
+		cap := roundTrip(t, 200, policyJSON, func(c *Client) error {
+			_, err := c.Policies.Get(bg, "p 1")
+			return err
+		})
+		expectRequest(t, cap, "GET", "/api/v1/policies/p%201", "", "")
+	})
+	body := PolicyRequest{Name: "Members restart", Effect: "permit", Source: `{"roles":["member"]}`, Priority: Ptr(0), Enabled: Ptr(false)}
+	want := `{"name":"Members restart","effect":"permit","source":"{\"roles\":[\"member\"]}","priority":0,"enabled":false}`
+	t.Run("Create", func(t *testing.T) {
+		cap := roundTrip(t, 201, policyJSON, func(c *Client) error {
+			_, err := c.Policies.Create(bg, body)
+			return err
+		})
+		expectRequest(t, cap, "POST", "/api/v1/policies", "", want)
+	})
+	t.Run("Replace", func(t *testing.T) {
+		cap := roundTrip(t, 200, policyJSON, func(c *Client) error {
+			_, err := c.Policies.Replace(bg, "p1", body)
+			return err
+		})
+		expectRequest(t, cap, "PUT", "/api/v1/policies/p1", "", want)
+	})
+	t.Run("Delete", func(t *testing.T) {
+		cap := roundTrip(t, 200, `{"id":"p1","removed":true}`, func(c *Client) error {
+			_, err := c.Policies.Delete(bg, "p1")
+			return err
+		})
+		expectRequest(t, cap, "DELETE", "/api/v1/policies/p1", "", "")
+	})
+}

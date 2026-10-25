@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"net/http"
+	"net/url"
 )
 
 // ---- Guardrails (/guardrails) ----
@@ -69,4 +70,63 @@ func (c *Client) UpdateGuardrails(ctx context.Context, body GuardrailsUpdate) (*
 		return nil, err
 	}
 	return &out, nil
+}
+
+// ---- Access policies (/policies) ----
+
+// Policy mirrors the Policy DTO.
+type Policy struct {
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	Description *string `json:"description"`
+	Effect      string  `json:"effect"`
+	Source      string  `json:"source"`
+	Priority    int64   `json:"priority"`
+	Enabled     bool    `json:"enabled"`
+	IsDefault   bool    `json:"is_default"`
+	Sentence    string  `json:"sentence"`
+	UpdatedAt   string  `json:"updated_at"`
+}
+
+// PolicyWrite is the POST/PUT /policies body: the whole rule (a description
+// left out is cleared on update).
+type PolicyWrite struct {
+	Name        string  `json:"name"`
+	Description *string `json:"description,omitempty"`
+	Effect      string  `json:"effect"`
+	Source      string  `json:"source"`
+	Priority    int64   `json:"priority"`
+	Enabled     bool    `json:"enabled"`
+}
+
+// CreatePolicy adds a policy (201); the controller validates the document.
+func (c *Client) CreatePolicy(ctx context.Context, body PolicyWrite) (*Policy, error) {
+	var out Policy
+	if err := c.post(ctx, "/policies", body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// GetPolicy reads one policy.
+func (c *Client) GetPolicy(ctx context.Context, id string) (*Policy, error) {
+	var out Policy
+	if err := c.get(ctx, "/policies/"+url.PathEscape(id), &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ReplacePolicy rewrites a policy in place.
+func (c *Client) ReplacePolicy(ctx context.Context, id string, body PolicyWrite) (*Policy, error) {
+	var out Policy
+	if err := c.do(ctx, http.MethodPut, "/policies/"+url.PathEscape(id), body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// DeletePolicy removes a custom policy.
+func (c *Client) DeletePolicy(ctx context.Context, id string) error {
+	return c.delete(ctx, "/policies/"+url.PathEscape(id), nil)
 }

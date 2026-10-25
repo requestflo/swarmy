@@ -9,7 +9,7 @@ import {
 } from '@swarmy/abac';
 import type { Action, PolicyDoc, ResourceInput } from '@swarmy/abac';
 import type { OrgContext } from '../context';
-import { notFound } from '../errors';
+import { badRequest, notFound } from '../errors';
 import { writeAudit } from './audit.service';
 import { evaluateAccess, resolveNode, resolveService, resolveStack } from '../abac';
 import { whoCan, type WhoCanRow } from '../abac-who-can';
@@ -66,7 +66,7 @@ export async function setPolicy(ctx: OrgContext, args: SetPolicyArgs): Promise<P
     parsePolicyDoc(args.source);
   } catch (e) {
     if (e instanceof PolicyParseError) {
-      throw new Error(`invalid policy: ${e.message}`);
+      throw badRequest(`invalid policy: ${e.message}`);
     }
     throw e;
   }
@@ -83,7 +83,7 @@ export async function setPolicy(ctx: OrgContext, args: SetPolicyArgs): Promise<P
         existing.effect !== args.effect ||
         (args.priority !== undefined && existing.priority !== args.priority);
       if (rewritten) {
-        throw new Error('Default rules are managed by swarmy. Turn this one off, or add your own rule (a forbid overrides).');
+        throw badRequest('Default rules are managed by swarmy. Turn this one off, or add your own rule (a forbid overrides).');
       }
     }
     if (!existing) throw notFound('policy', args.id);
@@ -107,7 +107,7 @@ export async function deletePolicy(
   const repo = policyRepo(ctx.db);
   const row = await repo.get(ctx.activeOrgId, id);
   if (!row) throw notFound('policy', id);
-  if (row.isDefault) throw new Error('default policies cannot be deleted');
+  if (row.isDefault) throw badRequest('default policies cannot be deleted');
   await assertNoOwnerLockout(ctx, { kind: 'delete', id });
   await repo.delete(ctx.activeOrgId, id);
   await writeAudit(ctx, { action: 'policy.delete', targetType: 'policy', targetId: id });

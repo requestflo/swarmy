@@ -26,6 +26,7 @@ import { registerDeployRoutes } from './routes/deploys';
 import { registerAlertRuleRoutes } from './routes/alert-rules';
 import { registerNotificationChannelRoutes } from './routes/notification-channels';
 import { registerGuardrailRoutes } from './routes/guardrails';
+import { registerPolicyRoutes } from './routes/policies';
 import { idempotency } from './idempotency';
 import { appScopeGate } from './app-scope';
 import { DEPRECATED_EXTENSION, deprecationSignals } from './deprecation';
@@ -93,6 +94,7 @@ function buildResourceApp(deps: RestDeps, withAuth = true): OpenAPIHono<RestEnv>
   registerAlertRuleRoutes(app);
   registerNotificationChannelRoutes(app);
   registerGuardrailRoutes(app);
+  registerPolicyRoutes(app);
 
   app.onError((e, c) => {
     const p = trpcErrorToProblem(e, c.req.path);

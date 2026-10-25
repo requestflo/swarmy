@@ -2,6 +2,7 @@ import type { AlertRuleView, NotificationChannelView } from '@swarmy/core';
 import type { OrgContext } from '../context';
 import { notFound } from '../errors';
 import { listChannels, listRules } from './alerts.service';
+import { listPolicies, type PolicyView } from './policies.service';
 
 /**
  * Read one governance/alerting row by id — what the dashboard gets by picking
@@ -21,4 +22,10 @@ export async function getNotificationChannel(ctx: OrgContext, id: string): Promi
   const channel = (await listChannels(ctx)).find((c) => c.id === id);
   if (!channel) throw notFound('notification channel', id);
   return channel;
+}
+
+export async function getPolicy(ctx: OrgContext, id: string): Promise<PolicyView> {
+  const policy = (await listPolicies(ctx)).find((p) => p.id === id);
+  if (!policy) throw notFound('policy', id);
+  return policy;
 }

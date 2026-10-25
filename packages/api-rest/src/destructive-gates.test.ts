@@ -86,6 +86,10 @@ const ROUTES: Array<[method: string, path: string, action: string, body?: unknow
   // Config-level deletes: members keep alert.remove by the seeded defaults.
   ['DELETE', '/alert-rules/ar1', 'alert.remove'],
   ['DELETE', '/notification-channels/ch1', 'alert.remove'],
+  // Access rules: owners and admins only.
+  ['POST', '/policies', 'policy.write', { name: 'x', effect: 'permit', source: '{"actions":["service.read"]}' }],
+  ['PUT', '/policies/p1', 'policy.write', { name: 'x', effect: 'permit', source: '{"actions":["service.read"]}' }],
+  ['DELETE', '/policies/p1', 'policy.write'],
   // Deploys: member-permitted outside production (no live stack → env unknown).
   ['POST', '/services', 'service.deploy', { name: 'web', image: 'nginx' }],
   ['POST', '/stacks', 'stack.deploy', { name: 'shop', compose_source: 'services: {}' }],

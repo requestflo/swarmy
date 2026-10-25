@@ -1231,3 +1231,30 @@ type UpdateGuardrailsRequest struct {
 	ProductionSafetyMode *bool                 `json:"production_safety_mode,omitempty"`
 	Rules                []GuardrailRuleUpdate `json:"rules,omitempty"`
 }
+
+type Policy struct {
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	Description *string `json:"description"`
+	Effect      string  `json:"effect"`
+	Source      string  `json:"source"`
+	Priority    int     `json:"priority"`
+	Enabled     bool    `json:"enabled"`
+	IsDefault   bool    `json:"is_default"`
+	Sentence    string  `json:"sentence"`
+	UpdatedAt   string  `json:"updated_at"`
+}
+
+type PolicyList struct {
+	Data       []Policy `json:"data"`
+	NextCursor *string  `json:"next_cursor"`
+}
+
+type PolicyRequest struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Effect      string `json:"effect"`
+	Source      string `json:"source"`
+	Priority    *int   `json:"priority,omitempty"`
+	Enabled     *bool  `json:"enabled,omitempty"`
+}

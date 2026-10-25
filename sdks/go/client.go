@@ -61,6 +61,7 @@ type Client struct {
 	AlertRules           *AlertRulesService
 	NotificationChannels *NotificationChannelsService
 	Guardrails           *GuardrailsService
+	Policies             *PoliciesService
 }
 
 // Option configures a Client.
@@ -115,6 +116,7 @@ func NewClient(endpoint, apiKey string, opts ...Option) (*Client, error) {
 	c.AlertRules = &AlertRulesService{client: c}
 	c.NotificationChannels = &NotificationChannelsService{client: c}
 	c.Guardrails = &GuardrailsService{client: c}
+	c.Policies = &PoliciesService{client: c}
 	return c, nil
 }
 
