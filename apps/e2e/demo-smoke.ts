@@ -285,6 +285,18 @@ try {
     fail(`route driver: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`);
   }
 
+  // A server at Controls: the Disks card renders (wkr-1's provider attached a blank volume).
+  try {
+    const before = pageErrors.length;
+    await page.goto(`${BASE}/nodes/n-wkr-1`, { waitUntil: 'networkidle' });
+    await page.getByRole('group', { name: 'Detail on this page' }).getByRole('button', { name: 'Controls' }).first().click();
+    await page.getByRole('button', { name: 'Format and use' }).first().waitFor({ timeout: 10_000 });
+    if (pageErrors.length > before) fail(`server controls: ${pageErrors.slice(before).join(' | ')}`);
+    else console.log('✓ server controls: the Disks card offers wkr-1’s blank volume');
+  } catch (e) {
+    fail(`server controls: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`);
+  }
+
   // The banner links back out.
   await page.goto(`${BASE}/`, { waitUntil: 'networkidle' });
   const links = await page
