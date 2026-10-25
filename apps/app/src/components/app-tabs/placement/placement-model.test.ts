@@ -3,6 +3,7 @@ import type { InvService, NodeSummary, ServiceDetail } from '@swarmy/core';
 import { buildMap, partsById, regionsOf } from './map-model';
 import { meaningNotes } from './meaning-model';
 import { durableName, volumeRows, withDurable } from './volume-model';
+import { sizeWords, volumeSay, volumeSize } from './volume-size';
 
 const node = (id: string, region: string | null): NodeSummary => ({ id, name: id, hostname: id, region, status: 'online' }) as unknown as NodeSummary;
 const inv = (id: string, name: string, extra: Partial<InvService> = {}): InvService =>
@@ -57,5 +58,43 @@ describe('volumes as rows', () => {
       { type: 'volume', source: 'shop_web-app-cache', target: '/app/.cache', readOnly: false },
       { type: 'bind', source: '/etc/ssl', target: '/ssl', readOnly: true },
     ]);
+  });
+});
+
+describe('volume sizes on the rows (board AppPlacement: "db-data · pinned · london-2 · 4.1 GB")', () => {
+  const GB = 1024 ** 3;
+  const detail = (vols: ServiceDetail['volumes'], constraints: string[] = []): ServiceDetail => ({ volumes: vols, constraints, nodeId: null }) as unknown as ServiceDetail;
+  const rows = volumeRows('shop', [
+    { inv: inv('db', 'shop_db'), detail: detail([{ type: 'volume', source: 'shop_pg', target: '/data', readOnly: false }], ['node.hostname == lon-2']) },
+    { inv: inv('c', 'shop_cache'), detail: detail([{ type: 'volume', source: 'shop_cache', target: '/data', readOnly: false }]) },
+    { inv: inv('w', 'shop_web'), detail: detail([{ type: 'volume', target: '/tmp', readOnly: false }]) },
+  ], nodes);
+  const [pg, cache, tmp] = rows;
+  const reports = [
+    { nodeId: 'lon-2', sampledAt: 50, volumes: [{ name: 'shop_pg', sizeBytes: 4.1 * GB }] },
+    { nodeId: 'lon-1', sampledAt: 40, volumes: [{ name: 'shop_cache', sizeBytes: 640 * 1024 ** 2 }, { name: 'shop_pg', sizeBytes: 9 * GB }] },
+    { nodeId: 'nyc-1', sampledAt: 60, volumes: [{ name: 'shop_cache', sizeBytes: 1.2 * GB }] },
+    { nodeId: 'home', sampledAt: null, volumes: [] },
+  ];
+
+  test('a pinned volume is read on its own server (an old copy elsewhere is not its size)', () => {
+    const s = volumeSize(pg!, reports, nodes)!;
+    expect(sizeWords(s)).toBe('4.1 GB on lon-2');
+    expect(volumeSay(pg!, s)).toBe('4.1 GB on lon-2; db follows its data.');
+  });
+
+  test('a roaming volume lists every server with a copy, newest measurement', () => {
+    const s = volumeSize(cache!, reports, nodes)!;
+    expect(s).toMatchObject({ kind: 'known', sampledAt: 60 });
+    expect(volumeSay(cache!, s)).toBe('Kept on whichever server runs cache (640 MB on lon-1, 1.2 GB on nyc-1): a copy that moves starts with an empty one.');
+  });
+
+  test('an older agent or no report: "size not reported", never a zero; throwaway volumes have no size', () => {
+    const old = [{ nodeId: 'lon-2', sampledAt: null, volumes: [] }];
+    const s = volumeSize(pg!, old, nodes)!;
+    expect(s).toEqual({ kind: 'unreported' });
+    expect(volumeSay(pg!, s)).toBe('Stays on lon-2; db follows its data. Size not reported.');
+    expect(volumeSay(cache!, volumeSize(cache!, [], nodes))).toBe('Kept on whichever server runs cache: a copy that moves starts with an empty one. Size not reported.');
+    expect(volumeSize(tmp!, reports, nodes)).toBeNull();
   });
 });

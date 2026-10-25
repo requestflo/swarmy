@@ -147,7 +147,8 @@ const routes: Array<[string, RegExp?]> = [
   ['/stacks/storefront/rum-settings'],
   ['/stacks/storefront/backups'],
   ['/stacks/storefront/time-travel', /right now/],
-  ['/stacks/data/config/placement', /stays on wkr-1 with its data/],
+  // Volumes say their size and server; wkr-2's older agent doesn't report sizes.
+  ['/stacks/data/config/placement', /stays on wkr-1 with its data[\s\S]*4\.2 GB on wkr-1[\s\S]*Size not reported/],
   ['/stacks/data/data'],
   ['/stacks/storefront/data', /cache/i],
   ['/stacks/storefront/data/checkout', /Switch-over/],
