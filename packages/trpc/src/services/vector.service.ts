@@ -69,7 +69,8 @@ const DB_CLUSTER_LABEL = 'swarmy.db.cluster';
 const DB_ROLE_LABEL = 'swarmy.db.role';
 const DB_MEMBER_LABEL = 'swarmy.db.member';
 
-export const QDRANT_IMAGE = 'qdrant/qdrant:v1.12';
+/** Qdrant publishes patch tags only (`v1.12` was never a tag): the newest 1.12 patch. */
+export const QDRANT_IMAGE = 'qdrant/qdrant:v1.12.6';
 export const VECTOR_PORT = 6333;
 /** Secret file target inside the instance (`/run/secrets/vector-api-key`). */
 export const VECTOR_SECRET_TARGET = 'vector-api-key';

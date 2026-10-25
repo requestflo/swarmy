@@ -78,7 +78,7 @@ describe('qdrantSpec', () => {
   it('is private-only (no ports) with a single replica', () => {
     expect(spec.ports).toBeUndefined();
     expect(spec.mode).toEqual({ replicated: { replicas: 1 } });
-    expect(spec.image).toBe('qdrant/qdrant:v1.12');
+    expect(spec.image).toBe('qdrant/qdrant:v1.12.6');
   });
 
   it('carries the swarmy.vector.* labels + scale-to-zero exemption', () => {
