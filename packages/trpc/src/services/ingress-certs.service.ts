@@ -15,12 +15,14 @@ import {
   type EdgeHoldState,
   type RenewalSeen,
   type RenewalWindow,
+  type RenewEligibility,
 } from '@swarmy/ingress';
 import type { OrgContext } from '../context';
 import { notFound } from '../errors';
 import { listRoutesForOrg } from './ingress-routes';
 import { readEdgeCertsAll } from './ingress-certs.read';
 import { certHistory, recordSeenCert } from './ingress-certs.history';
+import { renewEligibilityFor } from './ingress-cert-renew.limits';
 
 export interface CertFactsView {
   host: string;
@@ -44,6 +46,8 @@ export interface CertFactsView {
   renewal: RenewalWindow | null;
   /** Renewals this controller saw (a newer notBefore than an earlier read), newest first; empty when none. */
   renewals: RenewalSeen[];
+  /** Whether Renew now is offered, and in plain words why not (rate limit, shared store, wildcard...). */
+  renew: RenewEligibility;
   /** The newest edge read time (ISO), null when no edge answered. */
   checkedAt: string | null;
 }
@@ -74,6 +78,8 @@ export async function getCertFacts(ctx: OrgContext, rawHost: string, opts: { fre
   const history = c
     ? recordSeenCert(ctx.activeOrgId, host, { notBefore: c.notBefore, notAfter: c.notAfter, serial: c.serial, issuer: c.issuer })
     : certHistory(ctx.activeOrgId, host);
+  const holders = facts.edges.filter((e) => e.state === 'holds' || e.state === 'other').map((e) => e.nodeId);
+  const renew = await renewEligibilityFor(ctx, host, c ? { issuerKey: c.issuerKey, wildcard: c.wildcard } : null, holders);
   return {
     host,
     source,
@@ -89,6 +95,7 @@ export async function getCertFacts(ctx: OrgContext, rawHost: string, opts: { fre
     edges: facts.edges.map((e) => ({ nodeId: e.nodeId, name: nameOf.get(e.nodeId) ?? e.nodeId, state: e.state, reason: e.reason ?? null })),
     renewal: c ? renewalWindow(c.notBefore, c.notAfter) : null,
     renewals: history.renewals,
+    renew,
     checkedAt: checked.at(-1) ?? null,
   };
 }

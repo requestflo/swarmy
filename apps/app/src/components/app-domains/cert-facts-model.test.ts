@@ -22,6 +22,7 @@ const facts = (over: Partial<CertFacts> = {}): CertFacts => ({
   ],
   renewal: null,
   renewals: [],
+  renew: { available: true },
   checkedAt: '2026-10-24T12:00:00.000Z',
   ...over,
 });

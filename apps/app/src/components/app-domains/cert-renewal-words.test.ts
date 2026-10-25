@@ -12,6 +12,7 @@ const facts = (over: Partial<CertFacts> = {}): CertFacts => ({
   edges: [],
   renewal: null,
   renewals: [],
+  renew: { available: true },
   checkedAt: null,
   ...over,
 });

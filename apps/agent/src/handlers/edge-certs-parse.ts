@@ -16,12 +16,16 @@ import { EDGE_CERT_DIR, EDGE_CERTS_MAX, type EdgeCertFact } from '@swarmy/core/p
 export const CRT_MARK = '#swarmy-crt ';
 export const TRUNCATED_MARK = '#swarmy-truncated';
 
-/** The exec that prints every stored certificate, each after a `#swarmy-crt <path>` line. */
-export function edgeCertsExec(dir = EDGE_CERT_DIR, max = EDGE_CERTS_MAX): { Cmd: string[]; Env: string[] } {
+/**
+ * The exec that prints every stored certificate (or only `name`'s, a host
+ * the protocol already restricted to plain DNS labels), each after a
+ * `#swarmy-crt <path>` line.
+ */
+export function edgeCertsExec(dir = EDGE_CERT_DIR, max = EDGE_CERTS_MAX, name?: string): { Cmd: string[]; Env: string[] } {
   const script = [
     'cd "$SWARMY_CERT_DIR" 2>/dev/null || exit 0',
     'n=0',
-    'for f in */*/*.crt; do',
+    'for f in */${SWARMY_CERT_NAME:-*}/*.crt; do',
     '  [ -f "$f" ] && [ ! -L "$f" ] || continue',
     '  n=$((n+1))',
     `  if [ "$n" -gt "$SWARMY_CERT_MAX" ]; then echo '${TRUNCATED_MARK}'; break; fi`,
@@ -29,7 +33,8 @@ export function edgeCertsExec(dir = EDGE_CERT_DIR, max = EDGE_CERTS_MAX): { Cmd:
     '  head -c 65536 "$f"',
     'done',
   ].join('\n');
-  return { Cmd: ['sh', '-c', script], Env: [`SWARMY_CERT_DIR=${dir}`, `SWARMY_CERT_MAX=${max}`] };
+  const env = [`SWARMY_CERT_DIR=${dir}`, `SWARMY_CERT_MAX=${max}`, ...(name ? [`SWARMY_CERT_NAME=${name}`] : [])];
+  return { Cmd: ['sh', '-c', script], Env: env };
 }
 
 /** `<issuer>/<name>/<name>.crt`, the only shape Caddy's file storage writes. */

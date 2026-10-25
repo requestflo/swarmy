@@ -37,6 +37,7 @@ export type CommandName =
   | 'db.restore'
   | 'db.pitrWindow' // read-only: a PITR cluster's base backups + recoverable window (agent capability `dbPitrWindow`)
   | 'edge.certs' // read-only: the certificates this node's edge Caddy holds, `.crt` facts only (agent capability `edgeCerts`)
+  | 'edge.certRenew' // Renew now: re-issue one certificate on this node's edge Caddy, old one put back if none comes (capability `edgeCertRenew`)
   | 'appdb.backup' // compose MySQL/MariaDB/Mongo/Redis/Valkey logical dump → restic
   | 'appdb.restore'
   | 'appdb.verify' // backup-verify drill: dump → scratch container → sanity query
@@ -105,6 +106,7 @@ export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
   'db.restore': 'dbRestore',
   'db.pitrWindow': 'dbPitrWindow',
   'edge.certs': 'edgeCerts',
+  'edge.certRenew': 'edgeCertRenew',
   'appdb.backup': 'appDbBackup',
   'appdb.restore': 'appDbRestore',
   'appdb.verify': 'appDbVerify',

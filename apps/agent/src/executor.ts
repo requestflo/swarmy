@@ -16,6 +16,7 @@ import { env } from './env';
 import { backupVolume, restoreVolume, listSnapshots, backupDb, restoreDb } from './handlers/backup';
 import { dbPitrWindow } from './handlers/pitr-window';
 import { readEdgeCerts } from './handlers/edge-certs';
+import { renewEdgeCert } from './handlers/edge-cert-renew';
 import { appDbBackup, appDbRestore, appDbVerify } from './handlers/appdb';
 import { queueOp } from './handlers/queue-op';
 import { dbQuery } from './handlers/studio';
@@ -277,6 +278,14 @@ export async function handleCommand(
       // AGENT_CAPABILITIES; a node with no edge task answers edge:false.
       const p = envlp.payload;
       return run(conn, p.commandId, () => readEdgeCerts(docker));
+    }
+    case 'edgeCertRenew': {
+      // Renew now: the same in-task reach as applyIngress's reload (swarmy's
+      // own edge task, its Caddyfile and its certificate directory), and the
+      // old certificate is put back when no new one comes. Advertised in
+      // AGENT_CAPABILITIES.
+      const p = envlp.payload;
+      return run(conn, p.commandId, () => renewEdgeCert(docker, p));
     }
     case 'appDbBackup': {
       const p = envlp.payload;

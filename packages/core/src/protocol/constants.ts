@@ -111,6 +111,8 @@ export const DEFAULT_COMMAND_TIMEOUTS: Record<string, number> = {
   dbPitrWindow: 300_000,
   // Read-only: one in-task shell loop over the edge's `.crt` files.
   edgeCerts: 30_000,
+  // Renew now: two reloads + up to `waitMs` (≤ 5 min) for the CA, then a restore.
+  edgeCertRenew: 420_000,
   appDbBackup: 4 * 3_600_000,
   appDbRestore: 4 * 3_600_000,
   appDbVerify: 2 * 3_600_000,

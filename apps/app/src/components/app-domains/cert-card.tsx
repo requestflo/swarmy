@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Link } from '@tanstack/react-router';
-import { Section, SectionLink, StatusWord, Tech, TONE_TEXT } from '@/components/calm';
+import { Depth, Section, SectionLink, StatusWord, Tech, TONE_TEXT } from '@/components/calm';
 import type { DomainDetail } from '@/components/ingress/domain-state';
 import { relTime } from '@/lib/format';
 import { dayLabel, daysLeft } from './cert-model';
@@ -8,6 +8,7 @@ import { factsTech, issuedLine, type CertFacts } from './cert-facts-model';
 import { CertFactRows } from './cert-fact-rows';
 import { RenewalsRow } from './cert-renewals-row';
 import { renewalTech, renewsLine } from './cert-renewal-words';
+import { RenewNow } from './renew-now';
 
 interface Props {
   host: string;
@@ -26,7 +27,8 @@ interface Props {
  * The address's certificate (board 30): what each edge holds in its own
  * Caddy storage (`ingress.certFacts`: issuer, issued, covers, which servers),
  * the TLS probe of each edge (`ingress.domainStatus`) where they can't say,
- * and where the certificate store lives (`ingress.getConfig` certStorage).
+ * where the certificate store lives (`ingress.getConfig` certStorage), and
+ * Renew now at Controls.
  */
 export function CertCard({ host, tls, detail: d, facts, nameOf, stored, storeTech }: Props): React.JSX.Element {
   const more = <Link to="/network/domains/$host" params={{ host }}><SectionLink>DNS checks →</SectionLink></Link>;
@@ -67,6 +69,9 @@ export function CertCard({ host, tls, detail: d, facts, nameOf, stored, storeTec
       <CertFactRows host={host} facts={facts} probed={c?.edges ?? []} nameOf={nameOf} stored={stored}>
         <RenewalsRow facts={facts} />
       </CertFactRows>
+      <Depth at="controls">
+        <RenewNow host={host} facts={facts} />
+      </Depth>
       {c ? <Tech>TLS probe · issuer {c.issuer ?? '—'} · notAfter {c.expiresAt ?? '—'} · probed {relTime(c.checkedAt)} with a handshake to each edge{c.edges.filter((e) => e.error).map((e) => ` · ${e.ip}: ${e.error}`).join('')}</Tech> : null}
       {renewRule ? <Tech>{renewRule}</Tech> : null}
       {tech ? <Tech>{tech}</Tech> : null}

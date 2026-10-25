@@ -21,6 +21,8 @@ export const AGENT_CAPABILITY = {
   reimageMesh: 'reimageMesh',
   /** Read-only: the certificates this node's edge Caddy holds, `.crt` facts only (`edgeCerts`). */
   edgeCerts: 'edgeCerts',
+  /** Re-issue one certificate on this node's edge Caddy, old one put back if none comes (`edgeCertRenew`). */
+  edgeCertRenew: 'edgeCertRenew',
 } as const;
 export type AgentCapability = (typeof AGENT_CAPABILITY)[keyof typeof AGENT_CAPABILITY];
 
@@ -29,6 +31,7 @@ export const AGENT_CAPABILITIES: readonly AgentCapability[] = [
   AGENT_CAPABILITY.dbPitrWindow,
   AGENT_CAPABILITY.reimageMesh,
   AGENT_CAPABILITY.edgeCerts,
+  AGENT_CAPABILITY.edgeCertRenew,
 ];
 
 /**
