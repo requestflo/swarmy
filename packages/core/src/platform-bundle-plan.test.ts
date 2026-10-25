@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { buildPlatformManifest, parsePlatformManifest } from './platform-manifest';
+import { DATA_IMAGES, dataImageFor } from './data-images';
 import { planBundle } from './platform-bundle-plan';
 import { registryForwarderImage } from './registry-forwarder';
 import { SYSTEM_IMAGES, pinnedTaggedRef, type SystemImageKey } from './system-images';
@@ -18,6 +19,7 @@ describe('planBundle — the offline bundle covers the BOM (nothing a node pulls
     const plan = planBundle(release());
     expect(plan.unresolved).toEqual([]);
     expect(plan.notInRelease).toEqual([]);
+    expect(plan.omitted).toEqual([]);
     expect(plan.images.map((i) => i.key).sort()).toEqual(SYSTEM_IMAGES.map((i) => i.key).sort());
     for (const img of SYSTEM_IMAGES) {
       const got = plan.images.find((i) => i.key === img.key)!;
@@ -66,5 +68,33 @@ describe('planBundle — the offline bundle covers the BOM (nothing a node pulls
       components: { ...m.components, future: { ref: 'ghcr.io/x/future:1', image: 'ghcr.io/x/future', digest: d('c') } },
     }));
     expect(plan.images.find((i) => i.key === 'future')).toEqual({ key: 'future', ref: 'ghcr.io/x/future:1', source: `ghcr.io/x/future@${d('c')}`, digest: d('c') });
+  });
+
+  it('carries every managed-data image (engines at every offered major, backup and move helpers) at the release digest', () => {
+    const plan = planBundle(release());
+    for (const img of DATA_IMAGES) {
+      const got = plan.images.find((i) => i.key === img.key);
+      expect(got).toMatchObject({ ref: img.ref, digest: img.digest ?? d('a') });
+    }
+    for (const major of ['14', '15', '16', '17']) expect(plan.images.map((i) => i.ref)).toContain(dataImageFor('postgres', major)!.ref);
+    // An upstream engine keeps its upstream tag in the release (not the release's own tag).
+    expect(release().components.redis).toMatchObject({ ref: 'redis:7.4', tag: '7.4', digest: d('a') });
+  });
+
+  it('refuses a release that names a data image without its digest (an air-gapped node would pull it)', () => {
+    const digests = Object.fromEntries(FLOATING.filter((k) => k !== 'postgres17').map((k) => [k, d('a')]));
+    const plan = planBundle(buildPlatformManifest({ version: '1.3.0', channel: 'stable', commit: 'c', digests }));
+    expect(plan.unresolved).toEqual(['postgres17']);
+  });
+
+  it('--without data-images leaves out exactly the data section, still every platform image', () => {
+    const plan = planBundle(release(), SYSTEM_IMAGES, { without: ['data-images'] });
+    expect(plan.unresolved).toEqual([]);
+    expect(plan.omitted.sort()).toEqual(DATA_IMAGES.map((i) => i.key).sort());
+    expect(plan.images.map((i) => i.key).sort()).toEqual(SYSTEM_IMAGES.filter((i) => !DATA_IMAGES.includes(i as never)).map((i) => i.key).sort());
+    // Even a data image the release names without a digest is no reason to refuse then.
+    const digests = Object.fromEntries(FLOATING.filter((k) => k !== 'redis').map((k) => [k, d('a')]));
+    const m = buildPlatformManifest({ version: '1.3.0', channel: 'stable', commit: 'c', digests });
+    expect(planBundle(m, SYSTEM_IMAGES, { without: ['data-images'] }).unresolved).toEqual([]);
   });
 });

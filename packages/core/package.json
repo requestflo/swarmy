@@ -61,6 +61,10 @@
       "types": "./src/data-images.ts",
       "import": "./src/data-images.ts"
     },
+    "./platform-bundle-plan": {
+      "types": "./src/platform-bundle-plan.ts",
+      "import": "./src/platform-bundle-plan.ts"
+    },
     "./registry-forwarder": {
       "types": "./src/registry-forwarder.ts",
       "import": "./src/registry-forwarder.ts"

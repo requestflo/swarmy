@@ -11,9 +11,14 @@
  *      registry service, so the run deploys every service from the cluster;
  *   4. store the release as available (`importRelease`, source `bundle`):
  *      Upgrade is then offered exactly as for a feed release.
+ *
+ * A bundle built `--without data-images` lists what it left out in
+ * `omitted.txt`; those components are skipped (and reported), any other
+ * missing image still fails the load.
  */
 import type { PlatformManifest } from '@swarmy/core/platform-manifest';
 import { manifestImages } from '@swarmy/core/platform-manifest';
+import { BUNDLE_OMITTED_FILE } from '@swarmy/core/platform-bundle-plan';
 import { SYSTEM_MIRROR_NAMESPACE, mirrorLabelsAfter, parseImageRef, type SystemImage, type SystemImageKey } from '@swarmy/core/system-images';
 import type { OrgContext } from '../context';
 import { registryConfigs } from './apps.repo';
@@ -96,7 +101,7 @@ export async function loadBundle(
   file: { read: ReadAt; slice: (offset: number, size: number) => Blob; size: number },
   deps: LoadBundleDeps,
   progress: (p: BundleProgress) => void = () => undefined,
-): Promise<{ version: string; images: number }> {
+): Promise<{ version: string; images: number; omitted: string[] }> {
   const entries = await indexTar(file.read, file.size);
   const raw = await text(file.read, bundleEntry(entries, 'platform.json'), 'platform.json');
   const signature = await text(file.read, bundleEntry(entries, 'platform.json.sig'), 'platform.json.sig');
@@ -104,7 +109,9 @@ export async function loadBundle(
   if (!rel.manifest) throw new Error(rel.reason ?? 'platform.json is not a platform manifest');
   if (!rel.verified) throw new Error(`unverified release: ${rel.reason ?? 'signature check failed'} — nothing was loaded`);
   const m = rel.manifest;
-  const items = Object.entries(m.components).filter(([, c]) => c.digest);
+  const omittedEntry = bundleEntry(entries, BUNDLE_OMITTED_FILE);
+  const omitted = new Set(omittedEntry ? parseOmitted(await text(file.read, omittedEntry, BUNDLE_OMITTED_FILE)) : []);
+  const items = Object.entries(m.components).filter(([k, c]) => c.digest && !omitted.has(k));
   progress({ version: m.version, total: items.length, done: 0, current: null });
 
   const target = await deps.registry(ctx, deps.fetch);
@@ -130,7 +137,12 @@ export async function loadBundle(
   await stampMirrorLabels(ctx, bundleImages(m), ok);
   if (failed.length) throw new Error(`${failed.length} of ${items.length} image(s) did not load: ${failed.join('; ')}`);
   await deps.importRelease(ctx, { manifest: raw, signature }, { adopt: false });
-  return { version: m.version, images: ok.size };
+  return { version: m.version, images: ok.size, omitted: [...omitted].filter((k) => m.components[k]) };
+}
+
+/** `omitted.txt` → the component keys a bundle left out (comments and blanks skipped). Pure. */
+export function parseOmitted(text: string): string[] {
+  return text.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
 }
 
 /** Record what landed as trusted mirror copies on the registry service (the mirror worker's own labels). */

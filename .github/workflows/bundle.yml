@@ -17,6 +17,10 @@ on:
         description: 'Release to bundle: a version (1.3.0 → GitHub release v1.3.0) or a channel (stable / edge → its rolling release)'
         required: true
         default: stable
+      without_data_images:
+        description: 'Leave out the managed-data images (about 2 GB: Postgres 14–17, caches, search, vector, backup helpers). The cluster it installs runs no managed data offline. Attached as swarmy-<ver>-no-data.tar.'
+        type: boolean
+        default: false
 
 # Images are pulled anonymously (swarmy's GHCR images are public, as the
 # installer pulls them), by the digests the signed manifest names.
@@ -29,6 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RELEASE: ${{ inputs.release }}
+      WITHOUT_DATA: ${{ inputs.without_data_images }}
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -57,17 +62,18 @@ jobs:
           version="$(jq -r .version platform.json)"
           echo "TAG=$tag" >> "$GITHUB_ENV"
           echo "VERSION=$version" >> "$GITHUB_ENV"
+          if [ "$WITHOUT_DATA" = true ]; then echo "BUNDLE=swarmy-${version}-no-data.tar" >> "$GITHUB_ENV"; else echo "BUNDLE=swarmy-${version}.tar" >> "$GITHUB_ENV"; fi
           echo "Bundling swarmy $version ($(jq -r .channel platform.json)) from release $tag"
       # Verifies the signature against the built-in release key first, then
       # exports every component by digest (regctl, digest-preserving).
       - name: Build the bundle
-        run: bun scripts/platform-bundle.ts platform.json platform.json.sig "swarmy-${VERSION}.tar"
+        run: bun scripts/platform-bundle.ts platform.json platform.json.sig "$BUNDLE" ${{ inputs.without_data_images && '--without data-images' || '' }}
       - name: Attach to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          f="swarmy-${VERSION}.tar"
+          f="$BUNDLE"
           sha256sum "$f" > "$f.sha256"
           size="$(stat -c %s "$f")"
           echo "$f: $((size / 1000000)) MB"

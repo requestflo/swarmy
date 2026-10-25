@@ -137,7 +137,7 @@ async function runLoad(ctx: OrgContext, u: Upload, deps: LoadBundleDeps): Promis
     };
     const r = await loadBundle(ctx, io, deps, (p) => Object.assign(u, p, { touchedAt: Date.now() }));
     Object.assign(u, { phase: 'done', version: r.version });
-    await writeAudit(ctx, { action: 'platform.bundle.load', targetType: 'platformRelease', targetId: r.version, metadata: { file: u.name, size: u.size, images: r.images } });
+    await writeAudit(ctx, { action: 'platform.bundle.load', targetType: 'platformRelease', targetId: r.version, metadata: { file: u.name, size: u.size, images: r.images, ...(r.omitted.length ? { omitted: r.omitted } : {}) } });
   } catch (e) {
     Object.assign(u, { phase: 'failed', error: (e instanceof Error ? e.message : String(e)).slice(0, 2000) });
     await writeAudit(ctx, { action: 'platform.bundle.load', targetType: 'platformRelease', targetId: u.version ?? u.name, metadata: { file: u.name, failed: u.error } });

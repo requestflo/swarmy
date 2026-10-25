@@ -104,6 +104,19 @@ describe('offline bundle upload → verify → registry → mirror labels → re
     expect(readdirSync(dir)).toEqual([]);
   });
 
+  it('a bundle built --without skips what its omitted.txt lists; any other missing image still fails', async () => {
+    const sig = sign('sha256', Buffer.from(raw), kp.privateKey).toString('base64');
+    const tar = (omitted: string) =>
+      tarOf([['swarmy-bundle/platform.json', raw], ['swarmy-bundle/platform.json.sig', sig], ['swarmy-bundle/omitted.txt', omitted], ...layoutEntries([dns])]);
+    const h = harness();
+    expect(await upload(h, tar('# left out with --without data-images\nbusybox\n'))).toMatchObject({ phase: 'done', total: 1, done: 1, error: null });
+    expect(h.reg.manifests.has('swarmy-system/docker.io/library/busybox:1.36')).toBe(false);
+    expect(h.config.available).toMatchObject({ verified: true, source: 'bundle' });
+    const h2 = harness();
+    expect(await upload(h2, tar('redis\n'))).toMatchObject({ phase: 'failed', error: expect.stringContaining('busybox') });
+    expect(h2.config.available).toBeNull();
+  });
+
   it('a bundle signed with another key loads nothing and stores nothing', async () => {
     const h = harness();
     const s = await upload(h, bundle(other.privateKey));

@@ -747,12 +747,20 @@ bundle_media_type() {
   else echo application/vnd.oci.image.manifest.v1+json; fi
 }
 
+# bundle_omitted DIR KEY → 0 when the bundle left KEY out on purpose
+# (`platform-bundle.ts --without data-images` lists them in omitted.txt).
+bundle_omitted() {
+  [ -f "$1/omitted.txt" ] && grep -qxF -- "$2" "$1/omitted.txt"
+}
+
 # bundle_index DIR → the OCI index.json `docker load` names every signed image by
 # (its dispatch ref, and <image>:<tag> for swarmy's own builds). Fails on a
-# missing image or one whose index blob doesn't hash to its signed digest.
+# missing image or one whose index blob doesn't hash to its signed digest;
+# skips the images the bundle says it left out (omitted.txt).
 bundle_index() {
   local key ref image tag digest hex blob mt size n names entries=""
   while read -r key ref image tag digest; do
+    if bundle_omitted "$1" "$key"; then echo "the bundle leaves out $key (built --without)" >&2; continue; fi
     hex="${digest#sha256:}"; blob="$1/oci/blobs/sha256/$hex"
     [ -s "$blob" ] || { echo "the bundle has no $key ($digest)" >&2; return 1; }
     [ "$(sha256sum "$blob" | cut -d' ' -f1)" = "$hex" ] || { echo "the bundle's $key does not match its signed digest" >&2; return 1; }

@@ -269,6 +269,11 @@ jobs:
           docker cp "$cid:/app/agent-binaries/manifest.json" agent-binaries.json
           docker rm "$cid" >/dev/null
           cat agent-binaries.json
+      # The BOM's upstream-floating data images (managed Postgres 14–17, Redis,
+      # search, vector, alpine) follow their tag in system-images-data.ts:
+      # this release pins each tag's index digest (digest-data-<key>.txt).
+      - name: Resolve the data images' digests
+        run: bun scripts/data-image-digests.ts .
       - name: Generate platform.json
         run: |
           set -euo pipefail

@@ -98,6 +98,26 @@ describe('install-swarmy.sh --bundle (air-gapped install)', () => {
     }
   }, 30_000);
 
+  it('skips only the images a bundle built --without lists in omitted.txt', () => {
+    const b = bundle();
+    try {
+      rmSync(path.join(b.blobs, b.caddy.slice(7)));
+      writeFileSync(path.join(b.dir, 'omitted.txt'), '# left out with --without data-images\ncaddy\n');
+      const r = sh(`bundle_index "${b.dir}"`);
+      expect(r.code).toBe(0);
+      expect(r.err).toContain('leaves out caddy');
+      const idx = JSON.parse(r.out) as { manifests: Array<{ annotations: Record<string, string> }> };
+      expect(idx.manifests.map((d) => d.annotations['io.containerd.image.name'])).toEqual([
+        'ghcr.io/requestflo/swarmy-controller:latest',
+        'ghcr.io/requestflo/swarmy-controller:1.3.0',
+      ]);
+      writeFileSync(path.join(b.dir, 'omitted.txt'), 'caddy-old\n'); // a whole line, never a prefix
+      expect(sh(`bundle_index "${b.dir}"`)).toMatchObject({ code: 1, err: expect.stringContaining('has no caddy') });
+    } finally {
+      b.done();
+    }
+  }, 30_000);
+
   it('only unpacks a tar of plain files under swarmy-bundle/', () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'swarmy-bundle-tar-'));
     try {
