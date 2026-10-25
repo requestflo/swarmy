@@ -126,6 +126,11 @@ export const ACTIONS = [
   'rum.remove',
   /** Revoke a person's private-network grant, or disconnect one of their devices. */
   'mesh.revoke',
+  /**
+   * Add or remove a private-network access rule (one group may reach another
+   * on some ports; resource type `meshRule`). Owner/admin-only by default.
+   */
+  'mesh.rules',
   /** Delete a saved database-studio query. */
   'savedquery.remove',
 ] as const;

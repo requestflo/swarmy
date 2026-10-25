@@ -1,11 +1,17 @@
 import type { MeshEnrollment, MeshStatus, RenderedMesh } from '@swarmy/core/protocol';
 import type {
   DriverControlPlane,
+  MeshAccessList,
+  MeshAccessRule,
   MeshConfig,
   MeshDriver,
   MeshValidationResult,
+  NewMeshAccessRule,
+  PolicyAdminApi,
   ProvisionNodeOpts,
 } from '../types';
+import { MeshControlPlaneError } from '../errors';
+import { addNetbirdAccessRule, listNetbirdAccessRules, removeNetbirdAccessRule } from '../control-plane/access-rules';
 
 import { NETBIRD_CLIENT_IMAGE_PINNED } from '../images';
 
@@ -75,6 +81,19 @@ export class NetbirdDriver implements MeshDriver {
     };
   }
 
+  // Access rules are NetBird policies (groups → groups, ports, protocols).
+  async listAccessRules(_config: MeshConfig, control: DriverControlPlane): Promise<MeshAccessList> {
+    return listNetbirdAccessRules(policiesOf(control));
+  }
+
+  async addAccessRule(_config: MeshConfig, rule: NewMeshAccessRule, control: DriverControlPlane): Promise<MeshAccessRule> {
+    return addNetbirdAccessRule(policiesOf(control), rule);
+  }
+
+  async removeAccessRule(_config: MeshConfig, id: string, control: DriverControlPlane): Promise<void> {
+    return removeNetbirdAccessRule(policiesOf(control), id);
+  }
+
   async status(_config: MeshConfig, control: DriverControlPlane): Promise<MeshStatus> {
     try {
       const peers = await control.listPeers();
@@ -94,4 +113,9 @@ export class NetbirdDriver implements MeshDriver {
       };
     }
   }
+}
+
+function policiesOf(control: DriverControlPlane): PolicyAdminApi {
+  if (!control.policies) throw new MeshControlPlaneError('netbird', 'no NetBird Admin API to read rules from: set the management URL and a service token');
+  return control.policies;
 }

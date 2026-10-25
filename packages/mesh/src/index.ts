@@ -19,5 +19,7 @@ export * from './control-plane/netbird-admin';
 export * from './control-plane/people-sync';
 export * from './control-plane/login-expiry-sync';
 export * from './control-plane/restore-choice';
+export * from './control-plane/access-rules';
+export * from './control-plane/access-rule-words';
 export * from './images';
 export * from './client-downloads';

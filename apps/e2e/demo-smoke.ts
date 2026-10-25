@@ -159,6 +159,8 @@ const routes: Array<[string, RegExp?]> = [
   ['/ingress', /Which servers are edges/],
   ['/networking', /Who talks to whom/],
   ['/networking/settings', /active grants/i],
+  // Board 43's access rules, in plain words.
+  ['/networking/settings', /Servers can reach Databases on 5432/],
   ['/network/connections', /isolated by default/i],
   ['/network/geo-dns', /Ask from anywhere/],
   ['/network/geo-dns?zone=northwind.io', /Cloudflare/],

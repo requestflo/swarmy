@@ -11,8 +11,9 @@
  * exercised end-to-end. They are credential-gated — with no token the client
  * fails fast with a clear error rather than silently no-op'ing.
  */
-import type { DriverControlPlane, MeshPeerInfo } from '../types';
+import type { DriverControlPlane, MeshPeerInfo, PolicyAdminApi } from '../types';
 import { MeshControlPlaneError } from '../errors';
+import { NetbirdAdmin } from './netbird-admin';
 
 export interface NetbirdClientOptions {
   /** Management server base URL, e.g. `https://netbird.example.com`. */
@@ -60,6 +61,8 @@ export class NetbirdControlPlane implements DriverControlPlane {
   private readonly ttl: number;
   private readonly fetchImpl: typeof fetch;
   private readonly nodeGroup?: string;
+  /** Groups + policies (mesh access rules) over the same URL and token. */
+  readonly policies: PolicyAdminApi;
 
   constructor(opts: NetbirdClientOptions) {
     if (!opts.managementUrl) {
@@ -73,6 +76,7 @@ export class NetbirdControlPlane implements DriverControlPlane {
     this.ttl = opts.setupKeyTtlSec ?? 24 * 3600;
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.nodeGroup = opts.nodeGroup;
+    this.policies = new NetbirdAdmin({ managementUrl: this.base, token: this.token, fetchImpl: this.fetchImpl });
   }
 
   /** Group ids a node key auto-joins (see {@link NetbirdClientOptions.nodeGroup}). */

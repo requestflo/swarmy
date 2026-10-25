@@ -16,6 +16,7 @@ export type {
 } from '@swarmy/core/protocol';
 
 import type { MeshEnrollment, MeshStatus, RenderedMesh } from '@swarmy/core/protocol';
+import type { NetbirdAdminApi } from './control-plane/netbird-admin';
 
 // ── Org-scoped config (persisted, controller-side) ─────────────────────
 
@@ -67,6 +68,52 @@ export interface DriverControlPlane {
   listPeers(): Promise<MeshPeerInfo[]>;
   /** Revoke a peer by its provider id. */
   revokePeer(peerId: string): Promise<void>;
+  /**
+   * The provider's groups + policies (NetBird's Admin API shape), when the
+   * control plane has one. Optional: the opaque-key stub has none. Only a
+   * driver that implements the access-rule methods below reads it.
+   */
+  policies?: PolicyAdminApi;
+}
+
+/** The slice of the NetBird Admin API access rules need. */
+export type PolicyAdminApi = Pick<NetbirdAdminApi, 'listGroups' | 'listPolicies' | 'createPolicy' | 'deletePolicy'>;
+
+/** One access rule on the mesh: which groups can reach which, on which ports. */
+export interface MeshAccessRule {
+  /** The provider's policy id (NetBird; `<policy>:<n>` for the n-th rule of a multi-rule policy). */
+  id: string;
+  name: string;
+  enabled: boolean;
+  /** Group names on each side. */
+  from: string[];
+  to: string[];
+  /** The destination is a network resource (a service people reach), not a group. */
+  toResource: boolean;
+  protocol: 'all' | 'tcp' | 'udp' | 'icmp';
+  /** Single ports or `a-b` ranges; empty = every port of `protocol`. */
+  ports: string[];
+  bidirectional: boolean;
+  action: 'accept' | 'drop';
+  /** swarmy keeps this one itself (servers ↔ servers, people access): listed, never changed here. */
+  managedBySwarmy: boolean;
+  /** One accept rule from a group to a group, nothing more: swarmy can remove it. */
+  simple: boolean;
+}
+
+/** A simple rule to add: one group may reach another on some ports. */
+export interface NewMeshAccessRule {
+  from: string;
+  to: string;
+  protocol: 'tcp' | 'udp' | 'all';
+  /** Single ports; empty = every port of `protocol` (and must be empty for `all`). */
+  ports: number[];
+}
+
+export interface MeshAccessList {
+  rules: MeshAccessRule[];
+  /** Groups a new rule may name: the provider's own, never swarmy's or "All". */
+  groups: string[];
 }
 
 /** A provider peer as reported by the control plane. */
@@ -94,5 +141,15 @@ export interface MeshDriver {
   render(config: MeshConfig, enrollment: MeshEnrollment): RenderedMesh;
   /** Reconcile live status from the control plane (best-effort). */
   status(config: MeshConfig, control: DriverControlPlane): Promise<MeshStatus>;
+  /**
+   * Optional: the mesh's access rules (who can reach whom). NetBird implements
+   * them over its policies; Headscale leaves them out (its ACL is a policy
+   * file swarmy doesn't read yet), and so does `none`. Callers check for the
+   * method, never the driver name.
+   */
+  listAccessRules?(config: MeshConfig, control: DriverControlPlane): Promise<MeshAccessList>;
+  addAccessRule?(config: MeshConfig, rule: NewMeshAccessRule, control: DriverControlPlane): Promise<MeshAccessRule>;
+  /** Removes a simple rule that isn't swarmy's own (refuses anything else). */
+  removeAccessRule?(config: MeshConfig, id: string, control: DriverControlPlane): Promise<void>;
 }
 

@@ -65,6 +65,7 @@ export const ACTION_CATALOG: ActionInfo[] = [
   { id: 'savedquery.remove', label: 'remove saved queries', group: 'configure' },
   { id: 'rum.remove', label: 'erase visitor analytics and replays', group: 'destructive' },
   { id: 'mesh.revoke', label: 'revoke private-network access', group: 'access' },
+  { id: 'mesh.rules', label: 'change who can reach whom on the private network', group: 'access' },
   { id: 'member.write', label: 'manage members', group: 'governance' },
   { id: 'policy.write', label: 'edit policies', group: 'governance' },
   { id: 'authconfig.write', label: 'change sign-in settings', group: 'governance' },

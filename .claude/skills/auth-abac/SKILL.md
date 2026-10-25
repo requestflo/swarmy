@@ -273,7 +273,8 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
   Removing a cloned environment (`apps.removeEnvironment`) is `stack.remove`
   on its stack, plus `data.destroy` per database it deletes (`remove-env.ts`).
   So are the last role-gated deletes: RUM GDPR erase (`rum.remove`), mesh
-  people revoke/revokeDevice (`mesh.revoke`), a moved volume's old copy
+  people revoke/revokeDevice (`mesh.revoke`), mesh access rules add/remove
+  (`mesh.rules`, resource `meshRule`), a moved volume's old copy
   (`data.destroy` on its live service) — all admin-only by default — and
   saved studio queries (`savedquery.remove`, members keep it).
 - **`abacProcedure` sits BEFORE `.input()`**, so tRPC gives the middleware no

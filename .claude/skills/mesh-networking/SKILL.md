@@ -28,9 +28,11 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
    provider is a new `MeshDriver` + `render()`, never an agent change. Same rule
    as ingress drivers — render pure, apply at the edge.
 3. **Control-plane calls go through `DriverControlPlane`; drivers stay pure
-   apart from it.** `createSetupKey`/`listPeers`/`revokePeer`
-   are the only IO a driver may do, injected by the service. `render()` and
-   `validate()` are pure and golden-testable.
+   apart from it.** `createSetupKey`/`listPeers`/`revokePeer` (and the
+   optional `policies` groups + policies API, for access rules) are the only
+   IO a driver may do, injected by the service. `render()` and `validate()`
+   are pure and golden-testable. Optional driver capabilities (the access-rule
+   methods) are checked by method, never by driver name.
 4. **Every command is one entry in three places** (same as any agent command):
    a Zod message in `packages/core/src/protocol/mesh.ts` added to the union in
    `messages.ts`; a `CommandName` + wire `type` in `COMMAND_PROTOCOL_TYPE`
@@ -147,6 +149,7 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
 | Which copy a restore runs (pure) + the agent's probe/restore one-shots | `packages/mesh/src/control-plane/restore-choice.ts`, `apps/agent/src/handlers/mesh-control-restore{,-probe}.ts` |
 | Networking UI: the private network as a map (NAT'd servers behind the router, direct vs relayed links, who's joining) + per-app laptop access on the Access tab | `apps/app/src/routes/_authed/networking.tsx` → `components/networking/private-network-page.tsx` (`mesh-graph{,-model}.ts(x)` pure + tested, `use-nat-nodes.ts` reads `swarmy.node.reachability`), `routes/_authed/stacks/$name.access.tsx` |
 | Mesh settings: NetBird or None (typed "turn off" confirm naming the NAT'd servers that drop off), every peer's last word, the laptop grants | `routes/_authed/networking_.settings.tsx` → `components/networking/{mesh-settings-page,mesh-driver-pick,turn-off-mesh,mesh-peers-section,direct-connect-section}.tsx`; driver labels in `mesh-format.ts` |
+| Access rules ("Servers can reach Databases on 5432"): optional `MeshDriver.listAccessRules/addAccessRule/removeAccessRule` (NetBird policies; Headscale + none leave them out), plain words, `mesh.rules` (ABAC, audited `mesh.rule.add/remove`); swarmy's own `swarmy:*` rules are listed, never changed, and new rules never name `swarmy:*` groups or "All" | `packages/mesh/src/control-plane/access-rule{s,-words}.ts`, `packages/trpc/src/services/mesh-rules.service.ts` (`mesh.rules.*`), UI `components/networking/mesh-access-rule{s-section,-form}.tsx`, demo `demo/resolvers/mesh-rules.ts` |
 
 ## Adding a mesh driver (the recipe)
 

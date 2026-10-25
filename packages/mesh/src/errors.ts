@@ -24,3 +24,11 @@ export class MeshControlPlaneError extends Error {
     this.name = 'MeshControlPlaneError';
   }
 }
+
+/** An access-rule change swarmy refuses, in plain words (nothing was sent to the provider). */
+export class MeshAccessRuleRefused extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'MeshAccessRuleRefused';
+  }
+}

@@ -182,6 +182,9 @@ const GATES: Array<[string, unknown, string]> = [
   ['decommission.deleteOldCopy', { service: 'svc', nodeId: 'n1', volume: 'shop_data' }, 'data.destroy'],
   ['mesh.people.revoke', { grantId: 'mr1' }, 'mesh.revoke'],
   ['mesh.people.revokeDevice', { peerId: 'peer1' }, 'mesh.revoke'],
+  // Mesh access rules widen or narrow who reaches whom: owner/admin-only by default.
+  ['mesh.rules.add', { from: 'Office', to: 'Databases', protocol: 'tcp', ports: [5432] }, 'mesh.rules'],
+  ['mesh.rules.remove', { id: 'p1' }, 'mesh.rules'],
   ['studio.saved.remove', { stack: 'shop', id: 'q1' }, 'savedquery.remove'],
 ];
 

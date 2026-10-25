@@ -96,7 +96,7 @@ async function ensureConfig(ctx: OrgContext): Promise<ConfigRow> {
 }
 
 /** Build the render-time {@link OrgMeshConfig}, resolving the service token JIT. */
-function toOrgConfig(ctx: OrgContext, row: ConfigRow): OrgMeshConfig {
+export function toOrgConfig(ctx: OrgContext, row: ConfigRow): OrgMeshConfig {
   const cp = readControlPlane(row);
   return {
     driver: driverLower(row.driver),
@@ -126,7 +126,7 @@ function toOrgConfig(ctx: OrgContext, row: ConfigRow): OrgMeshConfig {
  * UNVERIFIED: the real NetBird client is credential-gated and coded to the
  * documented API but not exercised against a live control plane in this repo.
  */
-function makeControlPlane(config: OrgMeshConfig): DriverControlPlane {
+export function makeControlPlane(config: OrgMeshConfig): DriverControlPlane {
   const url = config.managementUrl ?? config.controlPlane.url;
   const token = config.controlPlane.serviceToken;
   if ((config.driver === 'netbird' || config.driver === 'headscale') && url && token) {

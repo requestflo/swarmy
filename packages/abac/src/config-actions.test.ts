@@ -30,12 +30,13 @@ const CASES: Array<[Action, Resource, boolean]> = [
   ['rum.remove', row('rumUser'), false],
   ['mesh.revoke', row('meshRoute'), false],
   ['mesh.revoke', row('meshPeer'), false],
+  ['mesh.rules', row('meshRule'), false],
   ['data.destroy', { type: 'service', id: 'svc', orgId: 'o1', labels: {} }, false],
 ];
 
 describe('config-level delete actions (owner/admin keep all; members keep what they had)', () => {
   it('are registered and catalogued', () => {
-    const added = ['alert.remove', 'statuspage.remove', 'webhook.remove', 'job.remove', 'ai.remove', 'savedquery.remove', 'rum.remove', 'mesh.revoke'] as const;
+    const added = ['alert.remove', 'statuspage.remove', 'webhook.remove', 'job.remove', 'ai.remove', 'savedquery.remove', 'rum.remove', 'mesh.revoke', 'mesh.rules'] as const;
     for (const a of added) {
       expect(ACTIONS).toContain(a);
       expect(ACTION_CATALOG.some((c) => c.id === a)).toBe(true);

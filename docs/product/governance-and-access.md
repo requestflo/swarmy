@@ -235,6 +235,7 @@ Four ideas, one story:
   | `secrets.read` | revealing the swarm unlock key or a git webhook secret |
   | `mesh.connect` | joining an app stack's mesh network from a client (group sync reads `whoCan`) |
   | `rum.remove` / `mesh.revoke` / `savedquery.remove` | erasing a visitor's analytics and replays (GDPR); revoking a person's private-network grant or device; deleting a saved studio query (members keep this one) |
+  | `mesh.rules` | adding or removing a private-network access rule on Mesh settings (one NetBird group may reach another on some ports; swarmy's own rules are never changed there) |
 
   **Seeded defaults: owners and admins can do all of it (no lockout, even for an
   org whose defaults were persisted before these actions existed — their `*`

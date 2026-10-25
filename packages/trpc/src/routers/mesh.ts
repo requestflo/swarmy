@@ -13,6 +13,7 @@ import {
 } from '../services/mesh.service';
 import { nodesOnMesh } from '../services/mesh-onmesh';
 import { getMeshMtuCheck } from '../services/mesh-mtu.service';
+import { addAccessRule, listAccessRules, removeAccessRule } from '../services/mesh-rules.service';
 import { commandRejected } from '../errors';
 import { getControlPlaneCard, moveControlPlane, reconcileMeshControl, setBreakGlass, setRelaysOnEdges } from '../services/mesh-control.service';
 import {
@@ -93,6 +94,28 @@ export const meshRouter = router({
     move: adminProcedure.input(z.object({ nodeId: z.string() })).mutation(({ ctx, input }) => moveControlPlane(ctx, input.nodeId)),
     /** Relays on edges: NetBird's relay + STUN move to every public edge (needs swarmy's edge in front). */
     relays: adminProcedure.input(z.object({ on: z.boolean() })).mutation(({ ctx, input }) => setRelaysOnEdges(ctx, input.on)),
+  }),
+
+  // ── Access rules (who can reach whom; NetBird policies, read live) ──────
+
+  rules: router({
+    /** Every rule in plain words; `supported: false` for a driver without rules (Headscale). */
+    list: orgProcedure.query(({ ctx }) => listAccessRules(ctx)),
+    /** One group may reach another on some ports (`mesh.rules`, owner/admin by default). */
+    add: abacProcedure('mesh.rules')
+      .input(
+        z.object({
+          from: z.string().min(1).max(200),
+          to: z.string().min(1).max(200),
+          protocol: z.enum(['tcp', 'udp', 'all']).default('tcp'),
+          ports: z.array(z.number().int().min(1).max(65535)).max(16).default([]),
+        }),
+      )
+      .mutation(({ ctx, input }) => addAccessRule(ctx, input)),
+    /** Remove a simple rule of yours; swarmy's own are refused. */
+    remove: abacProcedure('mesh.rules', resolveConfigRow('meshRule', 'id'))
+      .input(z.object({ id: z.string().min(1).max(200) }))
+      .mutation(({ ctx, input }) => removeAccessRule(ctx, input.id)),
   }),
 
   // ── People on the mesh ─────────────────────────────────────────────────

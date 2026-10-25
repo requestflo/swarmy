@@ -9,6 +9,7 @@ import { useTRPC } from '@/integrations/trpc';
 import { ControlPlaneCard } from './control-plane-card';
 import { DirectConnectSection } from './direct-connect-section';
 import { EnrollNodeCard } from './enroll-node-card';
+import { MeshAccessRulesSection } from './mesh-access-rules-section';
 import { MeshDriverPick } from './mesh-driver-pick';
 import { MeshMtuCard } from './mesh-mtu-card';
 import { MeshPeersSection } from './mesh-peers-section';
@@ -54,6 +55,7 @@ export function MeshSettingsPage(): React.JSX.Element {
           {n.live ? <MeshMtuCard /> : null}
           <MeshDriverPick n={n} isAdmin={isAdmin} natNames={natNames} />
           {n.live ? <MeshPeersSection n={n} nat={nat} /> : null}
+          {n.live ? <MeshAccessRulesSection isAdmin={isAdmin} /> : null}
           {n.live ? <DirectConnectSection isAdmin={isAdmin} /> : null}
           <Depth at="controls">
             <div className="grid gap-4 lg:grid-cols-2">

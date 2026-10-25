@@ -22,6 +22,8 @@ export interface NbPolicyRule {
   bidirectional: boolean;
   protocol: 'tcp' | 'udp' | 'icmp' | 'all';
   ports?: string[] | null;
+  /** Read only: port ranges a rule made in NetBird's own UI may carry. */
+  port_ranges?: { start: number; end: number }[] | null;
   sources?: ({ id: string; name?: string } | string)[] | null;
   destinations?: ({ id: string; name?: string } | string)[] | null;
   destinationResource?: { id: string; type: 'host' | 'subnet' | 'domain' } | null;
@@ -32,6 +34,8 @@ export interface NbPolicy {
   description?: string;
   enabled: boolean;
   rules: NbPolicyRule[];
+  /** Read only: posture checks a policy made in NetBird's own UI may carry. */
+  source_posture_checks?: string[] | null;
 }
 export interface NbNetwork {
   id: string;
