@@ -17,7 +17,9 @@
  *    BOM into the registry with a `regctl` one-shot (host network →
  *    `localhost:5000`, the node's loopback forwarder or, before M16's move,
  *    the routing mesh, like trivy/cosign; the controller itself never talks
- *    to a registry), and stamps the result as registry service labels.
+ *    to a registry), and stamps the result as registry service labels. The
+ *    platform upgrade's preflight pre-copies through the same function; a copy
+ *    already in flight is shared, never started twice (`system-images-flights.ts`).
  *
  * Node dockerd uses the cache through `registry-mirrors` in daemon.json, which
  * the installers merge (`apps/api/src/install/docker-registry-mirror.ts`).
@@ -54,6 +56,7 @@ import { REGISTRY_IMAGE, REGISTRY_MANAGED_LABEL, REGISTRY_SERVICE_NAME, decodeRe
 import { effectiveImagesFor } from './platform-images';
 import { REGISTRY_CACHE_SERVICE, REGISTRY_FORWARDER_NETWORK } from '@swarmy/core/registry-forwarder';
 import { liveRegistryTopology, registryTopologyFor, type RegistryTopology } from './registry-topology';
+import { copyOnce } from './system-images-flights';
 
 // ── Pull-through cache (Docker Hub) ──────────────────────────────────────────
 
@@ -348,20 +351,23 @@ export async function mirrorSystemImagesForOrg(
   if (!todo.length) return { orgId, copied: [], failed: [] };
 
   const creds = decodeRegistryCreds(row.credentialsEnc);
-  const res = await deps.hub.dispatch<RunOnceResult>(
-    manager,
-    'container.runOnce',
-    {
-      image: systemImage('regctl').ref,
-      entrypoint: ['/bin/sh', '-c'],
-      cmd: [renderMirrorScript(todo, host)],
-      env: creds ? { SWARMY_REG_USER: creds.username, SWARMY_REG_PASS: creds.password } : {},
-      networks: ['host'],
-      timeoutMs: 45 * 60_000,
-    },
-    { timeoutMs: 46 * 60_000 },
-  );
-  const out = parseMirrorOutput(res.output);
+  // A preflight and a mirror tick share the copies already in flight.
+  const out = await copyOnce(orgId, todo, async (items) => {
+    const res = await deps.hub.dispatch<RunOnceResult>(
+      manager,
+      'container.runOnce',
+      {
+        image: systemImage('regctl').ref,
+        entrypoint: ['/bin/sh', '-c'],
+        cmd: [renderMirrorScript(items, host)],
+        env: creds ? { SWARMY_REG_USER: creds.username, SWARMY_REG_PASS: creds.password } : {},
+        networks: ['host'],
+        timeoutMs: 45 * 60_000,
+      },
+      { timeoutMs: 46 * 60_000 },
+    );
+    return parseMirrorOutput(res.output);
+  });
   const { add, removeKeys } = mirrorLabelsAfter(state.labels, state.registryNodeId, out.ok, images);
   await deps.hub.dispatch(manager, 'service.updateLabels', { service: REGISTRY_SERVICE_NAME, add, removeKeys });
   return { orgId, copied: [...out.ok.keys()], failed: out.failed };

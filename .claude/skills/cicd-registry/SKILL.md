@@ -72,7 +72,10 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
    in `swarmy.mirror.*` labels on the registry service, trusted only while the
    registry task stays on `swarmy.mirror.node`) and the hub decorator rewrites
    exact upstream system refs to the mirrored `@sha256` ref. A registry
-   redeploy must carry `mirrorLabelsOf(live.labels)`.
+   redeploy must carry `mirrorLabelsOf(live.labels)`. The worker and the
+   platform upgrade's preflight both copy through `mirrorSystemImagesForOrg`,
+   which shares a copy already in flight per org and image
+   (`system-images-flights.ts`) instead of starting it twice.
 6. **Secrets are JIT-resolved and never baked in.** Git tokens, registry creds,
    and the cosign private key are stored encrypted (`@swarmy/core/crypto` vault,
    `SWARMY_SECRET_KEY`), decrypted at dispatch, passed as a git auth header /
