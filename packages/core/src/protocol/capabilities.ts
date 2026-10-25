@@ -23,6 +23,8 @@ export const AGENT_CAPABILITY = {
   edgeCerts: 'edgeCerts',
   /** Re-issue one certificate on this node's edge Caddy, old one put back if none comes (`edgeCertRenew`). */
   edgeCertRenew: 'edgeCertRenew',
+  /** Exit cleanly after answering so systemd / Docker / swarm restarts the agent (`restartAgent`, board 11). */
+  restartAgent: 'restartAgent',
 } as const;
 export type AgentCapability = (typeof AGENT_CAPABILITY)[keyof typeof AGENT_CAPABILITY];
 
@@ -32,6 +34,7 @@ export const AGENT_CAPABILITIES: readonly AgentCapability[] = [
   AGENT_CAPABILITY.reimageMesh,
   AGENT_CAPABILITY.edgeCerts,
   AGENT_CAPABILITY.edgeCertRenew,
+  AGENT_CAPABILITY.restartAgent,
 ];
 
 /**

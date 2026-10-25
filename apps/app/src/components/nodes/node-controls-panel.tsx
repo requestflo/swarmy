@@ -63,6 +63,7 @@ export function NodeControlsPanel({ node, monthlyUsd }: NodeControlsPanelProps):
             name={node?.name ?? 'node'}
             status={node?.status}
             role={node?.role}
+            agentRestart={node?.agentRestart}
           />
         </div>
       </CardContent>

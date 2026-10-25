@@ -137,6 +137,7 @@ const POLICY_GATES: Array<[string, unknown, string]> = [
   // H5 — production node
   ['nodes.setLabels', { id: 'n1', labels: {} }, 'node.setLabels'],
   ['nodes.activate', { id: 'n1' }, 'node.drain'],
+  ['nodes.restartAgent', { id: 'n1' }, 'node.drain'],
   // C2 — scheduler exec needs a shell grant (even outside prod)
   ['jobs.create', { name: 'j', schedule: '* * * * *', kind: 'service-exec', serviceRef: 'blog_web' }, 'terminal.open'],
   ['jobs.update', { id: 'j1', command: ['sh'] }, 'terminal.open'],

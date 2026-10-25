@@ -98,6 +98,8 @@ export const DEFAULT_COMMAND_TIMEOUTS: Record<string, number> = {
   applyIngress: 30_000,
   updateSwarmNode: 30_000,
   updateAgent: 300_000,
+  // Answers at once, then exits ~0.75 s later (the supervisor restarts it).
+  restartAgent: 15_000,
   streamLogs: 0,
   // Backups move whole databases/volumes through restic: the 15s fallback made
   // every non-trivial backup/restore report "command timeout" while the agent

@@ -24,6 +24,7 @@ import { TRPCError } from '@trpc/server';
 import { writeAudit } from './audit.service';
 import { agentRelease, platformForArch } from './agent-release.service';
 import { requireOnlineNode } from './dispatch.service';
+import { canRestartAgent } from './node-agent-restart.service';
 import { FOREIGN_SWARM_DETAIL, FOREIGN_SWARM_FIX, foreignSwarmDetail, swarmOrchestrationStatus } from './swarm.service';
 
 /**
@@ -189,6 +190,7 @@ function toSummary(ctx: OrgContext, n: NodeRow): NodeSummary {
     agentCommit: ctx.hub.agentBuildFor?.(n.id)?.commit ?? null,
     agentUpdateAvailable: agentUpdateAvailable(ctx.hub.agentBuildFor?.(n.id)),
     agentSkew: ctx.hub.agentBuildFor?.(n.id)?.skew ?? null,
+    agentRestart: canRestartAgent(ctx, n.id),
     lastSeenAt: lastSeen != null ? new Date(lastSeen).toISOString() : null,
     live,
   };

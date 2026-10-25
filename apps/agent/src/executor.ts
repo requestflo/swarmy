@@ -37,6 +37,7 @@ import { applySwarmJoin, rotateSwarmTokens, setSwarmAutolock } from './handlers/
 import { applyControllerService } from './handlers/controller-service';
 import { probeSmtp } from './handlers/email';
 import { updateAgent } from './handlers/update';
+import { defaultRestartDeps, restartAgent } from './handlers/restart';
 import { prepareSecretEnv } from './handlers/secret-env';
 import { prePullForDeploy } from './handlers/deploy-pull';
 import { startDeployWatch } from './handlers/deploy-watch-run';
@@ -416,6 +417,12 @@ export async function handleCommand(
       // brings the new version up, and its register confirms the new version.
       const p = envlp.payload;
       return run(conn, p.commandId, () => updateAgent(docker, p));
+    }
+    case 'restartAgent': {
+      // Answers, then exits cleanly ~0.75 s later; systemd / Docker / swarm
+      // starts the agent again and its register tells the controller.
+      const p = envlp.payload;
+      return run(conn, p.commandId, () => restartAgent(defaultRestartDeps(docker)));
     }
     case 'secretCreate': {
       const p = envlp.payload;

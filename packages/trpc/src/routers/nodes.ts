@@ -18,6 +18,7 @@ import {
   upgradeAgent,
 } from '../services/node.service';
 import { agentRelease } from '../services/agent-release.service';
+import { restartNodeAgent } from '../services/node-agent-restart.service';
 import {
   generateJoinToken,
   listJoinTokens,
@@ -114,6 +115,15 @@ export const nodesRouter = router({
   activate: abacProcedure('node.drain', resolveNode)
     .input(z.object({ id: z.string() }))
     .mutation(({ ctx, input }) => setNodeAvailability(ctx, input.id, 'active')),
+
+  /**
+   * Restart the server's agent (board 11): it answers, exits cleanly and its
+   * supervisor starts it again; resolves once it re-registers ("back in 6 s").
+   * Workloads are untouched — gated like the other operate-a-server actions.
+   */
+  restartAgent: abacProcedure('node.drain', resolveNode)
+    .input(z.object({ id: z.string() }))
+    .mutation(({ ctx, input }) => restartNodeAgent(ctx, input.id)),
 
   remove: abacProcedure('node.remove', resolveNode).input(z.object({ id: z.string() })).mutation(({ ctx, input }) =>
     removeNode(ctx, input.id),

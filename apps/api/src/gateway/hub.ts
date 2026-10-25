@@ -288,6 +288,8 @@ export class AgentHubImpl implements AgentHub {
     skew?: AgentSkew;
     /** Optional commands the agent advertised in its register facts. */
     capabilities?: readonly string[];
+    /** When this register landed (ms epoch). */
+    registeredAt?: number;
   } | undefined {
     return this.store.agentBuild.get(controllerNodeId);
   }

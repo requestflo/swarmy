@@ -98,6 +98,8 @@ export class GatewayStore {
     skew?: AgentSkew;
     /** Optional commands the agent advertised in its register facts (`agentSupports`). */
     capabilities?: readonly string[];
+    /** When this register landed (ms epoch). */
+    registeredAt?: number;
   }
   >();
   /** Last heartbeat/snapshot time per node (replaces DB Node.lastSeenAt). */

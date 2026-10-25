@@ -341,6 +341,7 @@ async function handleRegister(ws: AgentSocket, payload: RegisterPayload, deps: D
     registryForwarder: facts.registryForwarder,
     skew: judgeAgentSkew(nodeId, facts),
     capabilities: facts.capabilities,
+    registeredAt: Date.now(),
   });
   const previous = deps.registry.add(nodeId, ws);
   previous?.close(CloseCode.DUPLICATE_SESSION, 'newer session');

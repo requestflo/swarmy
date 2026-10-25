@@ -70,7 +70,8 @@ export type CommandName =
   | 'email.probeSmtp' // email service: can the mail node reach MX hosts on :25? (no mail sent)
   | 'queue.op' // managed queues: one bounded BullMQ EVAL on a cache member (queue studio)
   | 'db.query' // database studio: one bounded query via the DB task's own client (exec, in-task creds)
-  | 'agent.update'; // self-update: download + verify + swap the agent binary (or recreate its container)
+  | 'agent.update' // self-update: download + verify + swap the agent binary (or recreate its container)
+  | 'agent.restart'; // exit cleanly so systemd / Docker / swarm restarts the agent (capability `restartAgent`)
 
 /**
  * Hub-level payload hook applied to EVERY dispatch before it is sent (e.g. the
@@ -140,6 +141,7 @@ export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
   'queue.op': 'queueOp',
   'db.query': 'dbQuery',
   'agent.update': 'updateAgent',
+  'agent.restart': 'restartAgent',
 };
 
 export interface CommandResult<R = unknown> {
@@ -225,6 +227,8 @@ export interface AgentHub {
     skew?: AgentSkew;
     /** Optional commands the agent advertised (`agentSupports`); absent on older agents. */
     capabilities?: readonly string[];
+    /** When this build last registered (ms epoch) — "Restart agent" waits for a newer one. */
+    registeredAt?: number;
   } | undefined;
 
   /**

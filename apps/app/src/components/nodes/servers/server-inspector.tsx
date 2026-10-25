@@ -111,7 +111,7 @@ export function ServerInspector({
       {detail ? null : (
         <Depth at="controls">
           <div className="border-border border-t pt-4">
-            <NodeDangerControls nodeId={n.id} name={n.name} status={n.status} role={n.role} />
+            <NodeDangerControls nodeId={n.id} name={n.name} status={n.status} role={n.role} agentRestart={n.agentRestart} />
           </div>
         </Depth>
       )}

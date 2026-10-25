@@ -38,6 +38,7 @@ function node(
     agentCommit: null,
     agentUpdateAvailable: false,
     agentSkew: { status: 'ok', versions: null },
+    agentRestart: true,
     lastSeenAt: status === 'offline' ? iso(6 * MIN) : iso(3_000),
     live: status === 'online' || status === 'draining' ? { cpuPercent: cpuPct, memPercent: memPct } : null,
     ipAddress: ip,
@@ -60,6 +61,8 @@ export const DEMO_NODES: NodeDetail[] = [
     agentVersion: '0.0.9',
     agentUpdateAvailable: true,
     agentSkew: { status: 'behind', versions: 2 },
+    // An agent that predates "Restart agent" gets no button.
+    agentRestart: false,
   },
   node('n-wkr-3', 'wkr-3', 'worker', 'draining', 16, 64, 12, 22, '10.0.1.23'),
 ];

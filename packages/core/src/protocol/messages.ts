@@ -42,6 +42,7 @@ import { AppDbBackupMsg, AppDbRestoreMsg, AppDbVerifyMsg } from './appDb';
 import { QueueOpMsg } from './queueOp';
 import { DbQueryMsg } from './studio';
 import { ProbeSmtpMsg } from './email';
+import { RestartAgentMsg } from './restart-agent';
 import { FormatDiskMsg, GrowDiskMsg, ListDisksMsg, RepairDiskMsg } from './disk';
 import {
   SecretCreateMsg,
@@ -157,6 +158,7 @@ export const ControllerToAgentMessage = z.discriminatedUnion('type', [
   TermCloseMsg,
   UpdateSwarmNodeMsg,
   UpdateAgentMsg,
+  RestartAgentMsg,
   PingMsg,
   AckMsg,
   ControllerErrorMsg,

@@ -17,6 +17,7 @@ import {
 } from '@swarmy/ui';
 import type { NodeStatusView } from '@swarmy/core';
 import { useTRPC } from '@/integrations/trpc';
+import { RestartAgentButton } from './restart-agent-button';
 
 interface NodeDangerControlsProps {
   nodeId: string;
@@ -24,12 +25,14 @@ interface NodeDangerControlsProps {
   status: NodeStatusView | undefined;
   /** Live swarm role — drives promote/demote (WS2). Omitted = hide the control. */
   role?: 'manager' | 'worker';
+  /** The agent can be restarted from here (`NodeSummary.agentRestart`). */
+  agentRestart?: boolean;
 }
 
 /** Availability (drain/activate), promote/demote, + remove — the destructive end
  *  of node control. Drain, demote and remove are AlertDialog-confirmed; activate
  *  and promote are plain reversible actions. Demote is quorum-guarded server-side. */
-export function NodeDangerControls({ nodeId, name, status, role }: NodeDangerControlsProps): React.JSX.Element {
+export function NodeDangerControls({ nodeId, name, status, role, agentRestart }: NodeDangerControlsProps): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -118,6 +121,8 @@ export function NodeDangerControls({ nodeId, name, status, role }: NodeDangerCon
             </AlertDialogContent>
           </AlertDialog>
         )}
+
+        <RestartAgentButton nodeId={nodeId} name={name} available={agentRestart} online={status !== 'offline'} />
 
         {role === 'worker' ? (
           <Button

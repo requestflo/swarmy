@@ -68,6 +68,8 @@ export interface NodeSummary {
   agentUpdateAvailable: boolean;
   /** Version skew against this controller, judged at the agent's last register (null = not seen). */
   agentSkew?: AgentSkew | null;
+  /** The agent can be restarted from the dashboard (advertised the `restartAgent` capability). */
+  agentRestart?: boolean;
   lastSeenAt: string | null;
   /** Most recent live snapshot, if the node is connected. */
   live: { cpuPercent: number; memPercent: number } | null;

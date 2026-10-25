@@ -22,7 +22,8 @@ export function containerIdFromMountinfo(mountinfo: string): string | undefined 
 export interface SelfContainer {
   Id: string;
   Image?: string;
-  HostConfig?: { NetworkMode?: string };
+  Config?: { Labels?: Record<string, string> | null };
+  HostConfig?: { NetworkMode?: string; RestartPolicy?: { Name?: string } };
 }
 
 /** Inspect this agent's own container, or null (a binary agent, or no socket). */

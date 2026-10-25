@@ -649,7 +649,8 @@ export async function runDaemon(): Promise<void> {
     stopBeacon();
     localSocket?.stop();
     conn.stop();
-    process.exit(0);
+    // 0 unless a handler set one first (`restartAgent` under an on-failure policy).
+    process.exit(typeof process.exitCode === 'number' ? process.exitCode : 0);
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);

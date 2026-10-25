@@ -208,6 +208,8 @@ export const core: DomainResolvers = {
       if (n) Object.assign(n, { agentVersion: '0.2.0', agentUpdateAvailable: false, agentSkew: { status: 'ok', versions: null } });
       return { id, targetVersion: '0.2.0', strategy: 'self-replace' };
     },
+    // Restart agent: the agent exits, systemd brings it back, it re-registers.
+    'nodes.restartAgent': (i) => ({ id: (i as { id: string }).id, supervisor: 'systemd', backInMs: 6_000 }),
     'nodes.activate': (i, s) => {
       const n = byId(s.nodes, (i as { id: string }).id);
       if (n) n.status = 'online';
