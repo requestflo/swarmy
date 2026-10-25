@@ -3,6 +3,7 @@ import { orgProcedure } from '../trpc';
 import { abacProcedure } from '../abac';
 import { getCertFacts } from '../services/ingress-certs.service';
 import { renewCertNow } from '../services/ingress-cert-renew.service';
+import { getCaa } from '../services/ingress-caa.service';
 import { resolveDomainHost } from './ingress-host-resolver';
 
 /**
@@ -19,6 +20,12 @@ export const ingressCertProcedures = {
    * reported", never an error. `renew` says whether Renew now is offered.
    */
   certFacts: orgProcedure.input(HostInput).query(({ ctx, input }) => getCertFacts(ctx, input.host)),
+
+  /**
+   * CAA: may Let's Encrypt issue for this host? The host's CAA set and its
+   * parents' (RFC 8659 tree climb), said in plain words; kept 10 minutes.
+   */
+  caa: orgProcedure.input(HostInput).query(({ ctx, input }) => getCaa(ctx, input.host)),
 
   /**
    * Renew now: the edge re-issues the host's certificate, the old one put back

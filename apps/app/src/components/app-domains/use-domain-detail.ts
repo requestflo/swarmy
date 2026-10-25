@@ -5,10 +5,12 @@ import { countedAtEdge, hostVisits } from '@/lib/host-visits';
 import { hostBlocked } from '@/lib/host-blocked';
 import { caddyfileOf, siteBlock, storedIn } from './cert-model';
 import type { CertFacts } from './cert-facts-model';
+import type { CaaFacts } from './caa-words';
 
 /**
  * One address's detail on the Domains tab (board 30): its certificate
- * (`ingress.domainStatus`'s probe, and what the edges hold, `ingress.certFacts`),
+ * (`ingress.domainStatus`'s probe, what the edges hold, `ingress.certFacts`,
+ * and whether CAA lets Let's Encrypt issue, `ingress.caa`),
  * where certificates live (`ingress.getConfig`),
  * this address's own visits and blocked answers a minute at the edge
  * (`traffic.now.hosts`) and its rendered Caddy site block (`ingress.previewConfig`).
@@ -17,6 +19,7 @@ export function useDomainDetail(host: string, routeDriver?: string | null) {
   const trpc = useTRPC();
   const status = useQuery({ ...trpc.ingress.domainStatus.queryOptions({ host }), refetchInterval: 30_000 });
   const facts = useQuery({ ...trpc.ingress.certFacts.queryOptions({ host }), refetchInterval: 60_000, retry: false });
+  const caa = useQuery({ ...trpc.ingress.caa.queryOptions({ host }), staleTime: 10 * 60_000, retry: false });
   const config = useQuery(trpc.ingress.getConfig.queryOptions());
   const nodes = useQuery(trpc.nodes.list.queryOptions());
   const traffic = useQuery({ ...trpc.traffic.now.queryOptions(), refetchInterval: 30_000 });
@@ -31,6 +34,7 @@ export function useDomainDetail(host: string, routeDriver?: string | null) {
   return {
     detail: (status.data as DomainDetail | undefined) ?? null,
     facts: (facts.data as CertFacts | undefined) ?? null,
+    caa: (caa.data as CaaFacts | undefined) ?? null,
     nameOf,
     stored: storedIn(cs),
     storeTech: cs

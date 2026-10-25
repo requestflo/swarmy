@@ -8,9 +8,7 @@
  * (`ingress.domainStatus`) stays the view of what the public is served.
  */
 import {
-  companionHost,
   hostCertFacts,
-  normalizeHostname,
   renewalWindow,
   type EdgeHoldState,
   type RenewalSeen,
@@ -18,11 +16,13 @@ import {
   type RenewEligibility,
 } from '@swarmy/ingress';
 import type { OrgContext } from '../context';
-import { notFound } from '../errors';
-import { listRoutesForOrg } from './ingress-routes';
+import { requireRoutedHost } from './routed-host';
 import { readEdgeCertsAll } from './ingress-certs.read';
 import { certHistory, recordSeenCert } from './ingress-certs.history';
 import { renewEligibilityFor } from './ingress-cert-renew.limits';
+import { knownCaaAllows } from './ingress-caa.service';
+
+export { requireRoutedHost };
 
 export interface CertFactsView {
   host: string;
@@ -52,16 +52,6 @@ export interface CertFactsView {
   checkedAt: string | null;
 }
 
-/** A routed host (or its www companion), normalised; NOT_FOUND otherwise. */
-export function requireRoutedHost(ctx: OrgContext, raw: string): string {
-  const host = normalizeHostname(raw);
-  const routed = listRoutesForOrg(ctx).some((r) => {
-    const h = normalizeHostname(r.route.host);
-    return h === host || (Boolean(r.route.www) && companionHost(h) === host);
-  });
-  if (!routed) throw notFound('domain', host);
-  return host;
-}
 
 export async function getCertFacts(ctx: OrgContext, rawHost: string, opts: { fresh?: boolean } = {}): Promise<CertFactsView> {
   const host = requireRoutedHost(ctx, rawHost);
@@ -79,7 +69,7 @@ export async function getCertFacts(ctx: OrgContext, rawHost: string, opts: { fre
     ? recordSeenCert(ctx.activeOrgId, host, { notBefore: c.notBefore, notAfter: c.notAfter, serial: c.serial, issuer: c.issuer })
     : certHistory(ctx.activeOrgId, host);
   const holders = facts.edges.filter((e) => e.state === 'holds' || e.state === 'other').map((e) => e.nodeId);
-  const renew = await renewEligibilityFor(ctx, host, c ? { issuerKey: c.issuerKey, wildcard: c.wildcard } : null, holders);
+  const renew = await renewEligibilityFor(ctx, host, c ? { issuerKey: c.issuerKey, wildcard: c.wildcard } : null, holders, knownCaaAllows(ctx.activeOrgId, host));
   return {
     host,
     source,

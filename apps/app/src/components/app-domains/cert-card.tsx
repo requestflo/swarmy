@@ -9,6 +9,8 @@ import { CertFactRows } from './cert-fact-rows';
 import { RenewalsRow } from './cert-renewals-row';
 import { renewalTech, renewsLine } from './cert-renewal-words';
 import { RenewNow } from './renew-now';
+import { CaaRow } from './caa-row';
+import type { CaaFacts } from './caa-words';
 
 interface Props {
   host: string;
@@ -16,6 +18,8 @@ interface Props {
   detail: DomainDetail | null;
   /** What the edges hold, from their own storage (`ingress.certFacts`); null while unknown. */
   facts: CertFacts | null;
+  /** May Let's Encrypt issue for it (`ingress.caa`); null while unknown. */
+  caa: CaaFacts | null;
   /** Server name for an edge's public IP. */
   nameOf: (ip: string) => string;
   /** Where certificates are kept (`certStorage`), null while unknown. */
@@ -30,7 +34,7 @@ interface Props {
  * where the certificate store lives (`ingress.getConfig` certStorage), and
  * Renew now at Controls.
  */
-export function CertCard({ host, tls, detail: d, facts, nameOf, stored, storeTech }: Props): React.JSX.Element {
+export function CertCard({ host, tls, detail: d, facts, caa, nameOf, stored, storeTech }: Props): React.JSX.Element {
   const more = <Link to="/network/domains/$host" params={{ host }}><SectionLink>DNS checks →</SectionLink></Link>;
   if (tls === 'off') {
     return (
@@ -67,6 +71,7 @@ export function CertCard({ host, tls, detail: d, facts, nameOf, stored, storeTec
         </div>
       )}
       <CertFactRows host={host} facts={facts} probed={c?.edges ?? []} nameOf={nameOf} stored={stored}>
+        <CaaRow caa={caa} />
         <RenewalsRow facts={facts} />
       </CertFactRows>
       <Depth at="controls">

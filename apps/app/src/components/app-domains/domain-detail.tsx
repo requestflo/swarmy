@@ -51,7 +51,7 @@ export function DomainDetailPanel({ stack, domain: d, info, protection }: {
       </div>
       <DomainFlow host={d.host} visitsPerMin={info.visitsPerMin} windowMinutes={info.windowMinutes} rulesOn={rulesOn(p)} target={target} />
       <div className="grid gap-5 xl:grid-cols-[340px_minmax(0,1fr)]">
-        <CertCard host={d.host} tls={d.tls} detail={info.detail} facts={info.facts} nameOf={info.nameOf} stored={info.stored} storeTech={info.storeTech} />
+        <CertCard host={d.host} tls={d.tls} detail={info.detail} facts={info.facts} caa={info.caa} nameOf={info.nameOf} stored={info.stored} storeTech={info.storeTech} />
         <ProtectionsSection host={d.host} service={service} protection={p} blocked={info.blocked} saving={protection.saving} save={protection.save} />
       </div>
       <Depth at="controls">

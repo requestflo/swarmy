@@ -39,3 +39,4 @@ export * from './wildcard-scope';
 export * from './edge-certs';
 export * from './cert-renewal';
 export * from './cert-renew';
+export * from './caa';

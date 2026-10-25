@@ -7,6 +7,7 @@ import { forgetRenewLedger } from './ingress-cert-renew.limits';
 import { forgetEdgeCerts } from './ingress-certs.read';
 import { forgetCertHistories } from './ingress-certs.history';
 import { seedKv, useMemoryKv } from './swarm-kv.service';
+import { forgetCaa } from './ingress-caa.service';
 
 /**
  * Renew now is an ingress write that is refused in plain words where it is
@@ -19,6 +20,7 @@ afterEach(() => {
   forgetEdgeCerts();
   forgetCertHistories();
   forgetRenewLedger();
+  forgetCaa();
 });
 
 const HOST = 'shop.northwind.dev';
@@ -40,7 +42,10 @@ const config = IngressConfigSchema.parse({
   domains: [{ domain: HOST, service: 'shop_web', port: 3000 }, { domain: 'api.northwind.dev', service: 'shop_web', port: 8080 }],
   globalOptions: { extraConfig: { applyVia: 'exec' } },
 });
-const deps = { loadConfig: async () => config };
+const noCaa = async (): Promise<never> => {
+  throw Object.assign(new Error('no data'), { code: 'ENODATA' });
+};
+const deps = { loadConfig: async () => config, resolveCaa: noCaa };
 
 let org = 0;
 function world(opts: { renew?: 'renewed' | 'restored'; capabilities?: string[]; topology?: string; audited?: Date[] } = {}) {
@@ -77,6 +82,14 @@ function world(opts: { renew?: 'renewed' | 'restored'; capabilities?: string[]; 
 }
 
 describe('renewCertNow', () => {
+  it('refused when CAA does not let Let’s Encrypt issue: nothing counted, nothing dispatched', async () => {
+    const w = world();
+    const onlySectigo = async (name: string) => (name === 'northwind.dev' ? [{ critical: 0, issue: 'sectigo.com' }] : noCaa());
+    await expect(renewCertNow(w.ctx, HOST, { ...deps, resolveCaa: onlySectigo })).rejects.toThrow('CAA records do not let');
+    expect(w.renews()).toEqual([]);
+    expect(w.audit).not.toContain('ingress.renewCert');
+  });
+
   it('renews on the edge that holds it: audited before dispatch, the host left out of the first render only', async () => {
     const w = world();
     const r = await renewCertNow(w.ctx, HOST, deps);

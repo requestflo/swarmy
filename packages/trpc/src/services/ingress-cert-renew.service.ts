@@ -4,7 +4,8 @@
  * protocol edge-cert-renew.ts) and puts the old certificate back when no new
  * one comes; this side checks it is allowed (`renewEligibilityFor`: a local
  * certificate store, an ACME certificate that is not a wildcard, agents that
- * know the command, and the per-host rate limit), counts the ask in the audit
+ * know the command, CAA letting Let's Encrypt issue, and the per-host rate
+ * limit), counts the ask in the audit
  * log BEFORE dispatching, and renders the two Caddyfiles each edge needs.
  *
  * Edges run one after another, and a renew stops at the first that does not
@@ -21,6 +22,7 @@ import { getCertFacts, requireRoutedHost, type CertFactsView } from './ingress-c
 import { forgetEdgeCerts } from './ingress-certs.read';
 import { markRenewRequested, recordSeenCert } from './ingress-certs.history';
 import { asTheRenew, recordRenewAsk, RENEW_AUDIT_ACTION } from './ingress-cert-renew.limits';
+import { getCaa, type CaaResolve } from './ingress-caa.service';
 
 /** How long an edge waits for the CA before putting the old certificate back. */
 export const RENEW_WAIT_MS = 120_000;
@@ -44,9 +46,11 @@ function refuse(why: string, reason: string): TRPCError {
 export async function renewCertNow(
   ctx: OrgContext,
   rawHost: string,
-  deps: { loadConfig: (ctx: OrgContext) => Promise<IngressConfig> } = { loadConfig: loadOrgConfig },
+  deps: { loadConfig: (ctx: OrgContext) => Promise<IngressConfig>; resolveCaa?: CaaResolve } = { loadConfig: loadOrgConfig },
 ): Promise<RenewCertView> {
   const host = requireRoutedHost(ctx, rawHost);
+  // CAA first (kept 10 min): a renew CAA forbids would only spend an ACME failure.
+  await getCaa(ctx, host, deps.resolveCaa).catch(() => null);
   const before = await getCertFacts(ctx, host, { fresh: true });
   if (!before.renew.available) throw refuse(before.renew.why, before.renew.reason);
   const holders = before.edges.filter((e) => e.state === 'holds' || e.state === 'other');
