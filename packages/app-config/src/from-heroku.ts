@@ -13,6 +13,7 @@
  *   cron (Dokku)   → jobs:
  *   buildpacks     → build: { type: railpack }
  *   config vars    → env:, secret-looking ones as ${{ secrets.<name> }}
+ *   domains        → services.web.domains (custom ones; *.herokuapp.com stays)
  *
  * Data never moves here: {@link herokuMigrationSteps} says how.
  */
@@ -21,6 +22,7 @@ import { parseAppConfig } from './parse';
 import { appName } from './from-compose-read';
 import { convertAddons, inferAddons, type HerokuDatabase, type HerokuGap } from './from-heroku-addons';
 import { convertBuildpacks } from './from-heroku-build';
+import { convertDomains } from './from-heroku-domains';
 import { convertEnv, type HerokuSecret } from './from-heroku-env';
 import { herokuExtras, herokuServices } from './from-heroku-procs';
 import { readAppJson, readHerokuConfig, readProcfile, type HerokuAppJson } from './from-heroku-read';
@@ -39,6 +41,8 @@ export interface HerokuInput {
   app?: string;
   /** The app's folder in the repo ('' = the root): the build path. */
   dir?: string;
+  /** The app's hostnames (`heroku domains`, or the Platform API's). */
+  domains?: string[];
 }
 
 export interface HerokuConversion {
@@ -55,6 +59,10 @@ export interface HerokuConversion {
   databases: HerokuDatabase[];
   /** Variables swarmy's bindings fill in: Heroku's values for them must not come across. */
   bound: string[];
+  /** Custom domains, routed to web. */
+  domains: string[];
+  /** Add-on variable → the binding that fills it (`DATABASE_URL` → `${{ db.url }}`). */
+  bindings: Record<string, string>;
 }
 
 export const herokuGapSentence = (g: HerokuGap): string => `${g.key} isn't carried over — ${g.reason}.`;
@@ -63,7 +71,7 @@ const EMPTY: HerokuAppJson = { env: {}, formation: {}, addons: [], buildpacks: [
 const HEADER = ' Imported from Heroku (app.json + Procfile) by swarmy — review it, then commit it.\n Secret values stay out of git: the file reads them as ${{ secrets.<name> }}.';
 
 export function fromHeroku(input: HerokuInput): HerokuConversion {
-  const out: HerokuConversion = { yaml: null, app: appName(input.app ?? 'my-app'), notes: [], changes: [], untranslated: [], secrets: [], databases: [], bound: [] };
+  const out: HerokuConversion = { yaml: null, app: appName(input.app ?? 'my-app'), notes: [], changes: [], untranslated: [], secrets: [], databases: [], bound: [], domains: [], bindings: {} };
   const change = (...xs: string[]): void => {
     out.changes.push(...xs);
     out.notes.push(...xs);
@@ -96,8 +104,10 @@ export function fromHeroku(input: HerokuInput): HerokuConversion {
   ];
   const env = convertEnv({ spec: json.env, config, bindings: addons.bindings, aliases });
   const extras = herokuExtras(json, addons.scheduler);
-  change(...build.changes, ...svc.changes, ...addons.changes, ...extras.changes, ...env.changes);
-  gap(...build.gaps, ...svc.gaps, ...addons.gaps, ...extras.gaps, ...env.gaps);
+  const hosts = convertDomains(input.domains ?? []);
+  if (hosts.domains.length) svc.services.web!.domains = hosts.domains;
+  change(...build.changes, ...svc.changes, ...hosts.changes, ...addons.changes, ...extras.changes, ...env.changes);
+  gap(...build.gaps, ...svc.gaps, ...hosts.gaps, ...addons.gaps, ...extras.gaps, ...env.gaps);
 
   const file: Record<string, unknown> = {
     version: 1,
@@ -115,5 +125,5 @@ export function fromHeroku(input: HerokuInput): HerokuConversion {
     if (issue.severity === 'error') out.notes.push(`Needs a fix before it deploys: ${issue.message}`);
   }
   const bound = Object.keys(env.env).filter((k) => addons.bindings[k] || aliases.some(([re]) => re.test(k)));
-  return { ...out, yaml, app, secrets: env.secrets, databases: addons.databases, bound };
+  return { ...out, yaml, app, secrets: env.secrets, databases: addons.databases, bound, domains: hosts.domains, bindings: addons.bindings };
 }

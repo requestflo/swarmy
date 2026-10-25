@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { buildpackId } from './from-heroku-build';
-import { claimName, cronSchedule, dynoSize, readAppJson, readHerokuConfig, readProcfile } from './from-heroku-read';
+import { claimName, cronSchedule, readAppJson, readHerokuConfig, readProcfile } from './from-heroku-read';
 
 describe('readHerokuConfig: every shape `heroku config` prints', () => {
   const want = { DATABASE_URL: 'postgres://u:p@h:5432/d', GREETING: 'hello world', EMPTY: '' };
@@ -62,14 +62,6 @@ describe('small readers', () => {
       { name: 'web', command: 'node s.js' },
       { name: 'worker', command: 'node w.js --queue a:b' },
     ]);
-  });
-
-  it('dyno sizes: a preset where one fits, else memory', () => {
-    expect(dynoSize('eco')).toEqual({ size: 'small' });
-    expect(dynoSize('standard-2x')).toEqual({ size: 'medium' });
-    expect(dynoSize('performance-m')).toEqual({ memory: '2560mb' });
-    expect(dynoSize('performance-l')).toEqual({ memory: '14gb' });
-    expect(dynoSize('quantum-9x')).toBeNull();
   });
 
   it('cron shorthands, unit names and buildpack ids', () => {

@@ -4,7 +4,8 @@
  * {@link fromHeroku}; pure.
  */
 import type { HerokuGap } from './from-heroku-addons';
-import { claimName, cronSchedule, dynoSize, type HerokuAppJson } from './from-heroku-read';
+import { dynoLimitsText, dynoSize } from './from-heroku-dyno';
+import { claimName, cronSchedule, type HerokuAppJson } from './from-heroku-read';
 
 /** A clock process runs its own schedule: one copy, so each job fires once. */
 const CLOCK = /^(clock|scheduler|beat|cron)$/;
@@ -70,10 +71,10 @@ export function herokuServices(
     }
     if (f.size) {
       const size = dynoSize(f.size);
-      if (!size) c.gaps.push({ key: `${key}.size`, reason: `${f.size} isn't a dyno size swarmy knows: set size: or memory: yourself` });
+      if (!size) c.gaps.push({ key: `${key}.size`, reason: `${f.size} isn't a dyno size swarmy knows: set size:, or memory: and cpu:, yourself` });
       else {
         Object.assign(s, size);
-        c.changes.push(`${type} ran on ${f.size} dynos: ${'size' in size ? `size: ${size.size}` : `memory: ${size.memory}`}.`);
+        c.changes.push(`${type} ran on ${f.size} dynos: ${dynoLimitsText(size)} per copy.`);
       }
     }
   }

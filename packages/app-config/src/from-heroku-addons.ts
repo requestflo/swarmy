@@ -77,7 +77,7 @@ export function convertAddons(addons: HerokuAddon[], taken: Set<string>): AddonC
     if (a.service === PG) {
       const first = !pgSeen && (!a.as || a.as === 'DATABASE');
       pgSeen = true;
-      const name = claimName(first ? 'db' : (a.as ?? 'db'), taken, 'db');
+      const name = claimName(first ? 'db' : (a.as?.replace(/^HEROKU_POSTGRESQL_/, 'DB_') ?? 'db'), taken, 'db');
       const envVar = a.as ? `${a.as}_URL` : first ? 'DATABASE_URL' : null;
       const asked = Number(a.options.version);
       const version = (POSTGRES_VERSIONS as readonly number[]).includes(asked) ? asked : DEFAULT_POSTGRES_VERSION;

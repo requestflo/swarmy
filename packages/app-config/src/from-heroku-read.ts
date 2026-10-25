@@ -113,26 +113,6 @@ export function readHerokuConfig(text: string): Record<string, string> {
   return Object.fromEntries(parseDotenv(lines.join('\n')).entries.map((e) => [e.key, e.value]));
 }
 
-/** Heroku dyno size → memory (MB). */
-const DYNO_MB: Record<string, number> = {
-  free: 512, eco: 512, hobby: 512, basic: 512, 'standard-1x': 512,
-  'standard-2x': 1024, 'private-s': 1024, 'shield-s': 1024,
-  'performance-m': 2560, 'private-m': 2560, 'shield-m': 2560,
-  'performance-l': 14336, 'private-l': 14336, 'shield-l': 14336,
-  'performance-l-ram': 30720, 'private-l-ram': 30720, 'shield-l-ram': 30720,
-  'performance-xl': 63488, 'private-xl': 63488, 'shield-xl': 63488,
-  'performance-2xl': 129024, 'private-2xl': 129024, 'shield-2xl': 129024,
-};
-
-/** A dyno size as swarmy.yaml keys: a preset where one matches, else `memory:`. */
-export function dynoSize(size: string): { size: 'small' | 'medium' } | { memory: string } | null {
-  const mb = DYNO_MB[size];
-  if (!mb) return null;
-  if (mb === 512) return { size: 'small' };
-  if (mb === 1024) return { size: 'medium' };
-  return { memory: mb % 1024 === 0 ? `${mb / 1024}gb` : `${mb}mb` };
-}
-
 const MACROS: Record<string, string> = { '@hourly': '0 * * * *', '@daily': '0 0 * * *', '@midnight': '0 0 * * *', '@weekly': '0 0 * * 0', '@monthly': '0 0 1 * *', '@yearly': '0 0 1 1 *', '@annually': '0 0 1 1 *' };
 
 /** A cron schedule swarmy.yaml accepts (`@daily` → `0 0 * * *`), or null. */
