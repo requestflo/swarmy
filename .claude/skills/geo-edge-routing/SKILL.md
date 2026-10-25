@@ -147,13 +147,18 @@ invariants that must survive every change, and where everything lives.
   ingress-reconcile converges a live mode that disagrees with the setting.
   The current topology is a no-op (never removed + recreated).
 - **Edge settings write**: every org edge setting (driver, enabled, topology,
-  image, target nodes, TLS, tunnel, DNS provider) goes through ONE write,
-  `applyIngressSettings` (`ingress-settings.service.ts`): validate the whole
-  patch, persist where each field always lived, converge ONCE (one deploy at
-  most, one apply). The `ingress.*` setters (`ingress-setters.ts`) and REST
-  `PUT /ingress/settings` are thin wrappers; never add a setter that
-  converges on its own. Secrets are write-only (`getIngressSettings` says set
-  / not set).
+  image, target nodes, TLS, tunnel, DNS provider, country database, auto-address
+  base) goes through ONE write, `applyIngressSettings`
+  (`ingress-settings.service.ts`): validate the whole patch, persist where
+  each field always lived, converge ONCE (one deploy at most, one apply; a
+  patch of render-free fields such as the auto-address base skips the apply).
+  Validation (`ingress-settings.checks.ts`) judges EVERY field and refuses as
+  a whole with each field's reason (`cause.fieldErrors` → tRPC
+  `data.fieldErrors`, REST `invalid_params`). The `ingress.*` setters
+  (`ingress-setters.ts`, incl. `setEdgeGeoip` / `setAutoAddressBase`) and
+  REST `PUT /ingress/settings` are thin wrappers; never add a setter that
+  validates or converges on its own. Secrets are write-only
+  (`getIngressSettings` says set / not set).
 - **Certs across edge nodes**: edge-per-node REQUIRES one shared CertMagic
   store — per-node storage under geo-DNS breaks HTTP-01/TLS-ALPN-01 (the CA's
   vantage points reach edges that don't hold the token). The store is swarmy
@@ -199,7 +204,7 @@ invariants that must survive every change, and where everything lives.
 | Edge country DB setting | `packages/ingress/src/edge-geoip.ts`, `packages/trpc/src/services/edge-geoip.service.ts` |
 | Edge traffic: scrape, latency buckets, ring/rollups, reads | `apps/agent/src/handlers/edge-traffic.ts`, `packages/core/src/edge-{traffic,traffic-caddy,traffic-hosts,traffic-extras,latency}.ts`, `packages/trpc/src/services/{traffic.service,traffic-series}.ts`, worker `apps/api/src/workers/edge-traffic.ts` |
 | Edge Caddy service spec / topology | `packages/trpc/src/services/ingress-controller.ts` (spec), `ingress-topology.ts` (preflight + swap) |
-| Edge settings in one write / read | `packages/trpc/src/services/ingress-settings{.service,.schema,-merge}.ts`, setters `ingress-setters.ts` |
+| Edge settings in one write / read | `packages/trpc/src/services/ingress-settings{.service,.schema,.checks,-merge,-audit}.ts`, setters `ingress-setters.ts` |
 | DNS UI: Network › Geo-DNS (ask from anywhere, one records table, delegation, steering; zones, nameserver picks and server regions at Controls) | `routes/_authed/network_.geo-dns.tsx` → `apps/app/src/components/geo/geodns-page.tsx` (`ask-model.ts`: the continents `regionCoord` places, so `geodns.previewResolution` steers from the point the map draws; `zone-records-model.ts`; `delegation-section.tsx`; `steering-section.tsx`). `components/geo/*` also serves Network › Domains (`components/network/*`) and the app Domains tab |
 
 ## Operational gotchas

@@ -26,7 +26,8 @@ export function registerIngressSettingsRoutes(app: OpenAPIHono<RestEnv>): void {
       path: '/ingress/settings',
       tags: ['Ingress'],
       summary: 'Read the ingress settings',
-      description: 'Driver, topology, image, target nodes, TLS, tunnel and DNS provider. Secrets read back as set / not set, never their values.',
+      description:
+        'Driver, topology, image, target nodes, TLS, tunnel, DNS provider, country database and automatic-address base. Secrets read back as set / not set, never their values.',
       security: [{ bearerApiKey: [] }],
       middleware: [requireScope('read')] as const,
       responses: {
@@ -44,13 +45,13 @@ export function registerIngressSettingsRoutes(app: OpenAPIHono<RestEnv>): void {
       tags: ['Ingress'],
       summary: 'Change the ingress settings',
       description:
-        'One write for every edge setting: the body is validated as a whole (nothing changes when any part is refused), saved, and the edge converges once. Fields left out keep their current value; `null` clears a nullable one. A topology change removes and recreates the edge service; the current topology is a no-op.',
+        'One write for every edge setting: the body is validated as a whole (nothing changes when any part is refused, and `invalid_params` names each refused field), saved, and the edge converges once. Fields left out keep their current value; `null` clears a nullable one. A topology change removes and recreates the edge service; the current topology is a no-op.',
       security: [{ bearerApiKey: [] }],
       middleware: [requireScope('write'), requireAdmin()] as const,
       request: { body: { content: { 'application/json': { schema: UpdateIngressSettingsBody } } } },
       responses: {
         200: { ...settingsRes, description: 'Settings after the change' },
-        400: problemRes,
+        400: { ...problemRes, description: 'Refused as a whole: `invalid_params` names every field and why; nothing changed' },
         403: problemRes,
         412: { ...problemRes, description: 'A precondition failed (no ingress node, or object storage off, for edge-per-node)' },
       },

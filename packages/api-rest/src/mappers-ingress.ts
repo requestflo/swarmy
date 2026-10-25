@@ -27,6 +27,8 @@ export function ingressSettingsToDto(v: IngressSettingsView): z.infer<typeof Ing
     dns_provider: v.dnsProvider
       ? { provider: v.dnsProvider.provider, api_token_set: v.dnsProvider.apiTokenSet, set_at: v.dnsProvider.setAt }
       : null,
+    geoip: { mode: v.geoip.mode, path: v.geoip.path },
+    auto_address_base: v.autoAddressBase,
     updated_at: v.updatedAt,
   };
 }
@@ -56,5 +58,7 @@ export function ingressSettingsBodyToPatch(b: z.infer<typeof UpdateIngressSettin
         : b.dns_provider
           ? { provider: b.dns_provider.provider, apiToken: b.dns_provider.api_token }
           : undefined,
+    geoip: b.geoip ? defined({ mode: b.geoip.mode, path: b.geoip.path }) : undefined,
+    autoAddressBase: b.auto_address_base,
   });
 }

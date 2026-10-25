@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { currentFacts, ingressAudit, ingressSettingsView, mergeIngressPatch, type IngressDoc } from './ingress-settings-merge';
-import { assertIngressPatch, parseIngressPatch } from './ingress-settings.schema';
+import { ingressSettingsView, mergeIngressPatch, type IngressDoc } from './ingress-settings-merge';
 
 const doc = (settings: Record<string, unknown> = {}): IngressDoc => ({ driver: 'CADDY', enabled: true, settings });
 const BYO = { provider: 'cloudflare' as const, secretName: 'swarmy-acme-dns-byo-abc', setAt: '2026-10-24T00:00:00.000Z' };
@@ -40,6 +39,16 @@ describe('mergeIngressPatch — each field lands where its setter wrote it', () 
     expect(mergeIngressPatch(set, { dnsProvider: null }, {}).settings.acmeDns).toEqual({ swarmySecret: 'swarmy-acme-dns-1' });
   });
 
+  it('country database: only `file` keeps a path; auto-address base is normalised, null/blank clears', () => {
+    expect(mergeIngressPatch(doc(), { geoip: { mode: 'off', path: '/x.mmdb' } }, {}).settings.geoip).toEqual({ mode: 'off' });
+    const file = mergeIngressPatch(doc(), { geoip: { mode: 'file', path: '/geo/c.mmdb' } }, {});
+    expect(file.settings.geoip).toEqual({ mode: 'file', path: '/geo/c.mmdb' });
+    const based = mergeIngressPatch(doc(), { autoAddressBase: ' IP.Acme.net. ' }, {});
+    expect(based.settings.autoAddressBase).toBe('ip.acme.net');
+    expect('autoAddressBase' in mergeIngressPatch(based, { autoAddressBase: null }, {}).settings).toBe(false);
+    expect('autoAddressBase' in mergeIngressPatch(based, { autoAddressBase: '' }, {}).settings).toBe(false);
+  });
+
   it('never writes topology (it lands only after its swap deployed)', () => {
     expect(mergeIngressPatch(doc(), { topology: 'edge-per-node' }, {}).settings.topology).toBeUndefined();
   });
@@ -51,6 +60,7 @@ describe('ingressSettingsView', () => {
     expect(v).toMatchObject({
       orgId: 'org1', driver: 'caddy', enabled: true, topology: 'controller', controllerImage: null, targetNodes: [],
       tls: { acmeEmail: null, onDemand: false, askUrl: null }, tunnel: null, dnsProvider: null,
+      geoip: { mode: 'bundled', path: null }, autoAddressBase: null,
     });
   });
 
@@ -60,43 +70,5 @@ describe('ingressSettingsView', () => {
     expect(v.dnsProvider).toEqual({ provider: 'cloudflare', setAt: BYO.setAt, apiTokenSet: true });
     expect(JSON.stringify(v)).not.toContain('SEALED');
     expect(JSON.stringify(v)).not.toContain(BYO.secretName);
-  });
-});
-
-describe('patch checks (validated before anything is written)', () => {
-  const facts = currentFacts(doc());
-  it('a tunnel needs its run token to connect, and a real one', () => {
-    expect(() => assertIngressPatch({ tunnel: { replicas: 2 } }, facts, null)).toThrow(/run token first/);
-    expect(() => assertIngressPatch({ tunnel: { runToken: 'x'.repeat(30) } }, facts, null)).toThrow(/tunnel token/);
-    expect(() => assertIngressPatch({ tunnel: { runToken: 'x'.repeat(30) } }, facts, 't1')).not.toThrow();
-  });
-  it('on-demand TLS is judged on the settings after the patch', () => {
-    expect(() => assertIngressPatch({ tls: { onDemand: true, askUrl: 'https://x/ask' } }, facts, null)).not.toThrow();
-    const withEmail = currentFacts(doc({ globalOptions: { email: 'a@x.io', onDemandTls: true } }));
-    expect(() => assertIngressPatch({ tls: { acmeEmail: null } }, withEmail, null)).toThrow(/ACME email or an ask/);
-  });
-  it('the schema is strict', () => {
-    expect(() => parseIngressPatch({ tunnel: { runToken: 'x'.repeat(30), secret: 1 } })).toThrow(/invalid ingress settings/);
-    expect(parseIngressPatch(undefined)).toEqual({});
-  });
-});
-
-describe('ingressAudit — one row per write', () => {
-  const f = { previousTopology: 'controller', tunnelId: 't1', byoSecretName: BYO.secretName };
-  it('a single-field patch keeps its setter’s action', () => {
-    expect(ingressAudit({ driver: 'caddy' }, f)).toEqual({ action: 'ingress.setDriver', metadata: { driver: 'caddy' } });
-    expect(ingressAudit({ topology: 'edge-per-node' }, f).metadata).toEqual({ topology: 'edge-per-node', previous: 'controller' });
-    expect(ingressAudit({ controllerImage: null }, f).action).toBe('ingress.clearControllerImage');
-    expect(ingressAudit({ tunnel: null }, f).action).toBe('ingress.clearTunnel');
-    expect(ingressAudit({ tls: { onDemand: true, askUrl: 'https://x' } }, f).action).toBe('ingress.setOnDemandTls');
-  });
-  it('a multi-field patch is ingress.updateSettings with every field, and no secret', () => {
-    const a = ingressAudit({ enabled: true, dnsProvider: { provider: 'cloudflare', apiToken: 'SECRET'.repeat(5) } }, f);
-    expect(a.action).toBe('ingress.updateSettings');
-    expect(a.metadata).toEqual({
-      fields: ['enabled', 'dnsProvider'],
-      changes: { enabled: { enabled: true }, dnsProvider: { provider: 'cloudflare', secretName: BYO.secretName } },
-    });
-    expect(JSON.stringify(a)).not.toContain('SECRET');
   });
 });

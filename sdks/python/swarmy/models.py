@@ -135,6 +135,19 @@ class Node:
 
 
 @dataclass
+class InvalidParam:
+    name: str
+    reason: str
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "InvalidParam":
+        return cls(
+            name=d.get("name"),
+            reason=d.get("reason"),
+        )
+
+
+@dataclass
 class Problem:
     type: str
     title: str
@@ -142,6 +155,7 @@ class Problem:
     detail: Optional[str] = None
     instance: Optional[str] = None
     swarmy_code: Optional[str] = None
+    invalid_params: Optional[List[InvalidParam]] = None
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "Problem":
@@ -152,6 +166,7 @@ class Problem:
             detail=d.get("detail"),
             instance=d.get("instance"),
             swarmy_code=d.get("swarmy_code"),
+            invalid_params=d.get("invalid_params"),
         )
 
 
@@ -264,6 +279,7 @@ class GuardrailProblem:
     detail: Optional[str] = None
     instance: Optional[str] = None
     swarmy_code: Optional[str] = None
+    invalid_params: Optional[List[InvalidParam]] = None
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "GuardrailProblem":
@@ -274,6 +290,7 @@ class GuardrailProblem:
             detail=d.get("detail"),
             instance=d.get("instance"),
             swarmy_code=d.get("swarmy_code"),
+            invalid_params=d.get("invalid_params"),
             violations=d.get("violations"),
         )
 
@@ -693,6 +710,19 @@ class IngressDnsProvider:
 
 
 @dataclass
+class IngressGeoip:
+    mode: str
+    path: Optional[str]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "IngressGeoip":
+        return cls(
+            mode=d.get("mode"),
+            path=d.get("path"),
+        )
+
+
+@dataclass
 class IngressSettings:
     org_id: str
     driver: str
@@ -704,6 +734,8 @@ class IngressSettings:
     tls: IngressTls
     tunnel: Optional[IngressTunnel]
     dns_provider: Optional[IngressDnsProvider]
+    geoip: IngressGeoip
+    auto_address_base: Optional[str]
     updated_at: str
 
     @classmethod
@@ -719,6 +751,8 @@ class IngressSettings:
             tls=d.get("tls"),
             tunnel=d.get("tunnel"),
             dns_provider=d.get("dns_provider"),
+            geoip=d.get("geoip"),
+            auto_address_base=d.get("auto_address_base"),
             updated_at=d.get("updated_at"),
         )
 
@@ -763,6 +797,19 @@ class IngressDnsProviderInput:
         return cls(
             provider=d.get("provider"),
             api_token=d.get("api_token"),
+        )
+
+
+@dataclass
+class IngressGeoipInput:
+    mode: str
+    path: Optional[str] = None
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "IngressGeoipInput":
+        return cls(
+            mode=d.get("mode"),
+            path=d.get("path"),
         )
 
 

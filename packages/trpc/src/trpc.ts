@@ -7,7 +7,7 @@ import { INSTANCE_OWNER_REQUIRED, isInstanceOwner } from './services/instance-ow
 const t = initTRPC.context<BaseContext>().create({
   transformer: superjson,
   errorFormatter: ({ shape, error }) => {
-    const cause = error.cause as { swarmyCode?: string; violations?: unknown } | undefined;
+    const cause = error.cause as { swarmyCode?: string; violations?: unknown; fieldErrors?: unknown } | undefined;
     return {
       ...shape,
       data: {
@@ -15,6 +15,8 @@ const t = initTRPC.context<BaseContext>().create({
         swarmyCode: cause?.swarmyCode,
         // Admission refusals carry their violations so the UI can offer an override.
         ...(Array.isArray(cause?.violations) ? { violations: cause.violations as unknown[] } : {}),
+        // A settings write refused as a whole names every field and why.
+        ...(Array.isArray(cause?.fieldErrors) ? { fieldErrors: cause.fieldErrors as unknown[] } : {}),
       },
     };
   },

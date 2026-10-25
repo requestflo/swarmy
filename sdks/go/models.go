@@ -60,13 +60,19 @@ type NodeList struct {
 	NextCursor *string `json:"next_cursor"`
 }
 
+type InvalidParam struct {
+	Name   string `json:"name"`
+	Reason string `json:"reason"`
+}
+
 type Problem struct {
-	Type       string `json:"type"`
-	Title      string `json:"title"`
-	Status     int    `json:"status"`
-	Detail     string `json:"detail,omitempty"`
-	Instance   string `json:"instance,omitempty"`
-	SwarmyCode string `json:"swarmy_code,omitempty"`
+	Type          string         `json:"type"`
+	Title         string         `json:"title"`
+	Status        int            `json:"status"`
+	Detail        string         `json:"detail,omitempty"`
+	Instance      string         `json:"instance,omitempty"`
+	SwarmyCode    string         `json:"swarmy_code,omitempty"`
+	InvalidParams []InvalidParam `json:"invalid_params,omitempty"`
 }
 
 type NodeAvailability struct {
@@ -120,13 +126,14 @@ type AdmissionViolation struct {
 }
 
 type GuardrailProblem struct {
-	Type       string               `json:"type"`
-	Title      string               `json:"title"`
-	Status     int                  `json:"status"`
-	Detail     string               `json:"detail,omitempty"`
-	Instance   string               `json:"instance,omitempty"`
-	SwarmyCode string               `json:"swarmy_code,omitempty"`
-	Violations []AdmissionViolation `json:"violations"`
+	Type          string               `json:"type"`
+	Title         string               `json:"title"`
+	Status        int                  `json:"status"`
+	Detail        string               `json:"detail,omitempty"`
+	Instance      string               `json:"instance,omitempty"`
+	SwarmyCode    string               `json:"swarmy_code,omitempty"`
+	InvalidParams []InvalidParam       `json:"invalid_params,omitempty"`
+	Violations    []AdmissionViolation `json:"violations"`
 }
 
 type CreateServiceRequest struct {
@@ -364,6 +371,11 @@ type IngressDnsProvider struct {
 	SetAt       string `json:"set_at"`
 }
 
+type IngressGeoip struct {
+	Mode string  `json:"mode"`
+	Path *string `json:"path"`
+}
+
 type IngressSettings struct {
 	OrgID                  string              `json:"org_id"`
 	Driver                 string              `json:"driver"`
@@ -375,6 +387,8 @@ type IngressSettings struct {
 	TLS                    IngressTls          `json:"tls"`
 	Tunnel                 *IngressTunnel      `json:"tunnel"`
 	DnsProvider            *IngressDnsProvider `json:"dns_provider"`
+	Geoip                  IngressGeoip        `json:"geoip"`
+	AutoAddressBase        *string             `json:"auto_address_base"`
 	UpdatedAt              string              `json:"updated_at"`
 }
 
@@ -395,6 +409,11 @@ type IngressDnsProviderInput struct {
 	ApiToken string `json:"api_token"`
 }
 
+type IngressGeoipInput struct {
+	Mode string `json:"mode"`
+	Path string `json:"path,omitempty"`
+}
+
 type UpdateIngressSettingsRequest struct {
 	Driver          string                            `json:"driver,omitempty"`
 	Enabled         *bool                             `json:"enabled,omitempty"`
@@ -404,6 +423,8 @@ type UpdateIngressSettingsRequest struct {
 	TLS             *IngressTlsInput                  `json:"tls,omitempty"`
 	Tunnel          Nullable[IngressTunnelInput]      `json:"tunnel,omitzero"`
 	DnsProvider     Nullable[IngressDnsProviderInput] `json:"dns_provider,omitzero"`
+	Geoip           *IngressGeoipInput                `json:"geoip,omitempty"`
+	AutoAddressBase Nullable[string]                  `json:"auto_address_base,omitzero"`
 }
 
 type ApiKey struct {

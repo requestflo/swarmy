@@ -10,8 +10,7 @@
  * write-only — the view says whether one is set, never what it is.
  */
 import { z } from 'zod';
-import { TRPCError } from '@trpc/server';
-import { BYO_DNS_PROVIDERS, type ByoDnsProvider } from '@swarmy/ingress';
+import { BYO_DNS_PROVIDERS, EdgeGeoipSettingSchema, type ByoDnsProvider, type EdgeGeoipMode } from '@swarmy/ingress';
 
 export const INGRESS_DRIVERS = ['caddy', 'none', 'cloudflared'] as const;
 export const INGRESS_TOPOLOGIES = ['controller', 'edge-per-node'] as const;
@@ -54,6 +53,10 @@ export const IngressSettingsPatchSchema = z
     tunnel: IngressTunnelPatchSchema.nullable().optional(),
     /** BYO DNS-01 provider for wildcards in zones swarmy doesn't serve; `null` clears it. */
     dnsProvider: IngressDnsProviderPatchSchema.nullable().optional(),
+    /** The country database the edge's country rules read (`file` needs a `path`). */
+    geoip: EdgeGeoipSettingSchema.strict().optional(),
+    /** Wildcard-IP base automatic addresses fall back to (e.g. nip.io); `null` = the controller default. */
+    autoAddressBase: z.string().max(253).nullable().optional(),
   })
   .strict();
 
@@ -72,6 +75,10 @@ export interface IngressSettingsView {
   tls: { acmeEmail: string | null; onDemand: boolean; askUrl: string | null };
   tunnel: { tunnelId: string | null; tunnelName: string; replicas: number; runTokenSet: boolean } | null;
   dnsProvider: { provider: ByoDnsProvider; setAt: string; apiTokenSet: boolean } | null;
+  /** The chosen country database (`bundled` when never set); `path` only for `file`. */
+  geoip: { mode: EdgeGeoipMode; path: string | null };
+  /** The org's own wildcard-IP base (null = not set). */
+  autoAddressBase: string | null;
   updatedAt: string;
 }
 
@@ -83,43 +90,11 @@ export interface CurrentIngressFacts {
   tunnelConfigured: boolean;
 }
 
-const bad = (message: string) => new TRPCError({ code: 'BAD_REQUEST', message });
-
-/** Parse an untrusted patch (both front doors), BAD_REQUEST with the first issue. */
-export function parseIngressPatch(input: unknown): IngressSettingsPatch {
-  const parsed = IngressSettingsPatchSchema.safeParse(input ?? {});
-  if (parsed.success) return parsed.data;
-  const issue = parsed.error.issues[0];
-  throw bad(`invalid ingress settings: ${issue?.path.join('.') || 'patch'} ${issue?.message ?? ''}`.trim());
-}
-
-/**
- * The cross-field checks, judged on the settings AFTER the patch. `tunnelId`
- * is what the patch's run token decodes to (null = not a tunnel token).
- * Fields the patch leaves alone are never judged, so an unrelated write
- * can't fail on them.
- */
-export function assertIngressPatch(
-  patch: IngressSettingsPatch,
-  current: CurrentIngressFacts,
-  tunnelId: string | null,
-): void {
-  if (patch.tls) {
-    const onDemand = patch.tls.onDemand ?? current.onDemand;
-    const email = patch.tls.acmeEmail !== undefined ? patch.tls.acmeEmail : current.acmeEmail;
-    const ask = patch.tls.askUrl !== undefined ? patch.tls.askUrl : current.askUrl;
-    if (onDemand && !email && !ask) throw bad('on-demand TLS requires an ACME email or an ask endpoint');
-  }
-  if (patch.tunnel?.runToken && !tunnelId) {
-    throw bad('That doesn’t look like a Cloudflare tunnel token — copy it from the tunnel’s install command.');
-  }
-  if (patch.tunnel && !patch.tunnel.runToken && !current.tunnelConfigured) {
-    throw bad('Connect the tunnel with its run token first.');
-  }
-}
-
 /** Fields whose change alters the edge SERVICE (image, placement, mounts, whether it runs). */
 export const DEPLOY_FIELDS: readonly IngressPatchField[] = ['driver', 'enabled', 'controllerImage', 'targetNodes', 'dnsProvider'];
+
+/** Fields that never touch the edge render: a patch of only these skips the apply. */
+export const RENDER_FREE_FIELDS: readonly IngressPatchField[] = ['autoAddressBase'];
 
 /** The fields a patch sets, in a stable order. */
 export function patchFields(patch: IngressSettingsPatch): IngressPatchField[] {

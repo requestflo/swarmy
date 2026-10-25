@@ -2,7 +2,8 @@ import { describe, expect, it } from 'bun:test';
 import { EDGE_GEOIP_BUNDLED_PATH } from '@swarmy/ingress';
 import type { SwarmServiceInfo } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
-import { getEdgeGeoip, setEdgeGeoip } from './edge-geoip.service';
+import { getEdgeGeoip } from './edge-geoip.service';
+import { setEdgeGeoip } from './ingress-setters';
 import { previewConfig } from './ingress.service';
 import { peekKv, seedKv, useMemoryKv } from './swarm-kv.service';
 
@@ -16,10 +17,15 @@ function svc(): SwarmServiceInfo {
   };
 }
 
-function ctxWith(settings: Record<string, unknown> = {}): { ctx: OrgContext; audits: unknown[] } {
+const EDGE = 'swarmy-ingress-caddy';
+/** A running edge task, so a settings write's one apply has somewhere to land. */
+const TASK = { id: 'c1', name: `${EDGE}.1`, image: 'caddy', state: 'running', status: 'Up', createdAt: 0, ports: [], labels: { 'com.docker.swarm.service.name': EDGE } };
+
+function ctxWith(settings: Record<string, unknown> = {}): { ctx: OrgContext; audits: unknown[]; sent: string[] } {
   const audits: unknown[] = [];
+  const sent: string[] = [];
   const db = {
-    node: { findMany: async () => [] },
+    node: { findMany: async () => [{ id: 'm1' }] },
     statusPage: { findMany: async () => [] },
     inboundEndpoint: { findMany: async () => [] },
     aiProviderConfig: { findUnique: async () => null },
@@ -30,12 +36,13 @@ function ctxWith(settings: Record<string, unknown> = {}): { ctx: OrgContext; aud
     managerNode: () => 'm1',
     nodeInfoFor: () => ({ labels: {} }),
     liveInventory: () => ({ services: [svc()], containers: [] }),
-    latestContainers: () => [],
+    latestContainers: () => [TASK],
+    dispatch: async (_n: string, cmd: string) => void sent.push(cmd),
   };
   useMemoryKv(hub as unknown as OrgContext['hub']);
   seedKv(hub as never, 'org_1', 'ingress', 'org_1', { driver: 'CADDY', enabled: true, settings });
   const ctx = { db, hub, activeOrgId: 'org_1', session: { user: { id: 'u1' } } } as unknown as OrgContext;
-  return { ctx, audits };
+  return { ctx, audits, sent };
 }
 
 async function caddyText(ctx: OrgContext): Promise<string> {
@@ -56,12 +63,12 @@ describe('edge country database', () => {
     expect(await caddyText(ctx)).not.toContain('maxmind_geolocation');
   });
 
-  it('setting a file path persists in swarm-kv, is audited, re-renders, and wins over the bundle', async () => {
-    const { ctx, audits } = ctxWith();
-    let reapplied = 0;
-    const v = await setEdgeGeoip(ctx, { mode: 'file', path: '/geoip/country.mmdb' }, async () => (reapplied += 1));
+  it('setting a file path persists in swarm-kv, is audited, re-renders once, and wins over the bundle', async () => {
+    const { ctx, audits, sent } = ctxWith();
+    const v = await setEdgeGeoip(ctx, { mode: 'file', path: '/geoip/country.mmdb' });
     expect(v).toMatchObject({ mode: 'file', path: '/geoip/country.mmdb', effectivePath: '/geoip/country.mmdb' });
-    expect(reapplied).toBe(1);
+    expect(sent.filter((c) => c === 'applyIngress')).toHaveLength(1);
+    expect(sent.filter((c) => c === 'service.deploy' || c === 'service.remove')).toEqual([]); // a render, never a redeploy
     expect(audits).toHaveLength(1);
     const doc = peekKv(ctx.hub as never, 'org_1', 'ingress', 'org_1') as { settings: { geoip: unknown } };
     expect(doc.settings.geoip).toEqual({ mode: 'file', path: '/geoip/country.mmdb' });
@@ -71,8 +78,16 @@ describe('edge country database', () => {
   it('off stops enforcement; an old raw extraConfig path shows up as the file mode until changed', async () => {
     const legacy = ctxWith({ globalOptions: { extraConfig: { geoipMmdbPath: '/data/geo.mmdb' } } });
     expect(await getEdgeGeoip(legacy.ctx)).toMatchObject({ mode: 'file', path: '/data/geo.mmdb', source: 'file' });
-    await setEdgeGeoip(legacy.ctx, { mode: 'off', path: '/ignored.mmdb' }, async () => null);
+    await setEdgeGeoip(legacy.ctx, { mode: 'off', path: '/ignored.mmdb' });
     expect(await getEdgeGeoip(legacy.ctx)).toMatchObject({ mode: 'off', path: null, effectivePath: null });
     expect(await caddyText(legacy.ctx)).not.toContain('maxmind_geolocation');
+  });
+
+  it('a file mode without a path is refused and nothing changes', async () => {
+    const { ctx, audits, sent } = ctxWith();
+    await expect(setEdgeGeoip(ctx, { mode: 'file' })).rejects.toThrow(/file path is required/);
+    expect(await getEdgeGeoip(ctx)).toMatchObject({ mode: 'bundled' });
+    expect(audits).toEqual([]);
+    expect(sent).toEqual([]);
   });
 });

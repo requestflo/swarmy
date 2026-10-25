@@ -22,6 +22,11 @@ export interface NodeList {
   next_cursor: string | null;
 }
 
+export interface InvalidParam {
+  name: string;
+  reason: string;
+}
+
 export interface Problem {
   type: string;
   title: string;
@@ -29,6 +34,7 @@ export interface Problem {
   detail?: string;
   instance?: string;
   swarmy_code?: string;
+  invalid_params?: InvalidParam[];
 }
 
 export interface NodeAvailability {
@@ -88,6 +94,7 @@ export interface GuardrailProblem {
   detail?: string;
   instance?: string;
   swarmy_code?: string;
+  invalid_params?: InvalidParam[];
   violations: AdmissionViolation[];
 }
 
@@ -326,6 +333,11 @@ export interface IngressDnsProvider {
   set_at: string;
 }
 
+export interface IngressGeoip {
+  mode: 'bundled' | 'file' | 'off';
+  path: string | null;
+}
+
 export interface IngressSettings {
   org_id: string;
   driver: 'caddy' | 'none' | 'cloudflared';
@@ -337,6 +349,8 @@ export interface IngressSettings {
   tls: IngressTls;
   tunnel: IngressTunnel | null;
   dns_provider: IngressDnsProvider | null;
+  geoip: IngressGeoip;
+  auto_address_base: string | null;
   updated_at: string;
 }
 
@@ -357,6 +371,11 @@ export interface IngressDnsProviderInput {
   api_token: string;
 }
 
+export interface IngressGeoipInput {
+  mode: 'bundled' | 'file' | 'off';
+  path?: string;
+}
+
 export interface UpdateIngressSettingsRequest {
   driver?: 'caddy' | 'none' | 'cloudflared';
   enabled?: boolean;
@@ -366,6 +385,8 @@ export interface UpdateIngressSettingsRequest {
   tls?: IngressTlsInput;
   tunnel?: IngressTunnelInput | null;
   dns_provider?: IngressDnsProviderInput | null;
+  geoip?: IngressGeoipInput;
+  auto_address_base?: string | null;
 }
 
 export interface ApiKey {

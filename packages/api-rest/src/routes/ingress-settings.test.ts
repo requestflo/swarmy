@@ -73,6 +73,7 @@ describe('GET /ingress/settings', () => {
     expect(r.json).toMatchObject({
       org_id: 'org1', driver: 'none', enabled: true, topology: 'controller', controller_image: null, target_nodes: [],
       tls: { acme_email: null, on_demand: false, ask_url: null }, tunnel: null, dns_provider: null,
+      geoip: { mode: 'bundled', path: null }, auto_address_base: null,
     });
     expect(t.dispatched).toEqual([]); // a read never dispatches
   });
@@ -88,6 +89,8 @@ describe('PUT /ingress/settings', () => {
       tls: { acme_email: 'ops@acme.io', on_demand: true, ask_url: 'https://ctl.acme.io/ask' },
       tunnel: { run_token: RUN_TOKEN, tunnel_name: 'edge', replicas: 2 },
       dns_provider: { provider: 'cloudflare', api_token: DNS_TOKEN },
+      geoip: { mode: 'file', path: '/geo/country.mmdb' },
+      auto_address_base: 'nip.io',
     });
     expect(put.status).toBe(200);
     const get = await t.call('GET');
@@ -97,6 +100,7 @@ describe('PUT /ingress/settings', () => {
       tls: { acme_email: 'ops@acme.io', on_demand: true, ask_url: 'https://ctl.acme.io/ask' },
       tunnel: { tunnel_id: TUNNEL_ID, tunnel_name: 'edge', replicas: 2, run_token_set: true },
       dns_provider: { provider: 'cloudflare', api_token_set: true },
+      geoip: { mode: 'file', path: '/geo/country.mmdb' }, auto_address_base: 'nip.io',
     });
     expect(put.text).not.toContain(RUN_TOKEN);
     expect(put.text).not.toContain(DNS_TOKEN);
@@ -127,6 +131,23 @@ describe('PUT /ingress/settings', () => {
     expect((await t.call('GET')).json.enabled).toBe(true);
     expect(t.audit).toEqual([]);
     expect(t.dispatched).toEqual([]);
+  });
+
+  it('names every refused field in invalid_params, snake_case, each with its reason', async () => {
+    const t = appFor();
+    const rules = await t.call('PUT', {
+      enabled: false, tls: { on_demand: true }, tunnel: { run_token: 'x'.repeat(40) }, geoip: { mode: 'file' }, auto_address_base: 'not a domain',
+    });
+    expect(rules.status).toBe(400);
+    expect(rules.json.invalid_params.map((p: { name: string }) => p.name)).toEqual([
+      'tls.on_demand', 'tunnel.run_token', 'geoip.path', 'auto_address_base',
+    ]);
+    expect(rules.json.invalid_params[3].reason).toMatch(/not a domain name/);
+    const shape = await t.call('PUT', { driver: 'traefik', colour: 'blue', tls: { acme_email: 'nope' } });
+    expect(shape.status).toBe(400);
+    expect(shape.json.invalid_params.map((p: { name: string }) => p.name).sort()).toEqual(['body', 'driver', 'tls.acme_email']);
+    expect((await t.call('GET')).json).toMatchObject({ enabled: true, geoip: { mode: 'bundled' }, auto_address_base: null });
+    expect(t.audit).toEqual([]);
   });
 
   it('is admin-only and needs write', async () => {

@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import type { SwarmServiceInfo } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import { autoAddressBase, reconcileAutoAddressesOrg } from './auto-address.service';
-import { AUTO_ADDRESS_BASE_ENV, getAutoAddressBase, setAutoAddressBase, wildcardBaseFrom } from './auto-address-base.service';
+import { AUTO_ADDRESS_BASE_ENV, getAutoAddressBase, wildcardBaseFrom } from './auto-address-base.service';
+import { setAutoAddressBase } from './ingress-setters';
 import { peekKv, seedKv, useMemoryKv } from './swarm-kv.service';
 
 /** B2(a): the automatic-address base is configurable — env, then the org setting — sslip.io by default. */

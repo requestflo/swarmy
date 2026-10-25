@@ -7,12 +7,11 @@
  * controller; else sslip.io, the public convenience name. The base must be a
  * wildcard-IP DNS service: `<x>.<a-b-c-d>.<base>` has to resolve to a.b.c.d.
  * Changing it re-hosts existing automatic addresses on the domain-verify
- * worker's next tick.
+ * worker's next tick. Setting it is the `autoAddressBase` field of the one
+ * settings write (`ingress.setAutoAddressBase` in ingress-setters.ts).
  */
 import { DEFAULT_AUTO_ADDRESS_BASE, normalizeAutoAddressBase } from '@swarmy/ingress';
 import type { OrgContext } from '../context';
-import { badRequest } from '../errors';
-import { writeAudit } from './audit.service';
 import { clusterZoneName } from './cluster-zone';
 import { ingressConfigRepo, ingressSettingsOf } from './ingress-config.repo';
 
@@ -40,7 +39,7 @@ export interface AutoAddressBaseView {
   defaultBase: string;
 }
 
-function view(settings: Record<string, unknown>, clusterZone: string | null): AutoAddressBaseView {
+function autoAddressBaseView(settings: Record<string, unknown>, clusterZone: string | null): AutoAddressBaseView {
   const base = typeof settings.autoAddressBase === 'string' ? normalizeAutoAddressBase(settings.autoAddressBase) : null;
   const envBase = normalizeAutoAddressBase(process.env[AUTO_ADDRESS_BASE_ENV]);
   const effective = wildcardBaseFrom(settings, process.env, clusterZone) ?? DEFAULT_AUTO_ADDRESS_BASE;
@@ -48,24 +47,5 @@ function view(settings: Record<string, unknown>, clusterZone: string | null): Au
 }
 
 export async function getAutoAddressBase(ctx: OrgContext): Promise<AutoAddressBaseView> {
-  return view(ingressSettingsOf(await ingressConfigRepo.get(ctx, ctx.activeOrgId)), await clusterZoneName(ctx));
-}
-
-/** Set (or clear, `null`) the org's wildcard base. Audited. */
-export async function setAutoAddressBase(ctx: OrgContext, raw: string | null): Promise<AutoAddressBaseView> {
-  const base = raw === null || raw.trim() === '' ? null : normalizeAutoAddressBase(raw);
-  if (raw !== null && raw.trim() !== '' && !base) {
-    throw badRequest(`${raw} is not a domain name — use a wildcard-IP DNS service such as sslip.io or nip.io`);
-  }
-  const row = await ingressConfigRepo.update(ctx, ctx.activeOrgId, (cur) => {
-    const { autoAddressBase: _old, ...rest } = ingressSettingsOf(cur);
-    return { settings: base ? { ...rest, autoAddressBase: base } : rest };
-  });
-  await writeAudit(ctx, {
-    action: 'ingress.setAutoAddressBase',
-    targetType: 'ingressConfig',
-    targetId: ctx.activeOrgId,
-    metadata: { base: base ?? 'unset' },
-  });
-  return view(ingressSettingsOf(row), await clusterZoneName(ctx));
+  return autoAddressBaseView(ingressSettingsOf(await ingressConfigRepo.get(ctx, ctx.activeOrgId)), await clusterZoneName(ctx));
 }

@@ -6,6 +6,13 @@
  */
 import { z } from '@hono/zod-openapi';
 
+export const InvalidParamDto = z
+  .object({
+    name: z.string().openapi({ description: 'The refused field, dotted (`tls.on_demand`, `tunnel.run_token`).' }),
+    reason: z.string(),
+  })
+  .openapi('InvalidParam');
+
 export const ProblemDto = z
   .object({
     type: z.string(),
@@ -14,6 +21,9 @@ export const ProblemDto = z
     detail: z.string().optional(),
     instance: z.string().optional(),
     swarmy_code: z.string().optional(),
+    invalid_params: z.array(InvalidParamDto).optional().openapi({
+      description: 'On a validation 400: every refused field and why (RFC 9457 §3). A write validated as a whole lists each field, not just the first.',
+    }),
   })
   .openapi('Problem');
 

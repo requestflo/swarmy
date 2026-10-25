@@ -3,11 +3,14 @@
  * existing caller. Each is a thin wrapper over the one settings write
  * (`applyIngressSettings`): same validation, same persistence, one converge,
  * one audit row (the setter's own action name). They answer what they always
- * answered — the config view, or the DNS-01 view for the DNS provider.
+ * answered — the config view, or the field's own view (DNS-01, country
+ * database, automatic-address base).
  */
 import type { OrgContext } from '../context';
-import type { ByoDnsProvider } from '@swarmy/ingress';
+import type { ByoDnsProvider, EdgeGeoipSetting } from '@swarmy/ingress';
 import { getDnsChallengeView, type DnsChallengeView } from './acme-dns.service';
+import { getAutoAddressBase, type AutoAddressBaseView } from './auto-address-base.service';
+import { getEdgeGeoip, type EdgeGeoipView } from './edge-geoip.service';
 import { getConfig, type IngressConfigView, type IngressDriverId } from './ingress.service';
 import { applyIngressSettings } from './ingress-settings.service';
 import type { IngressSettingsPatch } from './ingress-settings.schema';
@@ -62,4 +65,20 @@ export async function setByoDnsProvider(
 ): Promise<DnsChallengeView> {
   await applyIngressSettings(ctx, { dnsProvider: input });
   return getDnsChallengeView(ctx);
+}
+
+/** Choose the edge's country database (`bundled`, `file` + a path, or `off`); the edge re-renders. */
+export async function setEdgeGeoip(ctx: OrgContext, input: EdgeGeoipSetting): Promise<EdgeGeoipView> {
+  await applyIngressSettings(ctx, { geoip: input });
+  return getEdgeGeoip(ctx);
+}
+
+/**
+ * Set (or clear, `null` / blank) the org's wildcard-IP base. Nothing
+ * re-renders: the domain-verify worker re-hosts automatic addresses on its
+ * next tick.
+ */
+export async function setAutoAddressBase(ctx: OrgContext, base: string | null): Promise<AutoAddressBaseView> {
+  await applyIngressSettings(ctx, { autoAddressBase: base });
+  return getAutoAddressBase(ctx);
 }

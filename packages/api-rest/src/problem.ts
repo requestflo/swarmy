@@ -4,6 +4,7 @@
  * (tRPC + REST) consistent: tRPC code → HTTP status, `swarmyCode` carried through.
  */
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
+import { invalidParamsFromFieldErrors, type InvalidParam } from './invalid-params';
 
 /**
  * Structural shape of a `TRPCError` (we avoid a direct `@trpc/server` dep here —
@@ -13,8 +14,11 @@ interface TRPCErrorLike {
   name: 'TRPCError';
   code: string;
   message: string;
-  /** `violations`: the admission refusal's list (`admissionDenied` in @swarmy/trpc). */
-  cause?: { swarmyCode?: string; violations?: unknown };
+  /**
+   * `violations`: the admission refusal's list (`admissionDenied` in @swarmy/trpc).
+   * `fieldErrors`: every field a whole-write validation refused (the ingress settings write).
+   */
+  cause?: { swarmyCode?: string; violations?: unknown; fieldErrors?: unknown };
 }
 
 function isTrpcError(e: unknown): e is TRPCErrorLike {
@@ -44,6 +48,8 @@ export interface Problem {
   swarmy_code?: string;
   /** Present when admission refused a deploy (412): every rule it broke. */
   violations?: ProblemViolation[];
+  /** Present on a validation 400: every refused field and why. */
+  invalid_params?: InvalidParam[];
 }
 
 /** The public fields of each violation — never whatever else rides on `cause`. */
@@ -98,6 +104,7 @@ export function trpcErrorToProblem(e: unknown, instance?: string): Problem {
   if (isTrpcError(e)) {
     const status = TRPC_TO_HTTP[e.code] ?? 500;
     const violations = violationsOf(e.cause?.violations);
+    const invalidParams = invalidParamsFromFieldErrors(e.cause?.fieldErrors);
     return {
       type: `https://swarmy.dev/problems/${e.code.toLowerCase()}`,
       title: TITLES[status] ?? 'Error',
@@ -106,6 +113,7 @@ export function trpcErrorToProblem(e: unknown, instance?: string): Problem {
       instance,
       swarmy_code: e.cause?.swarmyCode,
       ...(violations ? { violations } : {}),
+      ...(invalidParams ? { invalid_params: invalidParams } : {}),
     };
   }
   return {

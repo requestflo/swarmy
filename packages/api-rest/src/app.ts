@@ -3,6 +3,7 @@ import { apiReference } from '@scalar/hono-api-reference';
 import type { RestDeps } from './deps';
 import { apiKeyAuth, type RestEnv } from './middleware';
 import { PROBLEM_CONTENT_TYPE, problem, trpcErrorToProblem } from './problem';
+import { invalidParamsFromIssues } from './invalid-params';
 import { registerNodeRoutes } from './routes/nodes';
 import { registerServiceRoutes } from './routes/services';
 import { registerStackRoutes } from './routes/stacks';
@@ -39,7 +40,9 @@ function buildResourceApp(deps: RestDeps, withAuth = true): OpenAPIHono<RestEnv>
     defaultHook: (result, c) => {
       if (!result.success) {
         const p = problem(400, 'Request validation failed');
-        return c.json({ ...p, errors: result.error.issues }, 400, {
+        // `errors` (raw issues) is kept for existing clients; `invalid_params` is the documented shape.
+        const issues = result.error.issues;
+        return c.json({ ...p, errors: issues, invalid_params: invalidParamsFromIssues(issues) }, 400, {
           'content-type': PROBLEM_CONTENT_TYPE,
         });
       }

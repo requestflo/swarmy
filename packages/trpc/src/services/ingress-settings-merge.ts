@@ -1,13 +1,16 @@
 /**
  * Pure halves of the ingress settings write: fold a patch into the stored
- * doc exactly where each per-field setter always wrote it, read the view
- * back, and name the one audit row. Secrets arrive here already sealed.
+ * doc exactly where each per-field setter always wrote it, and read the view
+ * back (the audit row is ingress-settings-audit.ts). Secrets arrive here
+ * already sealed.
  */
+import { normalizeAutoAddressBase } from '@swarmy/ingress';
 import { defaultEdgeImage } from './ingress-controller';
 import { readAcmeDnsSettings, withByoDnsProvider, type AcmeDnsSettings } from './acme-dns.service';
+import { edgeGeoipChoice } from './edge-geoip.service';
 import { DRIVER_TO_ENUM, driverLower, type IngressSettings } from './ingress.service';
 import type { IngressDriverEnum } from './ingress-config.repo';
-import { patchFields, type CurrentIngressFacts, type IngressSettingsPatch, type IngressSettingsView } from './ingress-settings.schema';
+import type { CurrentIngressFacts, IngressSettingsPatch, IngressSettingsView } from './ingress-settings.schema';
 
 /** The stored `ingress/<orgId>` swarm-kv doc. */
 export interface IngressDoc {
@@ -62,6 +65,13 @@ export function mergeIngressPatch(doc: IngressDoc, patch: IngressSettingsPatch, 
   }
   let settings = s as Record<string, unknown>;
   if (patch.dnsProvider !== undefined) settings = withByoDnsProvider(settings, patch.dnsProvider ? sealed.byo ?? null : null);
+  // Country database: only `file` keeps a path.
+  if (patch.geoip) settings.geoip = patch.geoip.mode === 'file' ? patch.geoip : { mode: patch.geoip.mode };
+  if (patch.autoAddressBase !== undefined) {
+    const base = normalizeAutoAddressBase(patch.autoAddressBase);
+    if (base) settings.autoAddressBase = base;
+    else delete settings.autoAddressBase;
+  }
   return {
     driver: patch.driver ? DRIVER_TO_ENUM[patch.driver] : doc.driver,
     enabled: patch.enabled ?? doc.enabled,
@@ -105,43 +115,8 @@ export function ingressSettingsView(orgId: string, doc: IngressDoc, updatedAt: D
         }
       : null,
     dnsProvider: byo ? { provider: byo.provider, setAt: byo.setAt, apiTokenSet: Boolean(byo.secretName) } : null,
+    geoip: edgeGeoipChoice(doc.settings),
+    autoAddressBase: typeof doc.settings.autoAddressBase === 'string' ? normalizeAutoAddressBase(doc.settings.autoAddressBase) : null,
     updatedAt: updatedAt.toISOString(),
-  };
-}
-
-/**
- * The ONE audit row of a write. A single-field patch keeps the action its
- * setter always wrote (`ingress.setDriver`, `ingress.clearTunnel`, …); a
- * multi-field one is `ingress.updateSettings` with each field's metadata.
- * Never a secret: tunnels by id, DNS tokens by secret name.
- */
-export function ingressAudit(
-  patch: IngressSettingsPatch,
-  facts: { previousTopology: string; tunnelId: string | null; byoSecretName?: string },
-): { action: string; metadata: Record<string, unknown> } {
-  const one = {
-    driver: () => ['ingress.setDriver', { driver: patch.driver }],
-    enabled: () => ['ingress.setEnabled', { enabled: patch.enabled }],
-    topology: () => ['ingress.setTopology', { topology: patch.topology, previous: facts.previousTopology }],
-    controllerImage: () => [patch.controllerImage ? 'ingress.setControllerImage' : 'ingress.clearControllerImage', { image: patch.controllerImage }],
-    targetNodes: () => ['ingress.setTargetNodes', { nodeIds: patch.targetNodes }],
-    tls: () => [
-      patch.tls?.acmeEmail !== undefined ? 'ingress.setTls' : 'ingress.setOnDemandTls',
-      { enabled: patch.tls?.onDemand, ...(patch.tls?.acmeEmail !== undefined ? { acmeEmail: patch.tls.acmeEmail } : {}) },
-    ],
-    tunnel: () => [patch.tunnel ? 'ingress.setTunnel' : 'ingress.clearTunnel', { tunnelId: facts.tunnelId }],
-    dnsProvider: () => [
-      patch.dnsProvider ? 'ingress.setDnsProvider' : 'ingress.clearDnsProvider',
-      patch.dnsProvider ? { provider: patch.dnsProvider.provider, secretName: facts.byoSecretName } : {},
-    ],
-  } satisfies Record<keyof IngressSettingsPatch, () => [string, Record<string, unknown>]>;
-  const fields = patchFields(patch);
-  if (fields.length === 1) {
-    const [action, metadata] = one[fields[0]!]();
-    return { action, metadata };
-  }
-  return {
-    action: 'ingress.updateSettings',
-    metadata: { fields, changes: Object.fromEntries(fields.map((f) => [f, one[f]()[1]])) },
   };
 }

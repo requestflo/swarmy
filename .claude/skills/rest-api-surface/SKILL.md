@@ -65,7 +65,11 @@ adapter contract.
    `application/problem+json` `{ type, title, status, detail, instance,
    swarmy_code }`. Never hand-roll an error body in a route — wrap the call in
    `run(c, fn, status)` (`respond.ts`) and let it map. A new `swarmyCode` is
-   added in `@swarmy/trpc/errors`, not here.
+   added in `@swarmy/trpc/errors`, not here. A validation 400 carries
+   `invalid_params: [{ name, reason }]` (RFC 9457 §3): from the request-body
+   hook's zod issues, or from a service that validates a whole write itself
+   and throws with `cause.fieldErrors` (`invalid-params.ts` snake-cases the
+   names) — so a refusal names every field, not just the first.
 7. **Keys mirror the join-token posture: hash-at-rest, prefix-display,
    plaintext-once.** `swk_<prefix>_<secret>` — the whole string is
    `hashToken`ed (sha256) and stored; only the `prefix` is displayed; the

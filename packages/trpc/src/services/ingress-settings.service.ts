@@ -1,9 +1,10 @@
 /**
  * The org's ingress settings in ONE write: driver, enabled, topology, image,
- * target nodes, TLS, tunnel and DNS provider. The whole patch is validated
- * first, persisted where each per-field setter always wrote it, and the edge
- * converges exactly ONCE — one deploy at most, one apply — instead of once
- * per field. The `ingress.*` setters (ingress-setters.ts) and REST
+ * target nodes, TLS, tunnel, DNS provider, country database and the
+ * automatic-address base. The whole patch is validated first (every refused
+ * field is named, not just the first), persisted where each per-field setter
+ * always wrote it, and the edge converges exactly ONCE — one deploy at most,
+ * one apply — instead of once per field. The `ingress.*` setters (ingress-setters.ts) and REST
  * `PUT /ingress/settings` are thin wrappers over it. Guards are the callers'
  * (admin); the last-edge rule and the object-storage rule for edge-per-node
  * live in the topology preflight.
@@ -15,19 +16,13 @@ import { byoDnsSettingsFor, ensureByoDnsSecret } from './acme-dns.service';
 import { ingressConfigRepo, ingressSettingsOf } from './ingress-config.repo';
 import { convergeEdge, readSettings, reapply, tunnelIdFromToken, type IngressSettings, type Topology } from './ingress.service';
 import { preflightTopology, swapTopology, swarmyRunsCaddy } from './ingress-topology';
+import { currentFacts, ingressSettingsView, mergeIngressPatch, type IngressDoc, type SealedIngressInputs } from './ingress-settings-merge';
+import { ingressAudit } from './ingress-settings-audit';
+import { ingressRuleIssues, invalidIngressSettings, parseIngressFields } from './ingress-settings.checks';
 import {
-  currentFacts,
-  ingressAudit,
-  ingressSettingsView,
-  mergeIngressPatch,
-  type IngressDoc,
-  type SealedIngressInputs,
-} from './ingress-settings-merge';
-import {
-  assertIngressPatch,
   DEPLOY_FIELDS,
-  parseIngressPatch,
   patchFields,
+  RENDER_FREE_FIELDS,
   type IngressSettingsPatch,
   type IngressSettingsView,
 } from './ingress-settings.schema';
@@ -44,24 +39,25 @@ export async function getIngressSettings(ctx: OrgContext): Promise<IngressSettin
 }
 
 /**
- * Apply a patch. Throws BAD_REQUEST / PRECONDITION_FAILED before anything is
- * written; a failed topology deploy throws after restoring the old edge and
+ * Apply a patch. Throws BAD_REQUEST (every refused field in `fieldErrors`) /
+ * PRECONDITION_FAILED before anything is written; a failed topology deploy throws after restoring the old edge and
  * saves nothing but the cert-store coordinates. Any other converge failure
  * is recorded on `runtime` (as the setters always did), never thrown.
  */
 export async function applyIngressSettings(ctx: OrgContext, input: unknown): Promise<void> {
-  const parsed = parseIngressPatch(input);
+  const { patch: parsed, issues } = parseIngressFields(input);
   const { doc: current } = await loadDoc(ctx);
   const previousTopology: Topology = (current.settings as IngressSettings).topology ?? 'controller';
   // An unchanged topology is no change at all: never remove + recreate the edge for it.
   const patch: IngressSettingsPatch =
     parsed.topology === previousTopology ? { ...parsed, topology: undefined } : parsed;
+
+  // 1. Validate everything (pure): every field's reason, then seal the secrets once.
+  const tunnelId = patch.tunnel?.runToken ? tunnelIdFromToken(patch.tunnel.runToken) : null;
+  const rules = ingressRuleIssues(patch, currentFacts(current), tunnelId);
+  if (issues.length > 0 || rules.length > 0) throw invalidIngressSettings(issues, rules);
   const fields = patchFields(patch);
   if (fields.length === 0) return;
-
-  // 1. Validate everything (pure), then seal the secrets once.
-  const tunnelId = patch.tunnel?.runToken ? tunnelIdFromToken(patch.tunnel.runToken) : null;
-  assertIngressPatch(patch, currentFacts(current), tunnelId);
   const sealed: SealedIngressInputs = {
     ...(patch.tunnel?.runToken ? { runTokenEnc: encryptSecret(patch.tunnel.runToken), tunnelId } : {}),
     ...(patch.dnsProvider ? { byo: byoDnsSettingsFor(patch.dnsProvider) } : {}),
@@ -94,10 +90,11 @@ export async function applyIngressSettings(ctx: OrgContext, input: unknown): Pro
 
   // 4. Converge once: the swap WAS the deploy; otherwise deploy only when the
   //    service itself changes, then one apply (a failed deploy is recorded and
-  //    there is nothing to apply to).
+  //    there is nothing to apply to; a patch the render never reads skips it).
   const deploys = !swap && DEPLOY_FIELDS.some((f) => patch[f] !== undefined);
   const failed = deploys && (await convergeEdge(ctx)) !== null;
-  if (!failed) await reapply(ctx, { converged: swap || deploys });
+  const renders = swap || fields.some((f) => !RENDER_FREE_FIELDS.includes(f));
+  if (!failed && renders) await reapply(ctx, { converged: swap || deploys });
 
   const { action, metadata } = ingressAudit(patch, {
     previousTopology,

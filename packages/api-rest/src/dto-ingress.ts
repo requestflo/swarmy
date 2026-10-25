@@ -40,6 +40,18 @@ const IngressDnsProviderDto = z
   })
   .openapi('IngressDnsProvider');
 
+const IngressGeoipModeDto = z.enum(['bundled', 'file', 'off']).openapi('IngressGeoipMode', {
+  description:
+    '`bundled` the DB-IP Country Lite copy in swarmy’s Caddy build (IP Geolocation by DB-IP, CC BY 4.0); `file` an mmdb already inside the edge container; `off` country rules are saved but not enforced. Open enum.',
+});
+
+const IngressGeoipDto = z
+  .object({
+    mode: IngressGeoipModeDto,
+    path: z.string().nullable().openapi({ description: 'The mmdb path inside the edge container (`file` only).' }),
+  })
+  .openapi('IngressGeoip', { description: 'The country database the edge’s country allow/deny rules read.' });
+
 export const IngressSettingsDto = z
   .object({
     org_id: z.string(),
@@ -53,6 +65,10 @@ export const IngressSettingsDto = z
     tunnel: IngressTunnelDto.nullable().openapi({ description: 'The Cloudflare tunnel, or null when none is connected.' }),
     dns_provider: IngressDnsProviderDto.nullable().openapi({
       description: 'BYO DNS provider for wildcard certificates in zones swarmy DNS does not serve, or null.',
+    }),
+    geoip: IngressGeoipDto,
+    auto_address_base: z.string().nullable().openapi({
+      description: 'The workspace’s wildcard-IP base for automatic addresses (e.g. `nip.io`); null = the controller default (sslip.io unless set).',
     }),
     updated_at: z.string(),
   })
@@ -88,6 +104,14 @@ const IngressDnsProviderInput = z
   .strict()
   .openapi('IngressDnsProviderInput');
 
+const IngressGeoipInput = z
+  .object({
+    mode: IngressGeoipModeDto,
+    path: z.string().optional().openapi({ description: 'Required for `file`: an absolute path to a `.mmdb` inside the edge container.' }),
+  })
+  .strict()
+  .openapi('IngressGeoipInput');
+
 /** PUT body: a field left out keeps its current value; `null` clears a nullable one. */
 export const UpdateIngressSettingsBody = z
   .object({
@@ -99,6 +123,10 @@ export const UpdateIngressSettingsBody = z
     tls: IngressTlsInput.optional(),
     tunnel: IngressTunnelInput.nullable().optional().openapi({ description: '`null` disconnects the tunnel.' }),
     dns_provider: IngressDnsProviderInput.nullable().optional().openapi({ description: '`null` clears the provider.' }),
+    geoip: IngressGeoipInput.optional(),
+    auto_address_base: z.string().max(253).nullable().optional().openapi({
+      description: 'A wildcard-IP DNS service (`<x>.<a-b-c-d>.<base>` must resolve to a.b.c.d); `null` or empty clears it. Automatic addresses move on the next domain check.',
+    }),
   })
   .strict()
   .openapi('UpdateIngressSettingsRequest', {

@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import { TlsMode } from '@swarmy/core';
 import { EdgeGeoipSettingSchema, RouteProtectionInputSchema, WwwModeSchema } from '@swarmy/ingress';
-import { getEdgeGeoip, setEdgeGeoip } from '../services/edge-geoip.service';
-import { getAutoAddressBase, setAutoAddressBase } from '../services/auto-address-base.service';
+import { getEdgeGeoip } from '../services/edge-geoip.service';
+import { getAutoAddressBase } from '../services/auto-address-base.service';
 import { adminProcedure, orgProcedure, router } from '../trpc';
 import { BYO_DNS_PROVIDERS } from '@swarmy/ingress';
 import { getDnsChallengeView } from '../services/acme-dns.service';
@@ -18,13 +18,14 @@ import {
   listDomains,
   previewConfig,
   parseDomainId,
-  reapply,
   removeDomain,
   setDomainWww,
 } from '../services/ingress.service';
 import {
+  setAutoAddressBase,
   setByoDnsProvider,
   setControllerImage,
+  setEdgeGeoip,
   setDriver,
   setEnabled,
   setOnDemandTls,
@@ -33,7 +34,7 @@ import {
   setTopology,
 } from '../services/ingress-setters';
 import { getIngressSettings, updateIngressSettings } from '../services/ingress-settings.service';
-import { IngressSettingsPatchSchema } from '../services/ingress-settings.schema';
+import type { IngressSettingsPatch } from '../services/ingress-settings.schema';
 import {
   detectServicePorts,
   listServiceRoutes,
@@ -108,9 +109,13 @@ export const ingressRouter = router({
   getConfig: orgProcedure.query(({ ctx }) => getConfig(ctx)),
   /** Every edge setting in one read (secrets as set / not set) — REST GET /ingress/settings. */
   settings: orgProcedure.query(({ ctx }) => getIngressSettings(ctx)),
-  /** Every edge setting in one write and one converge — REST PUT /ingress/settings. */
+  /**
+   * Every edge setting in one write and one converge — REST PUT /ingress/settings.
+   * Typed pass-through: the service validates the whole patch itself, so a
+   * refusal names every field (`data.fieldErrors`), the same as REST.
+   */
   updateSettings: adminProcedure
-    .input(IngressSettingsPatchSchema)
+    .input((raw: unknown) => raw as IngressSettingsPatch)
     .mutation(({ ctx, input }) => updateIngressSettings(ctx, input)),
   setDriver: adminProcedure
     .input(z.object({ driver: driverEnum }))
@@ -145,10 +150,10 @@ export const ingressRouter = router({
    *  the new service deployed. */
   /** The country database the edge's country rules read (bundled DB-IP Country Lite by default). */
   edgeGeoip: orgProcedure.query(({ ctx }) => getEdgeGeoip(ctx)),
-  /** Pick it: `bundled`, `file` (an mmdb path inside the edge container) or `off`. */
+  /** Pick it: `bundled`, `file` (an mmdb path inside the edge container) or `off` (the settings write checks the path). */
   setEdgeGeoip: adminProcedure
-    .input(EdgeGeoipSettingSchema.refine((v) => v.mode !== 'file' || Boolean(v.path), { message: 'a file path is required', path: ['path'] }))
-    .mutation(({ ctx, input }) => setEdgeGeoip(ctx, input, reapply)),
+    .input(EdgeGeoipSettingSchema)
+    .mutation(({ ctx, input }) => setEdgeGeoip(ctx, input)),
 
   /** The wildcard-IP base automatic addresses fall back to (sslip.io unless set). */
   autoAddressBase: orgProcedure.query(({ ctx }) => getAutoAddressBase(ctx)),
