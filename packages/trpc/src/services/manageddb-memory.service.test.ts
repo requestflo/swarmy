@@ -58,10 +58,10 @@ describe('setDbMemory (db.setMemory)', () => {
     expect(w.calls).toEqual([]);
   });
 
-  it('db.get shows the declared limit and what each copy runs with', () => {
+  it('db.get shows the declared limit, what each copy runs with and the volume its data is on', () => {
     const w = world([primary({ 'swarmy.db.memoryMb': '2048', 'swarmy.db.memoryMb.applied': '1024' }), replica({ 'swarmy.db.memoryMb.applied': '2048' })]);
     const c = getDbTopology(w.ctx, 'shop').clusters[0]!;
     expect(c.memoryMb).toBe(2048);
-    expect(c.members.map((m) => [m.service, m.memoryMb])).toEqual([['shop_main-primary', 1024], ['shop_main-replica', 2048]]);
+    expect(c.members.map((m) => [m.service, m.memoryMb, m.dataVolume])).toEqual([['shop_main-primary', 1024, 'shop_main-primary-data'], ['shop_main-replica', 2048, undefined]]);
   });
 });

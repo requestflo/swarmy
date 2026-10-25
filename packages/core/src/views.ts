@@ -3016,6 +3016,8 @@ export interface DbClusterMemberView {
   lagSeconds?: number;
   /** The memory limit this member was last restarted with (`swarmy.db.memoryMb.applied`), MB. */
   memoryMb?: number;
+  /** The named volume its data lives on (`swarmy.db.dataVolume`); absent on legacy storage. */
+  dataVolume?: string;
 }
 
 /** The per-cluster wal-shipper sidecar (PITR WAL archiving), when provisioned. */

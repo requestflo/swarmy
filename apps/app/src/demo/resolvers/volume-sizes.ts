@@ -1,5 +1,6 @@
 import type { NodeVolumeSizes } from '@swarmy/core';
 import type { DemoStore, DomainResolvers } from '../types';
+import { managedMemberServers } from './managed-members';
 
 /**
  * Demo `nodes.volumeSizes` (boards 9 + 36): each server's local volumes as
@@ -26,6 +27,20 @@ const OLD_AGENTS = new Set(['n-wkr-2']);
 /** When the demo agents last measured: a few minutes ago, like a 10-minute cadence. */
 const MEASURED_AGO_MS = 4 * 60_000;
 
+/** Managed Postgres data volumes (`<member>-data`, as db.get names them) by size; a standby's copy is a little smaller. */
+const PG_SIZES: Record<string, number> = {
+  'storefront_checkout-primary-data': 4.1 * GiB,
+  'storefront_checkout-replica-data': 4.0 * GiB,
+  'data_main-primary-data': 1.2 * GiB,
+  'data_main-replica-data': 1.2 * GiB,
+};
+
+/** Each managed Postgres member's data volume on the servers its copies run on. */
+function pgVolumesOn(store: DemoStore, nodeId: string): string[] {
+  const topo = (store.extra.data as { dbTopologies?: Array<{ members: Array<{ service: string }> }> } | undefined)?.dbTopologies ?? [];
+  return topo.flatMap((t) => t.members).filter((m) => managedMemberServers(store, m.service).includes(nodeId)).map((m) => `${m.service}-data`);
+}
+
 export function demoVolumeSizes(store: DemoStore): NodeVolumeSizes[] {
   const sampledAt = Date.now() - MEASURED_AGO_MS;
   return store.nodes.map((n) => {
@@ -33,7 +48,8 @@ export function demoVolumeSizes(store: DemoStore): NodeVolumeSizes[] {
     const volumes = store.services
       .filter((sv) => sv.nodeId === n.id)
       .flatMap((sv) => sv.volumes.filter((v) => v.type === 'volume' && v.source).map((v) => v.source!))
-      .map((name) => ({ name, sizeBytes: Math.round(SIZES[name] ?? 0.12 * GiB) }))
+      .concat(pgVolumesOn(store, n.id))
+      .map((name) => ({ name, sizeBytes: Math.round(SIZES[name] ?? PG_SIZES[name] ?? 0.12 * GiB) }))
       .sort((a, b) => b.sizeBytes - a.sizeBytes);
     return { nodeId: n.id, sampledAt, volumes };
   });

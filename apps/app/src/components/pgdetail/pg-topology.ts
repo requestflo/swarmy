@@ -28,6 +28,8 @@ export type PgTopoMember = PgMember & {
   region?: string;
   /** The memory limit this copy was last restarted with (MB). */
   memoryMb?: number;
+  /** The named volume its data lives on (one per server for standbys). */
+  dataVolume?: string;
 };
 
 export interface PgTopoInput {

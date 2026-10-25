@@ -1202,6 +1202,7 @@ export function getDbTopology(ctx: OrgContext, stack: string): DbTopologyView {
           running: s.replicas.running,
           ...(lag !== undefined ? { lagSeconds: lag } : {}),
           ...(memoryMb !== null ? { memoryMb } : {}),
+          ...(s.labels[DB_DATA_VOLUME_LABEL] ? { dataVolume: s.labels[DB_DATA_VOLUME_LABEL] } : {}),
         };
       })
       .sort((a, b) => a.service.localeCompare(b.service));

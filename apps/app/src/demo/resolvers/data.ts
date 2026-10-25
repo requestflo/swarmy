@@ -477,7 +477,8 @@ function dbClusterView(st: DataState, t: DbTopoState): Record<string, unknown> {
     roHost: replicas[0]?.service ?? `${base}-replica`,
     declaredReplicas: desired,
     topology: t.topology,
-    members: t.members,
+    // Each member's data volume, named the way managed Postgres names them.
+    members: t.members.map((m) => ({ ...m, dataVolume: `${m.service}-data` })),
     pitr,
     ...(pitr ? { walShipper: { service: `${base}-wal-shipper`, status: 'running' } } : {}),
     ...(lags.length > 0 ? { maxLagSeconds: Math.max(...lags) } : {}),
