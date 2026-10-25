@@ -31,6 +31,7 @@ import { liveServiceSpec } from './service-patch';
 import { carrySecretFamilies, mountsSecretFamily } from './secret-family-carry';
 import { removeStackOwnedSecrets } from './secret-owner.service';
 import { liveStackMounts, removeStackVolumes, stackVolumeNames } from './stack-data';
+import { findListedStack } from './stack-ref';
 import { augmentSpecsForStack } from './otel-injection';
 import { carryIntegrationsNetwork } from './integrations-carry';
 import { stackTelemetryEnabled } from './observability.service';
@@ -757,13 +758,11 @@ export async function removeStack(
   opts: { deleteData?: boolean } = {},
 ): Promise<RemoveStackResult> {
   const deleteData = Boolean(opts.deleteData);
-  // Label-only stacks (no DB config row, e.g. swarmy-system) use their name as
-  // `id` in the stacks list — guard before the (would-be) notFound lookup too.
+  // Label-only stacks (no config row: a managed database's stack, or
+  // swarmy-system) use their name as `id` in the stacks list, and the same
+  // set resolves here. Guard the system stacks before the lookup too.
   guardNotSystemStack(ctx, id);
-  const stack = await stacks(ctx, ctx.activeOrgId).findFirst({
-    where: { id, orgId: ctx.activeOrgId },
-    select: { id: true, name: true, composeSource: true },
-  });
+  const stack = await findListedStack(ctx, id);
   if (!stack) throw notFound('stack', id);
   guardNotSystemStack(ctx, stack.name);
   // Which volumes are this app's data — read before its services go.
@@ -801,7 +800,7 @@ export async function removeStack(
       .dispatch(node.id, 'network.removeForStack', { stack: stack.name }, { timeoutMs: STACK_NETWORK_REMOVE_TIMEOUT_MS })
       .catch(() => undefined);
   }
-  await stacks(ctx, ctx.activeOrgId).delete({ where: { id } });
+  if (!stack.labelOnly) await stacks(ctx, ctx.activeOrgId).delete({ where: { id } });
   const volumesKept = deleteData ? volumesFailed : volumes;
   await writeAudit(ctx, {
     action: 'stack.remove',

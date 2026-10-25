@@ -23,6 +23,7 @@ import { parse as parseYaml } from 'yaml';
 import { orgProcedure } from './trpc';
 import type { OrgContext } from './context';
 import { writeAudit } from './services/audit.service';
+import { findListedStack } from './services/stack-ref';
 import { defaultsDrift, policyRepo } from './services/policy-repo';
 import { effectivePolicyInputs } from './services/policy-effective';
 
@@ -448,18 +449,19 @@ async function stackResource(
   return { type: 'stack', id: row?.id ?? name, orgId: ctx.activeOrgId, labels };
 }
 
-/** Resolve a Stack row from `{ id }` input; labels are the live stack's. */
+/**
+ * Resolve a stack from `{ id }` input: any id `listStacks` hands out, a
+ * config row's id or a label-only stack's name (`findListedStack`). Labels
+ * are the live stack's.
+ */
 export const resolveStack: ResolveResource = async (ctx, input) => {
   const id = (input as { id?: string })?.id;
   if (!id) return null;
-  const row = await stacks(ctx, ctx.activeOrgId).findFirst({
-    where: { id, orgId: ctx.activeOrgId },
-    select: { id: true, orgId: true, name: true },
-  });
-  if (!row) throw new TRPCError({ code: 'NOT_FOUND', message: `stack ${id} not found` });
+  const listed = await findListedStack(ctx, id);
+  if (!listed) throw new TRPCError({ code: 'NOT_FOUND', message: `stack ${id} not found` });
   const composeSource = (input as { composeSource?: unknown }).composeSource;
-  const r = await stackResource(ctx, row.name, typeof composeSource === 'string' ? composeSource : undefined);
-  return { ...r, id: row.id, orgId: row.orgId };
+  const r = await stackResource(ctx, listed.name, typeof composeSource === 'string' ? composeSource : undefined);
+  return { ...r, id: listed.id, orgId: ctx.activeOrgId };
 };
 
 /**
