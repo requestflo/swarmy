@@ -46,6 +46,7 @@ import {
   verifyDomainNow,
 } from '../services/domain-verify.service';
 import { previewDomainPlan } from '../services/domain-plan.service';
+import { ingressCertProcedures } from './ingress-certs';
 
 /**
  * Ingress resolvers: a route lives on its target service's
@@ -304,4 +305,5 @@ export const ingressRouter = router({
     )
     .mutation(({ ctx, input }) => setByoDnsProvider(ctx, input)),
 
+  ...ingressCertProcedures,
 });

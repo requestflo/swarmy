@@ -15,6 +15,7 @@ import { buildGateAllows, BUILDER_ENABLE_HINT, carryContainerLabels, execGateAll
 import { env } from './env';
 import { backupVolume, restoreVolume, listSnapshots, backupDb, restoreDb } from './handlers/backup';
 import { dbPitrWindow } from './handlers/pitr-window';
+import { readEdgeCerts } from './handlers/edge-certs';
 import { appDbBackup, appDbRestore, appDbVerify } from './handlers/appdb';
 import { queueOp } from './handlers/queue-op';
 import { dbQuery } from './handlers/studio';
@@ -269,6 +270,13 @@ export async function handleCommand(
       // the SWARMY_ALLOW_EXEC veto. Advertised in AGENT_CAPABILITIES.
       const p = envlp.payload;
       return run(conn, p.commandId, () => dbPitrWindow(docker, p));
+    }
+    case 'edgeCerts': {
+      // Read-only: the `.crt` facts of this node's edge Caddy task (swarmy's
+      // own edge, like the metrics scrape — no exec veto). Advertised in
+      // AGENT_CAPABILITIES; a node with no edge task answers edge:false.
+      const p = envlp.payload;
+      return run(conn, p.commandId, () => readEdgeCerts(docker));
     }
     case 'appDbBackup': {
       const p = envlp.payload;

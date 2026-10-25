@@ -18,6 +18,7 @@ export * from './messages';
 export * from './backup';
 export * from './dbBackup';
 export * from './pitrWindow';
+export * from './edge-certs';
 export * from './swarmres';
 export * from './run-once-binds';
 export * from './mesh';

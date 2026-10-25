@@ -19,11 +19,17 @@ export const AGENT_CAPABILITY = {
   dbPitrWindow: 'dbPitrWindow',
   /** Re-image the NetBird client sidecar in place, reconnect-checked (`reimageMesh`, the upgrade's mesh step). */
   reimageMesh: 'reimageMesh',
+  /** Read-only: the certificates this node's edge Caddy holds, `.crt` facts only (`edgeCerts`). */
+  edgeCerts: 'edgeCerts',
 } as const;
 export type AgentCapability = (typeof AGENT_CAPABILITY)[keyof typeof AGENT_CAPABILITY];
 
 /** Everything this build of the agent understands beyond the base protocol. */
-export const AGENT_CAPABILITIES: readonly AgentCapability[] = [AGENT_CAPABILITY.dbPitrWindow, AGENT_CAPABILITY.reimageMesh];
+export const AGENT_CAPABILITIES: readonly AgentCapability[] = [
+  AGENT_CAPABILITY.dbPitrWindow,
+  AGENT_CAPABILITY.reimageMesh,
+  AGENT_CAPABILITY.edgeCerts,
+];
 
 /**
  * Does an agent with these advertised capabilities understand `cap`? An

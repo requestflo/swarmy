@@ -129,9 +129,18 @@ function withDomainStatus(d: DomainView, edges: DemoEdge[]) {
   };
 }
 
-function edgesOf(s: DemoStore): DemoEdge[] {
+export function edgesOf(s: DemoStore): DemoEdge[] {
   const st = getState(s);
   return demoEdges(s, st.topology ?? 'controller', st.targetNodes);
+}
+
+/** A routed demo host (or its www companion): its TLS, topology, and whether its certificate is live yet. */
+export function demoRouteFor(s: DemoStore, host: string): { host: string; www: boolean; tls: TlsMode; live: boolean; shared: boolean } | null {
+  const st = getState(s);
+  const d = st.domains.find((x) => x.host === host || (x.www && demoCompanion(x.host) === host));
+  if (!d) return null;
+  const issuing = (d.check && d.check.stage < 4) || (d.issuingUntil !== undefined && Date.now() < d.issuingUntil);
+  return { host: d.host, www: Boolean(d.www), tls: d.tls, live: d.tls !== 'off' && !issuing, shared: st.topology === 'edge-per-node' };
 }
 
 /** Mirror of the controller's `IngressConfigView` (ingress.service.ts). */

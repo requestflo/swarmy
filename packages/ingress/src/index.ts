@@ -36,3 +36,4 @@ export {
 } from './render/cloudflared';
 export type { CloudflaredRenderInput } from './render/cloudflared';
 export * from './wildcard-scope';
+export * from './edge-certs';
