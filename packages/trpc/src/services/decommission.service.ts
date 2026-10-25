@@ -90,9 +90,12 @@ async function volumeFacts(ctx: Ctx, nodeId: string, names: string[]): Promise<D
   } catch {
     // unknown drivers ⇒ treated as local by the planner
   }
-  const sizes = new Map<string, number>();
+  // Sizes as the server's agent reports them (`metrics.volumes`): the ones the
+  // mover's disk-fit check reads, so plan and move agree. Probe only the rest.
+  const sizes = new Map((ctx.hub.volumeSizesFor?.(nodeId)?.volumes ?? []).map((v) => [v.name, v.sizeBytes] as const));
   const valid = names.filter(isValidVolumeName).slice(0, 40);
-  if (valid.length > 0) {
+  const probe = valid.filter((v) => !sizes.has(v));
+  if (probe.length > 0) {
     try {
       const res = await ctx.hub.dispatch<{ exitCode: number; output?: string }>(
         nodeId,
@@ -101,7 +104,7 @@ async function volumeFacts(ctx: Ctx, nodeId: string, names: string[]): Promise<D
           image: MOVER_IMAGE,
           entrypoint: ['/bin/sh', '-c'],
           cmd: [`for d in /v/*; do printf 'SIZE %s %s\\n' "$(basename "$d")" "$(du -sk "$d" | cut -f1)"; done`],
-          binds: valid.map((v) => `${v}:/v/${v}:ro`),
+          binds: probe.map((v) => `${v}:/v/${v}:ro`),
           user: '0:0',
           timeoutMs: 120_000,
         },

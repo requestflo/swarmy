@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import type { SwarmNodeInfo } from '@swarmy/core/protocol';
-import { decommissionStatus, garageResynced, loop, startDecommission, type DecomRun, type RunnerDeps } from './decommission.service';
+import { decommissionStatus, garageResynced, gatherDecommissionInput, loop, startDecommission, type DecomRun, type RunnerDeps } from './decommission.service';
 
 const deps: RunnerDeps = {
   now: (() => {
@@ -147,5 +147,21 @@ describe('garageResynced', () => {
     expect(garageResynced({ layoutVersion: 5, health: { ...healthy, partitionsAllOk: 200 }, nodes: [] }, 'b', 4)).toBe(false);
     expect(garageResynced({ layoutVersion: 5, health: healthy, nodes: [{ nodeId: 'b', draining: false }] }, 'b', 4)).toBe(true);
     expect(garageResynced(null, 'b', 4)).toBe(false);
+  });
+});
+
+describe('gather: volume sizes', () => {
+  it("uses the sizes the agent reports (what the mover's disk check reads) and probes only the rest", async () => {
+    const c = cluster();
+    const mounts = [
+      { type: 'volume', source: 'blog_content', target: '/content' },
+      { type: 'volume', source: 'blog_cache', target: '/cache' },
+    ];
+    const app = { id: 'c2', name: 'blog_app.1', image: 'ghost', state: 'running', labels: { 'com.docker.swarm.service.name': 'blog_app' }, mounts };
+    c.ctx.hub.latestContainers = (n: string) => (n === 'b' ? [app] : []);
+    c.ctx.hub.volumeSizesFor = (n: string) => (n === 'b' ? { sampledAt: 1, volumes: [{ name: 'blog_content', sizeBytes: 5_000 }] } : undefined);
+    const input = await gatherDecommissionInput(c.ctx, 'b');
+    expect(input.volumes!.find((v) => v.name === 'blog_content')!.sizeBytes).toBe(5_000);
+    expect(c.calls.find((x) => x.cmd === 'container.runOnce')!.payload.binds).toEqual(['blog_cache:/v/blog_cache:ro']);
   });
 });

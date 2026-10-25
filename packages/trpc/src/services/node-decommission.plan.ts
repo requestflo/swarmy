@@ -40,6 +40,7 @@
 import { DB_DATA_VOLUME_LABEL, DB_PIN_NODE_LABEL, PINNED_DATA_LABELS } from '@swarmy/core';
 import type { SwarmNodeInfo } from '@swarmy/core/protocol';
 import { GARAGE_MEMBER_NODE_LABEL } from './garage-render';
+import { FIT_RANK, fitOnto, fitWarning, noRoomMessage, type FitCandidate } from './node-decommission.fit';
 
 // Label strings (kept in sync with manageddb/cache/search/vector.service and
 // node.service — importing those service modules would drag their IO in).
@@ -282,9 +283,11 @@ export function formatBytes(b: number): string {
 /**
  * Destination chooser shared by every data step. Stateful across one plan so
  * two moves never count the same free space twice. Rules, in order:
- * schedulable, not excluded, fits under the pressure line after the copy
- * (unknown size ⇒ fits; unknown disk ⇒ fits but ranks last), same region as
- * the target first, fewest pinned data members, most free space, id.
+ * schedulable, not excluded, the data fits (`diskFit`, the mover's rule —
+ * see node-decommission.fit.ts) and stays under the pressure line after the
+ * copy, then: a known fit before an unknown one (size or free disk not
+ * reported), same region as the target, fewest pinned data members, most
+ * free space, id.
  */
 export class DestinationPicker {
   private reserved = new Map<string, number>();
@@ -295,6 +298,8 @@ export class DestinationPicker {
     private readonly targetNodeId: string,
     private readonly region: string | undefined,
     services: readonly DecomServiceInput[],
+    /** Volume → bytes as the retiring server measured it (unlisted = not reported). */
+    private readonly sizes: ReadonlyMap<string, number> = new Map(),
   ) {
     this.pinned = new Map();
     for (const s of services) {
@@ -354,31 +359,57 @@ export class DestinationPicker {
     return { chosen, natSkipped, reason: `Chose ${chosen.hostname} because it ${joinWords(parts)}.${natNote}` };
   }
 
-  pick(opts: { bytes?: number; exclude?: readonly string[] } = {}): DecomNodeInput | undefined {
+  /**
+   * Destination for a data step: `volumes` sized from the retiring server's
+   * report, or `bytes` alone. Returns the pick (with its fit) and every
+   * working server judged, so a refusal can say why none was eligible.
+   */
+  pickFor(opts: { bytes?: number; volumes?: readonly string[]; exclude?: readonly string[] } = {}): DestinationPick {
     const exclude = new Set([this.targetNodeId, ...(opts.exclude ?? [])]);
-    const candidates = this.nodes.filter((n) => {
-      if (exclude.has(n.nodeId) || !isSchedulable(n)) return false;
-      const room = this.room(n);
-      if (room === undefined || opts.bytes === undefined) return true;
-      return room >= opts.bytes;
-    });
-    if (candidates.length === 0) return undefined;
+    const volumes = opts.volumes ?? (opts.bytes !== undefined ? [BYTES_ONLY] : []);
+    const sizes = opts.volumes ? this.sizes : new Map([[BYTES_ONLY, opts.bytes ?? 0]]);
+    const bytes = volumes.reduce((n, v) => n + (sizes.get(v) ?? 0), 0);
+    const candidates: FitCandidate[] = this.nodes
+      .filter((n) => !exclude.has(n.nodeId) && isSchedulable(n))
+      .map((n) => {
+        const room = this.room(n);
+        const fit = fitOnto(n, volumes, sizes, this.reserved.get(n.nodeId) ?? 0);
+        return { node: n, fit, overPressureLine: volumes.length > 0 && room !== undefined && room < bytes };
+      });
+    const eligible = candidates.filter((c) => !c.overPressureLine && c.fit?.verdict !== 'wont-fit');
     const regionOf = (n: DecomNodeInput) => n.swarm?.labels[NODE_REGION];
     const pinnedOn = (n: DecomNodeInput) => this.pinned.get(n.swarm?.swarmNodeId ?? '') ?? 0;
-    candidates.sort(
+    const fitRank = (c: FitCandidate) => FIT_RANK[c.fit?.verdict ?? 'fits'];
+    eligible.sort(
       (a, b) =>
-        Number(this.region !== undefined && regionOf(b) === this.region) -
-          Number(this.region !== undefined && regionOf(a) === this.region) ||
-        pinnedOn(a) - pinnedOn(b) ||
-        (this.room(b) ?? -1) - (this.room(a) ?? -1) ||
-        a.nodeId.localeCompare(b.nodeId),
+        fitRank(a) - fitRank(b) ||
+        Number(this.region !== undefined && regionOf(b.node) === this.region) -
+          Number(this.region !== undefined && regionOf(a.node) === this.region) ||
+        pinnedOn(a.node) - pinnedOn(b.node) ||
+        (this.room(b.node) ?? -1) - (this.room(a.node) ?? -1) ||
+        a.node.nodeId.localeCompare(b.node.nodeId),
     );
-    const chosen = candidates[0]!;
-    if (opts.bytes) this.reserved.set(chosen.nodeId, (this.reserved.get(chosen.nodeId) ?? 0) + opts.bytes);
-    const sw = chosen.swarm?.swarmNodeId;
+    const chosen = eligible[0];
+    if (!chosen) return { candidates };
+    const id = chosen.node.nodeId;
+    if (bytes > 0) this.reserved.set(id, (this.reserved.get(id) ?? 0) + bytes);
+    const sw = chosen.node.swarm?.swarmNodeId;
     if (sw) this.pinned.set(sw, (this.pinned.get(sw) ?? 0) + 1);
-    return chosen;
+    return { chosen, candidates };
   }
+
+  pick(opts: { bytes?: number; volumes?: readonly string[]; exclude?: readonly string[] } = {}): DecomNodeInput | undefined {
+    return this.pickFor(opts).chosen?.node;
+  }
+}
+
+/** The stand-in volume when a caller sizes a move in bytes alone. */
+const BYTES_ONLY = '(data)';
+
+export interface DestinationPick {
+  chosen?: FitCandidate;
+  /** Every working server judged (none eligible = a `no-destination` blocker). */
+  candidates: FitCandidate[];
 }
 
 export interface RoleHostPick {
@@ -442,9 +473,10 @@ export function planDecommission(input: DecommissionInput): DecommissionPlan {
   }
 
   const region = target.swarm?.labels[NODE_REGION];
-  const picker = new DestinationPicker(input.nodes, target.nodeId, region, input.services);
-  const serviceByName = new Map(input.services.map((s) => [s.name, s] as const));
   const volumeInfo = new Map((input.volumes ?? []).map((v) => [v.name, v] as const));
+  const reportedSizes = new Map((input.volumes ?? []).flatMap((v) => (v.sizeBytes !== undefined ? [[v.name, v.sizeBytes] as const] : [])));
+  const picker = new DestinationPicker(input.nodes, target.nodeId, region, input.services, reportedSizes);
+  const serviceByName = new Map(input.services.map((s) => [s.name, s] as const));
   const sizeOf = (v: string) => volumeInfo.get(v)?.sizeBytes;
   const online = target.online;
 
@@ -475,16 +507,24 @@ export function planDecommission(input: DecommissionInput): DecommissionPlan {
   let unknownSizes = 0;
   const handled = new Set<string>();
 
-  const noDestination = (subject: string, bytes?: number) =>
-    blockers.push({
-      code: 'no-destination',
-      subject,
-      message:
-        bytes !== undefined
-          ? `No other server has room for ${subject} (${formatBytes(bytes)}) and stays under ${DESTINATION_MAX_USED_PCT}% full.`
-          : `No other working server can take ${subject}.`,
-      fix: 'Add a disk or a server, or free space on another server.',
-    });
+  // Every data step's destination: the data must fit (diskFit, the mover's
+  // rule). No server fits → a blocker saying why; a fit nobody can check
+  // (size or free disk not reported) → a warning naming what's missing.
+  const place = (subject: string, volumes: readonly string[]): DecomNodeInput | undefined => {
+    const { chosen, candidates } = picker.pickFor({ volumes });
+    if (!chosen) {
+      blockers.push({
+        code: 'no-destination',
+        subject,
+        message: noRoomMessage(subject, candidates, DESTINATION_MAX_USED_PCT) ?? `No other working server can take ${subject}.`,
+        fix: 'Add a disk or a server, or free space on another server.',
+      });
+      return undefined;
+    }
+    const warning = fitWarning(subject, chosen);
+    if (warning) warnings.push(warning);
+    return chosen.node;
+  };
 
   const hasFreshBackup = (vol: string) => {
     const at = input.lastBackupAt?.[vol];
@@ -541,9 +581,8 @@ export function planDecommission(input: DecommissionInput): DecommissionPlan {
             rollback: 'None needed: the old primary keeps its disk and rejoins as a replica (PGDATA moved aside) if it returns.',
           });
         } else if (vol && input.lastBackupAt?.[vol] !== undefined) {
-          const d = picker.pick({ bytes });
-          if (!d) noDestination(cluster, bytes);
-          else
+          const d = place(cluster, [vol]);
+          if (d)
             dataSteps.push({
               id: `volume-restore:${m.name}`,
               kind: 'volume-restore',
@@ -580,11 +619,8 @@ export function planDecommission(input: DecommissionInput): DecommissionPlan {
           rollback: 'Before promotion: abort, the old primary keeps writing. After: switch back the same way (the old primary rejoins as a replica).',
         });
       } else {
-        const d = picker.pick({ bytes, exclude: [] });
-        if (!d) {
-          noDestination(cluster, bytes);
-          continue;
-        }
+        const d = place(cluster, vol ? [vol] : []);
+        if (!d) continue;
         if (bytes !== undefined) bytesToMove += bytes;
         else unknownSizes++;
         dataSteps.push({
@@ -754,11 +790,8 @@ export function planDecommission(input: DecommissionInput): DecommissionPlan {
         });
         continue;
       }
-      const d = picker.pick({ bytes });
-      if (!d) {
-        noDestination(svcName, bytes);
-        continue;
-      }
+      const d = place(svcName, localVols);
+      if (!d) continue;
       volumeSteps.push({
         id: `volume-restore:${svcName}`,
         kind: 'volume-restore',
@@ -775,11 +808,8 @@ export function planDecommission(input: DecommissionInput): DecommissionPlan {
       continue;
     }
     for (const v of localVols) if (!hasFreshBackup(v)) needsBackup.add(v);
-    const d = picker.pick({ bytes });
-    if (!d) {
-      noDestination(svcName, bytes);
-      continue;
-    }
+    const d = place(svcName, localVols);
+    if (!d) continue;
     if (bytes !== undefined) bytesToMove += bytes;
     else unknownSizes += known.filter((b) => b === undefined).length;
     const kind = svc?.labels[CACHE_PIN] ? 'cache' : svc?.labels[SEARCH_PIN] ? 'search index' : svc?.labels[VECTOR_PIN] ? 'vector store' : isDb ? 'database files' : 'data';
