@@ -76,7 +76,7 @@ const STEPS: StepDef[] = [
   // P3 done-gate drills: disruptive, so they Skip unless --enable names them.
   { id: 'controller-drain', title: 'drill: drain the controller node → restore from Garage, agents re-adopt', fn: drills.controllerDrain },
   { id: 'controller-partition', title: 'drill: partition the controller node → it self-fences, one controller after', fn: drills.controllerPartition },
-  { id: 'mesh-control-move', title: 'drill: move the mesh control plane, peers + setup keys survive; partition the old node → it self-fences', fn: meshDrill.meshControlMove },
+  { id: 'mesh-control-move', title: 'drill: move the mesh control plane, peers + setup keys survive; partition the old node → it self-fences; move back → the backup wins over the old copy', fn: meshDrill.meshControlMove },
   { id: 'upgrade', title: 'platform upgrade previous → current', fn: platform.upgrade },
   { id: 'teardown', title: 'teardown', fn: platform.teardown },
 ];

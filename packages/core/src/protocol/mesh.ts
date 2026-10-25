@@ -259,9 +259,11 @@ export const ApplyMeshControlPayload = z.object({
   timeoutMs: z.number().int().positive().optional(),
   /**
    * apply = converge to `spec` (restart only when the config or image changed);
-   * restore = `litestream restore` the replica into an EMPTY volume first, then
-   * apply (moving the control plane to this node); stop = fence (stop + forget
-   * the local copy); status = report only.
+   * restore = bring the newest state onto this node first, then apply (moving
+   * the control plane here): the Litestream replica, unless this node's own
+   * files are provably newer (`chooseRestoreSource` in @swarmy/mesh); files it
+   * replaces are moved aside in the volume, never deleted. stop = fence (stop +
+   * forget the local copy); status = report only.
    */
   action: z.enum(['apply', 'restore', 'stop', 'status']).default('apply'),
   spec: MeshControlSpec.optional(),
@@ -273,6 +275,17 @@ export const ApplyMeshControlMsg = z.object({
   payload: ApplyMeshControlPayload,
 });
 export type ApplyMeshControlMsg = z.infer<typeof ApplyMeshControlMsg>;
+
+/** Which copy a `restore` started from and why (the newest state wins). */
+export const MeshControlRestore = z.object({
+  /** replica = the Litestream backup; local = this node's own files; fresh = nothing to restore anywhere. */
+  used: z.enum(['replica', 'local', 'fresh']),
+  /** One plain sentence: which copy runs and why. */
+  reason: z.string(),
+  /** Where this node's replaced files were kept, inside the `swarmy-mesh-control` volume. */
+  keptAs: z.string().optional(),
+});
+export type MeshControlRestore = z.infer<typeof MeshControlRestore>;
 
 /** Live control-plane status on the node that hosts it (result + meshState). */
 export const MeshControlStatus = z.object({
@@ -288,7 +301,10 @@ export const MeshControlStatus = z.object({
   litestream: z
     .object({ running: z.boolean(), lastError: z.string().optional() })
     .optional(),
+  /** A `restore` ran the Litestream replica (false: this node's own copy, or a fresh start). */
   restored: z.boolean().optional(),
+  /** What a `restore` chose, in plain words. Absent on older agents and outside a restore. */
+  restore: MeshControlRestore.optional(),
   error: z.string().optional(),
   /** This node's view of the control-plane lease (mesh-control-lease.ts). Absent on older agents. */
   lease: MeshControlLeaseView.optional(),

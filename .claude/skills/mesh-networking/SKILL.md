@@ -143,7 +143,8 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
 | Grant TTL sweeper (expired personal grants → `revokePersonGrant`, system actor) | `packages/mesh/src/grant-ttl.ts` (pure), `packages/trpc/src/services/mesh-grant-ttl.service.ts`, `apps/api/src/workers/mesh-grant-ttl.ts` |
 | Installer `--mesh swarmy` (starts NetBird before `swarm init`) | `scripts/install-swarmy.sh` (`ensure_mesh_control`) |
 | e2e on Lima (install, join, person connects/denied/revoked) | `scripts/e2e-mesh-people.ts` |
-| Move drill (clean move: peers + setup keys survive; partition the old node: it self-fences) — opt-in, not yet run, `--mesh swarmy --mesh-domain <movable> --enable mesh-control-move` | `apps/e2e/cluster/steps/mesh-control-drill.ts` (+ `lib/mesh-control.ts`), verdict `packages/mesh/src/control-plane/move-drill.ts` (pinned to `MESH_LEASE`) |
+| Move drill (clean move: peers + setup keys survive; partition the old node: it self-fences; move back to the first node: the backup wins over its old copy) — opt-in, not yet run, `--mesh swarmy --mesh-domain <movable> --enable mesh-control-move` | `apps/e2e/cluster/steps/mesh-control-drill.ts` (+ `lib/mesh-control{,-move}.ts`), verdict `packages/mesh/src/control-plane/move-drill.ts` (pinned to `MESH_LEASE`) |
+| Which copy a restore runs (pure) + the agent's probe/restore one-shots | `packages/mesh/src/control-plane/restore-choice.ts`, `apps/agent/src/handlers/mesh-control-restore{,-probe}.ts` |
 | Networking UI: the private network as a map (NAT'd servers behind the router, direct vs relayed links, who's joining) + per-app laptop access on the Access tab | `apps/app/src/routes/_authed/networking.tsx` → `components/networking/private-network-page.tsx` (`mesh-graph{,-model}.ts(x)` pure + tested, `use-nat-nodes.ts` reads `swarmy.node.reachability`), `routes/_authed/stacks/$name.access.tsx` |
 | Mesh settings: NetBird or None (typed "turn off" confirm naming the NAT'd servers that drop off), every peer's last word, the laptop grants | `routes/_authed/networking_.settings.tsx` → `components/networking/{mesh-settings-page,mesh-driver-pick,turn-off-mesh,mesh-peers-section,direct-connect-section}.tsx`; driver labels in `mesh-format.ts` |
 
@@ -189,6 +190,16 @@ For a whole cross-stack feature (db → protocol → service → router → UI) 
   old node of a move) stops and forgets its control plane before Litestream
   starts. Silence never stops NetBird itself: raft may ride the mesh after a
   cold boot. A move's `restore` waits for the lease; `stop` releases it.
+- **A restore runs the newest state, never just whatever the volume holds.**
+  A node the control plane moved away from keeps its old NetBird files (stale
+  peers, setup keys). `restore` probes both copies in a one-shot Litestream
+  (`handlers/mesh-control-restore{,-probe}.ts`) and `chooseRestoreSource`
+  (`@swarmy/mesh`, pure) picks: the backup, unless the local copy provably
+  continues it (Litestream v0.5 keeps TXIDs across restores; the local LTX
+  dir must hold the backup's newest file: same TXIDs, size, time) or, with no
+  local position, was written well after its newest save. An unreachable
+  backup refuses. Replaced files go to `swarmy-stale-<ts>/` in the volume,
+  never deleted; `MeshControlStatus.restore` says which copy runs and why.
 - The combined server ignores `disableDefaultPolicy`: the bootstrap deletes the
   All↔All `Default` policy before any peer joins. `NB_DISABLE_GEOLOCATION=true`
   (not `disableGeoliteUpdate`) stops the 73 MB download. `:9000/health` is the

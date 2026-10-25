@@ -13,7 +13,11 @@
  * write sit unchanged for a full TTL, so C's Litestream starts at least the
  * margin after B's was killed. B's NetBird keeps running while it is cut off
  * (silence never stops it: raft may ride the mesh); when the partition heals,
- * B sees C's lease and stops it. One control plane after.
+ * B sees C's lease and stops it. One control plane after. (3) Move back to
+ * A, the node it started on: A's volume still holds its state from before (1),
+ * so A must restore the backup over it (keeping the old files aside), and a
+ * setup key minted while the control plane was away must enrol there. Running
+ * A's old files would bring back stale peers and setup keys.
  */
 
 export const MOVE_WINDOW = { ttlMs: 60_000, renewEveryMs: 10_000, marginMs: 8_000 } as const;
@@ -47,6 +51,19 @@ export interface MoveDrillObservation {
     oldStoppedAfterHeal: boolean;
     /** swarmy-mesh-control containers running across the cluster after the heal. */
     controlPlanesAfterHeal: number;
+  };
+  /** (3) Back to the first node, whose volume still holds its old state. */
+  moveBack: {
+    /** Which copy the restore ran (MeshControlStatus.restore.used): must be the backup. */
+    used: string | null;
+    /** Its old files are still in the volume, where the restore said it kept them. */
+    keptOldCopy: boolean;
+    epochBefore: number | null;
+    epochAfter: number | null;
+    holderAfter: string | null;
+    target: string;
+    /** A setup key minted while the control plane was away enrols on the node it came back to. */
+    keyMintedAway: boolean;
   };
 }
 
@@ -96,5 +113,12 @@ export function judgeMoveDrill(o: MoveDrillObservation, skewMs = 3_000, w = MOVE
   epochMoved(problems, 'partition', p.epochBefore, p.epochAfter);
   if (!p.oldStoppedAfterHeal) problems.push('after the heal: the old node kept running swarmy-mesh-control');
   if (p.controlPlanesAfterHeal !== 1) problems.push(`after the heal: ${p.controlPlanesAfterHeal} control planes run, want 1`);
+
+  const b = o.moveBack;
+  if (b.used !== 'replica') problems.push(`move back: the first node ran ${b.used === 'local' ? 'its own old copy' : `"${b.used ?? 'nothing'}"`}, not the backup`);
+  if (!b.keptOldCopy) problems.push("move back: the first node's old files were not kept aside");
+  if (b.holderAfter !== b.target) problems.push(`move back: the lease is held by ${b.holderAfter ?? 'nobody'}, not the target ${b.target}`);
+  epochMoved(problems, 'move back', b.epochBefore, b.epochAfter);
+  if (!b.keyMintedAway) problems.push('move back: a setup key minted while the control plane was away does not enrol (stale state?)');
   return { ok: problems.length === 0, problems, fencedAfterMs, handoverGapMs };
 }

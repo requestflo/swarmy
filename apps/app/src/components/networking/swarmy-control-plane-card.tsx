@@ -46,7 +46,16 @@ export function SwarmyControlPlaneCard(): React.JSX.Element {
   const onError = (e: { message: string }) => toast.error(e.message);
   const reconcile = useMutation(trpc.mesh.control.reconcile.mutationOptions({ onSuccess: done('Control plane converged'), onError }));
   const breakGlass = useMutation(trpc.mesh.control.breakGlass.mutationOptions({ onSuccess: done('Break-glass updated'), onError }));
-  const move = useMutation(trpc.mesh.control.move.mutationOptions({ onSuccess: done('Control plane moved'), onError }));
+  // The move says which copy now runs (the backup, or the target's own newer files) and why.
+  const move = useMutation(
+    trpc.mesh.control.move.mutationOptions({
+      onSuccess: (card) => {
+        toast.success('Control plane moved', { description: card.status?.restore?.reason });
+        void qc.invalidateQueries();
+      },
+      onError,
+    }),
+  );
 
   const d = status.data;
   if (!d) return <div className="shimmer-line h-40 rounded-2xl" />;

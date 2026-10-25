@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { ApplyAccessRouterMsg, ApplyMeshControlMsg, MeshStatePayload } from './mesh';
+import { ApplyAccessRouterMsg, ApplyMeshControlMsg, MeshControlRestore, MeshControlStatus, MeshStatePayload } from './mesh';
 
 describe('applyMeshControl / applyAccessRouter wire shapes', () => {
   test('applyMeshControl round-trips and defaults', () => {
@@ -27,5 +27,13 @@ describe('applyMeshControl / applyAccessRouter wire shapes', () => {
     expect(MeshStatePayload.parse(base).control).toBeUndefined();
     const withCp = MeshStatePayload.parse({ ...base, control: { running: true, healthy: true, litestream: { running: true } } });
     expect(withCp.control).toEqual({ running: true, healthy: true, waitingForConfig: false, litestream: { running: true } });
+  });
+
+  test("a restore's status says which copy runs and why (additive: older agents send only `restored`)", () => {
+    const restore = { used: 'replica' as const, reason: 'Restored the backup saved 2026-10-24 12:10 UTC: …', keptAs: 'swarmy-stale-2026-10-24T12-10-00Z' };
+    expect(MeshControlStatus.parse({ running: true, healthy: true, restored: true, restore }).restore).toEqual(restore);
+    expect(MeshControlStatus.parse({ running: true, healthy: true, restored: false }).restore).toBeUndefined();
+    expect(MeshControlStatus.safeParse({ running: true, healthy: true, restore: { used: 'refuse', reason: 'x' } }).success).toBe(false);
+    expect(MeshControlRestore.safeParse({ used: 'local' }).success).toBe(false);
   });
 });

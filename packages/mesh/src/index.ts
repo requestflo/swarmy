@@ -18,5 +18,6 @@ export * from './control-plane/relay-plan';
 export * from './control-plane/netbird-admin';
 export * from './control-plane/people-sync';
 export * from './control-plane/login-expiry-sync';
+export * from './control-plane/restore-choice';
 export * from './images';
 export * from './client-downloads';

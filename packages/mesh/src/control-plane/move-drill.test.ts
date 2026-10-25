@@ -19,6 +19,7 @@ const good: MoveDrillObservation = {
     oldStoppedAfterHeal: true,
     controlPlanesAfterHeal: 1,
   },
+  moveBack: { used: 'replica', keptOldCopy: true, epochBefore: 5, epochAfter: 6, holderAfter: 'nodeA', target: 'nodeA', keyMintedAway: true },
 };
 const withPartition = (p: Partial<MoveDrillObservation['partition']>) => ({ ...good, partition: { ...good.partition, ...p } });
 
@@ -64,6 +65,20 @@ describe('mesh control-plane move drill verdict', () => {
     expect(judgeMoveDrill(withPartition({ oldStoppedAfterHeal: false, controlPlanesAfterHeal: 2 })).problems).toEqual([
       'after the heal: the old node kept running swarmy-mesh-control',
       'after the heal: 2 control planes run, want 1',
+    ]);
+  });
+
+  it('moving back must run the backup over the old copy, keep the old files and enrol a key minted while away', () => {
+    const back = (b: Partial<MoveDrillObservation['moveBack']>) => judgeMoveDrill({ ...good, moveBack: { ...good.moveBack, ...b } }).problems;
+    expect(back({ used: 'local', keyMintedAway: false })).toEqual([
+      'move back: the first node ran its own old copy, not the backup',
+      'move back: a setup key minted while the control plane was away does not enrol (stale state?)',
+    ]);
+    expect(back({ used: null, keptOldCopy: false, holderAfter: 'nodeC', epochAfter: 5 })).toEqual([
+      'move back: the first node ran "nothing", not the backup',
+      "move back: the first node's old files were not kept aside",
+      'move back: the lease is held by nodeC, not the target nodeA',
+      'move back: the lease epoch did not move forward (5 → 5)',
     ]);
   });
 });

@@ -32,11 +32,19 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { DockerClient, defaultContainerLogConfig } from '@swarmy/core/docker';
-import { MESH_LEASE, type ApplyMeshControlPayload, type MeshControlLeaseView, type MeshControlSpec, type MeshControlStatus } from '@swarmy/core/protocol';
+import {
+  MESH_LEASE,
+  type ApplyMeshControlPayload,
+  type MeshControlLeaseView,
+  type MeshControlRestore,
+  type MeshControlSpec,
+  type MeshControlStatus,
+} from '@swarmy/core/protocol';
 import { env } from '../env';
 import { leaseForHosting, leasePending, leaseTick, leaseView, mayReplicate, releaseLease, resetLease, type LeaseHooks } from './mesh-control-lease';
 import { enforceMeshFirewall } from './mesh-firewall';
 import { MESH_FRONT_CONTAINER, ensureMeshFront } from './mesh-front';
+import { restoreNewest } from './mesh-control-restore';
 import { agentPackaging } from './update';
 
 /** Stable names: re-applies reconcile one container, the installer uses the same. */
@@ -303,52 +311,6 @@ async function ensureLitestream(docker: DockerClient, spec: MeshControlSpec): Pr
 }
 
 /**
- * Restore the replica into the control-plane volume. Only into an EMPTY
- * volume (no store.db): restoring over live data is never what a move wants.
- */
-async function restoreInto(docker: DockerClient, spec: MeshControlSpec): Promise<boolean> {
-  const ls = spec.litestream;
-  if (!ls) throw new Error('restore needs a litestream replica');
-  const d = docker.docker;
-  await docker.pullImage(ls.image).catch(() => undefined);
-  const name = `${MESH_LITESTREAM_CONTAINER}-restore`;
-  await d.getContainer(name).remove({ force: true }).catch(() => undefined);
-  // Each DB restores to a temp file, then swaps in (and drops stale -wal/-shm).
-  const script = [
-    'set -e',
-    `[ -s ${DATA_DIR}/store.db ] && { echo "volume not empty"; exit 3; }`,
-    `mkdir -p ${path.dirname(LS_CONFIG_FILE)}`,
-    `printf '%s' "$SWARMY_LS_CONFIG" | base64 -d > ${LS_CONFIG_FILE}`,
-    'unset SWARMY_LS_CONFIG',
-    `for db in store idp events; do`,
-    `  f=${DATA_DIR}/$db.db`,
-    `  litestream restore -config ${LS_CONFIG_FILE} -if-replica-exists -o "$f.restoring" "$f"`,
-    `  if [ -s "$f.restoring" ]; then rm -f "$f" "$f-wal" "$f-shm" "${DATA_DIR}/.$db.db-litestream"; mv "$f.restoring" "$f"; fi`,
-    'done',
-  ].join('\n');
-  const c = await d.createContainer({
-    name,
-    Image: ls.image,
-    Entrypoint: ['sh', '-c', script],
-    Cmd: [],
-    Env: [...Object.entries(ls.env).map(([k, v]) => `${k}=${v}`), `SWARMY_LS_CONFIG=${Buffer.from(ls.configYaml).toString('base64')}`],
-    HostConfig: {
-      NetworkMode: ls.network,
-      Binds: [`${MESH_CONTROL_VOLUME}:${DATA_DIR}`],
-      Tmpfs: { [path.dirname(LS_CONFIG_FILE)]: 'rw,size=1m,mode=0700' },
-      AutoRemove: false,
-    },
-  });
-  await c.start();
-  const res = (await c.wait()) as { StatusCode?: number };
-  const logs = String(await c.logs({ stdout: true, stderr: true }).catch(() => ''));
-  await c.remove({ force: true }).catch(() => undefined);
-  if (res.StatusCode === 3) return false;
-  if (res.StatusCode !== 0) throw new Error(`litestream restore failed: ${logs.slice(-800)}`);
-  return true;
-}
-
-/**
  * Converge the container onto `spec`. Restart only when the image or config
  * changed. Litestream gets its config only while the lease lets it ship
  * (`replicate`); otherwise it is left as it is (the lease's timer kills it).
@@ -442,11 +404,13 @@ export async function applyMeshControl(docker: DockerClient, p: ApplyMeshControl
     if (lease.state === 'waiting' || (lease.state === 'silent' && p.action === 'restore')) {
       throw new Error(`the mesh control-plane lease is not ours: ${lease.why ?? lease.state}`);
     }
-    let restored: boolean | undefined;
+    let restore: MeshControlRestore | undefined;
     try {
       if (p.action === 'restore') {
+        // Nothing may write the volume while its files are compared and swapped.
+        await docker.docker.getContainer(MESH_LITESTREAM_CONTAINER).remove({ force: true }).catch(() => undefined);
         await docker.docker.getContainer(MESH_CONTROL_CONTAINER).remove({ force: true }).catch(() => undefined);
-        restored = await restoreInto(docker, p.spec);
+        restore = await restoreNewest(docker, p.spec, logFront);
       }
       await saveLocal(p.spec);
     } catch (e) {
@@ -455,7 +419,7 @@ export async function applyMeshControl(docker: DockerClient, p: ApplyMeshControl
       throw e;
     }
     const st = await converge(docker, p.spec, mayReplicate());
-    return restored === undefined ? st : { ...st, restored };
+    return restore === undefined ? st : { ...st, restored: restore.used === 'replica', restore };
   } finally {
     hosting--;
   }

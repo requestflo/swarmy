@@ -561,10 +561,13 @@ export async function setRelaysOnEdges(ctx: OrgContext, on: boolean): Promise<Co
 
 /**
  * Move the control plane to another manager (plan §2.5): fence the old one
- * (stop if its agent is alive), restore the Litestream replica into the
- * target's empty volume and start it there. Peers reconnect by themselves when
- * the mesh domain follows (swarmy-dns / an edge name); an sslip.io name pins the
- * old IP, so that move is refused with the reason.
+ * (stop if its agent is alive), bring the newest state onto the target and
+ * start it there. The target restores the Litestream replica unless its own
+ * volume is provably newer (a node it moved away from keeps its old files, and
+ * running those would bring back stale peers and setup keys); files it
+ * replaces are kept aside, and `status.restore` says which copy runs and why.
+ * Peers reconnect by themselves when the mesh domain follows (swarmy-dns / an
+ * edge name); an sslip.io name pins the old IP, so that move is refused.
  */
 export async function moveControlPlane(ctx: OrgContext, targetNodeId: string): Promise<ControlPlaneCardView> {
   const row = await meshConfigRepo.get(ctx, ctx.activeOrgId);
@@ -606,7 +609,14 @@ export async function moveControlPlane(ctx: OrgContext, targetNodeId: string): P
     action: 'mesh.control.move',
     targetType: 'meshConfig',
     targetId: ctx.activeOrgId,
-    metadata: { from, to: targetNodeId, restored: st.restored ?? null, leaseEpoch: st.lease?.epoch ?? null },
+    metadata: {
+      from,
+      to: targetNodeId,
+      restored: st.restored ?? null,
+      // Which copy runs and why, in plain words (older agents leave it out).
+      restore: st.restore ?? null,
+      leaseEpoch: st.lease?.epoch ?? null,
+    },
   });
   return getControlPlaneCard(ctx);
 }

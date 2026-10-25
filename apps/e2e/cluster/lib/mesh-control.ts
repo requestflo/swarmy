@@ -22,7 +22,14 @@ export interface ControlCard {
   managementUrl: string | null;
   tls: string | null;
   node: { id: string | null; hostname: string | null; online: boolean };
-  status: { running: boolean; healthy: boolean; restored?: boolean; lease?: { state: string; epoch?: number; replicate?: boolean } } | null;
+  status: {
+    running: boolean;
+    healthy: boolean;
+    restored?: boolean;
+    /** Which copy a restore ran and why (MeshControlRestore). */
+    restore?: { used: string; reason: string; keptAs?: string };
+    lease?: { state: string; epoch?: number; replicate?: boolean };
+  } | null;
   backup: { configured: boolean; running: boolean };
 }
 
@@ -58,6 +65,12 @@ export async function containerState(ctx: Ctx, node: ClusterNode, name: string):
   const [running, started, finished, code] = out.split(' ');
   const t = (x?: string) => Date.parse((x ?? '').replace(/(\.\d{3})\d+/, '$1'));
   return { running: running === 'true', startedAt: t(started), finishedAt: t(finished), exitCode: Number(code) };
+}
+
+/** Does `rel` exist (non-empty) in the control-plane volume on `node`? Read through the running server. */
+export async function controlVolumeHas(ctx: Ctx, node: ClusterNode, rel: string): Promise<boolean> {
+  const r = await ctx.cluster.sh(node, `docker exec ${MESH_CONTROL} sh -c 'test -s "$1"' sh ${q(`/var/lib/netbird/${rel}`)}`);
+  return r.code === 0;
 }
 
 /** Nodes running a control plane right now. */

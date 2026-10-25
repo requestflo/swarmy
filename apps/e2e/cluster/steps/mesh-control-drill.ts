@@ -10,7 +10,10 @@
  *  2. partition B (the old node of a second move) and move to C: B can't renew
  *     and kills its Litestream inside the lease window, C takes over only
  *     after a full TTL (one replica writer at a time), and after the heal B
- *     sees C's lease and stops. Judged by judgeMoveDrill (pure, tested).
+ *     sees C's lease and stops.
+ *  3. move back C → A: A's volume still holds its state from before step 1, so
+ *     A must restore the backup over it (old files kept aside), and a setup key
+ *     minted on C must enrol on A. Judged by judgeMoveDrill (pure, tested).
  *
  * The mesh domain must follow the control plane: never *.sslip.io (a move is
  * refused there). Behind swarmy's edge it follows by itself; a directly served
@@ -19,64 +22,10 @@
 import { judgeMoveDrill } from '../../../../packages/mesh/src/control-plane/move-drill';
 import { parseDockerTime } from '../../../api/src/controller-store/fence-drill';
 import type { Ctx } from '../context';
-import type { ClusterNode } from '../lib/cluster';
-import { CONTROLLER_SERVICE, dockerOn, partitionScript, promoteAll } from '../lib/controller';
+import { dockerOn, partitionScript } from '../lib/controller';
 import * as mc from '../lib/mesh-control';
-import { Skip } from '../lib/report';
-import { Fatal, assert, log, poll } from '../lib/util';
-
-const ID = 'mesh-control-move';
-const card = (ctx: Ctx) => ctx.q<mc.ControlCard>('mesh.control.status');
-interface Host { id: string; hostname: string; node: ClusterNode; swarmId: string }
-
-async function prepare(ctx: Ctx): Promise<mc.ControlCard> {
-  if (!ctx.opts.enable.includes(ID)) throw new Skip(`flagged off: disruptive, run with --enable ${ID}`);
-  if (ctx.cluster.cfg.mesh !== 'swarmy') throw new Skip('needs --mesh swarmy (the self-hosted control plane)');
-  if (ctx.cluster.nodes.length < 3) throw new Skip('needs 3 nodes (3 managers keep raft quorum through the partition)');
-  if (!(await ctx.session.hasProcedure('mesh.control.status'))) throw new Skip('no mesh.control in this build');
-  const c0 = await card(ctx);
-  if (!c0.managed) throw new Skip('the mesh control plane is not managed by swarmy');
-  if (!c0.meshDomain || c0.meshDomain.endsWith('.sslip.io')) throw new Skip(`${c0.meshDomain} pins one IP, so a move is refused: install with --mesh-domain <a name you can re-point>`);
-  if (c0.tls !== 'edge' && !process.env.SWARMY_E2E_MESH_REPOINT) throw new Skip(`${c0.meshDomain} is served directly (${c0.tls}): set SWARMY_E2E_MESH_REPOINT to re-point it`);
-  await promoteAll(ctx);
-  // A move restores from Litestream: object storage on, the replica shipping, the lease held.
-  await ctx.m('storage.enable', undefined, 5 * 60_000).catch((e) => {
-    if (!/already/i.test((e as Error).message)) throw e;
-  });
-  return poll('control plane backed up, healthy and under its lease', async () => {
-    await ctx.m('mesh.control.reconcile').catch(() => {});
-    const c = await card(ctx);
-    return c.backup.running && c.status?.healthy && c.status.lease?.state === 'held' ? c : null;
-  }, { timeoutMs: 10 * 60_000, intervalMs: 10_000 });
-}
-
-/** `mesh.control.move`, retried only while the hub hasn't seen a fresh promotion yet. */
-function move(ctx: Ctx, to: Host): Promise<mc.ControlCard> {
-  return poll(`mesh.control.move to ${to.hostname} accepted`, () =>
-    ctx.m<mc.ControlCard>('mesh.control.move', { nodeId: to.id }, 8 * 60_000).catch((e: Error) => {
-      if (/swarm manager/.test(e.message)) return null;
-      throw new Fatal(e.message);
-    }),
-  { timeoutMs: 2 * 60_000, intervalMs: 5000 });
-}
-
-/** A (hosts it), B (not the controller's node, preferably not Garage's), C (the third). */
-async function pick(ctx: Ctx, c0: mc.ControlCard): Promise<[Host, Host, Host]> {
-  const hs: Host[] = [];
-  for (const r of (await ctx.sdk.nodes.list({ limit: 100 })).data) {
-    const node = await ctx.nodeByHostname(r.hostname);
-    hs.push({ id: r.id, hostname: r.hostname, node, swarmId: await mc.swarmIdOf(ctx, node) });
-  }
-  const ctl = (await ctx.task(CONTROLLER_SERVICE)).node;
-  const garage = (await ctx.docker(`service ps swarmy-garage --filter desired-state=running --format '{{.Node}}'`).catch(() => '')).split('\n');
-  const a = hs.find((h) => h.id === c0.node.id);
-  const cands = hs.filter((h) => h !== a && h.node !== ctl);
-  const b = cands.find((h) => !garage.includes(h.hostname)) ?? cands[0];
-  const c = hs.find((h) => h !== a && h !== b);
-  assert(a && b && c, `need three nodes: the host, a non-controller node, a third (have ${hs.map((h) => h.hostname).join(', ')})`);
-  if (c0.tls !== 'edge' && (b.node.natted || c.node.natted)) throw new Skip('a directly served mesh name cannot move behind the simulated NAT (peers could not dial it)');
-  return [a, b, c];
-}
+import { card, move, moveBack, pick, prepare } from '../lib/mesh-control-move';
+import { assert, log, poll } from '../lib/util';
 
 export async function meshControlMove(ctx: Ctx) {
   const c = ctx.cluster;
@@ -137,6 +86,11 @@ export async function meshControlMove(ctx: Ctx) {
     const oldStopped = await poll(`${B.hostname} stops (it sees ${C.hostname}'s lease)`, gone, { timeoutMs: 2 * 60_000 }).catch(() => false);
     const running = await mc.controlPlanesRunning(ctx);
     const after = await mc.peersReattached(ctx);
+    assert(after.connected === after.total, `after the heal: ${after.connected}/${after.total} peers re-attached`);
+
+    // ── 3. back to A, whose volume still holds its state from before step 1 ──
+    const back = await moveBack(ctx, c0, A, C);
+    const home = await mc.peersReattached(ctx);
     const v = judgeMoveDrill({
       cleanMove: { restored: moved.status?.restored ?? null, epochBefore: e0, epochAfter: l1?.epoch ?? null, holderAfter: l1?.holder ?? null, target: B.swarmId, oldStillRuns },
       peers,
@@ -153,11 +107,12 @@ export async function meshControlMove(ctx: Ctx) {
         oldStoppedAfterHeal: oldStopped,
         controlPlanesAfterHeal: running.length,
       },
+      moveBack: back,
     });
     assert(v.ok, v.problems.join('; '));
-    assert(after.connected === after.total, `after the heal: ${after.connected}/${after.total} peers re-attached`);
+    assert(home.connected === home.total, `after the move back: ${home.connected}/${home.total} peers re-attached`);
     const sec = (ms: number | null) => `${Math.round((ms ?? 0) / 1000)}s`;
-    return `${A.hostname} → ${B.hostname} (epoch ${e0} → ${l1?.epoch}), ${peers.connected}/${peers.total} peers back, setup keys enrol; cut ${B.hostname}: Litestream killed ${sec(v.fencedAfterMs)} after the cut${servedWhileCut ? ' (NetBird kept serving, as designed)' : ''}, ${C.hostname} replicating ${sec(v.handoverGapMs)} later (epoch ${e1} → ${l2?.epoch}); one control plane after the heal`;
+    return `${A.hostname} → ${B.hostname} (epoch ${e0} → ${l1?.epoch}), ${peers.connected}/${peers.total} peers back, setup keys enrol; cut ${B.hostname}: Litestream killed ${sec(v.fencedAfterMs)} after the cut${servedWhileCut ? ' (NetBird kept serving, as designed)' : ''}, ${C.hostname} replicating ${sec(v.handoverGapMs)} later (epoch ${e1} → ${l2?.epoch}); one control plane after the heal; back on ${A.hostname} from the backup (old files kept), a key minted on ${C.hostname} enrols`;
   } finally {
     if (!healed) await heal().catch(() => {});
   }
