@@ -17,6 +17,7 @@ import { idpPlaceholderEmail } from './identity-idp';
 import type { ResolvedAuthConfig, ResolvedSsoProvider } from './config';
 import { isInviteLinkToken } from './invite-links';
 import { SAML_ACS_PREFIX, samlProviderIdFromPath } from './saml';
+import { sessionMayBeActiveIn, ssoOnlyOrgIds } from './sso-enforcement-hooks';
 
 /**
  * Who joins which org, and with which groups, when they sign in.
@@ -101,7 +102,7 @@ export function socialProfileMapper(providerId: string) {
 }
 
 type ProvisionDb = Pick<DB, 'member' | 'invitation' | 'session'> &
-  Partial<Pick<DB, 'ssoProvider' | 'account' | 'organization'>>;
+  Partial<Pick<DB, 'ssoProvider' | 'account' | 'organization' | 'orgSecurityPolicy'>>;
 
 export type RedeemResult =
   | {
@@ -214,7 +215,8 @@ export async function provisionDomainMember(
   const org = db.organization
     ? await db.organization.findFirst({ orderBy: { createdAt: 'asc' }, select: { id: true } })
     : null;
-  if (!org) return null;
+  // An org that signs in with SSO only never takes people in by a social domain.
+  if (!org || (await ssoOnlyOrgIds(db, [org.id])).has(org.id)) return null;
   await db.member.create({
     data: { id: randomUUID(), organizationId: org.id, userId: input.userId, role: 'member' },
   });
@@ -402,7 +404,12 @@ export function swarmyProvisioning(
               if (res.ok || res.reason === 'gone') ctx.setCookie(INVITE_COOKIE, '', { path: '/', maxAge: 0 });
             }
 
-            // Land the new session in the org it just joined.
+            // Land the new session in the org it just joined, unless that org
+            // signs in with SSO only and this sign-in can't be active there.
+            const method = (created.session as { signInMethod?: string | null }).signInMethod;
+            if (orgId && !(await sessionMayBeActiveIn(db, { orgId, userId, signInMethod: method, secondFactorVerified: false }, byId)).ok) {
+              orgId = null;
+            }
             if (orgId && created.session.activeOrganizationId !== orgId) {
               await db.session.updateMany({
                 where: { token: created.session.token },

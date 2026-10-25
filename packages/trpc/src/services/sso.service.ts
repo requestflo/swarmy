@@ -5,6 +5,7 @@ import { notFound } from '../errors';
 import { writeAudit } from './audit.service';
 import { assertProviderIdClaimable, retireProviderId } from './sso-identities';
 import { normalizeSamlInput, samlSetupView, type SamlSetupView } from './sso-saml';
+import { assertSsoOnlyKeepsProvider } from './sso-only.service';
 
 /**
  * Per-org enterprise SSO providers (OIDC via Better Auth's genericOAuth, SAML
@@ -132,6 +133,7 @@ export async function upsertSsoProvider(ctx: OrgContext, input: UpsertSsoArgs): 
       select: { id: true, providerId: true },
     });
     if (!existing) throw notFound('sso provider', args.id);
+    if (args.enabled === false) await assertSsoOnlyKeepsProvider(ctx, existing.providerId);
     const renamed = existing.providerId !== args.providerId;
     if (renamed) await assertProviderIdClaimable(ctx.db, ctx.activeOrgId, args.providerId);
     const row = await ctx.db.ssoProvider.update({
@@ -195,6 +197,7 @@ export async function deleteSsoProvider(ctx: OrgContext, id: string): Promise<{ 
     select: { id: true, providerId: true },
   });
   if (!row) throw notFound('sso provider', id);
+  await assertSsoOnlyKeepsProvider(ctx, row.providerId);
   // Its identities go with it, and the id stays this org's (sso-identities.ts).
   const removed = await retireProviderId(ctx.db, ctx.activeOrgId, row.providerId);
   await ctx.db.ssoProvider.delete({ where: { id } });

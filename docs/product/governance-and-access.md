@@ -180,6 +180,14 @@ Four ideas, one story:
   never share one. Deleting an SSO provider deletes the accounts it vouched for
   and retires its id to the org, so no other org can re-create the id to claim
   them.
+- **An org can sign in with SSO only.** With "Members sign in with SSO
+  only" on (Settings → People & access), only the org's own SSO providers
+  sign its people in: password, social, email-link and passkey sign-ins are
+  refused before a session exists, a session can't be switched into the org,
+  and turning it on signs out every session it now refuses. Owners keep one
+  break-glass path, password plus a second factor (a trusted device still
+  owes the code), and every use is audited. Turning it on needs a ready
+  provider of the org, and the last one can't be removed while it's on.
 - **Signing out ends API access too.** Sign-out, revoking a session and a 2FA
   reset stamp `User.tokensRevokedAt`: an access token issued before it is
   refused, the OAuth grants minted from that session are deleted, and an app

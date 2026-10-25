@@ -177,6 +177,19 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
   because `identity.ts` ships to the browser). An SSO provider id owns its `account` rows: delete
   removes them, rename moves them, and the old id is retired to the org
   (`SsoProviderRetired`, `services/sso-identities.ts`).
+- **SSO-only orgs** (`OrgSecurityPolicy.requireSso`): one pure decision,
+  `ssoSignInDecision` (`packages/auth/src/sso-enforcement.ts`), asked in three
+  places: `session.create.before` (`sso-enforcement-hooks.ts`: records
+  `Session.signInMethod`, a Better Auth session field, lands the session in
+  the oldest org it may be active in, else 403 `SSO_REQUIRED` /
+  `BREAK_GLASS_NEEDS_2FA`), the `/organization/set-active` before-hook and
+  owner break-glass audit (`sso-enforcement-plugin.ts`, after the 2FA plugin;
+  a trusted-device skip is marked `mfaPending`), and the orgProcedure gate
+  (`trpc services/sso-only-gate.ts`). Only the org's own provider counts.
+  `security.ssoOnly.set` (`authconfig.write`) needs a ready provider
+  (`ssoProviderReady`), refuses to sign out the caller, and signs out the
+  sessions it now refuses; the last ready provider can't be removed or
+  disabled while it's on.
 - **Ending a session ends its tokens.** The `session.delete` hook (and the
   2FA reset, which deletes sessions directly, so it calls `revokeUserTokens`
   itself) stamps `User.tokensRevokedAt` (the API token verifier refuses any

@@ -12,7 +12,7 @@ import {
 } from './config';
 import { CLIENT_IP_HEADER } from './client-ip';
 import { authMailOptions, magicLinkMailer, type SendAuthEmail } from './auth-mail';
-import { assertAccountLinkAllowed, isReservedProviderId } from './account-linking';
+import { assertAccountLinkAllowed } from './account-linking';
 import {
   assertSignupAllowed,
   canCreateOrganization,
@@ -25,6 +25,9 @@ import { OIDC_DISABLED_PATHS, swarmyOidcProvider } from './oidc-provider';
 import { onSessionDeleted } from './token-revocation';
 import { samlProviderIdFromPath, samlUserEmail } from './saml';
 import { swarmySaml } from './saml-plugin';
+import { sessionCreateBefore } from './sso-enforcement-hooks';
+import { swarmySsoEnforcement } from './sso-enforcement-plugin';
+import { ssoProviderReady } from './sso-ready';
 import {
   allowedDomainsFor,
   inviteIdFromRequest,
@@ -176,14 +179,7 @@ export function buildAuth(
   // @better-auth/sso (saml-plugin.ts, which skips rows not yet complete).
   // A provider id that collides with a built-in/social account kind is never
   // registered (account-linking.ts: it would share those accounts' providerId).
-  const oidcSso = (config.sso ?? []).filter(
-    (p) =>
-      p.protocol === 'oidc' &&
-      !isReservedProviderId(p.providerId) &&
-      p.clientId &&
-      p.clientSecret &&
-      (p.discoveryUrl || p.issuer || p.authorizationUrl),
-  );
+  const oidcSso = (config.sso ?? []).filter((p) => p.protocol === 'oidc' && ssoProviderReady(p));
 
   // Optional plugins, typed as BetterAuthPlugin so the array stays well-typed.
   // `organization()` is kept as the static element 0 so `Auth` always infers the
@@ -264,18 +260,10 @@ export function buildAuth(
         },
       },
       session: {
-        create: {
-          before: async (session) => {
-            if (session.activeOrganizationId) return;
-            const member = await db.member.findFirst({
-              where: { userId: session.userId },
-              orderBy: { createdAt: 'asc' },
-              select: { organizationId: true },
-            });
-            if (!member) return;
-            return { data: { ...session, activeOrganizationId: member.organizationId } };
-          },
-        },
+        // Records how the session signed in, lands it in the oldest org that
+        // sign-in may be active in, and refuses a non-SSO sign-in into an org
+        // that signs in with SSO only (sso-enforcement-hooks.ts).
+        create: { before: sessionCreateBefore(db, ssoById, opts.audit) },
         // Sign-out / revocation ends the API tokens and OAuth grants minted
         // from the session too (token-revocation.ts).
         delete: { after: onSessionDeleted(db) },
@@ -303,6 +291,9 @@ export function buildAuth(
     ...(Object.keys(socialProviders).length ? { socialProviders } : {}),
     session: {
       cookieCache: { enabled: true, maxAge: 60 },
+      // How the session signed in (sso-enforcement.ts). A Better Auth field so
+      // rotated sessions keep it; never settable by the client.
+      additionalFields: { signInMethod: { type: 'string', required: false, input: false } },
     },
     advanced: {
       // Own cookie namespace. Browsers scope cookies by host, NOT port, so on
@@ -354,6 +345,8 @@ export function buildAuth(
       // `/two-factor/*` API. See two-factor.ts.
       swarmyTwoFactor(),
       mfaAssurance(db),
+      // "Members sign in with SSO only": org switches and owner break-glass (after the 2FA plugin).
+      swarmySsoEnforcement(db, { sso: config.sso ?? [], audit: opts.audit }),
       // swarmy as an OIDC provider for in-cluster tools (NetBird). See oidc-provider.ts.
       ...swarmyOidcProvider(db),
       // Username sign-in: email is optional on swarmy (identity.ts). Static so

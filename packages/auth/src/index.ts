@@ -96,6 +96,22 @@ export {
   type RedeemResult,
 } from './provisioning';
 export {
+  BREAK_GLASS_NEEDS_2FA_MESSAGE,
+  parseSignInMethod,
+  pickLandingOrg,
+  signInFromPath,
+  signInMethod,
+  SSO_REQUIRED_MESSAGE,
+  ssoSignInDecision,
+  type SignIn,
+  type SignInKind,
+  type SsoDecision,
+  type SsoDecisionInput,
+  type SsoRefusal,
+} from './sso-enforcement';
+export { sessionMayBeActiveIn, ssoOnlyOrgIds } from './sso-enforcement-hooks';
+export { ssoProviderReady } from './sso-ready';
+export {
   INVITE_LINK_PREFIX,
   isInviteLinkToken,
   inviteLinkState,

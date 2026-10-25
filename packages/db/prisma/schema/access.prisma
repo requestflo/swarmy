@@ -99,6 +99,10 @@ model OrgSecurityPolicy {
   enforcedSince DateTime?
   /// Members who only sign in via SSO/social are exempt: their IdP owns MFA.
   trustIdpMfa   Boolean   @default(true)
+  /// "Members sign in with SSO only": no password, social, email-link or
+  /// passkey session may be active in this org; owners keep password + 2FA
+  /// (break-glass). Turned on only with a ready SSO provider (auth sso-enforcement.ts).
+  requireSso    Boolean   @default(false)
   updatedAt     DateTime  @updatedAt
 
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)

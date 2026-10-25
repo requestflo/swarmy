@@ -59,6 +59,11 @@ model Session {
   // still owes one (a magic-link sign-in by a 2FA-enrolled user).
   mfaVerifiedAt        DateTime?
   mfaPending           Boolean  @default(false)
+  // swarmy: how this session signed in (packages/auth/src/sso-enforcement.ts):
+  // `sso:<providerId>`, `password`, `password_2fa`, `social:<id>`, `email_link`
+  // or `passkey`. A Better Auth session field, so a rotated session keeps it.
+  // Null: minted before the column existed.
+  signInMethod         String?
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 

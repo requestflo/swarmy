@@ -2,6 +2,7 @@ import { initTRPC, TRPCError } from '@trpc/server';
 import superjson from 'superjson';
 import type { BaseContext } from './context';
 import { enforceOrgMfa } from './services/security.service';
+import { enforceOrgSso } from './services/sso-only-gate';
 import { INSTANCE_OWNER_REQUIRED, isInstanceOwner } from './services/instance-owner';
 
 const t = initTRPC.context<BaseContext>().create({
@@ -46,6 +47,14 @@ export const orgProcedure = protectedProcedure.use(async ({ ctx, next }) => {
   // data. Enrolment stays reachable (Better Auth + protectedProcedure `security.me`).
   await enforceOrgMfa(ctx.db, {
     user: ctx.user,
+    session: ctx.session,
+    orgId: ctx.activeOrgId,
+    role: member.role as 'owner' | 'admin' | 'member',
+    memberSince: member.createdAt,
+  });
+  // "Members sign in with SSO only": a session that could not sign in to this
+  // org now (password, social… minted before the switch) reaches none of it.
+  await enforceOrgSso(ctx.db, {
     session: ctx.session,
     orgId: ctx.activeOrgId,
     role: member.role as 'owner' | 'admin' | 'member',

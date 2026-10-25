@@ -9,6 +9,7 @@ import {
   setSecurityPolicy,
 } from '../services/security.service';
 import { MAX_GRACE_DAYS } from '../services/mfa-policy';
+import { getSsoOnly, setSsoOnly } from '../services/sso-only.service';
 
 /**
  * Account security (launch-blocker #7). Enrolment, the sign-in challenge,
@@ -32,6 +33,17 @@ export const securityRouter = router({
         }),
       )
       .mutation(({ ctx, input }) => setSecurityPolicy(ctx, input)),
+  }),
+
+  /**
+   * "Members sign in with SSO only": needs a ready SSO provider of this org,
+   * keeps owners a password + 2FA way in, signs out sessions it now refuses.
+   */
+  ssoOnly: router({
+    get: orgProcedure.query(({ ctx }) => getSsoOnly(ctx)),
+    set: abacProcedure('authconfig.write')
+      .input(z.object({ on: z.boolean() }))
+      .mutation(({ ctx, input }) => setSsoOnly(ctx, input.on)),
   }),
 
   members: adminProcedure.query(({ ctx }) => listMemberMfa(ctx)),
