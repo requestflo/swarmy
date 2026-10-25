@@ -23,6 +23,8 @@ export interface InviteLinkRow {
   maxUses: number | null;
   uses: number;
   revokedAt: Date | null;
+  /** Only someone signed in through the org's own SSO may use it (sso-invites.ts). */
+  requireSso?: boolean;
 }
 
 export type InviteLinkState = 'ok' | 'expired' | 'used' | 'revoked';
@@ -51,6 +53,7 @@ export async function findInviteLink(db: InviteLinkDb, token: string): Promise<I
       maxUses: true,
       uses: true,
       revokedAt: true,
+      requireSso: true,
     },
   });
 }

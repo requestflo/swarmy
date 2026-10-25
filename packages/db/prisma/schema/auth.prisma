@@ -234,6 +234,9 @@ model Invitation {
   // writes an `operator` ResourceGrant on that app, the same grant an
   // app-scoped InviteLink gives. Null = the whole org. Better Auth ignores it.
   stackName      String?
+  // swarmy: accept only through the inviting org's own SSO, by the invited
+  // address (or, for a link, the provider's domain). auth sso-invites.ts.
+  requireSso     Boolean  @default(false)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   inviter      User         @relation("InvitationInviter", fields: [inviterId], references: [id], onDelete: Cascade)

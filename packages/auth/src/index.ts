@@ -110,6 +110,13 @@ export {
   type SsoRefusal,
 } from './sso-enforcement';
 export { sessionMayBeActiveIn, ssoOnlyOrgIds } from './sso-enforcement-hooks';
+export {
+  checkSsoInvite,
+  inviteNeedsSso,
+  ssoInviteDecision,
+  type InviteSsoDecision,
+  type InviteSsoRefusal,
+} from './sso-invites';
 export { ssoProviderReady } from './sso-ready';
 export {
   INVITE_LINK_PREFIX,

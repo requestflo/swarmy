@@ -1,10 +1,11 @@
 import { TRPCError } from '@trpc/server';
-import { displayEmail, needsAppGrant, redeemInvitation } from '@swarmy/auth';
+import { displayEmail, inviteNeedsSso, needsAppGrant, redeemInvitation } from '@swarmy/auth';
 import type { DB } from '@swarmy/db';
 import type { AuthedContext } from '../context';
 import { setActiveOrg } from './active-org';
 import { writeAudit } from './audit.service';
 import { grantInviteApp } from './invite-grant';
+import { inviteSsoError, sessionSignInMethod } from './invite-sso';
 import type { InviteRole } from './invitations.service';
 
 /**
@@ -23,13 +24,23 @@ export interface InvitationPreview {
   expired: boolean;
   /** The one app the invite scopes them to; null = the whole org. */
   stackName: string | null;
+  /** Accepted only through the org's own SSO (the invite's flag, or an SSO-only org). */
+  requireSso: boolean;
 }
 
 /** Public preview of an invite link (the unguessable id is the credential). */
 export async function invitationPreview(db: DB, id: string, now: Date = new Date()): Promise<InvitationPreview | null> {
   const row = await db.invitation.findFirst({
     where: { id, status: 'pending' },
-    select: { role: true, email: true, expiresAt: true, stackName: true, organization: { select: { name: true } } },
+    select: {
+      role: true,
+      email: true,
+      expiresAt: true,
+      stackName: true,
+      requireSso: true,
+      organizationId: true,
+      organization: { select: { name: true } },
+    },
   });
   if (!row) return null;
   return {
@@ -38,6 +49,7 @@ export async function invitationPreview(db: DB, id: string, now: Date = new Date
     email: displayEmail(row.email),
     expired: row.expiresAt.getTime() <= now.getTime(),
     stackName: row.stackName ?? null,
+    requireSso: await inviteNeedsSso(db, { requireSso: row.requireSso, orgId: row.organizationId }),
   };
 }
 
@@ -51,7 +63,11 @@ export async function invitationPreview(db: DB, id: string, now: Date = new Date
 export async function acceptInvitation(ctx: AuthedContext, id: string): Promise<{ orgId: string }> {
   const redeemed = await redeemInvitation(
     ctx.db,
-    { invitationId: id, user: { id: ctx.user.id, email: ctx.user.email, emailVerified: ctx.user.emailVerified } },
+    {
+      invitationId: id,
+      user: { id: ctx.user.id, email: ctx.user.email, emailVerified: ctx.user.emailVerified },
+      signInMethod: await sessionSignInMethod(ctx),
+    },
     (orgId, entry) => writeAudit({ db: ctx.db, activeOrgId: orgId, user: ctx.user }, entry),
   );
   if (!redeemed.ok && redeemed.reason === 'email_mismatch') {
@@ -61,6 +77,7 @@ export async function acceptInvitation(ctx: AuthedContext, id: string): Promise<
       cause: { swarmyCode: 'INVITE_EMAIL_MISMATCH' },
     });
   }
+  if (!redeemed.ok && redeemed.reason === 'sso_required') throw inviteSsoError(redeemed.sso, redeemed.invitedEmail ?? null);
   if (needsAppGrant(redeemed)) await grantInviteApp(ctx, redeemed.orgId, redeemed.memberId, redeemed.stackName);
   let orgId = redeemed.ok ? redeemed.orgId : null;
   if (!orgId) {

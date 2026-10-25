@@ -190,6 +190,13 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
   (`ssoProviderReady`), refuses to sign out the caller, and signs out the
   sessions it now refuses; the last ready provider can't be removed or
   disabled while it's on.
+  SSO invites (`Invitation.requireSso`, `InviteLink.requireSso`, or any invite
+  of an SSO-only org) go through `ssoInviteDecision` (`sso-invites.ts`): the
+  session's `signInMethod` must be the inviting org's own provider, by the
+  invited address or (links) the provider's domain. Redemption lives in
+  `invite-redeem.ts`; at sign-in `sign-in-invite.ts` redeems the cookie's
+  invite, else the pending SSO invite naming the IdP's address (the SAML ACS
+  never carries the cookie), before SSO JIT so the invited role wins.
 - **Ending a session ends its tokens.** The `session.delete` hook (and the
   2FA reset, which deletes sessions directly, so it calls `revokeUserTokens`
   itself) stamps `User.tokensRevokedAt` (the API token verifier refuses any

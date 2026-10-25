@@ -29,6 +29,7 @@ export const inviteLinksRouter = router({
         stackName: z.string().min(1).max(128).nullish(),
         expiry: z.enum(INVITE_LINK_EXPIRIES),
         maxUses: z.number().int().min(1).max(1000).nullable(),
+        requireSso: z.boolean().optional(),
       }),
     )
     .mutation(({ ctx, input }) => createInviteLink(ctx, input)),

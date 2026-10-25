@@ -188,6 +188,13 @@ Four ideas, one story:
   break-glass path, password plus a second factor (a trusted device still
   owes the code), and every use is audited. Turning it on needs a ready
   provider of the org, and the last one can't be removed while it's on.
+  An invite (email, single-use link or shareable link) can also be marked
+  "Must accept with SSO": it is accepted only by someone signed in through the
+  org's own SSO, as the invited address or, for a link, at the provider's
+  domain. In an SSO-only org every invite works that way. A SAML assertion
+  arrives without the invite cookie (a cross-site POST), so after any SSO
+  sign-in the pending SSO invite naming the address the IdP vouched for is
+  redeemed; links are redeemed when the browser lands back on the login page.
 - **Signing out ends API access too.** Sign-out, revoking a session and a 2FA
   reset stamp `User.tokensRevokedAt`: an access token issued before it is
   refused, the OAuth grants minted from that session are deleted, and an app

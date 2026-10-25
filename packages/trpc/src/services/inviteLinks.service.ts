@@ -16,8 +16,10 @@ import { randomBytes } from 'node:crypto';
 import { TRPCError } from '@trpc/server';
 import { hashToken } from '@swarmy/core/crypto';
 import {
+  checkSsoInvite,
   findInviteLink,
   INVITE_LINK_PREFIX,
+  inviteNeedsSso,
   inviteLinkState,
   type InviteLinkRow,
   type InviteLinkState,
@@ -28,6 +30,7 @@ import { notFound } from '../errors';
 import { writeAudit } from './audit.service';
 import { grantInviteApp } from './invite-grant';
 import { inviteLinkBase } from './invitations.service';
+import { assertCanInviteWithSso, inviteSsoError, sessionSignInMethod } from './invite-sso';
 
 export const INVITE_LINK_ROLES = ['member', 'admin'] as const;
 export type InviteLinkRole = (typeof INVITE_LINK_ROLES)[number];
@@ -50,6 +53,8 @@ export interface InviteLinkView {
   createdBy: { id: string; name: string | null } | null;
   /** The link with its token masked — the full URL is only returned at creation. */
   hint: string;
+  /** Only someone signed in through this org's own SSO may use it. */
+  requireSso: boolean;
 }
 
 /** Returned ONCE at creation: carries the full URL with the plaintext token. */
@@ -82,6 +87,7 @@ function toView(
     createdAt: row.createdAt.toISOString(),
     createdBy: row.createdBy ?? null,
     hint: `${base.replace(/^https?:\/\//, '')}/join/${INVITE_LINK_PREFIX}_${row.prefix}_…`,
+    requireSso: row.requireSso ?? false,
   };
 }
 
@@ -96,6 +102,7 @@ const VIEW_SELECT = {
   uses: true,
   revokedAt: true,
   createdAt: true,
+  requireSso: true,
   createdBy: { select: { id: true, name: true } },
 } as const;
 
@@ -121,6 +128,8 @@ export interface CreateInviteLinkInput {
   expiry: InviteLinkExpiry;
   /** 1, 10, … ; null = unlimited. */
   maxUses: number | null;
+  /** Only someone signed in through this org's own SSO may use it. */
+  requireSso?: boolean;
 }
 
 function badRequest(message: string): TRPCError {
@@ -138,6 +147,8 @@ export async function createInviteLink(
   if (input.maxUses !== null && (!Number.isInteger(input.maxUses) || input.maxUses < 1)) {
     throw badRequest('uses must be at least 1, or unlimited');
   }
+  const requireSso = Boolean(input.requireSso);
+  await assertCanInviteWithSso(ctx, requireSso);
   const prefix = randomBytes(4).toString('hex');
   const token = `${INVITE_LINK_PREFIX}_${prefix}_${randomBytes(24).toString('base64url')}`;
   const days = EXPIRY_DAYS[input.expiry];
@@ -150,6 +161,7 @@ export async function createInviteLink(
       stackName,
       expiresAt: days === null ? null : new Date(now.getTime() + days * 86_400_000),
       maxUses: input.maxUses,
+      requireSso,
       createdById: ctx.user.id,
     },
     select: VIEW_SELECT,
@@ -162,6 +174,7 @@ export async function createInviteLink(
       role: input.role,
       stackName,
       maxUses: input.maxUses,
+      requireSso,
       expiresAt: row.expiresAt ? row.expiresAt.toISOString() : null,
     },
   });
@@ -193,6 +206,8 @@ export interface InviteLinkPreview {
   stackName: string | null;
   state: InviteLinkState;
   expiresAt: string | null;
+  /** Accepted only through the org's own SSO (the link's flag, or an SSO-only org). */
+  requireSso: boolean;
 }
 
 /** Public: what a link offers, before sign-in (the token is the credential). */
@@ -208,6 +223,7 @@ export async function inviteLinkPreview(db: DB, token: string, now: Date = new D
     stackName: row.stackName,
     state: inviteLinkState(row, now),
     expiresAt: row.expiresAt ? row.expiresAt.toISOString() : null,
+    requireSso: await inviteNeedsSso(db, { requireSso: row.requireSso, orgId: row.orgId }),
   };
 }
 
@@ -278,6 +294,11 @@ export async function acceptInviteLink(
     return { orgId: row.orgId, alreadyMember: true };
   }
 
+  // An SSO link: only a session signed in through this org's own SSO (at its domain, if it names one).
+  if (await inviteNeedsSso(ctx.db, { requireSso: row.requireSso, orgId: row.orgId })) {
+    const d = await checkSsoInvite(ctx.db, { email: null, orgId: row.orgId }, { signInMethod: await sessionSignInMethod(ctx), email: ctx.user.email });
+    if (!d.ok) throw inviteSsoError(d.reason);
+  }
   await claimUse(ctx.db, row, now);
   const role = toRole(row.role);
   const member = await ctx.db.member.create({
@@ -289,7 +310,7 @@ export async function acceptInviteLink(
     action: 'member.inviteLink.accept',
     targetType: 'inviteLink',
     targetId: row.id,
-    metadata: { alreadyMember: false, role, stackName: row.stackName, memberId: member.id },
+    metadata: { alreadyMember: false, role, stackName: row.stackName, memberId: member.id, requireSso: row.requireSso ?? false },
   });
   return { orgId: row.orgId, alreadyMember: false };
 }

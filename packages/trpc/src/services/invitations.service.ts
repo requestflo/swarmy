@@ -7,6 +7,7 @@ import { notFound } from '../errors';
 import { writeAudit } from './audit.service';
 import { sendSystemEmail } from './email/runtime';
 import { inviteStackName } from './invite-grant';
+import { assertCanInviteWithSso } from './invite-sso';
 
 /**
  * Org invitations as copyable links. An admin mints a Better Auth organization
@@ -44,6 +45,8 @@ export interface InvitationView {
   stackName: string | null;
   /** An email invite was also mailed (the email service is on); absent otherwise. */
   emailed?: boolean;
+  /** Accepted only through this org's own SSO (by the address, or the provider's domain for a link). */
+  requireSso: boolean;
 }
 
 /**
@@ -70,6 +73,7 @@ export interface InvitationRow {
   expiresAt: Date;
   createdAt: Date;
   stackName?: string | null;
+  requireSso?: boolean;
   inviter?: { id: string; name: string | null; email: string | null } | null;
 }
 
@@ -85,6 +89,7 @@ export function toView(row: InvitationRow, base: string, now: Date): InvitationV
     invitedBy: row.inviter ?? null,
     link: inviteLink(base, row.id),
     stackName: row.stackName ?? null,
+    requireSso: row.requireSso ?? false,
   };
 }
 
@@ -107,6 +112,8 @@ export interface InviteArgs {
   role: InviteRole;
   /** One app to scope a member to, as an app-scoped invite link does. Members only. */
   stackName?: string | null;
+  /** Accept only through this org's own SSO (needs a ready provider). */
+  requireSso?: boolean;
 }
 
 function badRequest(message: string): TRPCError {
@@ -123,13 +130,15 @@ function authErrorMessage(e: unknown, fallback: string): string {
 export async function inviteMember(ctx: OrgContext, args: InviteArgs): Promise<InvitationView> {
   const given = args.email?.trim().toLowerCase();
   const stackName = inviteStackName(args.role, args.stackName);
+  const requireSso = Boolean(args.requireSso);
+  await assertCanInviteWithSso(ctx, requireSso);
   if (!given) {
-    const row = await createViaAuth(ctx, invitePlaceholderEmail(randomBytes(9).toString('base64url')), args.role, stackName);
+    const row = await createViaAuth(ctx, invitePlaceholderEmail(randomBytes(9).toString('base64url')), args.role, stackName, requireSso);
     await writeAudit(ctx, {
       action: 'member.invite',
       targetType: 'invitation',
       targetId: row.id,
-      metadata: { kind: 'link', role: args.role, stackName, expiresAt: row.expiresAt.toISOString() },
+      metadata: { kind: 'link', role: args.role, stackName, requireSso, expiresAt: row.expiresAt.toISOString() },
     });
     return toView(row, inviteLinkBase(ctx.reqHeaders), new Date());
   }
@@ -146,14 +155,14 @@ export async function inviteMember(ctx: OrgContext, args: InviteArgs): Promise<I
   });
   if (pending) throw badRequest(`${email} already has a pending invite — copy or regenerate its link below`);
 
-  const row = await createViaAuth(ctx, email, args.role, stackName);
+  const row = await createViaAuth(ctx, email, args.role, stackName, requireSso);
   const view = toView(row, inviteLinkBase(ctx.reqHeaders), new Date());
   const emailed = await mailInvite(ctx, view);
   await writeAudit(ctx, {
     action: 'member.invite',
     targetType: 'invitation',
     targetId: row.id,
-    metadata: { email, role: args.role, stackName, expiresAt: row.expiresAt.toISOString(), emailed },
+    metadata: { email, role: args.role, stackName, requireSso, expiresAt: row.expiresAt.toISOString(), emailed },
   });
   return { ...view, emailed };
 }
@@ -183,12 +192,20 @@ export async function mailInvite(ctx: OrgContext, view: InvitationView): Promise
       `${view.stackName ? `, working on ${view.stackName}` : ''}.\n\n` +
       `Accept the invite: ${view.link}\n\n` +
       `The link works once and expires in ${days} day${days === 1 ? '' : 's'}. ` +
-      'Sign in with this email address (or an SSO/social account that uses it). If you did not expect this, ignore it.',
+      (view.requireSso
+        ? 'Sign in with your company SSO as this email address. If you did not expect this, ignore it.'
+        : 'Sign in with this email address (or an SSO/social account that uses it). If you did not expect this, ignore it.'),
   });
   return r.sent;
 }
 
-async function createViaAuth(ctx: OrgContext, email: string, role: InviteRole, stackName: string | null = null): Promise<InvitationRow> {
+async function createViaAuth(
+  ctx: OrgContext,
+  email: string,
+  role: InviteRole,
+  stackName: string | null = null,
+  requireSso = false,
+): Promise<InvitationRow> {
   let created: { id: string; email: string; role: string; status: string; expiresAt: Date };
   try {
     created = await ctx.auth.api.createInvitation({
@@ -198,8 +215,8 @@ async function createViaAuth(ctx: OrgContext, email: string, role: InviteRole, s
   } catch (e) {
     throw badRequest(authErrorMessage(e, 'could not create the invitation'));
   }
-  // The app scope is swarmy's column on Better Auth's row (Better Auth ignores it).
-  if (stackName) await ctx.db.invitation.update({ where: { id: created.id }, data: { stackName } });
+  // The app scope and the SSO requirement are swarmy's columns on Better Auth's row (it ignores them).
+  if (stackName || requireSso) await ctx.db.invitation.update({ where: { id: created.id }, data: { stackName, requireSso } });
   return {
     id: created.id,
     email: created.email,
@@ -208,6 +225,7 @@ async function createViaAuth(ctx: OrgContext, email: string, role: InviteRole, s
     expiresAt: new Date(created.expiresAt),
     createdAt: new Date(),
     stackName,
+    requireSso,
     inviter: { id: ctx.user.id, name: ctx.user.name ?? null, email: ctx.user.email ?? null },
   };
 }
@@ -245,7 +263,7 @@ export async function regenerateInvitation(ctx: OrgContext, id: string): Promise
   // A link-only invite gets a fresh placeholder so the old one can't collide.
   const email = isLinkInviteEmail(old.email) ? invitePlaceholderEmail(randomBytes(9).toString('base64url')) : old.email;
   const stackName = role === 'member' ? (old.stackName ?? null) : null;
-  const row = await createViaAuth(ctx, email, role, stackName);
+  const row = await createViaAuth(ctx, email, role, stackName, old.requireSso ?? false);
   const view = toView(row, inviteLinkBase(ctx.reqHeaders), new Date());
   const emailed = await mailInvite(ctx, view);
   await writeAudit(ctx, {

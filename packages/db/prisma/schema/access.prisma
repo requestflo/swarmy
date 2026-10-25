@@ -128,6 +128,8 @@ model InviteLink {
   createdById String?
   revokedAt   DateTime?
   createdAt   DateTime  @default(now())
+  /// Only someone signed in through this org's own SSO may use the link (auth sso-invites.ts).
+  requireSso  Boolean   @default(false)
 
   org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   createdBy User?        @relation("InviteLinkCreator", fields: [createdById], references: [id], onDelete: SetNull)

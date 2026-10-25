@@ -65,6 +65,8 @@ export const membersRouter = router({
         role: z.enum(['owner', 'admin', 'member']),
         // Optional: one app to scope a member to (an operator grant on accept), as invite links do.
         stackName: z.string().min(1).max(128).nullish(),
+        // Optional: accept only through this org's own SSO (by the address, or the provider's domain).
+        requireSso: z.boolean().optional(),
       }),
     )
     .mutation(({ ctx, input }) => {

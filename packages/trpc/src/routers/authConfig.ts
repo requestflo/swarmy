@@ -39,7 +39,15 @@ export const authConfigRouter = router({
       if (!isInviteLinkToken(input.id)) return invitationPreview(ctx.db, input.id);
       const p = await inviteLinkPreview(ctx.db, input.id);
       if (!p || p.state === 'revoked') return null;
-      return { orgName: p.orgName, role: p.role, email: null, expired: p.state !== 'ok', stackName: p.stackName, state: p.state };
+      return {
+        orgName: p.orgName,
+        role: p.role,
+        email: null,
+        expired: p.state !== 'ok',
+        stackName: p.stackName,
+        state: p.state,
+        requireSso: p.requireSso,
+      };
     }),
 
   /**

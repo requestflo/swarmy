@@ -1,7 +1,8 @@
 import { APIError } from 'better-auth/api';
 import type { DB } from '@swarmy/db';
 import { isLinkInviteEmail } from './identity';
-import { inviteLinkAdmits, isInviteLinkToken } from './invite-links';
+import { findInviteLink, inviteLinkState, isInviteLinkToken } from './invite-links';
+import { inviteNeedsSso } from './sso-invites';
 
 /**
  * Who may create an account (and a new organization) on this controller.
@@ -33,6 +34,11 @@ import { inviteLinkAdmits, isInviteLinkToken } from './invite-links';
  *      is in that provider's `allowedDomains` (e.g. only @company.com Google
  *      accounts). Empty (the default) means an invite is required.
  *
+ * An invite (4, 5) that must be accepted with SSO, or any invite of an org
+ * that signs in with SSO only, admits only a sign-up through that org's own
+ * SSO provider (`idpOrgId`); the redemption then checks the address
+ * (sso-invites.ts).
+ *
  * Unset `SWARMY_ALLOW_SIGNUP` defaults to open outside production (so `bun dev`
  * keeps its sign-up form) and invite-only in production.
  */
@@ -48,7 +54,7 @@ export const ORG_CREATE_FORBIDDEN_MESSAGE =
 
 /** The slice of the Prisma client the policy reads. */
 export type SignupPolicyDb = Pick<DB, 'user' | 'organization' | 'invitation' | 'member'> &
-  Partial<Pick<DB, 'ssoProvider' | 'inviteLink'>>;
+  Partial<Pick<DB, 'ssoProvider' | 'inviteLink' | 'orgSecurityPolicy'>>;
 
 /** How the account is being created (from the Better Auth request, when there is one). */
 export interface SignupVia {
@@ -139,20 +145,30 @@ export async function isSignupAllowed(
   if ((await db.user.count()) === 0) return true;
   // Better Auth's organization plugin stores invitation emails lowercased.
   const person = { email: normalized, emailVerified: via.emailVerified, idpOrgId: via.idpOrgId };
+  // An SSO invite (or an SSO-only org's) counts only for a sign-up through that org's own SSO.
+  const ssoOk = async (orgId: string, requireSso: boolean | null | undefined) =>
+    via.idpOrgId === orgId || !(await inviteNeedsSso(db, { requireSso, orgId }));
   const invite = await db.invitation.findFirst({
     where: { email: normalized, status: 'pending', expiresAt: { gt: now } },
-    select: { email: true, organizationId: true },
+    select: { email: true, organizationId: true, requireSso: true },
   });
-  if (invite && inviteAdmits(invite.email, person, invite.organizationId)) return true;
+  if (invite && inviteAdmits(invite.email, person, invite.organizationId) && (await ssoOk(invite.organizationId, invite.requireSso))) {
+    return true;
+  }
   // A shareable invite link (`swi_…`) admits whoever holds it while it is
   // unexpired, unrevoked and has uses left.
-  if (isInviteLinkToken(via.inviteId) && (await inviteLinkAdmits(db, via.inviteId, now))) return true;
+  if (isInviteLinkToken(via.inviteId)) {
+    const row = await findInviteLink(db, via.inviteId);
+    if (row && inviteLinkState(row, now) === 'ok' && (await ssoOk(row.orgId, row.requireSso))) return true;
+  }
   if (via.inviteId && !isInviteLinkToken(via.inviteId)) {
     const link = await db.invitation.findFirst({
       where: { id: via.inviteId, status: 'pending', expiresAt: { gt: now } },
-      select: { email: true, organizationId: true },
+      select: { email: true, organizationId: true, requireSso: true },
     });
-    if (link && inviteAdmits(link.email, person, link.organizationId)) return true;
+    if (link && inviteAdmits(link.email, person, link.organizationId) && (await ssoOk(link.organizationId, link.requireSso))) {
+      return true;
+    }
   }
   if (via.socialDomainAllowed) return true;
   if (via.ssoProviderId && db.ssoProvider) {
