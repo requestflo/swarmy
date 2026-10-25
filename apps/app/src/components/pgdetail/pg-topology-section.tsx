@@ -25,16 +25,18 @@ export function PgTopologySection({
   d,
   mode,
   onMode,
+  behind,
 }: {
   stack: string;
   d: PgDetailData;
   mode: PgMode;
   onMode: (m: PgMode) => void;
+  behind?: Map<string, { stat: string; warn: boolean }>;
 }): React.JSX.Element {
   const c = d.cluster!;
   const tech = useDepth().atLeast('controls');
   const modes = PREVIEW_MODES.includes(c.topology) ? PREVIEW_MODES : [...PREVIEW_MODES, c.topology];
-  const model = pgTopology({ mode, current: c.topology, members: c.members, place: d.place, heldTarget: c.pendingFailover?.target ?? null, tech });
+  const model = pgTopology({ mode, current: c.topology, members: c.members, place: d.place, heldTarget: c.pendingFailover?.target ?? null, tech, behind });
   const primary = serversOf(c, d.place, 'primary');
   const standby = serversOf(c, d.place, 'replica');
   const facts = modeFacts(mode, c, d.backup, {

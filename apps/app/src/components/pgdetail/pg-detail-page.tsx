@@ -10,9 +10,12 @@ import { pgDetailHeadline } from './pg-detail-headline';
 import { PgExtensionsSection } from './pg-extensions-section';
 import { PgFailoverSection } from './pg-failover-section';
 import { PgModeApply } from './pg-mode-apply';
+import { standbyBoxStats } from './pg-replication';
+import { PgReplicationSection } from './pg-replication-section';
 import { PgTopologySection } from './pg-topology-section';
 import type { PgMode } from './pg-topology';
 import { usePgDetail } from './use-pg-detail';
+import { usePgReplication } from './use-pg-replication';
 
 function Back({ stack }: { stack: string }): React.JSX.Element {
   return (
@@ -32,6 +35,7 @@ function Back({ stack }: { stack: string }): React.JSX.Element {
  */
 export function PgDetailPage({ stack, cluster }: { stack: string; cluster: string }): React.JSX.Element {
   const d = usePgDetail(stack, cluster);
+  const r = usePgReplication(stack, d.cluster);
   const [picked, setPicked] = React.useState<PgMode | null>(null);
 
   if (d.pending) return <PageSkeleton className="px-0 pt-0 xl:px-0" />;
@@ -76,8 +80,9 @@ export function PgDetailPage({ stack, cluster }: { stack: string; cluster: strin
       />
       <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
         <div className="flex min-w-0 flex-col gap-5">
-          <PgTopologySection stack={stack} d={d} mode={mode} onMode={setPicked} />
+          <PgTopologySection stack={stack} d={d} mode={mode} onMode={setPicked} behind={r.view ? standbyBoxStats(r.view.standbys) : undefined} />
           <PgModeApply stack={stack} d={d} mode={mode} />
+          <PgReplicationSection d={d} r={r} />
           <PgExtensionsSection stack={stack} d={d} />
         </div>
         <aside aria-label={`About ${c.name}`} className="flex min-w-0 flex-col gap-5">

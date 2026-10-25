@@ -37,6 +37,8 @@ export interface PgTopoInput {
   heldTarget: string | null;
   /** Controls words (primary / replica / WAL) instead of Summary ones. */
   tech: boolean;
+  /** `<service>@<nodeId>` → how far behind that copy is (`db.replication`), when read. */
+  behind?: Map<string, { stat: string; warn: boolean }>;
 }
 
 /** `storefront_checkout-replica` → `checkout-replica`. */
@@ -85,6 +87,7 @@ export function pgTopology(i: PgTopoInput): { columns: FlowBox[][]; links: FlowL
     for (const n of servers) {
       const shared = !!n && primaryHosts.has(n.id);
       const moves = i.mode === 'failover' && shared;
+      const read = n ? i.behind?.get(`${m.service}@${n.id}`) : undefined;
       right.push({
         key: `${m.service}@${n?.id ?? '-'}`,
         title: n?.name ?? shortName(m.service),
@@ -95,12 +98,14 @@ export function pgTopology(i: PgTopoInput): { columns: FlowBox[][]; links: FlowL
           ? 'not in this shape'
           : moves
             ? `moves off ${primaryName}`
-            : lag === undefined
+            : read && !i.tech
+              ? read.stat
+              : lag === undefined
               ? 'lag not measured yet'
               : i.tech
                 ? `replay lag ${lag} s`
                 : `${Math.round(lag)} s behind`,
-        statTone: !dropped && (moves || (lag ?? 0) >= 5) ? 'warn' : undefined,
+        statTone: !dropped && (moves || (read ? read.warn : (lag ?? 0) >= 5)) ? 'warn' : undefined,
         tone: statusTone(m.status),
         ghost: dropped,
       });

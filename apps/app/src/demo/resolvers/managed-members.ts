@@ -100,6 +100,12 @@ export function managedMembersMatching(s: DemoStore, f: { nodeId?: string; searc
     .map(summary);
 }
 
+/** The servers a managed member's running copies are on, by service name ([] when it isn't one). */
+export function managedMemberServers(s: DemoStore, service: string): string[] {
+  const m = members(s).find((x) => x.name === service);
+  return m ? serversOf(m, s.nodes as NodeSummary[]) : [];
+}
+
 /** `services.usage` for a managed member, by service name (null when nothing runs). */
 export function managedMemberUsage(s: DemoStore, id: string): ServiceUsageView | null | undefined {
   const m = members(s).find((x) => x.name === id);

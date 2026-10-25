@@ -64,6 +64,7 @@ import { rum } from './resolvers/rum';
 import { rumFunnel } from './resolvers/rum-funnel';
 import { studio } from './resolvers/studio';
 import { pgExtensions } from './resolvers/pg-extensions';
+import { pgReplication } from './resolvers/pg-replication';
 import { studioSlow } from './resolvers/studio-slow';
 import { gaps } from './resolvers/gaps';
 import { serviceSettings } from './resolvers/service-settings';
@@ -161,6 +162,7 @@ const MODULES: DomainResolvers[] = [
   security,
   studio,
   pgExtensions,
+  pgReplication,
   studioSlow,
   rum,
   rumFunnel,

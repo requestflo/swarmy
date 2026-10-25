@@ -19,6 +19,7 @@ import {
 } from '../services/manageddb.service';
 import { setDbExtension } from '../services/manageddb-extensions.service';
 import { getDbExtensions } from '../services/manageddb-extensions-view';
+import { getDbReplication } from '../services/manageddb-replication.service';
 import { PG_EXTENSION_NAMES } from '@swarmy/core';
 
 /** `postgres://user:secret@host` → `postgres://user:***@host`. */
@@ -159,6 +160,15 @@ export const managedDbRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => confirmFailover(ctx, input)),
+
+  /**
+   * Each standby's replay LSN and lag in bytes and seconds: `pg_stat_replication`
+   * on the primary through the studio's bounded read, gated as the caller
+   * (data.read) and audited `studio.query` (origin `replication`).
+   */
+  replication: orgProcedure
+    .input(z.object({ stack: stackName, cluster: clusterName }))
+    .query(({ ctx, input }) => getDbReplication(ctx, input)),
 
   /** pg_stat_statements / postgis: on, wanted, shipped by the image, and what the reconcile is doing now. */
   extensions: orgProcedure
