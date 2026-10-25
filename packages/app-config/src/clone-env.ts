@@ -10,7 +10,9 @@
  * no special case for):
  *   - It inherits `from`'s overrides (none for production) but never a
  *     hostname: production's are dropped by `resolveEnvironment`, and a
- *     named environment's own domains stay with it.
+ *     named environment's own domains stay with it. Each service production
+ *     serves on a domain gets the clone's own stable address instead
+ *     (`hostFor`), so the clone is reachable the moment it deploys.
  *   - Secrets are NEVER copied. Every secret the app reads (`secrets: [x]`,
  *     `KEY: ${{ secrets.x }}`) becomes an empty slot: the environment's own
  *     Docker secret family `<x>.<name>`, filled write-only from the dashboard.
@@ -19,7 +21,7 @@
  *     previews-with-data path), masked by `previews.data.scrub` when asked.
  */
 import { extractBindings, refKey } from './bindings';
-import { toDesired, type DesiredApp, type DesiredService } from './desired';
+import { toDesired, type DesiredApp, type DesiredOptions, type DesiredService } from './desired';
 import { environmentStack, PRODUCTION } from './environments';
 import { signature } from './hash';
 import { ENV_NAME_RE, RESERVED_ENV_NAMES, type AppConfig } from './schema';
@@ -84,8 +86,13 @@ function withoutSecrets(s: DesiredService, slots: Map<string, SecretSlot>, env: 
   return { ...unit, sig: signature(unit) };
 }
 
-/** The clone's desired app. Throws a plain-words Error when it can't be cloned as asked. */
-export function cloneDesired(cfg: AppConfig, clone: DashboardEnvironment): DesiredApp {
+/**
+ * The clone's desired app. Throws a plain-words Error when it can't be cloned
+ * as asked. `hostFor` gives each service production serves on a domain its
+ * own stable address in this environment (the controller passes
+ * `<service>-<stack>.<the org's address base>`); without it, no routes.
+ */
+export function cloneDesired(cfg: AppConfig, clone: DashboardEnvironment, opts: Pick<DesiredOptions, 'hostFor'> = {}): DesiredApp {
   const source = clone.from === PRODUCTION ? undefined : cfg.environments?.[clone.from];
   if (clone.from !== PRODUCTION && !source) throw new Error(`no environment named "${clone.from}" to clone`);
   const services = source?.services
@@ -93,7 +100,7 @@ export function cloneDesired(cfg: AppConfig, clone: DashboardEnvironment): Desir
     : undefined;
   const def = { ...(source ?? {}), branch: clone.branch, ...(services ? { services } : {}) };
   const withEnv: AppConfig = { ...cfg, environments: { ...(cfg.environments ?? {}), [clone.name]: def } };
-  const base = toDesired(withEnv, { environment: clone.name });
+  const base = toDesired(withEnv, { environment: clone.name, ...(opts.hostFor ? { hostFor: opts.hostFor } : {}) });
 
   const slots = new Map<string, SecretSlot>();
   const svcs = base.services.map((s) => withoutSecrets(s, slots, clone.name));

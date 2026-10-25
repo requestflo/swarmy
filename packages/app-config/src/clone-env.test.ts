@@ -61,6 +61,19 @@ describe('cloneDesired — a long-lived environment of its own', () => {
     expect(d.routes).toEqual([]);
   });
 
+  it('gives each service production serves on a domain its own stable address, and nothing else one', () => {
+    const hostFor = (svc: string): string => `${svc}-shop-qa.1-2-3-4.sslip.io`;
+    const qa = cloneDesired(cfg(), { name: 'qa', branch: 'qa', from: 'production' }, { hostFor });
+    expect(qa.routes.map(({ sig: _s, ...r }) => r)).toEqual([
+      { host: 'web-shop-qa.1-2-3-4.sslip.io', path: '/', service: 'web', port: 3000, stripPath: false },
+    ]);
+    // A clone of staging drops staging's own domain too, and gets the same address.
+    const fromStaging = cloneDesired(cfg(), { name: 'qa', branch: 'qa', from: 'staging' }, { hostFor });
+    expect(fromStaging.routes.map((r) => r.host)).toEqual(['web-shop-qa.1-2-3-4.sslip.io']);
+    // Stable: the same input plans the same route (same signature), push after push.
+    expect(cloneDesired(cfg(), { name: 'qa', branch: 'qa', from: 'production' }, { hostFor }).routes).toEqual(qa.routes);
+  });
+
   it('copies no secret: each becomes an empty slot of its own family', () => {
     expect(d.dashboard?.secretSlots).toEqual([
       { family: 'sendgrid', envFamily: 'sendgrid.qa', consumers: [{ service: 'api' }] },

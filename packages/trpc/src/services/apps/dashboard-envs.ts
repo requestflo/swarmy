@@ -92,10 +92,10 @@ export function asClone(row: Pick<DashboardEnvRow, 'environment' | 'marker'>): D
   return { name: row.environment, branch, from, ...(data ? { data } : {}) };
 }
 
-/** `cloneDesired`, with its plain-words refusals as a rejected command. */
-export function dashboardDesired(cfg: AppConfig, clone: DashboardEnvironment): DesiredApp {
+/** `cloneDesired`, with its plain-words refusals as a rejected command. `opts.hostFor`: clone-hosts.ts. */
+export function dashboardDesired(cfg: AppConfig, clone: DashboardEnvironment, opts: Parameters<typeof cloneDesired>[2] = {}): DesiredApp {
   try {
-    return cloneDesired(cfg, clone);
+    return cloneDesired(cfg, clone, opts);
   } catch (e) {
     throw commandRejected(e instanceof Error ? e.message : String(e));
   }

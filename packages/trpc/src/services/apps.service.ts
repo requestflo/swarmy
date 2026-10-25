@@ -116,6 +116,7 @@ import { listDbBackups, restoreDb } from './dbBackup.service';
 import { restoreNewestInto } from './dbRestoreCopy.into';
 import { execInService, waitForPostgres } from './resilience.service';
 import { applyPlan, type ActionOutcome, type AppOps } from './apps/apply';
+import { cloneHosts } from './apps/clone-hosts';
 import { publicS3EndpointFor } from './public-s3';
 import { appBucketName, type Attachment } from './apps/compile';
 import {
@@ -1054,7 +1055,9 @@ export async function planCommit(
   // A named environment keeps reading its own secret families (`<x>.<env>`) — adoption never reverts them.
   const desired = await withExistingOwnSecrets(
     ctx,
-    dashboard ? dashboardDesired(cfg, dashboard) : toDesired(cfg, preview ? { preview, environment: previewBase } : { environment }),
+    dashboard
+      ? dashboardDesired(cfg, dashboard, await cloneHosts(ctx, cfg.app, dashboard.name))
+      : toDesired(cfg, preview ? { preview, environment: previewBase } : { environment }),
   );
   const prNumber = branchPr ?? input.prNumber ?? 0;
   return withAppLock(envKey(repo.id, environment, prNumber), async () => {

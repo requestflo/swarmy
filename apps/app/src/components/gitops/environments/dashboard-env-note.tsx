@@ -12,7 +12,14 @@ import { SecretSlots } from './secret-slots';
  * swarmy.yaml names it), its secrets — how many are still empty, and the
  * write-only fields to fill them — and Remove environment.
  */
-export function DashboardEnvNote({ env, onRemoved }: { env: AppEnvironment; onRemoved?: () => void }): React.JSX.Element | null {
+interface DashboardEnvNoteProps {
+  env: AppEnvironment;
+  /** Its addresses (named in what a removal takes down); undefined while loading. */
+  hosts?: readonly string[] | undefined;
+  onRemoved?: () => void;
+}
+
+export function DashboardEnvNote({ env, hosts, onRemoved }: DashboardEnvNoteProps): React.JSX.Element | null {
   const [open, setOpen] = React.useState(false);
   const d = env.dashboard;
   if (!d) return null;
@@ -35,7 +42,7 @@ export function DashboardEnvNote({ env, onRemoved }: { env: AppEnvironment; onRe
           </>
         ) : null}
         <span className="ml-auto">
-          <RemoveEnvDialog env={env} {...(onRemoved ? { onRemoved } : {})} />
+          <RemoveEnvDialog env={env} hosts={hosts} {...(onRemoved ? { onRemoved } : {})} />
         </span>
       </div>
       {d.secretSlots.length ? (

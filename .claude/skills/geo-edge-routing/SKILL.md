@@ -101,7 +101,12 @@ invariants that must survive every change, and where everything lives.
   `wildcardBaseFrom` and `@swarmy/ingress` `autoAddressBaseFor`
   (`auto-address-base.ts`). Only own-zone and cluster-zone hosts go through the
   DNS gate; a custom wildcard base never does. Changing the base re-hosts
-  existing automatic addresses on the next domain-verify tick.
+  existing automatic addresses on the next domain-verify tick. A dashboard
+  clone of a git app (Clone as a new environment) gets the same
+  `<service>-<stack>.<base>` name for each service production serves on a
+  domain, but as a PLANNED route (`services/apps/clone-hosts.ts` →
+  `toDesired({ hostFor })`), so it is in the plan, the ledger and
+  `${{ app.url }}`; it re-hosts on the clone's next push, not the tick.
 - **Which driver carries a route** is one pure rule, `routeChannel`
   (`packages/ingress/src/route-channel.ts`): the service's declared exposure
   (`swarmy.expose`, copied onto each route by the controller) first — private

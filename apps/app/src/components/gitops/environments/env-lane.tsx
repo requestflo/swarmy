@@ -9,8 +9,8 @@ import type { LaneService } from './lanes-model';
 
 /**
  * One environment, side by side with the others: its branch and stack, the
- * last plan, and every live service with its copies and the image it runs —
- * blue where production runs something else.
+ * last plan, its addresses, and every live service with its copies and the
+ * image it runs — blue where production runs something else.
  */
 export function EnvLane({
   env,
@@ -19,6 +19,7 @@ export function EnvLane({
   here,
   action,
   note,
+  domains,
 }: {
   env: AppEnvironment;
   services: LaneService[] | undefined;
@@ -29,6 +30,8 @@ export function EnvLane({
   action?: React.ReactNode;
   /** A line under the status (a cloned environment's declaration + secrets). */
   note?: React.ReactNode;
+  /** Its addresses and Add a domain (lane-domains.tsx). */
+  domains?: React.ReactNode;
 }): React.JSX.Element {
   const latest = env.latest;
   const st = latest ? planStatus(latest.status) : null;
@@ -52,6 +55,7 @@ export function EnvLane({
         {drift > 0 ? <span className="text-tone-warn text-xs">Changed here — the next push puts git back</span> : null}
       </div>
       {note}
+      {domains}
       {services === undefined ? (
         <div aria-hidden className="shimmer-line h-16 rounded-lg" />
       ) : services.length === 0 ? (

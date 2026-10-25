@@ -3,6 +3,8 @@ import type { DemoStore, DomainResolvers } from '../types';
 import { apps, appsState, demoHex, demoPlan, type DemoAction } from './apps';
 import { STOREFRONT_YAML } from './apps-config-file';
 import { pushDemoAudit } from './auditlog';
+import { CERT_READY } from './blueprint-deploys';
+import { seedDemoRoute } from './ingress';
 
 /**
  * Clone as a new environment + shared-vs-override layers, for the demo — the
@@ -39,10 +41,16 @@ function copyStack(s: DemoStore, from: string, to: string): void {
   const now = new Date().toISOString();
   const services = s.services
     .filter((x) => src && x.stackId === src.id)
-    .map((x) => ({ ...structuredClone(x), id: `svc-${demoHex(6)}`, swarmServiceId: `svc-${demoHex(10)}`, name: `${to}_${x.name.slice(from.length + 1)}`, stackId: id, replicas: { desired: 1, running: 1 }, createdAt: now, updatedAt: now }));
+    .map((x) => ({ ...structuredClone(x), id: `svc-${demoHex(6)}`, swarmServiceId: `svc-${demoHex(10)}`, name: `${to}_${short(from, x.name)}`, stackId: id, replicas: { desired: 1, running: 1 }, createdAt: now, updatedAt: now }));
   s.stacks.push({ id, name: to, serviceCount: services.length, status: 'running', updatedAt: now });
   s.services.push(...services);
+  // Its own stable address (clone-hosts.ts): `<service>-<stack>.<base>` for the service production serves on a domain.
+  const web = services.find((x) => x.name === `${to}_web`);
+  if (web) seedDemoRoute(s, { host: `web-${to}.203-0-113-10.sslip.io`, serviceId: web.id, serviceName: web.name, stack: to, port: 3000, auto: false, issuingUntil: Date.now() + CERT_READY });
 }
+
+/** `shop_web` → `web`; the demo's production services are bare (`web`). */
+const short = (stack: string, name: string): string => (name.startsWith(`${stack}_`) ? name.slice(stack.length + 1) : name);
 
 export const appClone: DomainResolvers = {
   handlers: {
@@ -74,6 +82,7 @@ export const appClone: DomainResolvers = {
           : []),
         { id: 'build:web', kind: 'build', phase: 2, gate: 'auto', reason: `Build web from ${branch}` },
         { id: 'service.deploy:web', kind: 'service.deploy', phase: 4, gate: 'auto', reason: 'Roll out web with the new image', name: 'web' },
+        { id: `route.add:web-${to}.203-0-113-10.sslip.io/`, kind: 'route.add', phase: 5, gate: 'auto', reason: `Give web its own address, web-${to}.203-0-113-10.sslip.io`, host: `web-${to}.203-0-113-10.sslip.io`, path: '/' },
       ];
       const now = new Date().toISOString();
       const id = `plan-${demoHex(8)}`;

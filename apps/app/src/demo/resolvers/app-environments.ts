@@ -1,6 +1,7 @@
 import type { ServiceDetail } from '@swarmy/core';
 import type { DemoStore, DomainResolvers } from '../types';
 import { pushDemoAudit, renumberDemoAudit, type Actor } from './auditlog';
+import { seedDemoRoute } from './ingress';
 
 /**
  * storefront's other environment, live: `apps.list` already names staging
@@ -63,6 +64,8 @@ export const appEnvironments: DomainResolvers = {
           CHECKOUT_TIMEOUT_MS: '8000',
         }),
       );
+      // Its own domain (environments.staging.services.web.domains): the lane shows it.
+      seedDemoRoute(store, { host: 'staging.shop.northwind.dev', serviceId: 'svc-stg-web', serviceName: 'storefront-staging_web', stack: STACK.name, port: 3000, auto: false, issuingUntil: 0 });
     }
     const pilot: Actor = { actorType: 'user', actorId: store.user.id, actorLabel: store.user.name };
     pushDemoAudit(store, { actor: pilot, ts: iso(6 * DAY), action: 'secrets.rotate', targetType: 'secretFamily', targetId: 'DATABASE_URL', metadata: { version: 3, redeployed: ['api', 'checkout', 'worker'] } });

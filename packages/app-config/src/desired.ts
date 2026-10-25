@@ -209,6 +209,12 @@ export interface DesiredOptions {
   preview?: { pr: number; baseDomain: string; branch?: string };
   /** A named environment from `environments:` (default: production). */
   environment?: string;
+  /**
+   * The environment's own address for each service production serves on a
+   * domain but this environment gives none (a dashboard clone's stable
+   * per-environment host, `<service>-<stack>.<base>`). Unset: no route.
+   */
+  hostFor?: (service: string) => string;
 }
 
 const toCommand = (c: string | string[] | undefined): string[] | undefined =>
@@ -495,6 +501,13 @@ export function toDesired(input: AppConfig, opts: DesiredOptions = {}): DesiredA
           ...(protection ? { protection } : {}),
         }),
       );
+      continue;
+    }
+    const prodDomains = input.services[name]?.domains ?? [];
+    if (!domains.length && opts.hostFor && environment !== PRODUCTION && prodDomains.length) {
+      const d = prodDomains[0];
+      const protection = d && typeof d !== 'string' && d.protect ? toProtection(d.protect) : undefined;
+      routes.push(withSig({ host: opts.hostFor(name), path: '/', service: name, port, stripPath: false, ...(protection ? { protection } : {}) }));
       continue;
     }
     for (const d of domains) {
