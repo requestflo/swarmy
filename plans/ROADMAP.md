@@ -1,6 +1,6 @@
 # swarmy — what's still open
 
-Status: **living list, pruned 2026-10-23.** Every item below was checked against
+Status: **living list, pruned 2026-10-23, updated 2026-10-25.** Every item below was checked against
 the code on that date. When you close one, delete its line; when you open one,
 add it here or as an `issues/` file.
 
@@ -100,8 +100,11 @@ server and the BuildKit registry cache. What is left (none launch-blocking):
 
 ## Security & governance
 
-- SAML SSO rows are stored but skipped at build time (no SAML plugin in the
-  Better Auth version in use).
+- SAML SSO shipped 2026-10-25 (`@better-auth/sso` 1.6.22: SP-initiated only,
+  signed assertions, swarmy correlates InResponseTo itself because the plugin's
+  check reads a key samlify never sets). Owed: a pass against a real IdP
+  (Okta, Entra ID, Keycloak, ADFS) — IdPs that sign only the Response, Entra's
+  claim URIs; encrypted assertions are not supported.
 - Open question: a second, agent-side factor for privileged capabilities (node
   shell, mesh, builds), so a compromised controller alone can't use them.
 - Viewer / Developer roles (board 48 shows them) — an owner decision; today's
@@ -116,7 +119,6 @@ server and the BuildKit registry cache. What is left (none launch-blocking):
 
 ## Edge & exposure
 
-- `route.driver` works at render time but has no UI (API and label only).
 - The installer's own dashboard domain still uses sslip.io (the auto-address
   base is configurable since 2026-10-24, `SWARMY_AUTO_ADDRESS_BASE`).
 - Verify the `edge-per-node` topology on a real multi-node swarm now that the
@@ -136,6 +138,8 @@ server and the BuildKit registry cache. What is left (none launch-blocking):
   partition drills are scripted in the cluster e2e, unrun. Decide: the fence is
   52 s (QA-022 doubled the lease) vs the plan's 30 s; and whether enabling
   Garage also turns on replication (today a separate click).
+- A server retirement's planner picks destinations without checking disk
+  (each volume copy now refuses when it won't fit, 2026-10-25).
 - Done 2026-10-24: database-role placement, cache eviction/persistence
   settings, bucket CORS + lifecycle, the public S3 endpoint for presigned
   links, registry-side GC (keep-last-N mode), restore-as-a-copy creating its
@@ -145,11 +149,15 @@ server and the BuildKit registry cache. What is left (none launch-blocking):
 
 - Self-hosted NetBird (M1/M2) is built; M3 landed 2026-10-24 (relays on edges,
   peer login expiry from the org setting — the bootstrap had reset it to 12 h
-  every 5 min — and a client download mirror). Still open: the move drill, a
-  raft-backed lease for the control plane (a returning old node runs up to one
-  30 s tick), a brand-new node's first client pull from GHCR, and the 1 GB
-  re-measure on DO. Decide whether the ~117 MB client mirror ships by default
-  (`SWARMY_BUNDLE_NETBIRD_CLIENTS=0` turns it off).
+  every 5 min — and a client download mirror). Done 2026-10-25: a raft-backed
+  lease for the control plane (only the holder replicates; NetBird itself keeps
+  serving through a partition so the swarm can regain quorum), a move drill in
+  the cluster e2e (`--enable mesh-control-move`, unrun), and a new node's first
+  join loading the NetBird client and the forwarder's Caddy from the controller
+  instead of GHCR. Still open: run the drill, and the 1 GB re-measure on DO.
+  Decide whether the ~117 MB client mirror and the ~90 MB node-image archives
+  ship in the controller image by default (`SWARMY_BUNDLE_NETBIRD_CLIENTS=0`,
+  `SWARMY_BUNDLE_NODE_IMAGES=0` turn them off).
 - MTU: swarmy checks and explains; it can't safely recreate existing networks,
   so the fix is a manual step shown on Mesh settings.
 
@@ -161,8 +169,14 @@ server and the BuildKit registry cache. What is left (none launch-blocking):
 
 ## REST API & Terraform
 
-- `swarmy_ingress` needs an `updateIngressSettings` service first (each
-  `ingress.*` setter re-converges the edge on its own).
+- Done 2026-10-25: every REST route has a method in the Go, Python and TS
+  SDKs, and CI fails when one doesn't (`scripts/check-sdk-parity.ts`). The Go
+  SDK now sends false, 0 and null (optional scalars are pointers, nullable
+  fields `swarmy.Nullable[T]`) — a breaking change for Go callers (`Replicas`
+  is `*int`). `swarmy_ingress` covers every edge setting through one
+  `updateIngressSettings`.
+- `DELETE /stacks/{id}` answers 404 for a label-only stack (a managed
+  database) that `GET /stacks` lists.
 - Done 2026-10-24 (later): `PATCH /services/{id}` (Terraform image changes
   apply), join tokens over REST + `swarmy_join_token`, Go/Python SDK methods.
 - Done 2026-10-24: deprecation signalling, connections over REST, the
@@ -179,14 +193,19 @@ server and the BuildKit registry cache. What is left (none launch-blocking):
 
 ## CI & release
 
-- The nightly **E2E cluster** (dind, 3 nodes) has failed every night on `main`
-  since at least 2026-09-25: everything that crosses nodes (templates, short-name
-  DNS, pg_dump to another node, reschedule, controller move) fails while
-  install/login/servers pass. Being investigated.
-- Offline upgrade bundles shipped 2026-10-24 (upload on Settings › Platform,
-  manual `bundle.yml`); `install-swarmy.sh --bundle` for a fresh air-gapped
-  install is not built. The M16 forwarder pulls Caddy on every node, so an
-  air-gapped install must preload it.
+- The nightly **E2E cluster** (dind, 3 nodes) failed every night on `main`
+  from at least 2026-09-25. Root causes fixed 2026-10-25: a worker's bridge
+  container agent advertised its own container IP to the swarm (a product bug:
+  Ready nodes, unreachable gossip/VXLAN), dind nodes refused to restart (a
+  daemon flag also in daemon.json), and the upgrade started before agents
+  redialled. Passes locally (arm64) through reschedule; controller-move and
+  upgrade still need a run on GitHub's amd64 runner. The upgrade preflight's
+  image mirror was seen running two copies at once.
+- Air-gapped installs: `install-swarmy.sh --bundle <tar>` (2026-10-25) checks
+  the signature, loads every image and installs with no pulls; the controller
+  seeds the built-in registry from it. Needs Docker's containerd image store,
+  and a run on a real box with no route out. Managed-data images (Postgres,
+  Redis, helpers) aren't in the BOM yet, so the bundle can't create databases.
 
 - The Release workflow is manual until launch; restore `push: branches: [main]`
   afterwards.

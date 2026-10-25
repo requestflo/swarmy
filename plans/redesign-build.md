@@ -283,10 +283,15 @@ real supply-chain counts (19, 51); the app header (environment, git source,
 newest release, Rewind / Redeploy) and per-part sparklines (7); Convert to
 swarmy.yaml for compose apps.
 
+**Fifth pass (2026-10-25):** the checkout funnel with "Biggest drop … since
+vN" and See the error (62; "since" is by the release live when a visit began —
+RUM rows carry no release tag); the autoscale cooldown with its real rule line
+(64); connected BullMQ workers on the Jobs rows (37; concurrency lives only in
+each worker process, so it stays out); disk fit on Move and volume sizes on
+Placement (9, 36); a per-address front-door picker (31); drift rows with Re-pin
+on Platform (52); SAML setup with the SP URLs and a test sign-in (56).
+
 Found, not fixed (worth deciding):
 
 - Board 52 offers "All minor updates" for auto-patching; the upgrades epic
   decides patch releases only. Decide before building it.
-- A refused point-in-time restore still takes the safety backup and a brief
-  restart before the agent refuses (moving the check earlier needs a new
-  agent command, which older agents would drop).
