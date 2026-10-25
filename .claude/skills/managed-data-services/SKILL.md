@@ -111,7 +111,8 @@ state belongs see `skill("docker-native-storage")`.
     Every image this domain runs (engines and backup/dump/move helpers) is
     an entry in the BOM's data section (`@swarmy/core` `system-images-data.ts`,
     lookups `data-images.ts`: `dataImage`, `dataImageFor(engine, major)`);
-    code names the entry, never a literal ref, and the hub decorator deploys
+    code names the entry, never a literal ref (`@swarmy/core`
+    `data-images.literals.test.ts` greps for one), and the hub decorator deploys
     it at the release's digest, tag kept. A platform upgrade never rolls them.
 11. **Cluster volumes register against an EXISTING CSI driver.** swarmy ships no
     storage driver. `register`/`removeVolume` ride `volume.provision`/
