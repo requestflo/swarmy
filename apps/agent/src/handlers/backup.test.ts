@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import type { DockerClient } from '@swarmy/core/docker';
-import type { DbBackupPayload, DbRestorePayload } from '@swarmy/core/protocol';
+import { PGBACKREST_NO_IMAGE, type DbBackupPayload, type DbRestorePayload } from '@swarmy/core/protocol';
 import type { AgentConnection } from '../connection';
 import {
   assertContainerPath,
@@ -207,6 +207,7 @@ describe('physical base-backup sidecar connection env (QA-067)', () => {
     return { docker, created, archives };
   }
   const conn = { send: () => undefined } as unknown as AgentConnection;
+  const OPERATOR_PGBACKREST = 'registry.example.com/ops/pgbackrest:2.54';
   const payload = (engine: 'wal-g' | 'pgbackrest'): DbBackupPayload => ({
     commandId: 'c1',
     jobId: 'j1',
@@ -257,12 +258,25 @@ describe('physical base-backup sidecar connection env (QA-067)', () => {
 
   it('pgbackrest backup gets the same connection env', async () => {
     const { docker, created } = fakeDocker('');
-    await backupDb(docker, conn, payload('pgbackrest'));
+    await backupDb(docker, conn, { ...payload('pgbackrest'), engineImage: OPERATOR_PGBACKREST });
+    expect(created[0]!.Image).toBe(OPERATOR_PGBACKREST);
     const env = created[0]!.Env;
     expect(env).toContain('PGHOST=shop_main-primary');
     expect(env).toContain('PGUSER=postgres');
     expect(env.join(' ')).not.toContain('s3cr3t');
     expect(created[0]!.Cmd.join(' ')).not.toContain('s3cr3t');
+  });
+
+  it('pgbackrest without an operator image is refused in plain words before any container runs', async () => {
+    const { docker, created } = fakeDocker('');
+    await expect(backupDb(docker, conn, payload('pgbackrest'))).rejects.toThrow(PGBACKREST_NO_IMAGE);
+    const restore: DbRestorePayload = {
+      commandId: 'c2', engine: 'pgbackrest', mode: 'pitr', conn: payload('pgbackrest').conn, repo: payload('pgbackrest').repo,
+      snapshotId: 'latest', tags: [], dataVolume: 'shop_main-primary-data',
+    };
+    await expect(restoreDb(docker, conn, restore)).rejects.toThrow(PGBACKREST_NO_IMAGE);
+    expect(created).toHaveLength(0);
+    expect(PGBACKREST_NO_IMAGE).toContain('SWARMY_PGBACKREST_IMAGE');
   });
 });
 
@@ -319,11 +333,12 @@ describe('physical sidecars use the server data layout (QA-074)', () => {
   const conn = { send: () => undefined } as unknown as AgentConnection;
   const pgConn = { host: 'shop_main-primary', port: 5432, user: 'postgres', password: 'pw', database: 'app' };
   const repo = { kind: 's3' as const, repo: 's3:http://swarmy-garage:3900/bkt/pfx', password: 'rp' };
+  const engineImage = (engine: 'wal-g' | 'pgbackrest') => (engine === 'pgbackrest' ? { engineImage: 'ops/pgbackrest:2.54' } : {});
   const backup = (engine: 'wal-g' | 'pgbackrest'): DbBackupPayload => ({
-    commandId: 'c1', jobId: 'j1', engine, conn: pgConn, repo, tags: [], dataVolume: VOL,
+    commandId: 'c1', jobId: 'j1', engine, conn: pgConn, repo, tags: [], dataVolume: VOL, ...engineImage(engine),
   });
   const restore = (engine: 'wal-g' | 'pgbackrest'): DbRestorePayload => ({
-    commandId: 'c2', engine, mode: 'pitr', conn: pgConn, repo, snapshotId: 'base_0001', tags: [], dataVolume: VOL,
+    commandId: 'c2', engine, mode: 'pitr', conn: pgConn, repo, snapshotId: 'base_0001', tags: [], dataVolume: VOL, ...engineImage(engine),
     pitrStamp: '20260926T120000Z',
     targetTime: '2026-09-24T15:30:00Z',
   });

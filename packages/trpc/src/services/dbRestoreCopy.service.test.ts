@@ -129,4 +129,12 @@ describe('restoreDbAsCopy — the copy restore makes its own database', () => {
     expect(w.cmds()).toContain('db.pitrWindow');
     expect(w.cmds()).not.toContain('service.deploy');
   });
+
+  it('a pgBackRest copy with no operator-supplied image is refused before anything is created', async () => {
+    const w = world();
+    await expect(restoreDbAsCopy(w.ctx, { stack: 'shop', cluster: 'main', engine: 'pgbackrest', targetId: 'tgt-1' }, OCT_24)).rejects.toThrow(
+      /pgBackRest image/,
+    );
+    expect(w.cmds()).toEqual([]);
+  });
 });

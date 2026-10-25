@@ -132,7 +132,10 @@ Four ideas, one story:
   in-place, single-database, and pitr-to-a-timestamp. A point-in-time restore
   starts from the newest base backup that finished at or before the target. A
   target earlier than every base backup is refused, and the message names the
-  recoverable window.
+  recoverable window. swarmy builds its own wal-g image; it ships no pgBackRest
+  image (none is published upstream), so pgBackRest is offered only when the
+  operator names one in `SWARMY_PGBACKREST_IMAGE`, and is refused in plain
+  words otherwise.
 - **Restore as a copy makes its own database.** Time travel's "Restore as a
   copy", the Postgres backups page's "Into a new cluster" and the restore
   dialog's clone mode need no second database declared first:

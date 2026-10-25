@@ -12,6 +12,7 @@ import {
   runDbBackup,
   setDbBackupSchedule,
 } from '../services/dbBackup.service';
+import { dbBackupEngineOffers } from '../services/dbBackupEngines';
 import { restoreDbAsCopy } from '../services/dbRestoreCopy.service';
 
 const copyName = z
@@ -30,6 +31,13 @@ const copyName = z
  * used by volume backups.
  */
 export const dbBackupRouter = router({
+  /**
+   * The engines this controller runs: pgbackrest only with an operator's
+   * `SWARMY_PGBACKREST_IMAGE` (swarmy ships no pgBackRest image), else hidden
+   * with the reason.
+   */
+  engines: orgProcedure.query(() => dbBackupEngineOffers()),
+
   /** Org-wide coverage: every managed cluster with schedule + last backup + PITR window. */
   overview: orgProcedure.query(({ ctx }) => dbBackupOverview(ctx)),
 

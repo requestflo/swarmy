@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { PlayIcon } from 'lucide-react';
 // prettier-ignore
 import {
@@ -7,7 +7,7 @@ import {
 } from '@swarmy/ui';
 import type { DbBackupEngine } from '@swarmy/core/protocol';
 import { useTRPC } from '@/integrations/trpc';
-import { DB_BACKUP_ENGINES, isPhysical } from './db-backup-format';
+import { DB_BACKUP_ENGINES, isPhysical, pickableEngines } from './db-backup-format';
 
 interface DbBackupRunFormProps {
   stack: string;
@@ -35,6 +35,9 @@ export function DbBackupRunForm({
 }: DbBackupRunFormProps): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
+  // pgBackRest shows only once the controller has an operator-supplied image.
+  const offers = useQuery(trpc.dbBackups.engines.queryOptions());
+  const engines = pickableEngines(offers.data);
 
   const run = useMutation(
     trpc.dbBackups.run.mutationOptions({
@@ -67,7 +70,7 @@ export function DbBackupRunForm({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {DB_BACKUP_ENGINES.map((e) => (
+              {engines.map((e) => (
                 <SelectItem key={e.value} value={e.value}>
                   {e.label}
                 </SelectItem>

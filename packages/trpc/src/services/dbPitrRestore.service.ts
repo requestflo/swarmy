@@ -59,6 +59,8 @@ export interface PitrRestorePlan {
   targetId: string;
   /** The pre-restore safety copy taken before this ran (audit). */
   safety?: { safetySnapshotId: string | null; safetySkipped: boolean };
+  /** The operator's engine image (pgbackrest has no default; `dbBackupEngines.ts`). */
+  engineImage?: string;
 }
 
 export interface PitrRestoreTiming {
@@ -201,6 +203,7 @@ export async function runPitrRestore(ctx: OrgContext, plan: PitrRestorePlan, tim
     dataVolume: plan.dataVolume,
     pitrStamp: stamp,
     pitrAction: action,
+    ...(plan.engineImage ? { engineImage: plan.engineImage } : {}),
   });
   const audit = (status: 'succeeded' | 'failed', extra: Record<string, unknown>) =>
     writeAudit(ctx, {

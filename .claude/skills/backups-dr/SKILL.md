@@ -56,7 +56,12 @@ and where everything lives. Backups are dispatched to the agent as commands — 
    `pg_dump`. PITR starts from the newest base backup that finished at or
    before the target (`pickBaseBackup`, `apps/agent/src/handlers/pitr-restore.ts`);
    a target before every base backup is refused with the recoverable window
-   (it starts when the oldest base backup finished). The controller checks
+   (it starts when the oldest base backup finished). pgbackrest has NO
+   default image (none upstream; swarmy builds only wal-g, `docker/walg`): it
+   runs only on an operator's `SWARMY_PGBACKREST_IMAGE`, passed as
+   `engineImage`; without one `dbBackupEngines.ts` hides it
+   (`dbBackups.engines`) and refuses it before anything runs, and the agent
+   refuses too (`PGBACKREST_NO_IMAGE`). The controller checks
    that FIRST: `restoreDb`'s PITR path runs `pitrPreflight`
    (`dbPitrWindow.service.ts` → read-only `db.pitrWindow` → agent
    `handlers/pitr-window.ts`, a `wal-g backup-list` sidecar) before the safety

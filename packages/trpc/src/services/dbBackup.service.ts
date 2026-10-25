@@ -54,6 +54,7 @@ import type { OrgContext } from '../context';
 import type { AgentHub } from '../hub/types';
 import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { writeAudit } from './audit.service';
+import { assertEngineOffered, engineImageFor } from './dbBackupEngines';
 import { runPitrRestore } from './dbPitrRestore.service';
 import { knownPitrWindow, pitrPreflight, pitrWindowView, readPitrWindow, rememberPitrWindow } from './dbPitrWindow.service';
 import { PRE_RESTORE_REASON, ensureSafetyCopy, latestRestorable, overwritesSource } from './dbRestoreSafety.service';
@@ -448,6 +449,7 @@ export interface DbBackupRunView {
 }
 
 export async function backupDb(ctx: OrgContext, input: BackupDbInput): Promise<DbBackupRunView> {
+  assertEngineOffered(input.engine);
   const target = await loadTarget(ctx, input.targetId);
   const { primary, replica } = findCluster(ctx, input.stack, input.cluster);
   if (!primary) throw notFound('db cluster primary', input.cluster);
@@ -478,6 +480,7 @@ export async function backupDb(ctx: OrgContext, input: BackupDbInput): Promise<D
       network: clusterNetworkName(input.stack, input.cluster),
       resticNetwork: resticNetworkFor(target.endpoint),
       dataVolume,
+      ...engineImageFor(input.engine),
     });
     await writeAudit(ctx, {
       action: 'db.backup',
@@ -586,6 +589,7 @@ export async function setDbBackupSchedule(
     return null;
   }
 
+  assertEngineOffered(input.engine);
   try {
     parseCron(input.cron);
   } catch (e) {
@@ -792,6 +796,7 @@ export async function preflightPitrFromSource(
   ctx: OrgContext,
   input: { stack: string; cluster: string; engine: DbBackupEngine; targetId?: string; targetTime?: string; snapshotId?: string },
 ): Promise<void> {
+  assertEngineOffered(input.engine);
   const { primary } = findCluster(ctx, input.stack, input.cluster);
   if (!primary) throw notFound('db cluster primary', `${input.stack}/${input.cluster}`);
   const schedule = parseScheduleLabel(primary.labels[DB_BACKUP_SCHEDULE_LABEL]);
@@ -810,6 +815,7 @@ export async function preflightPitrFromSource(
 }
 
 export async function restoreDb(ctx: OrgContext, input: RestoreDbInput): Promise<DbRestoreRunView> {
+  assertEngineOffered(input.engine);
   const destStack = input.targetStack ?? input.stack;
   const destCluster = input.targetCluster ?? input.cluster;
   const { primary } = findCluster(ctx, destStack, destCluster);
@@ -891,6 +897,7 @@ export async function restoreDb(ctx: OrgContext, input: RestoreDbInput): Promise
       resticNetwork: resticNetworkFor(target.endpoint),
       targetId: target.id,
       safety: safetyAudit,
+      ...engineImageFor(input.engine),
     });
     return { mode: view.mode, engine: view.engine, bytesRestored: view.bytesRestored, recoveredTo: view.recoveredTo, safetySnapshotId };
   }

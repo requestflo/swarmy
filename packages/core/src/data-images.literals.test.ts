@@ -29,7 +29,6 @@ const OWNER = /^([a-z]+):\1$/;
 const ALLOWED: Array<{ file: string; ref?: string; why: string }> = [
   { file: 'packages/trpc/src/services/blueprints/catalog.ts', why: "templates: an app's own services, deployed as the user's stack" },
   { file: 'packages/trpc/src/services/search-testing.ts', why: 'a test-only fixture of a running engine' },
-  { file: 'packages/core/src/protocol/dbBackup.ts', ref: 'pgbackrest/pgbackrest:2.51', why: 'no upstream image exists to put in the BOM; the engine needs an operator-supplied engineImage' },
   { file: 'packages/trpc/src/services/manageddb-extensions.service.ts', ref: 'postgis/postgis:17-3.5', why: 'an example in an error message, not an image swarmy runs' },
 ];
 

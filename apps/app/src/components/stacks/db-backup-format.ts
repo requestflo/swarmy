@@ -40,6 +40,16 @@ export const DB_BACKUP_ENGINES: EngineMeta[] = [
   },
 ];
 
+/**
+ * The engines the picker offers: the ones the controller runs
+ * (`dbBackups.engines`). pgBackRest needs an image the operator supplies, so
+ * it stays hidden until the controller says it has one (and while loading).
+ */
+export function pickableEngines(offers: ReadonlyArray<{ engine: DbBackupEngine; offered: boolean }> | undefined): EngineMeta[] {
+  const hidden = new Set<DbBackupEngine>(offers ? offers.filter((o) => !o.offered).map((o) => o.engine) : ['pgbackrest']);
+  return DB_BACKUP_ENGINES.filter((e) => !hidden.has(e.value));
+}
+
 /** Restore modes shown by the restore confirm (db-restore-dialog). */
 export const DB_RESTORE_MODES: { value: DbRestoreMode; label: string; blurb: string }[] = [
   { value: 'clone-to-new-cluster', label: 'Clone to new cluster', blurb: 'Creates a new database beside this one and restores into it. Nothing live is touched.' },

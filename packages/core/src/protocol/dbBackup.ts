@@ -82,11 +82,16 @@ export const DEFAULT_PG_CLIENT_IMAGE = DEFAULT_MANAGED_PG_IMAGE;
 /** swarmy's own wal-g build (docker/walg): there is no upstream wal-g image. The BOM's `walg` entry. */
 export const DEFAULT_WALG_IMAGE = dataImage('walg').ref;
 /**
- * Not in the BOM: no `pgbackrest/pgbackrest` image is published upstream, so
- * the pgbackrest engine needs an `engineImage` the operator supplies, and no
- * release can pin or bundle this default (allowlisted in data-images.literals.test.ts).
+ * pgBackRest has NO default image: none is published upstream and swarmy
+ * builds none (its WAL archiving is wal-g's shipper, so an image alone would
+ * not make the engine work). The engine runs only with an image the operator
+ * names in this controller env; without one the dashboard hides it and the
+ * controller and agent refuse it with {@link PGBACKREST_NO_IMAGE}.
  */
-export const DEFAULT_PGBACKREST_IMAGE = 'pgbackrest/pgbackrest:2.51';
+export const PGBACKREST_IMAGE_ENV = 'SWARMY_PGBACKREST_IMAGE';
+export const PGBACKREST_NO_IMAGE =
+  `pgBackRest backups need a pgBackRest image, and swarmy doesn't ship one (none is published upstream). ` +
+  `Use wal-g for point-in-time restore, or set ${PGBACKREST_IMAGE_ENV} on the controller to an image you trust.`;
 
 /**
  * Supported backup engines.

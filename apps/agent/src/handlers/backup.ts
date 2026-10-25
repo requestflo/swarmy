@@ -31,7 +31,7 @@ import {
   ISO_TIMESTAMP_RE,
   SNAPSHOT_REF_RE,
   DEFAULT_PG_CLIENT_IMAGE,
-  DEFAULT_PGBACKREST_IMAGE,
+  PGBACKREST_NO_IMAGE,
   DEFAULT_RESTIC_IMAGE,
   DEFAULT_WALG_IMAGE,
   isPhysicalEngine,
@@ -919,6 +919,7 @@ async function backupDbPhysical(
   if (!p.dataVolume) {
     throw new Error('physical backup requires the primary PGDATA volume (dataVolume) to be set');
   }
+  if (p.engine === 'pgbackrest') pgBackRestImage(p);
   const { env, bucket, endpoint, prefix } = physicalEnv(p.repo);
   const dataVolume = assertVolumeName(p.dataVolume);
   // Same paths as the server (QA-074): wal-g refuses a PGDATA that differs
@@ -952,7 +953,7 @@ async function backupDbPhysical(
     };
   }
   // pgbackrest
-  const image = p.engineImage ?? DEFAULT_PGBACKREST_IMAGE;
+  const image = pgBackRestImage(p);
   const flags = pgBackRestRepoFlags(p.repo, bucket, endpoint, prefix);
   const res = await runSidecar(
     docker,
@@ -978,6 +979,13 @@ async function backupDbPhysical(
     databases: ['*'],
     durationMs: Date.now() - started,
   };
+}
+
+/** The operator's pgBackRest image: swarmy has no default, so none means a plain refusal before anything runs. */
+export function pgBackRestImage(p: { engineImage?: string }): string {
+  const image = p.engineImage?.trim();
+  if (!image) throw new Error(PGBACKREST_NO_IMAGE);
+  return image;
 }
 
 export function pgBackRestRepoFlags(repo: ResticRepo, bucket: string, endpoint: string, prefix: string): string {
@@ -1157,6 +1165,7 @@ async function restoreDbPitr(
   // wal-g: the full stop-aware sequence (aside, fetch, WAL, recovery, rollback), QA-087.
   if (p.engine === 'wal-g') return restoreWalgPitr(docker, p, started, onLine);
   if (p.pitrAction === 'rollback') throw new Error('pitr rollback is only supported for wal-g');
+  const image = pgBackRestImage(p);
   const { env, bucket, endpoint, prefix } = physicalEnv(p.repo);
   const target = p.targetTime ?? '';
   const scriptEnv = pitrScriptEnv(p);
@@ -1165,7 +1174,6 @@ async function restoreDbPitr(
   const layout = await resolvePgDataLayout(docker, p.conn.host, dataVolume);
   // Never restore under a live server.
   await waitVolumeIdle(docker, dataVolume);
-  const image = p.engineImage ?? DEFAULT_PGBACKREST_IMAGE;
   const flags = pgBackRestRepoFlags(p.repo, bucket, endpoint, prefix);
   const res = await runSidecar(
     docker,
