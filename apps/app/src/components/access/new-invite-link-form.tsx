@@ -15,6 +15,7 @@ import {
   type InviteRole,
   type InviteUses,
 } from './invite-words';
+import { SsoAcceptChoice, useSsoInviteOption } from './sso-accept-choice';
 
 const EXPIRIES: InviteExpiry[] = ['1d', '7d', 'never'];
 const USES: InviteUses[] = ['1', '10', 'unlimited'];
@@ -37,6 +38,8 @@ export function NewInviteLinkForm(): React.JSX.Element {
   const [expiry, setExpiry] = React.useState<InviteExpiry>('7d');
   const [uses, setUses] = React.useState<InviteUses>('10');
   const [url, setUrl] = React.useState<string | null>(null);
+  const [sso, setSso] = React.useState(false);
+  const { requireSso } = useSsoInviteOption(sso);
   const create = useMutation(
     trpc.inviteLinks.create.mutationOptions({
       onSuccess: (res) => {
@@ -62,7 +65,7 @@ export function NewInviteLinkForm(): React.JSX.Element {
   }
 
   return (
-    <form className="flex flex-col gap-3" onSubmit={(e) => { e.preventDefault(); create.mutate({ role, stackName, expiry, maxUses }); }}>
+    <form className="flex flex-col gap-3" onSubmit={(e) => { e.preventDefault(); create.mutate({ role, stackName, expiry, maxUses, requireSso }); }}>
       <Field label="Joins as">
         <div role="group" aria-label="Joins as" className="flex flex-wrap gap-1.5">
           <FilterChip selected={role === 'member'} onClick={() => setRole('member')}>Member</FilterChip>
@@ -79,9 +82,10 @@ export function NewInviteLinkForm(): React.JSX.Element {
       <Field label="Uses">
         <Segmented mono label="Uses" value={uses} onChange={setUses} options={USES.map((u) => ({ value: u, label: u }))} />
       </Field>
+      <SsoAcceptChoice value={sso} onChange={setSso} email={false} />
       <div className="bg-muted/50 rounded-[10px] border px-3.5 py-3" aria-live="polite">
-        <p className="text-[13.5px] leading-snug">{describeInviteLink({ role, stackName, expiry, maxUses })}</p>
-        <Tech>{`inviteLinks.create { role: ${role}, stackName: ${stackName ? JSON.stringify(stackName) : 'null'}, expiry: ${expiry}, maxUses: ${maxUses ?? 'null'} }`}</Tech>
+        <p className="text-[13.5px] leading-snug">{describeInviteLink({ role, stackName, expiry, maxUses, requireSso })}</p>
+        <Tech>{`inviteLinks.create { role: ${role}, stackName: ${stackName ? JSON.stringify(stackName) : 'null'}, expiry: ${expiry}, maxUses: ${maxUses ?? 'null'}, requireSso: ${requireSso} }`}</Tech>
       </div>
       <Button type="submit" variant="outline" className="w-fit pointer-coarse:min-h-11" disabled={create.isPending}>
         {create.isPending ? 'Creating…' : 'Create link'}

@@ -5,6 +5,7 @@ import { Button, CopyButton, toast } from '@swarmy/ui';
 import { Depth, Section, StatusWord } from '@/components/calm';
 import { SayParts } from '@/components/apikeys/say-parts';
 import { useTRPC } from '@/integrations/trpc';
+import { useSsoOnly } from '@/components/access/use-sso-only';
 import { absTime, relTime } from '@/lib/format';
 
 async function copied(link: string): Promise<boolean> {
@@ -21,6 +22,7 @@ export function PendingInvitations(): React.JSX.Element | null {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const invitations = useQuery({ ...trpc.members.listInvitations.queryOptions(), refetchInterval: 15_000 });
+  const ssoOn = useSsoOnly()?.on === true;
   const refresh = (): void => void qc.invalidateQueries({ queryKey: trpc.members.listInvitations.queryKey() });
   const revoke = useMutation(
     trpc.members.revokeInvitation.mutationOptions({
@@ -63,7 +65,7 @@ export function PendingInvitations(): React.JSX.Element | null {
               <div className="min-w-[12rem] flex-1">
                 <p className="truncate font-mono text-[12.5px]">{inv.email ?? 'Invite link (no email)'}</p>
                 <p className="text-muted-foreground text-xs">
-                  <SayParts parts={[inv.stackName ? `on ${inv.stackName}` : null, `sent ${relTime(inv.createdAt)}`, inv.invitedBy?.name ? `by ${inv.invitedBy.name}` : null, expired ? 'expired' : `expires ${absTime(inv.expiresAt)}`]} />
+                  <SayParts parts={[inv.stackName ? `on ${inv.stackName}` : null, inv.requireSso || ssoOn ? 'accept with SSO' : null, `sent ${relTime(inv.createdAt)}`, inv.invitedBy?.name ? `by ${inv.invitedBy.name}` : null, expired ? 'expired' : `expires ${absTime(inv.expiresAt)}`]} />
                 </p>
               </div>
               <StatusWord tone={expired ? 'warn' : 'info'} word={inv.role} />

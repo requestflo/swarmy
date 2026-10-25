@@ -66,6 +66,7 @@ import { serviceHealth } from './resolvers/service-health';
 import { deployEvents } from './resolvers/deploy-events';
 import { firstLook } from './resolvers/first-look';
 import { inviteLinks } from './resolvers/invite-links';
+import { ssoOnly } from './resolvers/sso-only';
 import { invitePreview } from './resolvers/invite-preview';
 import { traffic } from './resolvers/traffic';
 import { stackLinks } from './resolvers/stack-links';
@@ -158,6 +159,7 @@ const MODULES: DomainResolvers[] = [
   deployEvents,
   firstLook,
   inviteLinks,
+  ssoOnly,
   invitePreview,
   traffic,
   stackLinks,

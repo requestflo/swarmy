@@ -28,7 +28,12 @@ export function InviteBanner({ inviteId, demo }: { inviteId: string; demo?: bool
               {' '}on <strong>{p.stackName}</strong>
             </>
           ) : null}
-          . {demo ? 'In the demo you are already in, so there is nothing to accept.' : 'Continue with your usual sign-in, or create a username below.'}
+          .{' '}
+          {demo
+            ? 'In the demo you are already in, so there is nothing to accept.'
+            : p.requireSso
+              ? `Accept it by signing in with your company SSO${p.email ? ` as ${p.email}` : ''}.`
+              : 'Continue with your usual sign-in, or create a username below.'}
         </span>
       )}
     </div>

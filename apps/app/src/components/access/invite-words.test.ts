@@ -7,6 +7,11 @@ describe('describeInviteLink', () => {
       'Whoever opens this link joins as a member on storefront, up to 10 people, for 7 days.',
     );
   });
+  test('an SSO link says who can use it', () => {
+    expect(describeInviteLink({ role: 'member', stackName: null, expiry: '1d', maxUses: null, requireSso: true })).toBe(
+      'Whoever opens this link and signs in with your company SSO joins as a member, any number of people, for a day.',
+    );
+  });
   test('admin is every app; single use; never', () => {
     expect(describeInviteLink({ role: 'admin', stackName: null, expiry: 'never', maxUses: 1 })).toBe(
       'Whoever opens this link joins as an admin on every app, one person only, until you revoke it.',

@@ -20,6 +20,7 @@ import {
 import { DEMO_USER } from '../data';
 import { inviteLinkPreviewFor } from './invite-links';
 import { demoSamlInput, demoSamlSetup, type DemoSamlSetup } from './access-saml';
+import { demoInviteNeedsSso } from './sso-only';
 import type { DemoStore, DomainResolvers } from '../types';
 
 /**
@@ -146,6 +147,7 @@ interface InvitationView {
   invitedBy: { id: string; name: string | null; email: string | null } | null;
   link: string;
   stackName: string | null;
+  requireSso: boolean;
 }
 
 interface AccessState {
@@ -251,6 +253,8 @@ function seedInvitations(store: DemoStore): InvitationView[] {
       invitedBy: by,
       link: inviteLink('inv-demo-1'),
       stackName: 'storefront',
+      // Priya accepts through Northwind's SSO (board 56: "Must accept with SSO").
+      requireSso: true,
     },
     {
       id: 'inv-demo-0',
@@ -263,11 +267,18 @@ function seedInvitations(store: DemoStore): InvitationView[] {
       invitedBy: by,
       link: inviteLink('inv-demo-0'),
       stackName: null,
+      requireSso: false,
     },
   ];
 }
 
-function mintInvitation(store: DemoStore, email: string | null, role: InvitationView['role'], stackName: string | null = null): InvitationView {
+function mintInvitation(
+  store: DemoStore,
+  email: string | null,
+  role: InvitationView['role'],
+  stackName: string | null = null,
+  requireSso = false,
+): InvitationView {
   const id = `inv-${rid()}`;
   const view: InvitationView = {
     id,
@@ -281,6 +292,7 @@ function mintInvitation(store: DemoStore, email: string | null, role: Invitation
     invitedBy: { id: store.user.id, name: store.user.name, email: store.user.email },
     link: inviteLink(id),
     stackName: role === 'member' ? stackName : null,
+    requireSso,
   };
   state(store).invitations.unshift(view);
   return view;
@@ -652,10 +664,15 @@ export const access: DomainResolvers = {
     'members.listInvitations': (_i, store): InvitationView[] => state(store).invitations,
 
     'members.invite': (input, store): InvitationView => {
-      const { email, role, stackName = null } = input as { email?: string | null; role: InvitationView['role']; stackName?: string | null };
+      const { email, role, stackName = null, requireSso = false } = input as {
+        email?: string | null;
+        role: InvitationView['role'];
+        stackName?: string | null;
+        requireSso?: boolean;
+      };
       if (stackName && role !== 'member') throw new Error(`an ${role} covers every app — pick Member to limit the invite to one app`);
       const normalized = (email ?? '').trim().toLowerCase();
-      if (!normalized) return mintInvitation(store, null, role, stackName);
+      if (!normalized) return mintInvitation(store, null, role, stackName, requireSso);
       const s = state(store);
       if (s.members.some((m) => m.user.email?.toLowerCase() === normalized)) {
         throw new Error(`${normalized} is already a member of this org`);
@@ -663,7 +680,7 @@ export const access: DomainResolvers = {
       if (s.invitations.some((i) => i.email === normalized && i.status === 'pending')) {
         throw new Error(`${normalized} already has a pending invite — copy or regenerate its link below`);
       }
-      return mintInvitation(store, normalized, role, stackName);
+      return mintInvitation(store, normalized, role, stackName, requireSso);
     },
 
     'members.revokeInvitation': (input, store): { id: string; revoked: true } => {
@@ -679,7 +696,7 @@ export const access: DomainResolvers = {
       const old = s.invitations.find((i) => i.id === id);
       if (!old) throw new Error(`invitation "${id}" not found`);
       s.invitations = s.invitations.filter((i) => i.id !== id);
-      return mintInvitation(store, old.email, old.role, old.stackName);
+      return mintInvitation(store, old.email, old.role, old.stackName, old.requireSso);
     },
 
     // ── org.members (settings → members) ───────────────────────────────────────
@@ -784,7 +801,16 @@ export const access: DomainResolvers = {
       const id = (input as { id: string }).id;
       if (id.startsWith('swi_')) return inviteLinkPreviewFor(store, id);
       const inv = state(store).invitations.find((i) => i.id === id);
-      return inv ? { orgName: store.org.name, role: inv.role, email: inv.email, expired: inv.status === 'expired' } : null;
+      return inv
+        ? {
+            orgName: store.org.name,
+            role: inv.role,
+            email: inv.email,
+            expired: inv.status === 'expired',
+            stackName: inv.stackName,
+            requireSso: demoInviteNeedsSso(store, inv.requireSso),
+          }
+        : null;
     },
     'authConfig.acceptInvite': (_i, store) => ({ orgId: store.org.id }),
 

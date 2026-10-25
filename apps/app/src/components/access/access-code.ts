@@ -40,12 +40,31 @@ function inviteLinksCode(links: InviteLinkLike[]): string {
   ].join('\n');
 }
 
+/** Sign-in: the methods, plus the SSO-only switch as the real tRPC call. */
+function signInCode(methods: SignInMethod[], ssoOnly: boolean | null): string {
+  const list = JSON.stringify(methods.map((m) => ({ method: m.label, kind: m.kind, enabled: m.enabled })), null, 2);
+  if (ssoOnly === null) return list;
+  return [
+    '# Members sign in with SSO only: dashboard setting (tRPC), no REST route',
+    `security.ssoOnly.set { "on": ${ssoOnly} }`,
+    '# owners keep password + 2FA; each use audited as auth.breakGlass.signIn',
+    '# invites: members.invite / inviteLinks.create { "requireSso": true }',
+    '',
+    list,
+  ].join('\n');
+}
+
 /** The rules as the policy documents the engine runs (JSON, Cedar-compatible), the sign-in set and the invite links. */
-export function accessCode(rules: PolicyRow[], methods: SignInMethod[], links: InviteLinkLike[] | null = null): CodeTab[] {
+export function accessCode(
+  rules: PolicyRow[],
+  methods: SignInMethod[],
+  links: InviteLinkLike[] | null = null,
+  ssoOnly: boolean | null = null,
+): CodeTab[] {
   const policies = rules.map((r) => ({ id: r.id, name: r.name, effect: r.effect, priority: r.priority, enabled: r.enabled, default: r.isDefault, policy: doc(r.source) }));
   return [
     { label: 'policy JSON', code: JSON.stringify(policies, null, 2) },
-    { label: 'sign-in', code: JSON.stringify(methods.map((m) => ({ method: m.label, kind: m.kind, enabled: m.enabled })), null, 2) },
+    { label: 'sign-in', code: signInCode(methods, ssoOnly) },
     ...(links ? [{ label: 'invite links', code: inviteLinksCode(links) }] : []),
   ];
 }

@@ -12,10 +12,17 @@ export const INVITE_STATE_WORD: Record<InviteState, string> = { ok: 'Active', ex
 const EXPIRY_SAY: Record<InviteExpiry, string> = { '1d': 'for a day', '7d': 'for 7 days', never: 'until you revoke it' };
 
 /** The live sentence: "Whoever opens this link joins as a member on storefront, up to 10 people, for 7 days." */
-export function describeInviteLink(o: { role: InviteRole; stackName: string | null; expiry: InviteExpiry; maxUses: number | null }): string {
+export function describeInviteLink(o: {
+  role: InviteRole;
+  stackName: string | null;
+  expiry: InviteExpiry;
+  maxUses: number | null;
+  requireSso?: boolean;
+}): string {
   const where = o.role === 'admin' ? ' on every app' : o.stackName ? ` on ${o.stackName}` : '';
   const who = o.maxUses === null ? 'any number of people' : o.maxUses === 1 ? 'one person only' : `up to ${o.maxUses} people`;
-  return `Whoever opens this link joins as ${o.role === 'admin' ? 'an admin' : 'a member'}${where}, ${who}, ${EXPIRY_SAY[o.expiry]}.`;
+  const opener = o.requireSso ? 'Whoever opens this link and signs in with your company SSO' : 'Whoever opens this link';
+  return `${opener} joins as ${o.role === 'admin' ? 'an admin' : 'a member'}${where}, ${who}, ${EXPIRY_SAY[o.expiry]}.`;
 }
 
 /** "used 3 of 10" · "used 2" (unlimited). */

@@ -9,6 +9,7 @@ import { CardSkeleton } from '@/components/states';
 import { relTime } from '@/lib/format';
 import { INVITE_STATE_WORD, inviteEndsWords, usesWords, type InviteState } from './invite-words';
 import { NewInviteLinkForm } from './new-invite-link-form';
+import { useSsoOnly } from './use-sso-only';
 
 const TONE: Record<InviteState, Tone> = { ok: 'ok', expired: 'idle', used: 'idle', revoked: 'idle' };
 
@@ -17,6 +18,7 @@ export function InviteLinksSection(): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const links = useQuery(trpc.inviteLinks.list.queryOptions());
+  const ssoOn = useSsoOnly()?.on === true;
   const revoke = useMutation(
     trpc.inviteLinks.revoke.mutationOptions({
       onSuccess: () => {
@@ -44,7 +46,7 @@ export function InviteLinksSection(): React.JSX.Element {
               tone={TONE[l.state]}
               name={l.role === 'admin' ? 'Admin' : 'Member'}
               sub={l.hint}
-              say={<SayParts parts={[l.role === 'admin' ? 'every app' : (l.stackName ?? 'all apps'), usesWords(l.uses, l.maxUses), inviteEndsWords(l.state, l.expiresAt)]} />}
+              say={<SayParts parts={[l.role === 'admin' ? 'every app' : (l.stackName ?? 'all apps'), l.requireSso || ssoOn ? 'accept with SSO' : null, usesWords(l.uses, l.maxUses), inviteEndsWords(l.state, l.expiresAt)]} />}
               tech={`${l.prefix} · made ${relTime(l.createdAt)}${l.createdBy?.name ? ` by ${l.createdBy.name}` : ''} · no copy: only a hash of the token is kept`}
               word={INVITE_STATE_WORD[l.state]}
               trailing={

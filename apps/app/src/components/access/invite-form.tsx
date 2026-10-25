@@ -9,6 +9,7 @@ import { Segmented } from '@/components/domains/segmented';
 import type { IssuedInvite } from '@/components/settings/invite-link-panel';
 import { InvitePreview } from './invite-preview';
 import type { RoleKey } from './role-lines';
+import { SsoAcceptChoice, useSsoInviteOption } from './sso-accept-choice';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const ROLE_PICK: Record<RoleKey, { label: string; hint: string }> = {
@@ -34,6 +35,8 @@ export function InviteForm({ callerRole, onIssued }: { callerRole: RoleKey; onIs
   const [role, setRole] = React.useState<RoleKey>('member');
   const [apps, setApps] = React.useState<string[] | null>(null);
   const [emailError, setEmailError] = React.useState<string | null>(null);
+  const [sso, setSso] = React.useState(false);
+  const { requireSso } = useSsoInviteOption(sso);
   const stackName = role === 'member' ? (apps?.[0] ?? null) : null;
   const invite = useMutation(
     trpc.members.invite.mutationOptions({
@@ -46,7 +49,7 @@ export function InviteForm({ callerRole, onIssued }: { callerRole: RoleKey; onIs
     }),
   );
   const roles: RoleKey[] = callerRole === 'owner' ? ['member', 'admin', 'owner'] : ['member', 'admin'];
-  const input = { email: email.trim() || null, role, stackName };
+  const input = { email: email.trim() || null, role, stackName, requireSso };
 
   function submit(e: React.FormEvent): void {
     e.preventDefault();
@@ -87,6 +90,7 @@ export function InviteForm({ callerRole, onIssued }: { callerRole: RoleKey; onIs
           {role === 'member' ? 'Picking an app makes them its operator, production included.' : 'Admins and owners always reach every app.'}
         </p>
       </div>
+      <SsoAcceptChoice value={sso} onChange={setSso} email={Boolean(input.email)} />
       <div className="border-t pt-3">
         <InvitePreview role={role} stackName={stackName} />
       </div>

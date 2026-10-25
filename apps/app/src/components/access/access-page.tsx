@@ -15,8 +15,10 @@ import { PoliciesTab } from './policies-tab';
 import { PolicyWhoCan } from './policy-who-can';
 import { RolesAtAGlance } from './roles-at-a-glance';
 import { SignInSection } from './signin-section';
+import { providerNames } from './sso-only-words';
 import type { PolicyRow } from './use-policy-editor';
 import { useSignInMethods } from './use-signin-methods';
+import { useSsoOnly } from './use-sso-only';
 
 /** Settings → People & access: who's in, what the rules let them do, how they sign in. */
 export function AccessPage(): React.JSX.Element {
@@ -26,6 +28,7 @@ export function AccessPage(): React.JSX.Element {
   const keys = useQuery(trpc.apiKeys.list.queryOptions());
   const policies = useQuery(trpc.policies.list.queryOptions());
   const { methods } = useSignInMethods();
+  const ssoOnly = useSsoOnly();
   const [inviting, setInviting] = React.useState(false);
   const role = org.data?.role;
   const canInvite = role === 'owner' || role === 'admin';
@@ -39,7 +42,11 @@ export function AccessPage(): React.JSX.Element {
   ) : (
     <>
       {plural(members.data.length, 'person', 'people')} and {plural(robots, 'robot')} can change things.{' '}
-      <em>Sign-in is by {company.length ? company.slice(0, 2).join(' and ') : 'username and password'}.</em>
+      <em>
+        {ssoOnly?.on
+          ? `Members sign in with ${providerNames(ssoOnly.ready)} only.`
+          : `Sign-in is by ${company.length ? company.slice(0, 2).join(' and ') : 'username and password'}.`}
+      </em>
     </>
   );
   const rules = policies.data as PolicyRow[] | undefined;
@@ -59,7 +66,7 @@ export function AccessPage(): React.JSX.Element {
         <>
           <CodeView
             title="Access as code"
-            tabs={accessCode(rules ?? [], methods ?? [], canInvite ? (inviteLinks.data ?? []) : null)}
+            tabs={accessCode(rules ?? [], methods ?? [], canInvite ? (inviteLinks.data ?? []) : null, ssoOnly?.on ?? null)}
             note="Dashboard setting. Each rule is a policy document that runs the same on the JSON engine or Cedar. Rules and invite links are edited here and audited; there is no REST route for them yet."
           />
           {inviting && canInvite && role ? (
@@ -75,7 +82,7 @@ export function AccessPage(): React.JSX.Element {
       {canInvite ? <PendingInvitations /> : null}
       {canInvite ? <InviteLinksSection /> : null}
       <PoliciesTab />
-      <SignInSection methods={methods} />
+      <SignInSection methods={methods} role={role} />
       <Depth at="controls">
         <SecurityTab />
       </Depth>

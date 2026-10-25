@@ -1,4 +1,5 @@
 import type { DemoStore, DomainResolvers } from '../types';
+import { demoInviteNeedsSso } from './sso-only';
 
 /**
  * Shareable invite links (inviteLinks.* + the swi_ branch of
@@ -22,6 +23,7 @@ interface InviteLinkView {
   createdAt: string;
   createdBy: { id: string; name: string | null } | null;
   hint: string;
+  requireSso: boolean;
 }
 
 interface Stored extends InviteLinkView {
@@ -64,6 +66,7 @@ function links(store: DemoStore): Stored[] {
         revoked: false,
         state: 'ok',
         hint: `${host()}/join/swi_${prefix}_…`,
+        requireSso: false,
       };
     };
     l = [
@@ -85,7 +88,15 @@ export function inviteLinkPreviewFor(store: DemoStore, token: string) {
   const l = links(store).find((x) => x.token === token);
   if (!l || l.revoked) return null;
   const state = stateOf(l);
-  return { orgName: store.org.name, role: l.role, email: null, expired: state !== 'ok', stackName: l.stackName, state };
+  return {
+    orgName: store.org.name,
+    role: l.role,
+    email: null,
+    expired: state !== 'ok',
+    stackName: l.stackName,
+    state,
+    requireSso: demoInviteNeedsSso(store, l.requireSso),
+  };
 }
 
 const EXPIRY_DAYS: Record<string, number | null> = { '1d': 1, '7d': 7, never: null };
@@ -95,7 +106,7 @@ export const inviteLinks: DomainResolvers = {
     'inviteLinks.list': (_i, store) => links(store).filter((l) => !l.revoked).map(view),
 
     'inviteLinks.create': (input, store) => {
-      const b = input as { role: Role; stackName?: string | null; expiry: string; maxUses: number | null };
+      const b = input as { role: Role; stackName?: string | null; expiry: string; maxUses: number | null; requireSso?: boolean };
       if (b.stackName && b.role === 'admin') throw new Error('an admin link covers every app — pick Member to limit it to one app');
       const prefix = hex(8);
       const token = `swi_${prefix}_${hex(16)}`;
@@ -114,6 +125,7 @@ export const inviteLinks: DomainResolvers = {
         revoked: false,
         state: 'ok',
         hint: `${host()}/join/swi_${prefix}_…`,
+        requireSso: Boolean(b.requireSso),
       };
       links(store).unshift(l);
       return { ...view(l), url: `${window.location.origin}/join/${token}` };
@@ -130,7 +142,15 @@ export const inviteLinks: DomainResolvers = {
       const token = (input as { token: string }).token;
       const l = links(store).find((x) => x.token === token);
       if (!l) return null;
-      return { kind: 'link' as const, orgName: store.org.name, role: l.role, stackName: l.stackName, state: stateOf(l), expiresAt: l.expiresAt };
+      return {
+        kind: 'link' as const,
+        orgName: store.org.name,
+        role: l.role,
+        stackName: l.stackName,
+        state: stateOf(l),
+        expiresAt: l.expiresAt,
+        requireSso: demoInviteNeedsSso(store, l.requireSso),
+      };
     },
 
     // The demo visitor is already Northwind's owner: accepting doesn't burn a use.

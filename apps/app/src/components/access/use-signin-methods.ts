@@ -10,6 +10,8 @@ export interface SignInMethod {
   detail: string;
   /** Controls-depth line (client ids, issuers). */
   tech?: string;
+  /** The status word, when "On"/"Off" doesn't say it (the password row under SSO only: "Owners"). */
+  word?: string;
 }
 
 /** Every way to sign in here, in the order the sign-in page shows them. */
