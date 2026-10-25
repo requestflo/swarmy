@@ -25,6 +25,12 @@ export const AGENT_CAPABILITY = {
   edgeCertRenew: 'edgeCertRenew',
   /** Exit cleanly after answering so systemd / Docker / swarm restarts the agent (`restartAgent`, board 11). */
   restartAgent: 'restartAgent',
+  /**
+   * The outbound port-25 probe (`probeSmtp`, board 66's per-server test). The
+   * command dates from 2026-09-24, before capabilities; advertising it lets
+   * the controller ask every server without sending a frame an agent would drop.
+   */
+  probeSmtp: 'probeSmtp',
 } as const;
 export type AgentCapability = (typeof AGENT_CAPABILITY)[keyof typeof AGENT_CAPABILITY];
 
@@ -35,6 +41,7 @@ export const AGENT_CAPABILITIES: readonly AgentCapability[] = [
   AGENT_CAPABILITY.edgeCerts,
   AGENT_CAPABILITY.edgeCertRenew,
   AGENT_CAPABILITY.restartAgent,
+  AGENT_CAPABILITY.probeSmtp,
 ];
 
 /**

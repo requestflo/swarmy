@@ -77,3 +77,27 @@ export function interpretSmtpProbe(r: ProbeSmtpResult): {
   if (kinds.has('dns')) return { verdict: 'unknown', message: 'The mail node could not resolve the probe hosts; check its DNS.' };
   return { verdict: 'unknown', message: 'The port 25 probe was inconclusive; try again, or use a relay to be safe.' };
 }
+
+/** One server's port-25 test, in plain words (board 66: "per-server port-25 test"). */
+export type Port25State = 'open' | 'blocked' | 'timeout' | 'unknown';
+
+/**
+ * open: the MX answered with its 220 banner. blocked: something on the path
+ * refused (a reset, "administratively prohibited", or a non-SMTP banner from
+ * an intercepting proxy). timeout: nothing answered, the signature of a
+ * provider that silently drops port 25 (DigitalOcean, AWS by default). Pure.
+ */
+export function port25ServerVerdict(r: ProbeSmtpResult, perTargetMs: number): { state: Port25State; words: string } {
+  if (r.reachable) return { state: 'open', words: 'Port 25 is open: this server can deliver mail directly.' };
+  const errs = r.attempts.map((a) => a.error?.kind);
+  if (errs.length > 0 && errs.every((k) => k === 'timeout')) {
+    return {
+      state: 'timeout',
+      words: `Nothing answered on port 25 within ${Math.round(perTargetMs / 1000)} s. Providers that block mail drop it silently like this; use a relay.`,
+    };
+  }
+  const refused = r.attempts.some((a) => a.error?.kind === 'refused' || a.error?.kind === 'unreachable' || (a.error?.kind === 'other' && a.banner));
+  if (refused) return { state: 'blocked', words: 'Your provider blocks outbound mail on this server; use a relay.' };
+  if (errs.includes('dns')) return { state: 'unknown', words: 'This server couldn’t look up the mail host. Check its DNS, then test again.' };
+  return { state: 'unknown', words: 'The test was inconclusive. Test again, or use a relay to be safe.' };
+}

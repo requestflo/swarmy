@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router';
 import { cn } from '@swarmy/ui';
 import { Section, SectionLink, Tech, useDepth } from '@/components/calm';
 import type { EmailDomainData, EmailOverviewData } from '@/components/email/use-email';
+import { Port25Servers } from './port25-servers';
 import { RelayFacts } from './relay-facts';
 
 interface Props {
@@ -16,7 +17,8 @@ interface Props {
  * How mail leaves (Email board): the app → swarmy's mail server (signs with
  * the domain's DKIM key) → the relay or straight out on port 25 → the
  * recipient, for the app's main sending domain; then that domain's relay
- * facts, or the last port-25 check. Changing delivery lives on Email.
+ * facts, or the last port-25 check, and port 25 on each server. Changing
+ * delivery lives on Email.
  */
 export function MailFlow({ stack, overview: o, domains }: Props): React.JSX.Element {
   const tech = useDepth().atLeast('controls');
@@ -39,6 +41,7 @@ export function MailFlow({ stack, overview: o, domains }: Props): React.JSX.Elem
         <Stop title="Recipient" sub="their inbox" />
       </ol>
       {d ? <RelayFacts overview={o} domain={d} /> : <p className="text-muted-foreground text-[13px]">No sending domain is verified yet, so nothing can leave.</p>}
+      <Port25Servers />
       {domains.length > 1 ? (
         <Tech>
           also sends from {domains.slice(1).map((x) => `${x.domain} (${x.delivery === 'relay' ? `relay ${x.relay?.host ?? ''}` : 'direct'})`).join(' · ')}

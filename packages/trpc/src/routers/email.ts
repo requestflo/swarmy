@@ -31,6 +31,7 @@ import {
   updateEmailCredential,
   updateEmailDomain,
 } from '../services/email.service';
+import { listPort25Servers, testPort25Servers } from '../services/email/port25-servers';
 
 const Relay = z.object({
   host: z.string().min(1).max(253),
@@ -83,6 +84,9 @@ export const emailRouter = router({
   /** Re-check DNS now (a read of DNS, but it may flip the verification gate). */
   checkDomain: abacProcedure('email.write').input(Id).mutation(({ ctx, input }) => checkEmailDomain(ctx, input.id)),
   probePort25: abacProcedure('email.write').mutation(({ ctx }) => probePort25(ctx)),
+  /** Board 66: port 25 on every server (last results; a test is `testPort25Servers`). */
+  port25Servers: orgProcedure.query(({ ctx }) => listPort25Servers(ctx)),
+  testPort25Servers: abacProcedure('email.write').mutation(({ ctx }) => testPort25Servers(ctx)),
 
   createCredential: abacProcedure('email.write')
     .input(

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import { DEFAULT_SMTP_PROBE_TARGETS, interpretSmtpProbe, ProbeSmtpPayload } from './email';
+import { AGENT_CAPABILITIES, agentSupports } from './capabilities';
+import { DEFAULT_SMTP_PROBE_TARGETS, interpretSmtpProbe, port25ServerVerdict, ProbeSmtpMsg, ProbeSmtpPayload } from './email';
 import { DEFAULT_COMMAND_TIMEOUTS } from './constants';
 import { parseControllerEnvelope } from './messages';
 
@@ -36,5 +37,41 @@ describe('probeSmtp (email service port-25 probe)', () => {
     expect(blocked.message).toContain('relay');
     expect(interpretSmtpProbe({ reachable: false, attempts: [t('timeout'), t('refused')] }).verdict).toBe('unknown');
     expect(interpretSmtpProbe({ reachable: false, attempts: [t('dns')] }).verdict).toBe('unknown');
+  });
+});
+
+describe('per-server port-25 test (board 66)', () => {
+  const a = (kind?: 'timeout' | 'refused' | 'unreachable' | 'dns' | 'other', banner?: string) => ({
+    host: 'gmail-smtp-in.l.google.com',
+    port: 25,
+    ok: !kind,
+    ms: 40,
+    ...(banner ? { banner } : {}),
+    ...(kind ? { error: { kind, message: kind } } : {}),
+  });
+
+  it('says open, blocked or timeout in plain words', () => {
+    expect(port25ServerVerdict({ reachable: true, attempts: [a(undefined, '220 mx')] }, 5000).state).toBe('open');
+    const blocked = port25ServerVerdict({ reachable: false, attempts: [a('refused')] }, 5000);
+    expect(blocked).toEqual({ state: 'blocked', words: 'Your provider blocks outbound mail on this server; use a relay.' });
+    expect(port25ServerVerdict({ reachable: false, attempts: [a('unreachable')] }, 5000).state).toBe('blocked');
+    // An intercepting proxy answering with a non-SMTP banner is a block too.
+    expect(port25ServerVerdict({ reachable: false, attempts: [a('other', '554 no SMTP here')] }, 5000).state).toBe('blocked');
+    const timeout = port25ServerVerdict({ reachable: false, attempts: [a('timeout')] }, 5000);
+    expect(timeout.state).toBe('timeout');
+    expect(timeout.words).toContain('within 5 s');
+    expect(port25ServerVerdict({ reachable: false, attempts: [a('dns')] }, 5000).state).toBe('unknown');
+    expect(port25ServerVerdict({ reachable: false, attempts: [] }, 5000).state).toBe('unknown');
+  });
+
+  it('a one-target probe parses and its message keeps the probeSmtp discriminant', () => {
+    const msg = ProbeSmtpMsg.parse({ type: 'probeSmtp', payload: { commandId: CMD_ID, targets: [DEFAULT_SMTP_PROBE_TARGETS[0]], perTargetMs: 5000 } });
+    expect(ProbeSmtpMsg.parse(JSON.parse(JSON.stringify(msg)))).toEqual(msg);
+    expect(ProbeSmtpMsg.safeParse({ ...msg, type: 'probePort' }).success).toBe(false);
+  });
+
+  it('is advertised as a capability, never assumed of an agent that predates the list', () => {
+    expect(AGENT_CAPABILITIES).toContain('probeSmtp');
+    expect(agentSupports(undefined, 'probeSmtp')).toBe(false);
   });
 });

@@ -2,7 +2,7 @@ import { toYaml, withHeader, type CodeTab } from '@/components/calm';
 import type { EmailOverviewData } from '@/components/email/use-email';
 import type { EmailCredentialData } from './use-app-mail';
 
-/** The app's Email tab as code: the `email:` key, what it binds, and one HTTP send. */
+/** The app's Email tab as code: the `email:` key, what it binds, one HTTP send and the port-25 test. */
 export function appEmailCode(stack: string, o: EmailOverviewData, creds: EmailCredentialData[]): CodeTab[] {
   const from = creds[0]?.domains[0] ?? o.domains.find((d) => d.verifiedAt)?.domain ?? 'example.com';
   const yaml = withHeader(
@@ -22,8 +22,14 @@ export function appEmailCode(stack: string, o: EmailOverviewData, creds: EmailCr
     '  -H "Content-Type: application/json" \\',
     `  -d '${JSON.stringify({ from: `noreply@${from}`, to: 'ada@example.com', subject: 'Welcome', text: 'Hi Ada' })}'`,
   ].join('\n');
+  const port25 = [
+    '# port 25 on each server (dashboard calls, tRPC; no REST route yet)',
+    'email.port25Servers',
+    'email.testPort25Servers   # one connection per server to gmail-smtp-in.l.google.com:25, 5 s, no mail sent',
+  ].join('\n');
   return [
     { label: 'swarmy.yaml', code: yaml },
     { label: 'Send API', code: send },
+    { label: 'Port 25', code: port25 },
   ];
 }
