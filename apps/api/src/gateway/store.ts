@@ -1,4 +1,4 @@
-import type { AgentSkew, ContainerInfo, SwarmNodeInfo, SwarmServiceInfo, SwarmState } from '@swarmy/core/protocol';
+import type { AgentSkew, ContainerInfo, SwarmNodeInfo, SwarmServiceInfo, SwarmState, VolumeSizesSample } from '@swarmy/core/protocol';
 import { EdgeTrafficRing } from '@swarmy/core';
 import type {
   ContainerStatsSnapshot,
@@ -109,6 +109,12 @@ export class GatewayStore {
     string,
     { caddyRunning: boolean; dnsRunning: boolean; sampledAt: number }
   >();
+  /**
+   * Each server's latest volume sizes (`metrics.volumes`, boards 9 + 36), in
+   * memory only — no history. Kept when a node disconnects: its data is still
+   * on its disk, and `sampledAt` says how old the reading is.
+   */
+  readonly volumeSizes = new Map<string, VolumeSizesSample>();
   /** Last-known swarm-node + service snapshots retained AFTER a node disconnects —
    *  so ABAC (offline node labels) and dr-reconcile (dead-node placement/volumes)
    *  still have data once the node leaves the hub. */

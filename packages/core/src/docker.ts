@@ -328,6 +328,26 @@ export class DockerClient {
     return { reclaimedBytes: Number((res as { SpaceReclaimed?: number } | null)?.SpaceReclaimed ?? 0) };
   }
 
+  /**
+   * Local volume disk usage (`GET /system/df?type=volume`, API 1.42+; an
+   * older engine ignores `type` and answers the whole df). The raw body —
+   * `parseVolumeDf` (`@swarmy/core`) reads it. Walks every volume on disk:
+   * slow on a big host, so callers cache it.
+   */
+  async volumeDiskUsage(): Promise<unknown> {
+    return new Promise<unknown>((resolve, reject) => {
+      this.docker.modem.dial(
+        {
+          path: '/system/df?',
+          method: 'GET',
+          options: { type: 'volume' },
+          statusCodes: { 200: true, 400: 'bad parameter', 500: 'server error' },
+        },
+        (err: Error | null, data: unknown) => (err ? reject(err) : resolve(data)),
+      );
+    });
+  }
+
   /** Rotate the worker and/or manager join tokens; returns the post-rotation pair. */
   async swarmRotateTokens(
     roles: Array<'manager' | 'worker'>,

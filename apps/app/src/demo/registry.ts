@@ -75,6 +75,7 @@ import { meshGrants } from './resolvers/mesh-grants';
 import { meshMtu } from './resolvers/mesh-mtu';
 import { phoneHome } from './resolvers/phone-home';
 import { placementDemo } from './resolvers/placement-demo';
+import { volumeSizesDemo } from './resolvers/volume-sizes';
 import { jobsYesterday } from './resolvers/jobs-yesterday';
 import { appEnvironments } from './resolvers/app-environments';
 import { appPreviews } from './resolvers/app-previews';
@@ -167,6 +168,7 @@ const MODULES: DomainResolvers[] = [
   // Wraps core's nodes.list and infraextra's generateJoinToken, so it comes after both.
   phoneHome,
   placementDemo,
+  volumeSizesDemo,
   jobsYesterday,
   appEnvironments,
   appPreviews,

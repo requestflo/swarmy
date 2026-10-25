@@ -1,4 +1,4 @@
-import type { AgentSkew, ContainerInfo, SwarmServiceInfo, SwarmNodeInfo, SwarmState, TermTarget } from '@swarmy/core/protocol';
+import type { AgentSkew, ContainerInfo, SwarmServiceInfo, SwarmNodeInfo, SwarmState, TermTarget, VolumeSizesSample } from '@swarmy/core/protocol';
 import type { EdgeTrafficRing } from '@swarmy/core';
 import type {
   ClusterStatsFrame,
@@ -229,6 +229,13 @@ export interface AgentHub {
    * omit it and traffic reads as "no data yet".
    */
   edgeTraffic?(): EdgeTrafficRing;
+
+  /**
+   * A server's latest volume sizes (`metrics.volumes`, measured every 10 min).
+   * Undefined = not reported (an older agent, or not measured yet). Optional:
+   * test/demo hubs omit it and every size reads as "not reported".
+   */
+  volumeSizesFor?(controllerNodeId: string): VolumeSizesSample | undefined;
 
   /** Latest edge health telemetry for a node (geo-edge), if it has reported. */
   ingressStatusFor(

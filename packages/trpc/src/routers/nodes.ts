@@ -26,6 +26,7 @@ import {
 import { setNodeCost } from '../services/cost.service';
 import { listNodeHygiene, runNodeHygieneNow } from '../services/node-hygiene.service';
 import { nodeStatsHistory } from '../services/node-stats-history';
+import { listVolumeSizes } from '../services/volume-sizes.service';
 
 export const nodesRouter = router({
   list: orgProcedure.query(({ ctx }) => listNodes(ctx)),
@@ -161,6 +162,9 @@ export const nodesRouter = router({
 
   /** Each server's last 24 h of CPU / memory / disk % as 5-minute peaks (telemetry.db). Read-only. */
   statsHistory: orgProcedure.input(NodeStatsHistoryInput).query(({ ctx, input }) => nodeStatsHistory(ctx, input)),
+
+  /** Each server's local volume sizes, measured by its agent every 10 min (hub memory). Read-only. */
+  volumeSizes: orgProcedure.query(({ ctx }) => listVolumeSizes(ctx)),
 
   liveStatsLatest: orgProcedure
     .input(z.object({ nodeId: z.string() }))

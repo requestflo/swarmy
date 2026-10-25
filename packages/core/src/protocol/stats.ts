@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { Timestamp } from './primitives';
+import { VolumeSizesSample } from './volume-sizes';
 
 /** Aggregate node-level resource sample. */
 export const NodeMetricsSample = z.object({
@@ -85,6 +86,11 @@ export const MetricsPayload = z.object({
   containers: z.array(ContainerMetricsSample),
   /** Edge request counts — OPTIONAL so older agents/controllers interoperate. */
   edge: EdgeTrafficSample.optional(),
+  /**
+   * Each local volume's size (`volume-sizes.ts`) — OPTIONAL: sent only after a
+   * fresh measurement or a register; absent from older agents.
+   */
+  volumes: VolumeSizesSample.optional(),
 });
 export type MetricsPayload = z.infer<typeof MetricsPayload>;
 

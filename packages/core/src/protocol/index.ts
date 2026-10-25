@@ -9,6 +9,7 @@ export * from './primitives';
 export * from './errors';
 export * from './auth';
 export * from './stats';
+export * from './volume-sizes';
 export * from './containers';
 export * from './commands';
 export * from './ingress';

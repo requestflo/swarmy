@@ -10,6 +10,7 @@ import {
   type SwarmNodeInfo,
   type SwarmState,
   type TermTarget,
+  type VolumeSizesSample,
 } from '@swarmy/core/protocol';
 import { terminalHub } from '../terminal';
 import type {
@@ -301,6 +302,11 @@ export class AgentHubImpl implements AgentHub {
     controllerNodeId: string,
   ): { caddyRunning: boolean; dnsRunning: boolean; sampledAt: number } | undefined {
     return this.store.ingressNodeStatus.get(controllerNodeId);
+  }
+
+  /** A server's latest volume sizes (`metrics.volumes`); undefined from an agent that never reported. */
+  volumeSizesFor(controllerNodeId: string): VolumeSizesSample | undefined {
+    return this.store.volumeSizes.get(controllerNodeId);
   }
 
   /** Live local swarm membership of a node — `active` means a working member. */

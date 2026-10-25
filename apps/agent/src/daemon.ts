@@ -7,6 +7,7 @@ import { env } from './env';
 import { clearState, loadState, saveState, type AgentState } from './state';
 import { AgentConnection, strandedShouldExit } from './connection';
 import { collectMetrics } from './stats';
+import { createVolumeSizer, dockerVolumeSizes } from './volume-sizes';
 import { sendContainerList, sendServiceState, sendNodeList } from './snapshots';
 import { applyMesh, lastSampledMeshCidr, sampleMeshState } from './handlers/mesh';
 import { meshSkipReason } from './mesh-startup';
@@ -414,6 +415,8 @@ export async function runDaemon(): Promise<void> {
   let timers: ReturnType<typeof setInterval>[] = [];
   // Survives reconnects: its baseline makes the next delta cover the gap.
   const edgeTraffic = new EdgeTrafficScraper(dockerMetricsFetcher(docker));
+  // Each local volume's size, measured every 10 min and cached (boards 9 + 36).
+  const volumeSizer = createVolumeSizer(dockerVolumeSizes(docker), { log });
 
   // Swarm-membership watchdog. The agent is useless off-swarm — it can't run a
   // single Docker Swarm command — so if the swarm is LEFT out from under a
@@ -536,6 +539,7 @@ export async function runDaemon(): Promise<void> {
     timers = [];
 
     void swarmWatchdog();
+    volumeSizer.resend();
     void sendContainerList(docker, conn);
     void sendServiceState(docker, conn);
     void sendNodeList(docker, conn);
@@ -568,7 +572,9 @@ export async function runDaemon(): Promise<void> {
           collectMetrics(docker),
           edgeTraffic.sample().catch(() => undefined),
         ]);
-        conn.send('metrics', edge ? { ...metrics, edge } : metrics);
+        // Volume sizes ride along only after a fresh measurement or a register.
+        const volumes = volumeSizer.take();
+        conn.send('metrics', { ...metrics, ...(edge ? { edge } : {}), ...(volumes ? { volumes } : {}) });
       }, metricsMs),
     );
     timers.push(

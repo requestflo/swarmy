@@ -138,6 +138,7 @@ skill is the agent-and-protocol third of that.
 | Web terminal: exec/node-shell PTY over the agent WS, tickets, recording | `apps/agent/src/handlers/terminal.ts`, `protocol/terminal.ts`, `apps/api/src/terminal{,-tickets,-recording}.ts`, `schema/terminal.prisma` |
 | Node facts, public-IP detect, snapshots, stats | `apps/agent/src/{public-ip,snapshots,stats,state}.ts` |
 | Docker health probes on the container snapshot | `apps/agent/src/health-probes.ts`; pure `packages/core/src/container-health.ts`, edit/test shapes `packages/core/src/healthcheck.ts` |
+| Volume sizes (`/system/df?type=volume` every 10 min, cached; additive `metrics.volumes`, sent once per measurement + after register; hub memory only → `nodes.volumeSizes`) | `apps/agent/src/volume-sizes.ts`; pure `packages/core/src/volume-sizes.ts`, wire `protocol/volume-sizes.ts`; `packages/trpc/src/services/volume-sizes.service.ts` |
 | Local exec veto + runOnce bind allowlist | `apps/agent/src/executor.ts` (`execVetoed`), `packages/core/src/protocol/run-once-binds.ts`; tests `apps/agent/src/executor-veto.test.ts` |
 | Why a node skipped the mesh-first join (logged, shown by `doctor`) | `apps/agent/src/mesh-startup.ts` (`meshSkipReason`) |
 | Wire protocol: envelope, messages, auth, per-domain types | `packages/core/src/protocol/*` |
