@@ -19,6 +19,7 @@ import { cicdRouter } from './routers/cicd';
 import { deploysRouter } from './routers/deploys';
 import { gitConnectionsRouter } from './routers/gitConnections';
 import { appsRouter } from './routers/apps';
+import { herokuImportRouter } from './routers/herokuImport';
 import { geodnsRouter } from './routers/geodns';
 import { apiKeysRouter } from './routers/apiKeys';
 import { controllerBackupRouter } from './routers/controllerBackup';
@@ -94,6 +95,7 @@ export const appRouter = router({
   deploys: deploysRouter,
   gitConnections: gitConnectionsRouter,
   apps: appsRouter,
+  herokuImport: herokuImportRouter,
   geodns: geodnsRouter,
   apiKeys: apiKeysRouter,
   controllerBackup: controllerBackupRouter,

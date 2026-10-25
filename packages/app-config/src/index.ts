@@ -27,6 +27,7 @@ export * from './from-heroku-steps';
 export * from './from-heroku-api';
 export * from './from-heroku-plan';
 export { readHerokuDomains } from './from-heroku-domains';
+export { readHerokuConfig } from './from-heroku-read';
 export { DYNO_SIZES, dynoSize, type DynoLimits } from './from-heroku-dyno';
 export { SWARMY_YAML_JSON_SCHEMA } from './json-schema';
 export { MINIMAL_EXAMPLE, FULL_EXAMPLE } from './examples';

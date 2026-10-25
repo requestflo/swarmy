@@ -64,6 +64,7 @@ export * from './admission-record';
 export * from './admission-tally';
 export * from './search-indexes';
 export * from './search-synonyms';
+export * from './heroku-import';
 // NOTE: './crypto' (node:crypto credential vault) is server-only and is NOT
 // re-exported here — import it via '@swarmy/core/crypto' so it never reaches the
 // browser bundle.
