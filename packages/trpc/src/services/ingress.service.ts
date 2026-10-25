@@ -23,7 +23,7 @@ import type { IngressStatus, RenderedConfig } from '@swarmy/core/protocol';
 import { meshControlVhosts } from './mesh-control.service';
 import { createHash } from 'node:crypto';
 import { TRPCError } from '@trpc/server';
-import { buildInventory, type TlsMode } from '@swarmy/core';
+import { buildInventory, type ExposeMode, type TlsMode } from '@swarmy/core';
 import { decryptSecret } from '@swarmy/core/crypto';
 import { wakePathFor } from '@swarmy/core/wake-token';
 import type { Auth } from '@swarmy/auth';
@@ -260,6 +260,11 @@ export interface DomainView {
    * first deploy). Removing it is permanent; adding a custom domain replaces it.
    */
   auto: boolean;
+  /**
+   * The owning service's declared exposure (`swarmy.expose`), which wins over
+   * `ingressDriver` (see `routeChannel`); null = undeclared. Listed routes only.
+   */
+  expose?: ExposeMode | null;
 }
 
 /**
@@ -934,7 +939,7 @@ export async function listDomains(ctx: OrgContext, stack?: string): Promise<Doma
   const statuses = await domainStatusMap(ctx).catch(() => new Map<string, DomainStatusView>());
   return listRoutesForOrg(ctx)
     .filter((r) => !stack || r.stack === stack)
-    .map(({ serviceId, serviceName, stack: svcStack, route, auto }) => {
+    .map(({ serviceId, serviceName, stack: svcStack, route, auto, expose }) => {
       const companion = route.www ? companionHost(route.host) : null;
       return {
         id: domainId(serviceId, route.host, route.path),
@@ -955,6 +960,7 @@ export async function listDomains(ctx: OrgContext, stack?: string): Promise<Doma
         status: statuses.get(normalizeHostname(route.host)) ?? null,
         companionStatus: companion ? statuses.get(companion) ?? null : null,
         auto: auto ?? false,
+        expose: expose ?? null,
       };
     });
 }

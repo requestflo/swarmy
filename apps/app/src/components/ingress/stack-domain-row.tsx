@@ -48,6 +48,8 @@ export interface StackDomain {
   auto?: boolean;
   /** The route's own front-door driver (null = the org's). */
   ingressDriver?: string | null;
+  /** The app's declared exposure (`swarmy.expose`), which wins over the route's driver. */
+  expose?: string | null;
   /** DNS + certificate lifecycle (null while unknown). */
   status?: DomainStatus | null;
 }

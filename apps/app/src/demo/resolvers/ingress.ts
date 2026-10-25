@@ -203,6 +203,11 @@ interface IngressState {
 
 const VALID_DRIVERS: ReadonlySet<IngressDriverId> = new Set<IngressDriverId>(['none', 'caddy', 'cloudflared']);
 
+/** A route's own driver override (`cloudflared` / `none`); anything else rides the org's driver. */
+function routeDriverOf(raw: string | null | undefined): IngressDriverId | null {
+  return raw === 'cloudflared' || raw === 'none' ? raw : null;
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -455,10 +460,8 @@ export const ingress: DomainResolvers = {
             targetPort: r.port,
             tls: (r.tls === 'manual' ? 'custom' : (r.tls ?? 'auto')) as TlsMode,
             pathPrefix: r.path ?? null,
-            ingressDriver:
-              r.driver && VALID_DRIVERS.has(r.driver as IngressDriverId) && r.driver !== 'none'
-                ? (r.driver as IngressDriverId)
-                : null,
+            // The route's own driver, as the real label keeps it (`none` included); anything else is the org's.
+            ingressDriver: routeDriverOf(r.driver),
             protection: sealDemoPasswords(r.protection) ?? null,
             canaryPct: match?.canaryPct ?? null,
           };
@@ -497,8 +500,7 @@ export const ingress: DomainResolvers = {
       const st = getState(s);
       const svc = s.services.find((sv) => sv.id === b.serviceId);
       const serviceName = svc?.name ?? b.serviceId;
-      const driverOverride =
-        b.ingressDriver && VALID_DRIVERS.has(b.ingressDriver) && b.ingressDriver !== 'none' ? b.ingressDriver : null;
+      const driverOverride = routeDriverOf(b.ingressDriver);
       const row: DomainView = {
         id: rid('dom'),
         host: b.host,
@@ -649,7 +651,7 @@ export const ingress: DomainResolvers = {
   seed: (store) => {
     // A coherent slice of the demo cluster: Caddy live, three public hostnames
     // pointed at the ingress-enabled services (web/api/cdn/grafana from data.ts),
-    // on-demand TLS off, no tunnel yet. An edge on every edge server (the geo
+    // on-demand TLS off, a Cloudflare Tunnel for cdn. An edge on every edge server (the geo
     // seed marks four; swarmy-dns sends each visitor to the nearest one).
     const state: IngressState = {
       driver: 'caddy',
@@ -761,7 +763,8 @@ export const ingress: DomainResolvers = {
           canaryPct: null,
         },
       ],
-      tunnel: null,
+      // A connected Cloudflare Tunnel: cdn.northwind.dev rides it (its route's driver), the rest the public front door.
+      tunnel: { tunnelId: '6f2d9c1e-3b4a-4c8e-9a1d-2e7f5b8c0d13', tunnelName: 'swarmy', accountId: null, connected: true, configured: true, replicas: 1 },
     };
     store.extra.ingress = state;
   },

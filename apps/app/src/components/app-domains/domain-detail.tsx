@@ -9,14 +9,15 @@ import { domainWords } from './domain-words';
 import { CertCard } from './cert-card';
 import { DomainFlow } from './domain-flow';
 import { ProtectionsSection } from './protections-section';
+import { RouteDriverPicker } from './route-driver-picker';
 import { rulesOn } from './protection-rules';
 import type { useDomainDetail } from './use-domain-detail';
 
 /**
  * One address in full (board 30): how visits reach the service, the
- * certificate, and the protections as switches. Controls adds every rule as
- * the full form (cache, WAF-lite methods and patterns, required headers) and
- * removing the address.
+ * certificate, and the protections as switches. Controls adds which front
+ * door serves the address, every rule as the full form (cache, WAF-lite
+ * methods and patterns, required headers) and removing the address.
  */
 export function DomainDetailPanel({ stack, domain: d, info, protection }: {
   stack: string;
@@ -54,6 +55,7 @@ export function DomainDetailPanel({ stack, domain: d, info, protection }: {
         <ProtectionsSection host={d.host} service={service} protection={p} blocked={info.blocked} saving={protection.saving} save={protection.save} />
       </div>
       <Depth at="controls">
+        <RouteDriverPicker domain={d} />
         <Section title="Every rule, as a form" hint="cache, WAF-lite methods and patterns, required headers">
           <div className="-mx-5 -mb-4 overflow-hidden rounded-b-[inherit]">
             <ProtectionEditor

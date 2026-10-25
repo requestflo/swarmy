@@ -200,7 +200,7 @@ invariants that must survive every change, and where everything lives.
 | Region sibling discovery | `packages/trpc/src/services/ingress-regions.ts` |
 | Cluster zone: synthesis, lifecycle, install-time seed | `packages/dns/src/synth.ts` (+ `answer-records.ts`), `packages/trpc/src/services/cluster-zone{,.service}.ts`, `apps/api/src/bootstrap/cluster-zone.ts`; UI `apps/app/src/components/geo/cluster-zone-card.tsx` |
 | Auto-address base (configured / env / sslip.io) | `packages/ingress/src/auto-address-base.ts`, `packages/trpc/src/services/{auto-address,auto-address-base}.service.ts` |
-| Route channel (declared exposure + per-route driver) | `packages/ingress/src/route-channel.ts` |
+| Route channel (declared exposure + per-route driver) | `packages/ingress/src/route-channel.ts`; the per-address picker (app Domains tab, Controls) `apps/app/src/components/app-domains/route-driver-{model,picker}` (offers only what the org runs: the tunnel only while one is connected; `swarmy.expose` locks it, read off `DomainView.expose`) |
 | Edge country DB setting | `packages/ingress/src/edge-geoip.ts`, `packages/trpc/src/services/edge-geoip.service.ts` |
 | Edge traffic: scrape, latency buckets, ring/rollups, reads | `apps/agent/src/handlers/edge-traffic.ts`, `packages/core/src/edge-{traffic,traffic-caddy,traffic-hosts,traffic-extras,latency}.ts`, `packages/trpc/src/services/{traffic.service,traffic-series}.ts`, worker `apps/api/src/workers/edge-traffic.ts` |
 | Edge Caddy service spec / topology | `packages/trpc/src/services/ingress-controller.ts` (spec), `ingress-topology.ts` (preflight + swap) |

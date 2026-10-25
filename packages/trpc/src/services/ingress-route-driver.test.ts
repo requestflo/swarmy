@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import type { SwarmServiceInfo } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
-import { previewConfig } from './ingress.service';
+import { listDomains, previewConfig } from './ingress.service';
 import { hostPostures, targetFor } from './domain-verify.service';
 import { seedKv, useMemoryKv } from './swarm-kv.service';
 
@@ -74,6 +74,15 @@ describe('render honours route.driver and swarmy.expose', () => {
     expect(out).not.toContain('admin.acme.com');
     expect(out).not.toContain('byo.acme.com');
     expect(out).not.toContain('db.acme.com');
+  });
+
+  it('listed domains carry the route driver and the declared exposure the dashboard picker reads', async () => {
+    const ctx = ctxWith([
+      svc('shop_web', routes([{ host: 'admin.acme.com', port: 3000, tls: 'auto', driver: 'none' }])),
+      svc('shop_db', { ...routes([{ host: 'db.acme.com', port: 5432, tls: 'auto' }]), 'swarmy.expose': 'tunnel' }),
+    ]);
+    const rows = Object.fromEntries((await listDomains(ctx)).map((d) => [d.host, [d.ingressDriver, d.expose]]));
+    expect(rows).toEqual({ 'admin.acme.com': ['none', null], 'db.acme.com': [null, 'tunnel'] });
   });
 });
 

@@ -264,6 +264,27 @@ try {
     fail(`convert: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`);
   }
 
+  // An address's own front door (Controls): only what the org runs, and a pick saves on the route.
+  try {
+    const before = pageErrors.length;
+    await page.goto(`${BASE}/stacks/storefront/network?domain=cdn.northwind.dev`, { waitUntil: 'networkidle' });
+    await page.getByRole('group', { name: 'Detail on this page' }).getByRole('button', { name: 'Controls' }).first().click();
+    const picker = page.getByRole('radiogroup', { name: 'Which front door serves cdn.northwind.dev' });
+    await picker.waitFor({ timeout: 10_000 });
+    const tunnel = picker.getByRole('radio', { name: 'Through your Cloudflare Tunnel' });
+    if ((await tunnel.getAttribute('aria-checked')) !== 'true') throw new Error('cdn is not on the tunnel');
+    await picker.getByRole('radio', { name: 'The front door' }).click();
+    await page.waitForFunction(
+      () => document.querySelector('[role="radio"][aria-checked="true"]')?.textContent === 'The front door',
+      null,
+      { timeout: 10_000 },
+    );
+    if (pageErrors.length > before) fail(`route driver: ${pageErrors.slice(before).join(' | ')}`);
+    else console.log('✓ route driver: cdn rides the tunnel at Controls; picking the front door saves on the route');
+  } catch (e) {
+    fail(`route driver: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`);
+  }
+
   // The banner links back out.
   await page.goto(`${BASE}/`, { waitUntil: 'networkidle' });
   const links = await page
