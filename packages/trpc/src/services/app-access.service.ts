@@ -19,7 +19,8 @@
  * The app cookie only REFERENCES the swarmy session (id + user), so signing
  * out of swarmy or revoking the session ends app access: a cached permit is
  * dropped as soon as a session of that user ends (`sessionsRevokedSince`).
- * Who may enter is ABAC: the `app.access` action on the app's stack.
+ * Who may enter is ABAC: the `app.access` action on the app's stack, behind
+ * the app's org's account walls (2FA owed, SSO only; app-access-walls.ts).
  *
  * Pure over its deps (db + live hub inventory + clock), so the HTTP adapter
  * (apps/api/src/app-auth.ts) stays thin and this is unit-tested directly.
@@ -36,6 +37,7 @@ import { APP_AUTH_ORIGINAL_URI_HEADER, APP_AUTH_MODE_HEADER, APP_AUTH_PATH_PREFI
 import type { OrgContext } from '../context';
 import type { AgentHub } from '../hub/types';
 import { decide, liveStackLabels, principalFromMember } from '../abac';
+import { appAccessWall } from './app-access-walls';
 import { writeAudit } from './audit.service';
 import { readRoutes } from './ingress-routes';
 import { openToken, sealToken, signAppJwt, type AppCookie, type AppLoginCode } from './app-access-tokens';
@@ -295,18 +297,24 @@ interface Decision {
   groups: string[];
   policyId: string | null;
   member: boolean;
+  /** The org's account wall refused this session (2FA owed, SSO only): its words. */
+  wall?: string;
 }
 
 async function decideAccess(
   deps: AppAccessDeps,
   route: ProtectedRoute,
   uid: string,
+  sid: string,
 ): Promise<Decision> {
   const m = await deps.db.member.findFirst({
     where: { organizationId: route.orgId, userId: uid },
-    select: { id: true, userId: true, role: true, attributes: true },
+    select: { id: true, userId: true, role: true, attributes: true, createdAt: true },
   });
   if (!m) return { permit: false, groups: [], policyId: null, member: false };
+  const role = m.role as 'owner' | 'admin' | 'member';
+  const wall = await appAccessWall(deps.db, { uid, sid, orgId: route.orgId, role, memberSince: m.createdAt });
+  if (wall) return { permit: false, groups: [], policyId: null, member: true, wall };
   const principal = principalFromMember(route.orgId, m);
   const d = await decide({
     db: deps.db,
@@ -333,6 +341,11 @@ async function auditDenied(deps: AppAccessDeps, route: ProtectedRoute, uid: stri
       metadata: { host: route.host, policyId },
     },
   );
+}
+
+/** The org's account wall: finish signing in to swarmy the way this org asks. */
+function walled(deps: AppAccessDeps, words: string): AppAuthResponse {
+  return page(403, 'Finish signing in to swarmy', `<p>${esc(words)}</p><p><a href="${deps.publicUrl}/login">Sign in to swarmy</a></p>`);
 }
 
 function denied(route: ProtectedRoute): AppAuthResponse {
@@ -371,7 +384,8 @@ export async function verifyAppRequest(
 
   const who = await liveSession(deps.db, cookie.sid, cookie.uid, now);
   if (!who) return unauthenticated(deps, req, true);
-  const d = await decideAccess(deps, route, who.uid);
+  const d = await decideAccess(deps, route, who.uid, who.sid);
+  if (d.wall) return walled(deps, d.wall);
   if (!d.permit) {
     await auditDenied(deps, route, who.uid, d.policyId);
     return denied(route);
@@ -454,7 +468,8 @@ export async function startAppLogin(
   if (!route) {
     return page(404, 'Not a protected app', `<p><strong>${esc(host)}</strong> is not a swarmy app you can sign in to.</p>`);
   }
-  const d = await decideAccess(deps, route, session.userId);
+  const d = await decideAccess(deps, route, session.userId, session.id);
+  if (d.wall) return walled(deps, d.wall);
   if (!d.permit) {
     await auditDenied(deps, route, session.userId, d.policyId);
     return denied(route);
