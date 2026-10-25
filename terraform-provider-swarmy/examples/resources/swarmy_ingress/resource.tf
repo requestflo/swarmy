@@ -6,8 +6,11 @@
 # Destroying this resource does NOT remove the edge: it puts every setting
 # back to its default (swarmy's Caddy, enabled, the replicated controller,
 # the default image, no pin, no ACME email, no on-demand TLS, no tunnel, no
-# DNS provider). Leaving edge-per-node that way removes and recreates the
-# edge service (seconds of downtime on 80/443).
+# DNS provider, the bundled country database, no automatic-address base).
+# Leaving edge-per-node that way removes and recreates the edge service
+# (seconds of downtime on 80/443).
+#
+# A refused apply changes nothing and names every refused field and why.
 
 variable "cloudflare_dns_token" {
   type      = string
@@ -16,7 +19,7 @@ variable "cloudflare_dns_token" {
 
 resource "swarmy_ingress" "edge" {
   driver  = "caddy"
-  enabled = true
+  enabled = true # false is sent as false: the edge stops serving
 
   # A Caddy on every ingress-labelled node (needs swarmy object storage).
   topology = "edge-per-node"
@@ -24,6 +27,14 @@ resource "swarmy_ingress" "edge" {
   acme_email        = "ops@example.com"
   on_demand_tls     = true
   on_demand_ask_url = "https://controller.example.com/ingress/ask"
+
+  # Country allow/deny rules read swarmy's bundled DB-IP Country Lite by
+  # default; point them at your own database, or turn enforcement off:
+  # geoip_mode = "file"
+  # geoip_path = "/data/GeoLite2-Country.mmdb"
+
+  # Automatic addresses under nip.io instead of sslip.io.
+  auto_address_base = "nip.io"
 
   # Wildcard certificates for zones swarmy DNS does not serve. The token is
   # write-only: it goes into a Docker secret and is never read back.

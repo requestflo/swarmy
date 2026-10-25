@@ -2,6 +2,7 @@ package provider
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -17,6 +18,7 @@ type fakeIngressAPI struct {
 	s     map[string]any
 	token map[string]string // tunnel / dns token as last written
 	puts  []map[string]any
+	raw   []string // each PUT body exactly as sent
 }
 
 func newFakeIngressAPI(t *testing.T) (*fakeIngressAPI, *httptest.Server) {
@@ -32,7 +34,9 @@ func newFakeIngressAPI(t *testing.T) (*fakeIngressAPI, *httptest.Server) {
 		}
 		if r.Method == http.MethodPut {
 			var body map[string]any
-			_ = json.NewDecoder(r.Body).Decode(&body)
+			b, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(b, &body)
+			f.raw = append(f.raw, string(b))
 			f.puts = append(f.puts, body)
 			f.apply(body)
 		}
@@ -67,6 +71,14 @@ func (f *fakeIngressAPI) apply(body map[string]any) {
 				f.token["dns"] = d["api_token"].(string)
 				f.s["dns_provider"] = map[string]any{"provider": d["provider"], "api_token_set": true, "set_at": "2026-10-24T00:00:00.000Z"}
 			}
+		case "geoip":
+			// Only the file mode keeps a path (as the controller stores it).
+			g := v.(map[string]any)
+			var p any
+			if g["mode"] == "file" {
+				p = g["path"]
+			}
+			f.s["geoip"] = map[string]any{"mode": g["mode"], "path": p}
 		default:
 			f.s[k] = v
 		}

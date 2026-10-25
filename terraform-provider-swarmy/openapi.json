@@ -96,6 +96,22 @@
           "next_cursor"
         ]
       },
+      "InvalidParam": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The refused field, dotted (`tls.on_demand`, `tunnel.run_token`)."
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "reason"
+        ]
+      },
       "Problem": {
         "type": "object",
         "properties": {
@@ -116,6 +132,13 @@
           },
           "swarmy_code": {
             "type": "string"
+          },
+          "invalid_params": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InvalidParam"
+            },
+            "description": "On a validation 400: every refused field and why (RFC 9457 §3). A write validated as a whole lists each field, not just the first."
           }
         },
         "required": [
@@ -339,6 +362,13 @@
           "swarmy_code": {
             "type": "string",
             "description": "`POLICY_DENIED` when admission refused the deploy."
+          },
+          "invalid_params": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InvalidParam"
+            },
+            "description": "On a validation 400: every refused field and why (RFC 9457 §3). A write validated as a whole lists each field, not just the first."
           },
           "violations": {
             "type": "array",
@@ -1488,6 +1518,33 @@
         ],
         "description": "BYO DNS provider for wildcard certificates in zones swarmy DNS does not serve, or null."
       },
+      "IngressGeoipMode": {
+        "type": "string",
+        "enum": [
+          "bundled",
+          "file",
+          "off"
+        ],
+        "description": "`bundled` the DB-IP Country Lite copy in swarmy’s Caddy build (IP Geolocation by DB-IP, CC BY 4.0); `file` an mmdb already inside the edge container; `off` country rules are saved but not enforced. Open enum."
+      },
+      "IngressGeoip": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/IngressGeoipMode"
+          },
+          "path": {
+            "type": "string",
+            "nullable": true,
+            "description": "The mmdb path inside the edge container (`file` only)."
+          }
+        },
+        "required": [
+          "mode",
+          "path"
+        ],
+        "description": "The country database the edge’s country allow/deny rules read."
+      },
       "IngressSettings": {
         "type": "object",
         "properties": {
@@ -1527,6 +1584,14 @@
           "dns_provider": {
             "$ref": "#/components/schemas/IngressDnsProvider"
           },
+          "geoip": {
+            "$ref": "#/components/schemas/IngressGeoip"
+          },
+          "auto_address_base": {
+            "type": "string",
+            "nullable": true,
+            "description": "The workspace’s wildcard-IP base for automatic addresses (e.g. `nip.io`); null = the controller default (sslip.io unless set)."
+          },
           "updated_at": {
             "type": "string"
           }
@@ -1542,6 +1607,8 @@
           "tls",
           "tunnel",
           "dns_provider",
+          "geoip",
+          "auto_address_base",
           "updated_at"
         ]
       },
@@ -1616,6 +1683,22 @@
         "additionalProperties": false,
         "description": "`null` clears the provider."
       },
+      "IngressGeoipInput": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/IngressGeoipMode"
+          },
+          "path": {
+            "type": "string",
+            "description": "Required for `file`: an absolute path to a `.mmdb` inside the edge container."
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "additionalProperties": false
+      },
       "UpdateIngressSettingsRequest": {
         "type": "object",
         "properties": {
@@ -1657,6 +1740,15 @@
           },
           "dns_provider": {
             "$ref": "#/components/schemas/IngressDnsProviderInput"
+          },
+          "geoip": {
+            "$ref": "#/components/schemas/IngressGeoipInput"
+          },
+          "auto_address_base": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 253,
+            "description": "A wildcard-IP DNS service (`<x>.<a-b-c-d>.<base>` must resolve to a.b.c.d); `null` or empty clears it. Automatic addresses move on the next domain check."
           }
         },
         "additionalProperties": false,
@@ -6030,7 +6122,7 @@
           "Ingress"
         ],
         "summary": "Read the ingress settings",
-        "description": "Driver, topology, image, target nodes, TLS, tunnel and DNS provider. Secrets read back as set / not set, never their values.",
+        "description": "Driver, topology, image, target nodes, TLS, tunnel, DNS provider, country database and automatic-address base. Secrets read back as set / not set, never their values.",
         "security": [
           {
             "bearerApiKey": []
@@ -6064,7 +6156,7 @@
           "Ingress"
         ],
         "summary": "Change the ingress settings",
-        "description": "One write for every edge setting: the body is validated as a whole (nothing changes when any part is refused), saved, and the edge converges once. Fields left out keep their current value; `null` clears a nullable one. A topology change removes and recreates the edge service; the current topology is a no-op.",
+        "description": "One write for every edge setting: the body is validated as a whole (nothing changes when any part is refused, and `invalid_params` names each refused field), saved, and the edge converges once. Fields left out keep their current value; `null` clears a nullable one. A topology change removes and recreates the edge service; the current topology is a no-op.",
         "security": [
           {
             "bearerApiKey": []
@@ -6091,7 +6183,7 @@
             }
           },
           "400": {
-            "description": "Problem",
+            "description": "Refused as a whole: `invalid_params` names every field and why; nothing changed",
             "content": {
               "application/problem+json": {
                 "schema": {

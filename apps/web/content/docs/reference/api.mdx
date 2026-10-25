@@ -41,6 +41,8 @@ dashboard apply to it.
   scaling or restarting a service, or deploying a stack, returns `202` with a
   deployment reference you can poll.
 - A deploy a guardrail refuses returns `412` with each violation.
+- A request refused as invalid returns `400` with `invalid_params`: every
+  field it refused (`tls.on_demand`) and why, not just the first.
 
 ## Resources
 
@@ -52,6 +54,13 @@ credentials, backups, notifications, the audit log and API keys.
 command, environment (including secret variables), resources, restart policy,
 update order and labels. Send only the fields you want to change. Ports,
 volumes, networks and placement can't be changed through it.
+
+Your edge has one settings document, `GET/PUT /ingress/settings`: the
+driver, whether it serves, the topology, the Caddy image, pinned nodes, TLS,
+a Cloudflare tunnel, a DNS provider for wildcard certificates, the country
+database and the base automatic addresses use. A `PUT` sends any subset (left
+out keeps, `null` clears), is checked as a whole before anything changes, and
+the edge converges once. Writing needs an admin's key.
 
 Join tokens let a new server into the swarm. `POST /join-tokens` (admin only)
 returns the token once, with the mesh setup key when your organisation runs a
@@ -72,8 +81,8 @@ Each client takes an endpoint and an API key and appends `/api/v1` for you.
 ## Terraform
 
 The official provider, `requestflo/swarmy`, manages git connections, git repos,
-stacks, services, nodes, domains, API keys and join tokens as Terraform
-resources, and reads apps and nodes as data sources:
+stacks, services, nodes, domains, API keys, join tokens and the edge settings
+as Terraform resources, and reads apps and nodes as data sources:
 
 - `swarmy_service` applies an image, env or command change with one
   `PATCH /services/{id}` and waits for it to converge. A guardrail refusal
@@ -85,6 +94,10 @@ resources, and reads apps and nodes as data sources:
   one-liner. A token revoked outside Terraform is recreated on the next apply.
 - `swarmy_api_key` refreshes by listing your keys; a key revoked or expired
   outside Terraform is replaced on the next apply.
+- `swarmy_ingress` holds your edge settings, one per organisation. Anything
+  you leave unset goes back to its default, every apply is one
+  `PUT /ingress/settings`, and destroying it resets the settings rather than
+  removing the edge. Import it by your organisation id.
 
 ```hcl
 terraform {

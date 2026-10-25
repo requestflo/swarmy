@@ -8,8 +8,9 @@ import (
 // ---- Ingress settings (/ingress/settings) ----
 //
 // One per org: driver, enabled, topology, controller image, target nodes,
-// TLS, the Cloudflare tunnel and the BYO DNS provider. Secrets are
-// write-only; the read says whether one is set.
+// TLS, the Cloudflare tunnel, the BYO DNS provider, the country database and
+// the automatic-address base. Secrets are write-only; the read says whether
+// one is set.
 
 // IngressTLS mirrors the IngressTls DTO.
 type IngressTLS struct {
@@ -33,6 +34,13 @@ type IngressDNSProvider struct {
 	SetAt       string `json:"set_at"`
 }
 
+// IngressGeoip mirrors the IngressGeoip DTO: the country database the edge's
+// country rules read (bundled | file | off; a path only for file).
+type IngressGeoip struct {
+	Mode string  `json:"mode"`
+	Path *string `json:"path"`
+}
+
 // IngressSettings mirrors the IngressSettings DTO (GET/PUT /ingress/settings).
 type IngressSettings struct {
 	OrgID                  string              `json:"org_id"`
@@ -45,28 +53,35 @@ type IngressSettings struct {
 	TLS                    IngressTLS          `json:"tls"`
 	Tunnel                 *IngressTunnel      `json:"tunnel"`
 	DNSProvider            *IngressDNSProvider `json:"dns_provider"`
+	Geoip                  IngressGeoip        `json:"geoip"`
+	AutoAddressBase        *string             `json:"auto_address_base"`
 	UpdatedAt              string              `json:"updated_at"`
 }
 
 // IngressSettingsUpdate is the PUT /ingress/settings body. The API merges:
 // a key left out keeps its value and a nil value (JSON null) clears a
-// nullable field, so the body is a map to say exactly which is meant.
+// nullable field, so the body is a map to say exactly which is meant. A map
+// also never drops a false or a 0 the way an omitempty struct field would:
+// `"enabled": false` is sent as written.
 type IngressSettingsUpdate map[string]any
 
 // DefaultIngressSettings is the body that puts every setting back to what a
 // new org starts with: swarmy's Caddy, enabled, the replicated controller,
-// the default image, no pin, no ACME email, no on-demand TLS, no tunnel and
-// no DNS provider.
+// the default image, no pin, no ACME email, no on-demand TLS, no tunnel, no
+// DNS provider, the bundled country database and no automatic-address base
+// of its own.
 func DefaultIngressSettings() IngressSettingsUpdate {
 	return IngressSettingsUpdate{
-		"driver":           "caddy",
-		"enabled":          true,
-		"topology":         "controller",
-		"controller_image": nil,
-		"target_nodes":     []string{},
-		"tls":              map[string]any{"acme_email": nil, "on_demand": false, "ask_url": nil},
-		"tunnel":           nil,
-		"dns_provider":     nil,
+		"driver":            "caddy",
+		"enabled":           true,
+		"topology":          "controller",
+		"controller_image":  nil,
+		"target_nodes":      []string{},
+		"tls":               map[string]any{"acme_email": nil, "on_demand": false, "ask_url": nil},
+		"tunnel":            nil,
+		"dns_provider":      nil,
+		"geoip":             map[string]any{"mode": "bundled"},
+		"auto_address_base": nil,
 	}
 }
 

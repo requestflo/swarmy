@@ -19,6 +19,15 @@ type Problem struct {
 	// Violations lists the rules an admission refusal (412) broke: guardrails,
 	// exposure, image policy or the platform network wall.
 	Violations []Violation `json:"violations,omitempty"`
+	// InvalidParams lists every field a validation 400 refused, and why.
+	InvalidParams []InvalidParam `json:"invalid_params,omitempty"`
+}
+
+// InvalidParam is one refused field (the InvalidParam DTO): a dotted
+// snake_case name (`tls.on_demand`) and the reason.
+type InvalidParam struct {
+	Name   string `json:"name"`
+	Reason string `json:"reason"`
 }
 
 // Violation is one admission rule a deploy broke (the GuardrailProblem DTO).
@@ -41,7 +50,12 @@ type APIError struct {
 func (e *APIError) Error() string {
 	if e.Problem != nil {
 		msg := e.Problem.Title
-		if e.Problem.Detail != "" {
+		if len(e.Problem.InvalidParams) > 0 {
+			// Each refused field on its own line (the detail says the same, run together).
+			for _, p := range e.Problem.InvalidParams {
+				msg += fmt.Sprintf("\n  - %s: %s", p.Name, strings.TrimSpace(p.Reason))
+			}
+		} else if e.Problem.Detail != "" {
 			msg = fmt.Sprintf("%s: %s", e.Problem.Title, e.Problem.Detail)
 		}
 		for _, v := range e.Problem.Violations {

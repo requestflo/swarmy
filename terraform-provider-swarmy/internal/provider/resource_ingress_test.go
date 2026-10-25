@@ -26,6 +26,9 @@ const fullIngress = `
   acme_email        = "ops@acme.io"
   on_demand_tls     = true
   on_demand_ask_url = "https://ctl.acme.io/ask"
+  geoip_mode        = "file"
+  geoip_path        = "/geo/country.mmdb"
+  auto_address_base = "nip.io"
   tunnel            = { run_token = "tunnel-token-0123456789", replicas = 2 }
   dns_provider      = { provider = "cloudflare", api_token = "dns-token-0123456789" }`
 
@@ -48,8 +51,11 @@ func TestIngressResourceLifecycle(t *testing.T) {
 					resource.TestCheckResourceAttr("swarmy_ingress.edge", "driver", "caddy"),
 					resource.TestCheckResourceAttr("swarmy_ingress.edge", "tunnel.name", "swarmy"),
 					resource.TestCheckResourceAttr("swarmy_ingress.edge", "tunnel.run_token", "tunnel-token-0123456789"),
+					resource.TestCheckResourceAttr("swarmy_ingress.edge", "geoip_path", "/geo/country.mmdb"),
+					resource.TestCheckResourceAttr("swarmy_ingress.edge", "auto_address_base", "nip.io"),
 					last(func(p map[string]any) error {
-						if f.token["tunnel"] != "tunnel-token-0123456789" || f.token["dns"] != "dns-token-0123456789" || p["topology"] != "edge-per-node" {
+						if f.token["tunnel"] != "tunnel-token-0123456789" || f.token["dns"] != "dns-token-0123456789" || p["topology"] != "edge-per-node" ||
+							p["geoip"].(map[string]any)["path"] != "/geo/country.mmdb" {
 							return fmt.Errorf("create PUT = %v", p)
 						}
 						return nil
@@ -80,8 +86,10 @@ func TestIngressResourceLifecycle(t *testing.T) {
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckNoResourceAttr("swarmy_ingress.edge", "tunnel"),
 					resource.TestCheckResourceAttr("swarmy_ingress.edge", "topology", "controller"),
+					resource.TestCheckResourceAttr("swarmy_ingress.edge", "geoip_mode", "bundled"),
+					resource.TestCheckNoResourceAttr("swarmy_ingress.edge", "auto_address_base"),
 					last(func(p map[string]any) error {
-						if v, ok := p["tunnel"]; !ok || v != nil || p["controller_image"] != nil {
+						if v, ok := p["tunnel"]; !ok || v != nil || p["controller_image"] != nil || p["auto_address_base"] != nil {
 							return fmt.Errorf("clearing PUT = %v", p)
 						}
 						return nil
@@ -119,7 +127,7 @@ func TestIngressExample(t *testing.T) {
 			Check: func(*terraform.State) error {
 				f.mu.Lock()
 				defer f.mu.Unlock()
-				if f.s["topology"] != "edge-per-node" || f.token["dns"] != "cf-token-0123456789abcdef" {
+				if f.s["topology"] != "edge-per-node" || f.token["dns"] != "cf-token-0123456789abcdef" || f.s["auto_address_base"] != "nip.io" {
 					return fmt.Errorf("settings = %v", f.s)
 				}
 				return nil

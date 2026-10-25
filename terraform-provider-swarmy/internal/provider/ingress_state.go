@@ -21,6 +21,9 @@ type ingressModel struct {
 	AcmeEmail              types.String        `tfsdk:"acme_email"`
 	OnDemandTLS            types.Bool          `tfsdk:"on_demand_tls"`
 	OnDemandAskURL         types.String        `tfsdk:"on_demand_ask_url"`
+	GeoipMode              types.String        `tfsdk:"geoip_mode"`
+	GeoipPath              types.String        `tfsdk:"geoip_path"`
+	AutoAddressBase        types.String        `tfsdk:"auto_address_base"`
 	Tunnel                 *ingressTunnelModel `tfsdk:"tunnel"`
 	DNSProvider            *ingressDNSModel    `tfsdk:"dns_provider"`
 }
@@ -38,7 +41,8 @@ type ingressDNSModel struct {
 
 // ingressBody is the PUT body for the planned settings. Every non-secret
 // setting is sent (the configuration is the whole truth: unset means the
-// default); the tunnel and DNS provider, which carry write-only tokens, only
+// default), false and empty included — the body is a map, nothing is
+// omitted; the tunnel and DNS provider, which carry write-only tokens, only
 // when withSecrets (create, or they changed).
 func ingressBody(ctx context.Context, m *ingressModel, withSecrets bool) (client.IngressSettingsUpdate, diag.Diagnostics) {
 	nodes := []string{}
@@ -54,6 +58,8 @@ func ingressBody(ctx context.Context, m *ingressModel, withSecrets bool) (client
 			"on_demand":  m.OnDemandTLS.ValueBool(),
 			"ask_url":    valueToStringPtr(m.OnDemandAskURL),
 		},
+		"geoip":             geoipBody(m),
+		"auto_address_base": valueToStringPtr(m.AutoAddressBase),
 	}
 	if withSecrets {
 		body["tunnel"] = nil
@@ -66,6 +72,15 @@ func ingressBody(ctx context.Context, m *ingressModel, withSecrets bool) (client
 		}
 	}
 	return body, diags
+}
+
+// geoipBody is the country database choice; only file carries a path.
+func geoipBody(m *ingressModel) map[string]any {
+	g := map[string]any{"mode": m.GeoipMode.ValueString()}
+	if m.GeoipMode.ValueString() == "file" {
+		g["path"] = m.GeoipPath.ValueString()
+	}
+	return g
 }
 
 // secretsChanged reports whether the tunnel or DNS provider differ between
@@ -99,6 +114,9 @@ func mapIngressToState(ctx context.Context, s *client.IngressSettings, m *ingres
 	m.AcmeEmail = stringPtrToValue(s.TLS.AcmeEmail)
 	m.OnDemandTLS = types.BoolValue(s.TLS.OnDemand)
 	m.OnDemandAskURL = stringPtrToValue(s.TLS.AskURL)
+	m.GeoipMode = types.StringValue(s.Geoip.Mode)
+	m.GeoipPath = stringPtrToValue(s.Geoip.Path)
+	m.AutoAddressBase = stringPtrToValue(s.AutoAddressBase)
 
 	if s.Tunnel == nil {
 		m.Tunnel = nil
