@@ -57,11 +57,13 @@ type Client struct {
 	RegistryCredentials *RegistryCredentialsService
 	Deployments         *DeploymentsService
 
-	// Alerting and governance (resources_alerts.go, resources_governance.go).
+	// Alerting and governance (resources_{alerts,governance,incidents}.go).
 	AlertRules           *AlertRulesService
 	NotificationChannels *NotificationChannelsService
 	Guardrails           *GuardrailsService
 	Policies             *PoliciesService
+	Incidents            *IncidentsService
+	AlertEvents          *AlertEventsService
 }
 
 // Option configures a Client.
@@ -117,6 +119,8 @@ func NewClient(endpoint, apiKey string, opts ...Option) (*Client, error) {
 	c.NotificationChannels = &NotificationChannelsService{client: c}
 	c.Guardrails = &GuardrailsService{client: c}
 	c.Policies = &PoliciesService{client: c}
+	c.Incidents = &IncidentsService{client: c}
+	c.AlertEvents = &AlertEventsService{client: c}
 	return c, nil
 }
 

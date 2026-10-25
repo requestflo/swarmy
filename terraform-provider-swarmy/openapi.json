@@ -5372,6 +5372,285 @@
           "source"
         ],
         "description": "The whole rule. On update, a description left out is cleared."
+      },
+      "Incident": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "resolved"
+            ]
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "minor",
+              "major",
+              "critical"
+            ]
+          },
+          "summary": {
+            "type": "string",
+            "nullable": true,
+            "description": "The post-mortem summary, when someone wrote one."
+          },
+          "opened_at": {
+            "type": "string"
+          },
+          "resolved_at": {
+            "type": "string",
+            "nullable": true
+          },
+          "duration_sec": {
+            "type": "integer",
+            "description": "Open: seconds so far. Resolved: the whole span."
+          },
+          "event_count": {
+            "type": "integer"
+          },
+          "last_event_at": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "status",
+          "severity",
+          "summary",
+          "opened_at",
+          "resolved_at",
+          "duration_sec",
+          "event_count",
+          "last_event_at"
+        ]
+      },
+      "IncidentList": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Incident"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor"
+        ]
+      },
+      "IncidentEvent": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "description": "opened, alert.fired, alert.resolved, db.failover, note, status.<phase>, resolved, reopened, … (open set)."
+          },
+          "message": {
+            "type": "string"
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": {
+              "nullable": true
+            }
+          }
+        },
+        "required": [
+          "id",
+          "at",
+          "kind",
+          "message",
+          "meta"
+        ]
+      },
+      "IncidentDetail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "resolved"
+            ]
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "minor",
+              "major",
+              "critical"
+            ]
+          },
+          "summary": {
+            "type": "string",
+            "nullable": true,
+            "description": "The post-mortem summary, when someone wrote one."
+          },
+          "opened_at": {
+            "type": "string"
+          },
+          "resolved_at": {
+            "type": "string",
+            "nullable": true
+          },
+          "duration_sec": {
+            "type": "integer",
+            "description": "Open: seconds so far. Resolved: the whole span."
+          },
+          "event_count": {
+            "type": "integer"
+          },
+          "last_event_at": {
+            "type": "string",
+            "nullable": true
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IncidentEvent"
+            },
+            "description": "Oldest first."
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "status",
+          "severity",
+          "summary",
+          "opened_at",
+          "resolved_at",
+          "duration_sec",
+          "event_count",
+          "last_event_at",
+          "events"
+        ]
+      },
+      "ResolveIncidentRequest": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "maxLength": 4000,
+            "description": "The resolution, for the timeline."
+          }
+        }
+      },
+      "AlertEvent": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "rule_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "rule_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "signal": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "info",
+              "warning",
+              "critical"
+            ]
+          },
+          "resource": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "firing",
+              "resolved"
+            ]
+          },
+          "notify": {
+            "type": "string",
+            "enum": [
+              "sent",
+              "held",
+              "muted",
+              "skipped"
+            ],
+            "description": "Its firing notification went out, is held for quiet hours, was muted, or was skipped."
+          },
+          "fired_at": {
+            "type": "string"
+          },
+          "resolved_at": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "rule_id",
+          "rule_name",
+          "signal",
+          "severity",
+          "resource",
+          "message",
+          "status",
+          "notify",
+          "fired_at",
+          "resolved_at"
+        ]
+      },
+      "AlertEventList": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AlertEvent"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor"
+        ]
       }
     },
     "parameters": {}
@@ -11027,6 +11306,305 @@
               "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/incidents": {
+      "get": {
+        "tags": [
+          "Incidents"
+        ],
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "summary": "List incidents, open first then newest",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "open",
+                "resolved"
+              ],
+              "description": "Omit for every incident (open first)."
+            },
+            "required": false,
+            "name": "status",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "description": "Default 50."
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Incidents",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/incidents/{id}": {
+      "get": {
+        "tags": [
+          "Incidents"
+        ],
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "summary": "Get one incident with its timeline (oldest event first)",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Incident",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/incidents/{id}/resolve": {
+      "post": {
+        "tags": [
+          "Incidents"
+        ],
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "summary": "Resolve an open incident (optional resolution message)",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveIncidentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Resolved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/alert-events": {
+      "get": {
+        "tags": [
+          "Alert Events"
+        ],
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "summary": "List alert events (firing and resolved), newest first",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "firing",
+                "resolved"
+              ]
+            },
+            "required": false,
+            "name": "status",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "description": "Default 50."
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Events",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertEventList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/alert-events/{id}/acknowledge": {
+      "post": {
+        "tags": [
+          "Alert Events"
+        ],
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "summary": "Acknowledge a firing alert event (resolves it; no recovery notification)",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Acknowledged",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertEvent"
                 }
               }
             }

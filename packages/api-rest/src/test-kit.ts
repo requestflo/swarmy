@@ -67,7 +67,11 @@ export function testApp(opts: TestAppOptions = {}) {
   const call = async (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) => {
     const res = await app.request(path, {
       method,
-      headers: { authorization: 'Bearer swk_test_x', 'content-type': 'application/json', ...headers },
+      headers: {
+        authorization: 'Bearer swk_test_x',
+        ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
+        ...headers,
+      },
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     });
     const text = await res.text();

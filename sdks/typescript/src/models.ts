@@ -1220,3 +1220,66 @@ export interface PolicyRequest {
   priority?: number;
   enabled?: boolean;
 }
+
+export interface Incident {
+  id: string;
+  title: string;
+  status: 'open' | 'resolved';
+  severity: 'minor' | 'major' | 'critical';
+  summary: string | null;
+  opened_at: string;
+  resolved_at: string | null;
+  duration_sec: number;
+  event_count: number;
+  last_event_at: string | null;
+}
+
+export interface IncidentList {
+  data: Incident[];
+  next_cursor: string | null;
+}
+
+export interface IncidentEvent {
+  id: string;
+  at: string;
+  kind: string;
+  message: string;
+  meta: Record<string, unknown>;
+}
+
+export interface IncidentDetail {
+  id: string;
+  title: string;
+  status: 'open' | 'resolved';
+  severity: 'minor' | 'major' | 'critical';
+  summary: string | null;
+  opened_at: string;
+  resolved_at: string | null;
+  duration_sec: number;
+  event_count: number;
+  last_event_at: string | null;
+  events: IncidentEvent[];
+}
+
+export interface ResolveIncidentRequest {
+  message?: string;
+}
+
+export interface AlertEvent {
+  id: string;
+  rule_id: string | null;
+  rule_name: string | null;
+  signal: string;
+  severity: 'info' | 'warning' | 'critical';
+  resource: string;
+  message: string;
+  status: 'firing' | 'resolved';
+  notify: 'sent' | 'held' | 'muted' | 'skipped';
+  fired_at: string;
+  resolved_at: string | null;
+}
+
+export interface AlertEventList {
+  data: AlertEvent[];
+  next_cursor: string | null;
+}

@@ -5,6 +5,8 @@
  * call, re-exported from the package barrel under names that don't collide.
  */
 export {
+  ackEvent as ackAlertEvent,
+  listEvents as listAlertEvents,
   createChannel as createNotificationChannel,
   createRule as createAlertRule,
   deleteChannel as deleteNotificationChannel,
@@ -17,6 +19,7 @@ export {
 export { getAlertRule, getNotificationChannel, getPolicy } from './services/governance-lookup';
 export { deletePolicy, listPolicies, setPolicy, type PolicyView } from './services/policies.service';
 export { SetPolicyInput } from './services/policy-input';
+export { getIncident, listIncidents, resolveIncidentManually } from './services/incidents.service';
 export { resolveConfigRow } from './abac-config';
 export { getConfig as getGuardrailsConfig } from './services/guardrails.service';
 export { updateGuardrails, type GuardrailsPatch } from './services/guardrails-update';

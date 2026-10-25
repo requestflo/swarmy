@@ -1258,3 +1258,66 @@ type PolicyRequest struct {
 	Priority    *int   `json:"priority,omitempty"`
 	Enabled     *bool  `json:"enabled,omitempty"`
 }
+
+type Incident struct {
+	ID          string  `json:"id"`
+	Title       string  `json:"title"`
+	Status      string  `json:"status"`
+	Severity    string  `json:"severity"`
+	Summary     *string `json:"summary"`
+	OpenedAt    string  `json:"opened_at"`
+	ResolvedAt  *string `json:"resolved_at"`
+	DurationSec int     `json:"duration_sec"`
+	EventCount  int     `json:"event_count"`
+	LastEventAt *string `json:"last_event_at"`
+}
+
+type IncidentList struct {
+	Data       []Incident `json:"data"`
+	NextCursor *string    `json:"next_cursor"`
+}
+
+type IncidentEvent struct {
+	ID      string         `json:"id"`
+	At      string         `json:"at"`
+	Kind    string         `json:"kind"`
+	Message string         `json:"message"`
+	Meta    map[string]any `json:"meta"`
+}
+
+type IncidentDetail struct {
+	ID          string          `json:"id"`
+	Title       string          `json:"title"`
+	Status      string          `json:"status"`
+	Severity    string          `json:"severity"`
+	Summary     *string         `json:"summary"`
+	OpenedAt    string          `json:"opened_at"`
+	ResolvedAt  *string         `json:"resolved_at"`
+	DurationSec int             `json:"duration_sec"`
+	EventCount  int             `json:"event_count"`
+	LastEventAt *string         `json:"last_event_at"`
+	Events      []IncidentEvent `json:"events"`
+}
+
+type ResolveIncidentRequest struct {
+	Message string `json:"message,omitempty"`
+}
+
+type AlertEvent struct {
+	ID         string  `json:"id"`
+	RuleID     *string `json:"rule_id"`
+	RuleName   *string `json:"rule_name"`
+	Signal     string  `json:"signal"`
+	Severity   string  `json:"severity"`
+	Resource   string  `json:"resource"`
+	Message    string  `json:"message"`
+	Status     string  `json:"status"`
+	Notify     string  `json:"notify"`
+	FiredAt    string  `json:"fired_at"`
+	ResolvedAt *string `json:"resolved_at"`
+}
+
+type AlertEventList struct {
+	Data       []AlertEvent `json:"data"`
+	NextCursor *string      `json:"next_cursor"`
+}

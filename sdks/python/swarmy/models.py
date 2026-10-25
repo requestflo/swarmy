@@ -2304,3 +2304,113 @@ class Policy:
             updated_at=d.get("updated_at"),
         )
 
+
+@dataclass
+class Incident:
+    id: str
+    title: str
+    status: str
+    severity: str
+    summary: Optional[str]
+    opened_at: str
+    resolved_at: Optional[str]
+    duration_sec: int
+    event_count: int
+    last_event_at: Optional[str]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "Incident":
+        return cls(
+            id=d.get("id"),
+            title=d.get("title"),
+            status=d.get("status"),
+            severity=d.get("severity"),
+            summary=d.get("summary"),
+            opened_at=d.get("opened_at"),
+            resolved_at=d.get("resolved_at"),
+            duration_sec=d.get("duration_sec"),
+            event_count=d.get("event_count"),
+            last_event_at=d.get("last_event_at"),
+        )
+
+
+@dataclass
+class IncidentEvent:
+    id: str
+    at: str
+    kind: str
+    message: str
+    meta: Dict[str, Any]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "IncidentEvent":
+        return cls(
+            id=d.get("id"),
+            at=d.get("at"),
+            kind=d.get("kind"),
+            message=d.get("message"),
+            meta=d.get("meta"),
+        )
+
+
+@dataclass
+class IncidentDetail:
+    id: str
+    title: str
+    status: str
+    severity: str
+    summary: Optional[str]
+    opened_at: str
+    resolved_at: Optional[str]
+    duration_sec: int
+    event_count: int
+    last_event_at: Optional[str]
+    events: List[IncidentEvent]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "IncidentDetail":
+        return cls(
+            id=d.get("id"),
+            title=d.get("title"),
+            status=d.get("status"),
+            severity=d.get("severity"),
+            summary=d.get("summary"),
+            opened_at=d.get("opened_at"),
+            resolved_at=d.get("resolved_at"),
+            duration_sec=d.get("duration_sec"),
+            event_count=d.get("event_count"),
+            last_event_at=d.get("last_event_at"),
+            events=d.get("events"),
+        )
+
+
+@dataclass
+class AlertEvent:
+    id: str
+    rule_id: Optional[str]
+    rule_name: Optional[str]
+    signal: str
+    severity: str
+    resource: str
+    message: str
+    status: str
+    notify: str
+    fired_at: str
+    resolved_at: Optional[str]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "AlertEvent":
+        return cls(
+            id=d.get("id"),
+            rule_id=d.get("rule_id"),
+            rule_name=d.get("rule_name"),
+            signal=d.get("signal"),
+            severity=d.get("severity"),
+            resource=d.get("resource"),
+            message=d.get("message"),
+            status=d.get("status"),
+            notify=d.get("notify"),
+            fired_at=d.get("fired_at"),
+            resolved_at=d.get("resolved_at"),
+        )
+
