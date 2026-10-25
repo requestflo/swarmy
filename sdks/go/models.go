@@ -1122,3 +1122,86 @@ type DeployEvents struct {
 	Done      bool          `json:"done"`
 	Data      []DeployEvent `json:"data"`
 }
+
+type AlertSelector struct {
+	App     string `json:"app,omitempty"`
+	Server  string `json:"server,omitempty"`
+	Service string `json:"service,omitempty"`
+}
+
+type AlertRule struct {
+	ID         string        `json:"id"`
+	Name       string        `json:"name"`
+	Signal     string        `json:"signal"`
+	Selector   AlertSelector `json:"selector"`
+	Threshold  *float64      `json:"threshold"`
+	ForSeconds int           `json:"for_seconds"`
+	ChannelIds []string      `json:"channel_ids"`
+	Enabled    bool          `json:"enabled"`
+	IsDefault  bool          `json:"is_default"`
+	MutedUntil *string       `json:"muted_until"`
+	CreatedAt  string        `json:"created_at"`
+}
+
+type AlertRuleList struct {
+	Data       []AlertRule `json:"data"`
+	NextCursor *string     `json:"next_cursor"`
+}
+
+type CreateAlertRuleRequest struct {
+	Name       string            `json:"name"`
+	Signal     string            `json:"signal"`
+	Selector   *AlertSelector    `json:"selector,omitempty"`
+	Threshold  Nullable[float64] `json:"threshold,omitzero"`
+	ForSeconds *int              `json:"for_seconds,omitempty"`
+	ChannelIds []string          `json:"channel_ids,omitempty"`
+	Enabled    *bool             `json:"enabled,omitempty"`
+}
+
+type UpdateAlertRuleRequest struct {
+	Name       string            `json:"name,omitempty"`
+	Selector   *AlertSelector    `json:"selector,omitempty"`
+	Threshold  Nullable[float64] `json:"threshold,omitzero"`
+	ForSeconds *int              `json:"for_seconds,omitempty"`
+	ChannelIds []string          `json:"channel_ids,omitempty"`
+	Enabled    *bool             `json:"enabled,omitempty"`
+}
+
+type NotificationChannel struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Kind      string `json:"kind"`
+	Enabled   bool   `json:"enabled"`
+	Target    string `json:"target"`
+	HasSecret bool   `json:"has_secret"`
+	CreatedAt string `json:"created_at"`
+}
+
+type NotificationChannelList struct {
+	Data       []NotificationChannel `json:"data"`
+	NextCursor *string               `json:"next_cursor"`
+}
+
+type NotificationChannelConfig struct {
+	Kind     string `json:"kind"`
+	To       string `json:"to,omitempty"`
+	URL      string `json:"url,omitempty"`
+	Secret   string `json:"secret,omitempty"`
+	BotToken string `json:"bot_token,omitempty"`
+	ChatID   string `json:"chat_id,omitempty"`
+	ThreadID int    `json:"thread_id,omitempty"`
+	Server   string `json:"server,omitempty"`
+	Topic    string `json:"topic,omitempty"`
+	Token    string `json:"token,omitempty"`
+}
+
+type CreateNotificationChannelRequest struct {
+	Name   string                    `json:"name"`
+	Config NotificationChannelConfig `json:"config"`
+}
+
+type UpdateNotificationChannelRequest struct {
+	Name    string                     `json:"name,omitempty"`
+	Enabled *bool                      `json:"enabled,omitempty"`
+	Config  *NotificationChannelConfig `json:"config,omitempty"`
+}

@@ -83,6 +83,9 @@ const ROUTES: Array<[method: string, path: string, action: string, body?: unknow
   ['DELETE', '/git/connections/gc1', 'cicd.remove'],
   ['DELETE', '/git/repos/gr1', 'cicd.remove'],
   ['POST', '/apps/gr1/environments/production/purge', 'data.destroy', { resource: 'db', confirm: 'shop/db' }],
+  // Config-level deletes: members keep alert.remove by the seeded defaults.
+  ['DELETE', '/alert-rules/ar1', 'alert.remove'],
+  ['DELETE', '/notification-channels/ch1', 'alert.remove'],
   // Deploys: member-permitted outside production (no live stack → env unknown).
   ['POST', '/services', 'service.deploy', { name: 'web', image: 'nginx' }],
   ['POST', '/stacks', 'stack.deploy', { name: 'shop', compose_source: 'services: {}' }],
@@ -95,6 +98,7 @@ const MEMBER_KEEPS = new Set([
   'ingress.write',
   'service.deploy',
   'stack.deploy',
+  'alert.remove',
 ]);
 
 async function hit(role: Role, method: string, path: string, body?: unknown) {

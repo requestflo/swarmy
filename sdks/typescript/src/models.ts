@@ -1084,3 +1084,86 @@ export interface DeployEvents {
   done: boolean;
   data: DeployEvent[];
 }
+
+export interface AlertSelector {
+  app?: string;
+  server?: string;
+  service?: string;
+}
+
+export interface AlertRule {
+  id: string;
+  name: string;
+  signal: 'node-offline' | 'build-failed' | 'deploy-failed' | 'deploy-rolled-back' | 'crash-loop' | 'service-down' | 'db-degraded' | 'db-failover' | 'backup-failed' | 'cert-expiry' | 'disk-usage' | 'queue-depth' | 'error-rate' | 'store-unreachable' | 'error-new-issue' | 'error-regression' | 'error-spike' | 'cost-budget';
+  selector: AlertSelector;
+  threshold: number | null;
+  for_seconds: number;
+  channel_ids: string[];
+  enabled: boolean;
+  is_default: boolean;
+  muted_until: string | null;
+  created_at: string;
+}
+
+export interface AlertRuleList {
+  data: AlertRule[];
+  next_cursor: string | null;
+}
+
+export interface CreateAlertRuleRequest {
+  name: string;
+  signal: 'node-offline' | 'build-failed' | 'deploy-failed' | 'deploy-rolled-back' | 'crash-loop' | 'service-down' | 'db-degraded' | 'db-failover' | 'backup-failed' | 'cert-expiry' | 'disk-usage' | 'queue-depth' | 'error-rate' | 'store-unreachable' | 'error-new-issue' | 'error-regression' | 'error-spike' | 'cost-budget';
+  selector?: AlertSelector;
+  threshold?: number | null;
+  for_seconds?: number;
+  channel_ids?: string[];
+  enabled?: boolean;
+}
+
+export interface UpdateAlertRuleRequest {
+  name?: string;
+  selector?: AlertSelector;
+  threshold?: number | null;
+  for_seconds?: number;
+  channel_ids?: string[];
+  enabled?: boolean;
+}
+
+export interface NotificationChannel {
+  id: string;
+  name: string;
+  kind: 'email' | 'slack' | 'teams' | 'discord' | 'telegram' | 'ntfy' | 'gotify' | 'webhook';
+  enabled: boolean;
+  target: string;
+  has_secret: boolean;
+  created_at: string;
+}
+
+export interface NotificationChannelList {
+  data: NotificationChannel[];
+  next_cursor: string | null;
+}
+
+export interface NotificationChannelConfig {
+  kind: 'email' | 'slack' | 'teams' | 'discord' | 'telegram' | 'ntfy' | 'gotify' | 'webhook';
+  to?: string;
+  url?: string;
+  secret?: string;
+  bot_token?: string;
+  chat_id?: string;
+  thread_id?: number;
+  server?: string;
+  topic?: string;
+  token?: string;
+}
+
+export interface CreateNotificationChannelRequest {
+  name: string;
+  config: NotificationChannelConfig;
+}
+
+export interface UpdateNotificationChannelRequest {
+  name?: string;
+  enabled?: boolean;
+  config?: NotificationChannelConfig;
+}

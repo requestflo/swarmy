@@ -512,3 +512,4 @@ export {
   recordCacheHistory,
   recordQueueHistory,
 } from './services/data-history-record';
+export * from './rest-governance';

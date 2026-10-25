@@ -4741,6 +4741,393 @@
           "done",
           "data"
         ]
+      },
+      "AlertSignal": {
+        "type": "string",
+        "enum": [
+          "node-offline",
+          "build-failed",
+          "deploy-failed",
+          "deploy-rolled-back",
+          "crash-loop",
+          "service-down",
+          "db-degraded",
+          "db-failover",
+          "backup-failed",
+          "cert-expiry",
+          "disk-usage",
+          "queue-depth",
+          "error-rate",
+          "store-unreachable",
+          "error-new-issue",
+          "error-regression",
+          "error-spike",
+          "cost-budget"
+        ],
+        "description": "What the rule watches. Open enum: new signals may be added."
+      },
+      "AlertSelector": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "App (stack) name — app signals."
+          },
+          "server": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "Server (node) name — server signals."
+          },
+          "service": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "Part (service short name) inside `app`; needs `app`."
+          }
+        },
+        "additionalProperties": false,
+        "description": "What the rule is narrowed to. Empty = any subject of the signal."
+      },
+      "AlertRule": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "signal": {
+            "$ref": "#/components/schemas/AlertSignal"
+          },
+          "selector": {
+            "$ref": "#/components/schemas/AlertSelector"
+          },
+          "threshold": {
+            "type": "number",
+            "nullable": true,
+            "description": "The signal’s threshold (percent, count, days, … per signal). Null = the signal has none.",
+            "format": "double"
+          },
+          "for_seconds": {
+            "type": "integer",
+            "description": "How long the condition must hold before it fires."
+          },
+          "channel_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Notification channels it sends to."
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "is_default": {
+            "type": "boolean",
+            "description": "One of the seeded per-signal rules (deleting it opts the org out)."
+          },
+          "muted_until": {
+            "type": "string",
+            "nullable": true,
+            "description": "Muted (records, sends nothing) until then; null = not muted."
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "signal",
+          "selector",
+          "threshold",
+          "for_seconds",
+          "channel_ids",
+          "enabled",
+          "is_default",
+          "muted_until",
+          "created_at"
+        ]
+      },
+      "AlertRuleList": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AlertRule"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor"
+        ]
+      },
+      "CreateAlertRuleRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "signal": {
+            "$ref": "#/components/schemas/AlertSignal"
+          },
+          "selector": {
+            "$ref": "#/components/schemas/AlertSelector"
+          },
+          "threshold": {
+            "type": "number",
+            "nullable": true,
+            "description": "The signal’s threshold (percent, count, days, … per signal). Null = the signal has none.",
+            "format": "double"
+          },
+          "for_seconds": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 86400,
+            "description": "Default 0."
+          },
+          "channel_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "maxItems": 50
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Default true."
+          }
+        },
+        "required": [
+          "name",
+          "signal"
+        ]
+      },
+      "UpdateAlertRuleRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "selector": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AlertSelector"
+              },
+              {
+                "description": "Replaces the target; `{}` = any."
+              }
+            ]
+          },
+          "threshold": {
+            "type": "number",
+            "nullable": true,
+            "description": "The signal’s threshold (percent, count, days, … per signal). Null = the signal has none.",
+            "format": "double"
+          },
+          "for_seconds": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 86400
+          },
+          "channel_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "maxItems": 50,
+            "description": "Replaces the channel set."
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "description": "Fields left out keep their value; the signal never changes."
+      },
+      "NotificationChannelKind": {
+        "type": "string",
+        "enum": [
+          "email",
+          "slack",
+          "teams",
+          "discord",
+          "telegram",
+          "ntfy",
+          "gotify",
+          "webhook"
+        ],
+        "description": "Where the channel delivers. Open enum: new kinds may be added."
+      },
+      "NotificationChannel": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/NotificationChannelKind"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "target": {
+            "type": "string",
+            "description": "Redacted destination (an email address or a host). Never a secret."
+          },
+          "has_secret": {
+            "type": "boolean",
+            "description": "A signing secret or token is stored (webhook secret, ntfy/gotify/telegram token)."
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "enabled",
+          "target",
+          "has_secret",
+          "created_at"
+        ]
+      },
+      "NotificationChannelList": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NotificationChannel"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor"
+        ]
+      },
+      "NotificationChannelConfig": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/NotificationChannelKind"
+          },
+          "to": {
+            "type": "string",
+            "maxLength": 320,
+            "description": "`email`: the address."
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 1024,
+            "description": "`slack`, `teams`, `discord`, `webhook`: the incoming-webhook URL."
+          },
+          "secret": {
+            "type": "string",
+            "maxLength": 256,
+            "description": "`webhook`: optional HMAC secret (8+ characters); deliveries are signed."
+          },
+          "bot_token": {
+            "type": "string",
+            "maxLength": 256,
+            "description": "`telegram`: the BotFather token (`123456:ABC…`)."
+          },
+          "chat_id": {
+            "type": "string",
+            "maxLength": 128,
+            "description": "`telegram`: numeric chat id or `@channel`."
+          },
+          "thread_id": {
+            "type": "integer",
+            "minimum": 0,
+            "exclusiveMinimum": true,
+            "description": "`telegram`: forum topic thread."
+          },
+          "server": {
+            "type": "string",
+            "maxLength": 1024,
+            "description": "`ntfy`, `gotify`: the server URL."
+          },
+          "topic": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "`ntfy`: the topic."
+          },
+          "token": {
+            "type": "string",
+            "maxLength": 256,
+            "description": "`ntfy` (optional), `gotify`: the access/app token."
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "description": "The destination. Write-only: stored encrypted and never returned."
+      },
+      "CreateNotificationChannelRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "config": {
+            "$ref": "#/components/schemas/NotificationChannelConfig"
+          }
+        },
+        "required": [
+          "name",
+          "config"
+        ],
+        "description": "New channels start enabled."
+      },
+      "UpdateNotificationChannelRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "config": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NotificationChannelConfig"
+              },
+              {
+                "description": "Replaces the destination (same kind only). Left out keeps it."
+              }
+            ]
+          }
+        }
       }
     },
     "parameters": {}
@@ -9532,6 +9919,510 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DeployEvents"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/alert-rules": {
+      "get": {
+        "tags": [
+          "Alert Rules"
+        ],
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "summary": "List alert rules (seeds the per-signal defaults on first call)",
+        "responses": {
+          "200": {
+            "description": "Rules",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertRuleList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Alert Rules"
+        ],
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "summary": "Create an alert rule for a signal, optionally narrowed to one app/part or server",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAlertRuleRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertRule"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/alert-rules/{id}": {
+      "get": {
+        "tags": [
+          "Alert Rules"
+        ],
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "summary": "Get one alert rule",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Rule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertRule"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Alert Rules"
+        ],
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "summary": "Update an alert rule (target, threshold, for-duration, channels, enabled)",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAlertRuleRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertRule"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Alert Rules"
+        ],
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "summary": "Delete an alert rule (a seeded default is opted out, never re-created)",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Removed"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/notification-channels": {
+      "get": {
+        "tags": [
+          "Notification Channels"
+        ],
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "summary": "List notification channels (destinations are never returned)",
+        "responses": {
+          "200": {
+            "description": "Channels",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationChannelList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Notification Channels"
+        ],
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "summary": "Add a notification channel (email, Slack, Teams, Discord, Telegram, ntfy, Gotify, webhook)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateNotificationChannelRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationChannel"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/notification-channels/{id}": {
+      "get": {
+        "tags": [
+          "Notification Channels"
+        ],
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "summary": "Get one notification channel",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Channel",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationChannel"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Notification Channels"
+        ],
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "summary": "Rename, enable/disable or repoint a notification channel",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateNotificationChannelRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationChannel"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Notification Channels"
+        ],
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "summary": "Remove a notification channel",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Removed"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
                 }
               }
             }

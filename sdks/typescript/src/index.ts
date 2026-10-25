@@ -18,6 +18,7 @@ import {
   RegistryCredentialsResource,
   VolumesResource,
 } from './resources-extra.js';
+import { AlertRulesResource, NotificationChannelsResource } from './resources-alerts.js';
 
 export * from './models.js';
 export { SwarmyApiError } from './error.js';
@@ -52,6 +53,8 @@ export class SwarmyClient {
   readonly audit: AuditResource;
   readonly registryCredentials: RegistryCredentialsResource;
   readonly git: GitResource;
+  readonly alertRules: AlertRulesResource;
+  readonly notificationChannels: NotificationChannelsResource;
 
   private readonly http: HttpTransport;
 
@@ -71,6 +74,8 @@ export class SwarmyClient {
     this.audit = new AuditResource(this.http);
     this.registryCredentials = new RegistryCredentialsResource(this.http);
     this.git = new GitResource(this.http);
+    this.alertRules = new AlertRulesResource(this.http);
+    this.notificationChannels = new NotificationChannelsResource(this.http);
   }
 
   /** Who this credential acts as (org, user, role) and its scopes. */

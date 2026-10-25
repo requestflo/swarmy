@@ -2126,3 +2126,101 @@ class DeployEvents:
             data=d.get("data"),
         )
 
+
+@dataclass
+class AlertSelector:
+    app: Optional[str] = None
+    server: Optional[str] = None
+    service: Optional[str] = None
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "AlertSelector":
+        return cls(
+            app=d.get("app"),
+            server=d.get("server"),
+            service=d.get("service"),
+        )
+
+
+@dataclass
+class AlertRule:
+    id: str
+    name: str
+    signal: str
+    selector: AlertSelector
+    threshold: Optional[float]
+    for_seconds: int
+    channel_ids: List[str]
+    enabled: bool
+    is_default: bool
+    muted_until: Optional[str]
+    created_at: str
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "AlertRule":
+        return cls(
+            id=d.get("id"),
+            name=d.get("name"),
+            signal=d.get("signal"),
+            selector=d.get("selector"),
+            threshold=d.get("threshold"),
+            for_seconds=d.get("for_seconds"),
+            channel_ids=d.get("channel_ids"),
+            enabled=d.get("enabled"),
+            is_default=d.get("is_default"),
+            muted_until=d.get("muted_until"),
+            created_at=d.get("created_at"),
+        )
+
+
+@dataclass
+class NotificationChannel:
+    id: str
+    name: str
+    kind: str
+    enabled: bool
+    target: str
+    has_secret: bool
+    created_at: str
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "NotificationChannel":
+        return cls(
+            id=d.get("id"),
+            name=d.get("name"),
+            kind=d.get("kind"),
+            enabled=d.get("enabled"),
+            target=d.get("target"),
+            has_secret=d.get("has_secret"),
+            created_at=d.get("created_at"),
+        )
+
+
+@dataclass
+class NotificationChannelConfig:
+    kind: str
+    to: Optional[str] = None
+    url: Optional[str] = None
+    secret: Optional[str] = None
+    bot_token: Optional[str] = None
+    chat_id: Optional[str] = None
+    thread_id: Optional[int] = None
+    server: Optional[str] = None
+    topic: Optional[str] = None
+    token: Optional[str] = None
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "NotificationChannelConfig":
+        return cls(
+            kind=d.get("kind"),
+            to=d.get("to"),
+            url=d.get("url"),
+            secret=d.get("secret"),
+            bot_token=d.get("bot_token"),
+            chat_id=d.get("chat_id"),
+            thread_id=d.get("thread_id"),
+            server=d.get("server"),
+            topic=d.get("topic"),
+            token=d.get("token"),
+        )
+
