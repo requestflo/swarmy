@@ -24,6 +24,8 @@ export interface BuildLike {
   cachedSteps: number | null;
   stages: StageLike[];
   usualMs?: Partial<Record<StageLike['key'], number>>;
+  /** "v1.4.0" when the tag or release names one (`cicd.getBuild`); else the short commit stands in. */
+  version?: string | null;
 }
 
 export interface StageRowView {
@@ -36,7 +38,7 @@ export interface StageRowView {
   detail: string | null;
 }
 
-const LABEL: Record<StageLike['key'], string> = { clone: 'Clone', build: 'Build', push: 'Push', scan: 'Scan', sign: 'Sign', rollout: 'Roll out' };
+export const LABEL: Record<StageLike['key'], string> = { clone: 'Clone', build: 'Build', push: 'Push', scan: 'Scan', sign: 'Sign', rollout: 'Roll out' };
 const RUNNING = new Set(['queued', 'building', 'pushing']);
 
 /** 2 s · 38 s · 1 m 04 s */
@@ -102,7 +104,7 @@ export function outcomeLine(b: BuildLike): OutcomeView | null {
   const r = b.stages.find((s) => s.key === 'rollout');
   if (!r?.finishedAt || r.outcome === 'running') return null;
   const roll = r.facts.rollout;
-  const who = b.commit && /^[0-9a-f]{7,}$/.test(b.commit) ? b.commit.slice(0, 7) : 'This build';
+  const who = b.version ?? (b.commit && /^[0-9a-f]{7,}$/.test(b.commit) ? b.commit.slice(0, 7) : 'This build');
   const where = roll ? ` on ${roll.services.join(', ') || roll.stack}` : '';
   const health = roll ? `health ${roll.ready}/${roll.desired}` : null;
   if (r.outcome === 'failed') {

@@ -72,6 +72,11 @@ describe('outcomeLine', () => {
     });
   });
 
+  test('a release version, when the build has one, names it instead of the commit', () => {
+    const b = { ...base, version: 'v1.4.0', stages: [stage('rollout', 54, 64, { facts: { rollout } })] };
+    expect(outcomeLine(b)?.title).toBe('v1.4.0 is live on checkout');
+  });
+
   test('only what is real: no drained claim on a first deploy; nothing while it rolls', () => {
     const first = { ...base, commit: 'main', stages: [stage('rollout', 54, 64, { facts: { rollout: { ...rollout, drained: undefined } } })] };
     expect(outcomeLine(first)?.title).toBe('This build is live on checkout');

@@ -1,3 +1,4 @@
+import { buildVersion } from '@swarmy/core';
 import type { DemoStore, DomainResolvers } from '../types';
 import { DEMO_SCANNED_DIGESTS, makeBuildLog } from './cicd-build-log';
 import { demoStages, demoUsualMs, type DemoStageView } from './cicd-build-stages';
@@ -360,12 +361,13 @@ export const cicd: DomainResolvers = {
       return repoId ? builds.filter((b) => b.repoId === repoId) : builds;
     },
 
-    'cicd.getBuild': (i, s): BuildView & { usualMs: ReturnType<typeof demoUsualMs> } => {
+    'cicd.getBuild': (i, s): BuildView & { usualMs: ReturnType<typeof demoUsualMs>; version: string | null } => {
       const { buildId } = i as { buildId: string };
       const builds = state(s).builds;
       const b = builds.find((x) => x.id === buildId);
       if (!b) throw new Error(`build "${buildId}" not found`);
-      return { ...withStages(b), usualMs: demoUsualMs(builds, buildId) };
+      // Tag builds (2.4.0) read as v2.4.0; branch builds keep the short commit.
+      return { ...withStages(b), usualMs: demoUsualMs(builds, buildId), version: buildVersion({ commit: b.commit, image: b.image }) };
     },
 
     'cicd.triggerBuild': (i, s): BuildView => {

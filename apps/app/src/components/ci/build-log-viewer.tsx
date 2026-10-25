@@ -8,9 +8,10 @@ const TONE_CLASS = { bad: 'text-tone-bad', warn: 'text-tone-warn', plain: '' } a
 /**
  * The build log, line by line: Follow keeps the newest line in view (scrolling
  * up lets go, Follow catches up again), Only warnings narrows to warnings and
- * errors, Copy takes what's shown.
+ * errors, Copy takes what's shown. `scope` names the stage the page narrowed
+ * the lines to (the rail's pick), if any.
  */
-export function BuildLogViewer({ lines, live }: { lines: LogLineView[]; live: boolean }): React.JSX.Element {
+export function BuildLogViewer({ lines, live, scope }: { lines: LogLineView[]; live: boolean; scope?: string | null }): React.JSX.Element {
   const boxRef = React.useRef<HTMLDivElement>(null);
   const [follow, setFollow] = React.useState(true);
   const [warningsOnly, setWarningsOnly] = React.useState(false);
@@ -28,9 +29,13 @@ export function BuildLogViewer({ lines, live }: { lines: LogLineView[]; live: bo
     if (atBottom !== follow) setFollow(atBottom);
   };
 
-  const meta = warningsOnly
-    ? `warnings only · ${shown.length}`
-    : `${lines.length} line${lines.length === 1 ? '' : 's'}${follow && live ? ' · following' : ''}`;
+  const meta = [
+    scope ? `${scope} only` : null,
+    warningsOnly ? `warnings only · ${shown.length}` : `${lines.length} line${lines.length === 1 ? '' : 's'}`,
+    !warningsOnly && follow && live ? 'following' : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
   return (
     <div className="grid gap-3">
@@ -50,7 +55,7 @@ export function BuildLogViewer({ lines, live }: { lines: LogLineView[]; live: bo
       >
         {shown.length === 0 ? (
           <p className="opacity-70">
-            {warningsOnly ? 'No warnings.' : live ? 'Waiting for build output…' : 'No logs captured.'}
+            {warningsOnly ? 'No warnings.' : scope ? `Nothing logged in ${scope.toLowerCase()} yet.` : live ? 'Waiting for build output…' : 'No logs captured.'}
           </p>
         ) : (
           shown.map((l) => (

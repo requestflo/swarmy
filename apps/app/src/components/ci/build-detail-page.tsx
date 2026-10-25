@@ -7,9 +7,10 @@ import { relTime } from '@/lib/format';
 import { BuildImageCard } from './build-image-card';
 import { BuildLayers } from './build-layers';
 import { parseBuildLayers, toLogLines } from './build-log-parse';
+import { lineStages, stageLineCounts, type LogStage } from './build-log-stages';
 import { BuildLogViewer } from './build-log-viewer';
 import { BuildOutcome } from './build-outcome';
-import { outcomeLine } from './build-stage-model';
+import { LABEL, outcomeLine } from './build-stage-model';
 import { BuildStagesRail } from './build-stages-rail';
 import { BUILD_TONE, BUILD_WORD, repoName } from './builds-list';
 import { buildStrategyLabel } from './build-strategy';
@@ -37,10 +38,15 @@ export function BuildDetailPage({ buildId }: { buildId: string }): React.JSX.Ele
   const lines = React.useMemo(() => toLogLines(chunks), [chunks]);
   const layers = React.useMemo(() => parseBuildLayers(lines.map((l) => l.text).join('\n')), [lines]);
   const outcome = build ? outcomeLine(build) : null;
+  // Board 27: pick a stage on the rail to read only its part of the log.
+  const [stage, setStage] = React.useState<LogStage | null>(null);
+  const stages = React.useMemo(() => lineStages(lines), [lines]);
+  const shown = React.useMemo(() => (stage ? lines.filter((_, i) => stages[i] === stage) : lines), [lines, stages, stage]);
+  const name = build?.version ?? build?.commit?.slice(0, 7) ?? null;
 
   return (
     <CalmPage
-      crumbs={[{ label: 'Settings', to: '/settings' }, { label: 'CI & registry', to: '/ci' }, { label: build?.commit?.slice(0, 7) ?? 'Build' }]}
+      crumbs={[{ label: 'Settings', to: '/settings' }, { label: 'CI & registry', to: '/ci' }, { label: name ?? 'Build' }]}
       aside={
         build ? (
           <>
@@ -56,7 +62,7 @@ export function BuildDetailPage({ buildId }: { buildId: string }): React.JSX.Ele
       ) : (
         <>
           <SayHeader
-            eyebrow="Build"
+            eyebrow={build?.version ? `Build ${build.version}` : 'Build'}
             title={
               <>
                 {repo.split('/').slice(-1)[0]}{' '}
@@ -66,9 +72,9 @@ export function BuildDetailPage({ buildId }: { buildId: string }): React.JSX.Ele
             lede={build ? `${build.commit ? `Commit ${build.commit.slice(0, 7)}` : 'No commit'}${build.startedAt ? `, started ${relTime(build.startedAt)}` : ''}.${build.image ? ' Pushed as an image your apps can run.' : ''}` : 'This build is no longer in the recent list.'}
           />
           {build ? <Tech>{`${build.image ?? '—'} · ${repo}${buildStrategyLabel(build) ? ` · ${buildStrategyLabel(build)}` : ''}`}</Tech> : null}
-          {build ? <BuildStagesRail build={build} /> : null}
-          <Section title="Log" hint={live ? 'streaming live' : undefined} action={<StatusWord tone={tone} word={BUILD_WORD[status] ?? status} pulse={live} />}>
-            <BuildLogViewer lines={lines} live={live} />
+          {build ? <BuildStagesRail build={build} pick={{ lines: stageLineCounts(stages), current: stage, onPick: setStage }} /> : null}
+          <Section title={stage ? `Log · ${LABEL[stage]}` : 'Log'} hint={live ? 'streaming live' : undefined} action={<StatusWord tone={tone} word={BUILD_WORD[status] ?? status} pulse={live} />}>
+            <BuildLogViewer lines={shown} live={live} scope={stage ? LABEL[stage] : null} />
           </Section>
           {outcome ? <BuildOutcome outcome={outcome} /> : null}
         </>

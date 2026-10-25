@@ -53,6 +53,7 @@ export * from './node-stats-history';
 export * from './data-history';
 export * from './queue-autoscale';
 export * from './image-ref';
+export * from './build-version';
 export * from './bucket-cors';
 export * from './bucket-lifecycle';
 export * from './admission-record';
