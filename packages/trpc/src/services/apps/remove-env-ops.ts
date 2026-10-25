@@ -1,7 +1,8 @@
 /**
  * The real side effects of removing a cloned environment (remove-env.ts):
  * the preview-teardown way for its app and throwaway resources, `removeDb`
- * for a database it deletes, and the stack-delete way for its secrets.
+ * for a database it deletes, the stack-delete way for its volumes and
+ * secrets, and a labelled Docker config marking whatever it kept orphaned.
  */
 import { buildInventory } from '@swarmy/core';
 import { authorize } from '../../abac';
@@ -13,6 +14,7 @@ import { dbRemoveConfirmPhrase, removeDb } from '../manageddb.service';
 import { removeFamiliesOfStack } from '../secret-family-remove';
 import { groupSecrets, listRawSecrets } from '../secretsMgr.service';
 import { removeService } from '../service.service';
+import { removeStackVolumes } from '../stack-data';
 import { APP_STACK_LABEL } from './live';
 import type { RemoveEnvOps } from './remove-env';
 
@@ -48,6 +50,15 @@ export function realRemoveEnvOps(ctx: OrgContext): RemoveEnvOps {
       } catch (e) {
         return (e as { code?: string }).code === 'NOT_FOUND'; // never provisioned: nothing to keep
       }
+    },
+
+    // The stack-delete way: every online server, then each one's volume.list proves it.
+    removeVolumes: (stack, volumes) => removeStackVolumes(ctx, stack, volumes),
+
+    async markOrphaned(marker) {
+      const node = await resolveManagerNode(ctx);
+      const dataB64 = Buffer.from(marker.data, 'utf8').toString('base64');
+      await ctx.hub.dispatch(node.id, 'config.create', { name: marker.name, dataB64, labels: marker.labels });
     },
 
     async removeSecrets(stack, families) {

@@ -45,13 +45,14 @@ export const appEnvironmentProcedures = {
     .mutation(({ ctx, input }) => setEnvironmentSecret(ctx, input)),
 
   /**
-   * Remove a cloned environment: its stack torn down like a preview, its
-   * database kept (default) or deleted, its own secrets removed, its marker
-   * dropped. Refused for production and swarmy.yaml environments. `stack.remove`
-   * on the environment's stack (+ `data.destroy` per deleted database);
-   * audited `app.environment.remove`.
+   * Remove a cloned environment: its stack torn down like a preview (its
+   * addresses with it), its data (databases + volumes) kept and marked
+   * orphaned (default) or deleted, its own secrets removed, its marker
+   * dropped. Refused for production and swarmy.yaml environments.
+   * `stack.remove` on the environment's stack (+ `data.destroy` per deleted
+   * database); audited `app.environment.remove`.
    */
   removeEnvironment: abacProcedure('stack.remove', resolveStackByName)
-    .input(z.object({ stack, confirm: z.string().max(200), database: z.enum(['keep', 'delete']).default('keep') }))
+    .input(z.object({ stack, confirm: z.string().max(200), data: z.enum(['keep', 'delete']).default('keep') }))
     .mutation(({ ctx, input }) => removeEnvironment(ctx, input, realRemoveEnvOps(ctx))),
 };

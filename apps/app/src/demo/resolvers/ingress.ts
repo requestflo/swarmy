@@ -414,6 +414,14 @@ export function seedDemoRoute(
   ];
 }
 
+/** A removed stack's routes go with its services (app-clone-remove.ts); returns the hosts that stop answering. */
+export function dropDemoRoutes(s: DemoStore, stack: string): string[] {
+  const st = getState(s);
+  const gone = st.domains.filter((d) => d.stack === stack);
+  st.domains = st.domains.filter((d) => d.stack !== stack);
+  return [...new Set(gone.map((d) => d.host))].sort();
+}
+
 export const ingress: DomainResolvers = {
   handlers: {
     'ingress.getConfig': (_i, s): IngressConfigView => toConfigView(getState(s), s),

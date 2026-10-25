@@ -114,3 +114,8 @@ wrong for secrets, audit, history, and anything you need to query across.
   and re-derive on the first tick after a restart. Never timestamps, counters
   or run state in a config row, a label or a swarm config.
 - A label per array element (`swarmy.ingress.0.host`, `.1.host`) → one JSON label.
+- Relabelling a volume after the fact: Docker fixes a volume's labels when it is
+  created. To mark kept data as left over (an environment removed with "keep
+  the data"), write a small labelled Docker config naming it
+  (`swarmy.orphaned=*`, `orphanMarker` in `services/apps/remove-env-plan.ts`);
+  its Docker `CreatedAt` gives a GC the age, so nothing stores a timestamp.

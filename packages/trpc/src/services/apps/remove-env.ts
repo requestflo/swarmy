@@ -2,15 +2,18 @@
  * Remove a cloned environment (board Environments: the lane's "Remove
  * environment"). Only one the dashboard declared: production, a stack marked
  * production, and every environment swarmy.yaml names are refused — those go
- * by editing the file. It tears the stack down the way a preview teardown
- * does (its app services, jobs, links and its own caches/search/vectors/
- * buckets), keeps or deletes its database as asked — keep (the default)
- * leaves the Postgres running in its stack with its backups, for Data to
- * remove later — removes the environment's OWN secret families (`<x>.<env>`,
- * never a shared one) and drops the dashboard marker from its plan rows so
- * nothing re-plans it. Typed confirmation (the stack name); `stack.remove`
- * on the stack (the router), plus `data.destroy` per database it deletes;
- * audited `app.environment.remove`.
+ * by editing the file. What goes and what stays is one pure plan
+ * (remove-env-plan.ts): the stack is torn down the way a preview teardown
+ * does (its app services, and with them their routes and addresses, its jobs,
+ * links and its own caches/search/vectors/buckets), its own secret families
+ * (`<x>.<env>`, never a shared one) are removed, and its data is kept or
+ * deleted as asked, the way stack removal does. Keep (the default) leaves its
+ * databases running with their backups and its volumes on the servers,
+ * marked orphaned for GC; delete removes both from every server. Then the
+ * dashboard marker is dropped from its plan rows so nothing re-plans it.
+ * Typed confirmation (the stack name); `stack.remove` on the stack (the
+ * router), plus `data.destroy` per database it deletes; audited
+ * `app.environment.remove`.
  */
 import { ENV_LABEL } from '@swarmy/abac';
 import { PRODUCTION, type DesiredApp } from '@swarmy/app-config';
@@ -20,15 +23,15 @@ import { commandRejected, notFound } from '../../errors';
 import { writeAudit } from '../audit.service';
 import { dashboardEnvironments, forgetDashboardEnvironment, REMOVED } from './dashboard-envs';
 import type { AppLedger } from './live';
-
-export type DatabaseChoice = 'keep' | 'delete';
+import { orphanMarker, planEnvRemoval, type DataChoice, type OrphanMarker } from './remove-env-plan';
 
 export interface RemoveEnvironmentInput {
   /** The environment's stack (`shop-qa`). */
   stack: string;
   /** The stack name, typed. */
   confirm: string;
-  database: DatabaseChoice;
+  /** Its databases and volumes: kept (marked orphaned) or deleted on every server. */
+  data: DataChoice;
 }
 
 export interface RemoveEnvironmentResult {
@@ -36,8 +39,12 @@ export interface RemoveEnvironmentResult {
   stack: string;
   /** App services removed. */
   services: string[];
+  /** Addresses that stopped answering with them. */
+  hosts: string[];
   /** Postgres resources by outcome: `kept` keep running in the stack. */
   databases: { kept: string[]; deleted: string[] };
+  /** Named volumes by outcome: `kept` stay on the servers (marked orphaned) or would not go. */
+  volumes: { kept: string[]; deleted: string[] };
   /** The environment's own secret families; `kept` = a service outside it still mounts one. */
   secrets: { removed: string[]; kept: string[] };
 }
@@ -59,13 +66,14 @@ export interface RemoveEnvOps {
   teardown(t: EnvTeardown): Promise<string[]>;
   /** Remove one Postgres and its data on every server; false when it could not. */
   deleteDatabase(stack: string, cluster: string, alsoRemoving: readonly string[]): Promise<boolean>;
+  /** Remove named volumes on every server; `failed` = still there afterwards. */
+  removeVolumes(stack: string, volumes: readonly string[]): Promise<{ deleted: string[]; failed: string[] }>;
+  /** Mark what was kept orphaned (a labelled Docker config a GC finds). */
+  markOrphaned(marker: OrphanMarker): Promise<void>;
   removeSecrets(stack: string, families: readonly string[]): Promise<{ removed: string[]; kept: string[] }>;
   /** Nothing is left: forget the stack's config row and its networks. */
   forgetStack(stack: string): Promise<void>;
 }
-
-const postgresNames = (desired: DesiredApp, ledger: AppLedger): string[] =>
-  [...new Set([...desired.resources, ...Object.values(ledger.resources)].filter((r) => r.type === 'postgres').map((r) => r.name))].sort();
 
 export async function removeEnvironment(
   ctx: OrgContext,
@@ -91,25 +99,35 @@ export async function removeEnvironment(
 
   const desired = row.desiredJson as unknown as DesiredApp;
   const ledger = await ops.ledger(repo.id, environment);
-  const databases = postgresNames(desired, ledger);
-  if (input.database === 'delete') await ops.allowDelete(stack, databases);
+  // Read before anything goes: the live app services name its routes and volumes.
+  const live = ctx.hub.liveInventory(ctx.activeOrgId).services;
+  const secretFamilies = declared.marker.secretSlots.map((s) => s.envFamily);
+  const plan = planEnvRemoval({ stack, data: input.data, desired, ledger, live, secretFamilies });
+  if (plan.remove.databases.length) await ops.allowDelete(stack, plan.remove.databases);
 
   return ops.lock(repo.id, environment, async () => {
     const services = await ops.teardown({ repo, sha: row.sha, desired, ledger });
     const deleted: string[] = [];
-    const kept: string[] = [];
-    for (const name of databases)
-      (input.database === 'delete' && (await ops.deleteDatabase(stack, name, services)) ? deleted : kept).push(name);
-    const families = declared.marker.secretSlots.map((s) => s.envFamily);
-    const secrets = await ops.removeSecrets(stack, families).catch(() => ({ removed: [], kept: families }));
+    const kept = [...plan.keep.databases];
+    for (const name of plan.remove.databases) ((await ops.deleteDatabase(stack, name, services)) ? deleted : kept).push(name);
+    const gone = plan.remove.volumes.length
+      ? await ops.removeVolumes(stack, plan.remove.volumes).catch(() => ({ deleted: [], failed: plan.remove.volumes }))
+      : { deleted: [], failed: [] };
+    const volumes = { kept: [...plan.keep.volumes, ...gone.failed].sort(), deleted: gone.deleted };
+    const secrets = await ops.removeSecrets(stack, plan.remove.secrets).catch(() => ({ removed: [], kept: plan.remove.secrets }));
+    const marker = orphanMarker(ctx.activeOrgId, stack, environment, { databases: kept.sort(), volumes: volumes.kept }, nonce());
+    if (marker) await ops.markOrphaned(marker).catch(() => undefined);
     if (!kept.length) await ops.forgetStack(stack).catch(() => undefined);
     await forgetDashboardEnvironment(ctx.db, repo.id, environment);
+    const result = { environment, stack, services, hosts: plan.remove.hosts, databases: { kept, deleted }, volumes, secrets };
     await writeAudit(ctx, {
       action: 'app.environment.remove',
       targetType: 'gitRepo',
       targetId: repo.id,
-      metadata: { environment, stack, database: input.database, services, databases: { kept, deleted }, secrets },
+      metadata: { ...result, data: input.data, ...(marker ? { orphanMarker: marker.name } : {}) },
     });
-    return { environment, stack, services, databases: { kept, deleted }, secrets };
+    return result;
   });
 }
+
+const nonce = (): string => Math.random().toString(36).slice(2, 8).padEnd(6, '0');

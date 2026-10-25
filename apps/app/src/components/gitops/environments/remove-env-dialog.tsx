@@ -19,18 +19,26 @@ import { Segmented } from '@/components/service-settings/settings-row';
 import { useTRPC } from '@/integrations/trpc';
 import type { AppEnvironment } from '../gitops-types';
 import { envLabel } from '../plan-status';
-import { REMOVE_DB_OPTIONS, removedWords, removeEnvSteps, type RemoveDbChoice } from './remove-env-model';
+import { REMOVE_DATA_OPTIONS, removedWords, removeEnvSteps, type RemoveDataChoice } from './remove-env-model';
+
+interface RemoveEnvDialogProps {
+  env: AppEnvironment;
+  /** Its addresses right now (the lane's domains), named in what goes; undefined while loading. */
+  hosts?: readonly string[] | undefined;
+  onRemoved?: () => void;
+}
 
 /**
  * "Remove environment" on a cloned environment's lane (board Environments):
- * what goes and what stays, keep-or-delete its database (keep by default),
- * then type its stack name. Runs `apps.removeEnvironment` — `stack.remove`,
- * audited. Environments swarmy.yaml names never show this: the file removes them.
+ * what goes and what stays, keep-or-delete its data (keep by default: its
+ * database keeps running, its volumes stay marked left over), then type its
+ * stack name. Runs `apps.removeEnvironment` — `stack.remove`, audited.
+ * Environments swarmy.yaml names never show this: the file removes them.
  */
-export function RemoveEnvDialog({ env, onRemoved }: { env: AppEnvironment; onRemoved?: () => void }): React.JSX.Element {
+export function RemoveEnvDialog({ env, hosts, onRemoved }: RemoveEnvDialogProps): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
-  const [db, setDb] = React.useState<RemoveDbChoice>('keep');
+  const [data, setData] = React.useState<RemoveDataChoice>('keep');
   const [confirm, setConfirm] = React.useState('');
   const name = envLabel(env.environment);
   const remove = useMutation(
@@ -46,7 +54,7 @@ export function RemoveEnvDialog({ env, onRemoved }: { env: AppEnvironment; onRem
   const reset = (open: boolean): void => {
     if (open) return;
     setConfirm('');
-    setDb('keep');
+    setData('keep');
   };
 
   return (
@@ -62,14 +70,14 @@ export function RemoveEnvDialog({ env, onRemoved }: { env: AppEnvironment; onRem
           <AlertDialogDescription>It lives in the dashboard, so this is the only thing that removes it.</AlertDialogDescription>
         </AlertDialogHeader>
         <ul aria-label="What removing it does" className="flex flex-col gap-1.5">
-          {removeEnvSteps(env, db).map(([t, m]) => (
+          {removeEnvSteps(env, data, hosts).map(([t, m]) => (
             <li key={t} className="flex flex-col gap-0.5 text-[13px]">
-              <span className={t.startsWith('Its database is deleted') ? 'text-tone-bad' : undefined}>{t}</span>
+              <span className={t.startsWith('Its data is deleted') ? 'text-tone-bad' : undefined}>{t}</span>
               <span className="text-muted-foreground font-mono text-[11px] break-words">{m}</span>
             </li>
           ))}
         </ul>
-        <Segmented label="Its database" options={REMOVE_DB_OPTIONS} value={db} onChange={setDb} />
+        <Segmented label="Its data" options={REMOVE_DATA_OPTIONS} value={data} onChange={setData} />
         <label className="flex flex-col gap-1.5 text-sm">
           <span>
             Type <span className="mono-data text-foreground">{env.stack}</span> to confirm.
@@ -80,9 +88,9 @@ export function RemoveEnvDialog({ env, onRemoved }: { env: AppEnvironment; onRem
           <AlertDialogCancel>Keep {name}</AlertDialogCancel>
           <AlertDialogAction
             disabled={confirm !== env.stack || remove.isPending}
-            onClick={() => remove.mutate({ stack: env.stack, confirm, database: db })}
+            onClick={() => remove.mutate({ stack: env.stack, confirm, data })}
           >
-            {db === 'delete' ? `Remove ${name} and its database` : `Remove ${name}`}
+            {data === 'delete' ? `Remove ${name} and its data` : `Remove ${name}`}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

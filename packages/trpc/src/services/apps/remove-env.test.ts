@@ -11,7 +11,8 @@ const MARKER: DashboardEnvMarker = {
   data: { mask: false },
   secretSlots: [{ family: 'stripe-key', envFamily: 'stripe-key.qa', consumers: [{ service: 'api' }] }],
 };
-const QA_DESIRED = { stack: 'shop-qa', environment: 'qa', resources: [{ name: 'db', type: 'postgres' }], dashboard: MARKER };
+const QA_DESIRED = { stack: 'shop-qa', environment: 'qa', services: [], resources: [{ name: 'db', type: 'postgres' }], dashboard: MARKER };
+const ROUTES = JSON.stringify([{ host: 'web-shop-qa.1-2-3-4.sslip.io', port: 3000, tls: 'auto' }]);
 
 type Row = { id: string; repoId: string; environment: string; stack: string; prNumber: number; sha: string; status: string; createdAt: string; desiredJson: unknown };
 const row = (id: string, environment: string, stack: string, desiredJson: unknown, createdAt = '2026-10-21'): Row => ({
@@ -31,7 +32,12 @@ function world(rows: Row[], liveLabels: Record<string, string> = {}) {
     user: { id: 'u1' },
     hub: {
       liveInventory: () => ({
-        services: [{ id: 's1', name: 'shop-qa_web', image: 'x', mode: 'replicated', replicas: 1, runningReplicas: 1, desiredReplicas: 1, labels: { 'com.docker.stack.namespace': 'shop-qa', ...liveLabels }, networks: [], env: [], ports: [], createdAt: 0, updatedAt: 0 }],
+        services: [{
+          id: 's1', name: 'shop-qa_web', image: 'x', mode: 'replicated', replicas: 1, runningReplicas: 1, desiredReplicas: 1,
+          labels: { 'com.docker.stack.namespace': 'shop-qa', 'swarmy.app.stack': 'shop-qa', 'swarmy.ingress.routes': ROUTES, ...liveLabels },
+          mounts: [{ type: 'volume', source: 'shop-qa_web-uploads', target: '/data' }],
+          networks: [], env: [], ports: [], createdAt: 0, updatedAt: 0,
+        }],
         containers: [],
       }),
     },
@@ -55,6 +61,8 @@ function fakeOps(calls: string[], opts: { deleteFails?: boolean } = {}): RemoveE
     allowDelete: async (stack, dbs) => void calls.push(`allow ${stack} ${dbs.join(',')}`),
     teardown: async ({ desired }) => (calls.push(`teardown ${desired.stack}`), ['shop-qa_web', 'shop-qa_api']),
     deleteDatabase: async (stack, db, gone) => (calls.push(`delete ${stack}/${db} after ${gone.join(',')}`), !opts.deleteFails),
+    removeVolumes: async (stack, vols) => (calls.push(`volumes ${stack} ${vols.join(',')}`), { deleted: [...vols], failed: [] }),
+    markOrphaned: async (m) => void calls.push(`orphaned ${m.labels['swarmy.orphaned.stack']} ${m.data}`),
     removeSecrets: async (_s, families) => (calls.push(`secrets ${families.join(',')}`), { removed: [...families], kept: [] }),
     forgetStack: async (stack) => void calls.push(`forget ${stack}`),
   };
@@ -63,14 +71,18 @@ function fakeOps(calls: string[], opts: { deleteFails?: boolean } = {}): RemoveE
 const prod = row('p1', 'production', 'shop', { stack: 'shop', environment: 'production', resources: [] }, '2026-10-20');
 
 describe('removeEnvironment — a cloned environment, never one the file or production owns', () => {
-  it('keeps its database by default: tears down the rest, removes its own secrets, drops the marker, audits', async () => {
+  it('keeps its data by default: tears down the rest, removes its own secrets, marks what it kept orphaned, drops the marker, audits', async () => {
     const w = world([prod, row('q1', 'qa', 'shop-qa', QA_DESIRED, '2026-10-21'), row('q2', 'qa', 'shop-qa', QA_DESIRED, '2026-10-22')]);
     const calls: string[] = [];
-    const res = await removeEnvironment(w.ctx, { stack: 'shop-qa', confirm: 'shop-qa', database: 'keep' }, fakeOps(calls));
-    expect(calls).toEqual(['lock qa', 'teardown shop-qa', 'secrets stripe-key.qa']);
+    const res = await removeEnvironment(w.ctx, { stack: 'shop-qa', confirm: 'shop-qa', data: 'keep' }, fakeOps(calls));
+    expect(calls).toEqual([
+      'lock qa', 'teardown shop-qa', 'secrets stripe-key.qa',
+      'orphaned shop-qa {"stack":"shop-qa","environment":"qa","volumes":["shop-qa_web-uploads"],"databases":["db"]}',
+    ]);
     expect(res).toEqual({
-      environment: 'qa', stack: 'shop-qa', services: ['shop-qa_web', 'shop-qa_api'],
-      databases: { kept: ['db'], deleted: [] }, secrets: { removed: ['stripe-key.qa'], kept: [] },
+      environment: 'qa', stack: 'shop-qa', services: ['shop-qa_web', 'shop-qa_api'], hosts: ['web-shop-qa.1-2-3-4.sslip.io'],
+      databases: { kept: ['db'], deleted: [] }, volumes: { kept: ['shop-qa_web-uploads'], deleted: [] },
+      secrets: { removed: ['stripe-key.qa'], kept: [] },
     });
     // Every row loses the marker and reads removed — nothing re-plans it, the name is free.
     for (const r of w.rows.filter((x) => x.environment === 'qa')) {
@@ -78,33 +90,37 @@ describe('removeEnvironment — a cloned environment, never one the file or prod
       expect((r.desiredJson as { dashboard?: unknown }).dashboard).toBeUndefined();
     }
     expect(w.rows.find((r) => r.id === 'p1')?.status).toBe('applied');
-    expect(w.audit.find((a) => a.action === 'app.environment.remove')?.metadata).toMatchObject({ environment: 'qa', database: 'keep' });
+    const audit = w.audit.find((a) => a.action === 'app.environment.remove')?.metadata;
+    expect(audit).toMatchObject({ environment: 'qa', data: 'keep', volumes: { kept: ['shop-qa_web-uploads'] } });
+    expect(String(audit?.orphanMarker)).toStartWith('swarmy-orphaned.shop-qa.');
   });
 
-  it('delete: data.destroy first, then the database goes after its app, and the stack is forgotten', async () => {
+  it('delete: data.destroy first, the database goes after its app, then its volumes; nothing marked, the stack forgotten', async () => {
     const w = world([prod, row('q1', 'qa', 'shop-qa', QA_DESIRED)]);
     const calls: string[] = [];
-    const res = await removeEnvironment(w.ctx, { stack: 'shop-qa', confirm: 'shop-qa', database: 'delete' }, fakeOps(calls));
+    const res = await removeEnvironment(w.ctx, { stack: 'shop-qa', confirm: 'shop-qa', data: 'delete' }, fakeOps(calls));
     expect(calls).toEqual([
-      'allow shop-qa db', 'lock qa', 'teardown shop-qa',
-      'delete shop-qa/db after shop-qa_web,shop-qa_api', 'secrets stripe-key.qa', 'forget shop-qa',
+      'allow shop-qa db', 'lock qa', 'teardown shop-qa', 'delete shop-qa/db after shop-qa_web,shop-qa_api',
+      'volumes shop-qa shop-qa_web-uploads', 'secrets stripe-key.qa', 'forget shop-qa',
     ]);
     expect(res.databases).toEqual({ kept: [], deleted: ['db'] });
+    expect(res.volumes).toEqual({ kept: [], deleted: ['shop-qa_web-uploads'] });
   });
 
-  it('a database that would not go is reported kept, and the stack stays', async () => {
+  it('a database that would not go is reported kept and marked orphaned, and the stack stays', async () => {
     const w = world([prod, row('q1', 'qa', 'shop-qa', QA_DESIRED)]);
     const calls: string[] = [];
-    const res = await removeEnvironment(w.ctx, { stack: 'shop-qa', confirm: 'shop-qa', database: 'delete' }, fakeOps(calls, { deleteFails: true }));
+    const res = await removeEnvironment(w.ctx, { stack: 'shop-qa', confirm: 'shop-qa', data: 'delete' }, fakeOps(calls, { deleteFails: true }));
     expect(res.databases).toEqual({ kept: ['db'], deleted: [] });
     expect(calls).not.toContain('forget shop-qa');
+    expect(calls.at(-1)).toBe('orphaned shop-qa {"stack":"shop-qa","environment":"qa","volumes":[],"databases":["db"]}');
   });
 
   it('refuses without the typed name, for production, a production-marked stack, swarmy.yaml environments and a gone one', async () => {
     const staging = row('s1', 'staging', 'shop-staging', { stack: 'shop-staging', environment: 'staging', resources: [] });
     const go = (stack: string, rows: Row[], labels: Record<string, string> = {}, confirm = stack) => {
       const calls: string[] = [];
-      return removeEnvironment(world(rows, labels).ctx, { stack, confirm, database: 'keep' }, fakeOps(calls)).then(() => calls);
+      return removeEnvironment(world(rows, labels).ctx, { stack, confirm, data: 'keep' }, fakeOps(calls)).then(() => calls);
     };
     await expect(go('shop-qa', [prod, row('q1', 'qa', 'shop-qa', QA_DESIRED)], {}, 'qa')).rejects.toThrow('type shop-qa');
     await expect(go('shop', [prod])).rejects.toThrow('is production');

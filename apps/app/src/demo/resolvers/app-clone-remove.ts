@@ -2,17 +2,19 @@ import type { DomainResolvers } from '../types';
 import { clones } from './app-clone';
 import { appsState } from './apps';
 import { pushDemoAudit } from './auditlog';
+import { dropDemoRoutes } from './ingress';
 
 /**
  * Remove a cloned environment, for the demo — the shape of apps/remove-env.ts.
  * Only a clone can go (production and swarmy.yaml environments are refused);
- * its lane, plans and stack disappear, its own secrets are deleted, and its
- * database is kept unless asked (the demo clone's copied `db`).
+ * its lane, plans, stack and addresses disappear, its own secrets are
+ * deleted, and its data (the demo clone's copied `db`) is kept — marked left
+ * over — unless asked.
  */
 export const appCloneRemove: DomainResolvers = {
   handlers: {
     'apps.removeEnvironment': (i, s) => {
-      const { stack, confirm, database = 'keep' } = i as { stack: string; confirm: string; database?: 'keep' | 'delete' };
+      const { stack, confirm, data = 'keep' } = i as { stack: string; confirm: string; data?: 'keep' | 'delete' };
       if (confirm.trim() !== stack) throw new Error(`type ${stack} to remove this environment`);
       const all = clones(s);
       const c = all.find((x) => x.stack === stack);
@@ -28,15 +30,20 @@ export const appCloneRemove: DomainResolvers = {
         s.services = s.services.filter((x) => x.stackId !== row.id);
         s.stacks = s.stacks.filter((x) => x !== row);
       }
-      const databases = c.data ? (database === 'delete' ? { kept: [], deleted: ['db'] } : { kept: ['db'], deleted: [] }) : { kept: [], deleted: [] };
+      const hosts = dropDemoRoutes(s, stack);
+      const keep = data === 'keep';
+      const databases = c.data ? (keep ? { kept: ['db'], deleted: [] } : { kept: [], deleted: ['db'] }) : { kept: [], deleted: [] };
+      const vols = [`${stack}_web-uploads`];
+      const volumes = keep ? { kept: vols, deleted: [] } : { kept: [], deleted: vols };
       const secrets = { removed: c.slots.filter((x) => x.filled).map((x) => x.envFamily), kept: [] };
+      const result = { environment: c.name, stack, services, hosts, databases, volumes, secrets };
       pushDemoAudit(s, {
         action: 'app.environment.remove',
         targetType: 'gitRepo',
         targetId: c.repoId,
-        metadata: { environment: c.name, stack, database, services, databases, secrets },
+        metadata: { ...result, data, ...(keep ? { orphanMarker: `swarmy-orphaned.${stack}.demo01` } : {}) },
       });
-      return { environment: c.name, stack, services, databases, secrets };
+      return result;
     },
   },
 };
