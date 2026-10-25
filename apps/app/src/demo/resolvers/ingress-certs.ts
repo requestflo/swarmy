@@ -18,6 +18,19 @@ export function demoCertDates(now = Date.now()): { notBefore: string; notAfter: 
   return { notBefore: new Date(issued).toISOString(), notAfter: new Date(issued + 90 * DAY).toISOString() };
 }
 
+/** Mirror of `@swarmy/ingress` `renewalWindow`: Caddy renews with a third of the lifetime left. */
+function demoRenewal(notBefore: string, notAfter: string, now = Date.now()): NonNullable<CertFacts['renewal']> {
+  const from = Date.parse(notBefore);
+  const to = Date.parse(notAfter);
+  const renewAt = to - (to - from) / 3;
+  return {
+    renewAt: new Date(renewAt).toISOString(),
+    lifetimeDays: Math.round((to - from) / DAY),
+    state: now >= to ? 'expired' : now >= renewAt ? 'due' : 'ahead',
+    daysUntil: Math.max(0, Math.ceil((renewAt - now) / DAY)),
+  };
+}
+
 export function demoCertFacts(s: DemoStore, host: string): CertFacts {
   const route = demoRouteFor(s, host);
   const edges = edgesOf(s);
@@ -29,6 +42,8 @@ export function demoCertFacts(s: DemoStore, host: string): CertFacts {
       reason: null,
       cert: null,
       edges: edges.map((e) => ({ nodeId: e.name, name: e.name, state: 'missing' as const, reason: null })),
+      renewal: null,
+      renewals: [],
       checkedAt,
     };
   }
@@ -40,6 +55,9 @@ export function demoCertFacts(s: DemoStore, host: string): CertFacts {
     reason: null,
     cert: { issuer: "Let's Encrypt R11", issuerKey: LE, notBefore, notAfter, names, wildcard: null, serial: '04A1B2C3D4E5F60718293A4B5C6D7E8F9A0B' },
     edges: edges.map((e) => ({ nodeId: e.name, name: e.name, state: 'holds' as const, reason: null })),
+    renewal: demoRenewal(notBefore, notAfter),
+    // The one before was a 90-day certificate too, renewed with a third of its life left.
+    renewals: [{ at: notBefore, issuer: "Let's Encrypt R11", replaced: new Date(Date.parse(notBefore) - 60 * DAY).toISOString(), by: 'automatic' as const }],
     checkedAt,
   };
 }

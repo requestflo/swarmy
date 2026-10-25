@@ -1,11 +1,13 @@
 import * as React from 'react';
 import { Link } from '@tanstack/react-router';
-import { Section, SectionLink, StatusWord, Tech } from '@/components/calm';
+import { Section, SectionLink, StatusWord, Tech, TONE_TEXT } from '@/components/calm';
 import type { DomainDetail } from '@/components/ingress/domain-state';
 import { relTime } from '@/lib/format';
-import { dayLabel, daysLeft, renewsIn } from './cert-model';
+import { dayLabel, daysLeft } from './cert-model';
 import { factsTech, issuedLine, type CertFacts } from './cert-facts-model';
 import { CertFactRows } from './cert-fact-rows';
+import { RenewalsRow } from './cert-renewals-row';
+import { renewalTech, renewsLine } from './cert-renewal-words';
 
 interface Props {
   host: string;
@@ -39,9 +41,10 @@ export function CertCard({ host, tls, detail: d, facts, nameOf, stored, storeTec
   const held = facts?.cert ?? null;
   const expiresAt = held?.notAfter ?? c?.expiresAt ?? null;
   const left = daysLeft(expiresAt);
-  const renews = renewsIn(expiresAt);
+  const renews = renewsLine(facts, expiresAt);
   const word = !d ? null : expiresAt ? { tone: 'ok' as const, word: 'secured' } : d.state === 'error' ? { tone: 'bad' as const, word: 'needs you' } : { tone: 'info' as const, word: 'getting it' };
   const tech = factsTech(facts);
+  const renewRule = renewalTech(facts);
   return (
     <Section title="Certificate" action={<>{word ? <StatusWord tone={word.tone} word={word.word} /> : null}{more}</>}>
       {!d ? (
@@ -57,12 +60,15 @@ export function CertCard({ host, tls, detail: d, facts, nameOf, stored, storeTec
           <div className="flex min-w-0 flex-col gap-1">
             <span className="text-[14px] font-semibold">{held?.issuer ?? c?.issuer ?? 'Trusted issuer'}</span>
             <span className="text-muted-foreground font-mono text-[11.5px]">{held ? issuedLine(held.notBefore, held.notAfter) : `expires ${dayLabel(expiresAt)}`}</span>
-            {renews !== null ? <span className="text-tone-ok text-[12.5px] font-semibold">renews itself in {renews} day{renews === 1 ? '' : 's'}</span> : null}
+            {renews ? <span className={`${TONE_TEXT[renews.tone]} text-[12.5px] font-semibold`}>{renews.text}</span> : null}
           </div>
         </div>
       )}
-      <CertFactRows host={host} facts={facts} probed={c?.edges ?? []} nameOf={nameOf} stored={stored} />
+      <CertFactRows host={host} facts={facts} probed={c?.edges ?? []} nameOf={nameOf} stored={stored}>
+        <RenewalsRow facts={facts} />
+      </CertFactRows>
       {c ? <Tech>TLS probe · issuer {c.issuer ?? '—'} · notAfter {c.expiresAt ?? '—'} · probed {relTime(c.checkedAt)} with a handshake to each edge{c.edges.filter((e) => e.error).map((e) => ` · ${e.ip}: ${e.error}`).join('')}</Tech> : null}
+      {renewRule ? <Tech>{renewRule}</Tech> : null}
       {tech ? <Tech>{tech}</Tech> : null}
       {storeTech ? <Tech>{storeTech}</Tech> : null}
     </Section>

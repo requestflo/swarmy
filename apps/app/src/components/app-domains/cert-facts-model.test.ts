@@ -20,6 +20,8 @@ const facts = (over: Partial<CertFacts> = {}): CertFacts => ({
     { nodeId: 'n2', name: 'new-york-1', state: 'other', reason: null },
     { nodeId: 'n3', name: 'tokyo-1', state: 'not_reported', reason: 'old agent' },
   ],
+  renewal: null,
+  renewals: [],
   checkedAt: '2026-10-24T12:00:00.000Z',
   ...over,
 });

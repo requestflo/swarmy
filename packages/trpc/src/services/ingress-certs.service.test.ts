@@ -3,6 +3,7 @@ import type { EdgeCertFact, SwarmServiceInfo } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import { getCertFacts } from './ingress-certs.service';
 import { forgetEdgeCerts, readEdgeCertsAll } from './ingress-certs.read';
+import { forgetCertHistories } from './ingress-certs.history';
 
 /**
  * The domain detail's certificate facts come from each edge's own storage
@@ -10,7 +11,10 @@ import { forgetEdgeCerts, readEdgeCertsAll } from './ingress-certs.read';
  * agent is "not reported", never an error. Against an in-memory hub.
  */
 
-afterEach(() => forgetEdgeCerts());
+afterEach(() => {
+  forgetEdgeCerts();
+  forgetCertHistories();
+});
 
 const SHOP: EdgeCertFact = {
   name: 'shop.northwind.dev', issuerKey: 'acme-v02.api.letsencrypt.org-directory', issuer: "Let's Encrypt R11",
@@ -80,6 +84,20 @@ describe('getCertFacts', () => {
     const w = world({ n1: { capabilities: ['edgeCerts'], certs: [SHOP] } });
     await expect(getCertFacts(w.ctx, 'other.dev')).rejects.toThrow('not found');
     expect((await getCertFacts(w.ctx, 'www.shop.northwind.dev')).cert).toBeNull();
+  });
+});
+
+describe('renewals', () => {
+  it('says when Caddy renews (a third of the lifetime left) and a renewal only once a newer notBefore is seen', async () => {
+    const certs = [SHOP];
+    const w = world({ n1: { capabilities: ['edgeCerts'], certs } });
+    const first = await getCertFacts(w.ctx, 'shop.northwind.dev');
+    expect(first.renewal?.renewAt).toBe('2026-11-22T10:00:00.000Z');
+    expect(first.renewal?.lifetimeDays).toBe(90);
+    expect(first.renewals).toEqual([]);
+    certs[0] = { ...SHOP, serial: '05B2', fingerprint256: 'BB', notBefore: '2026-11-22T11:00:00.000Z', notAfter: '2027-02-20T11:00:00.000Z' };
+    const next = await getCertFacts(w.ctx, 'shop.northwind.dev', { fresh: true });
+    expect(next.renewals).toEqual([{ at: '2026-11-22T11:00:00.000Z', issuer: "Let's Encrypt R11", replaced: SHOP.notBefore, by: 'automatic' }]);
   });
 });
 
