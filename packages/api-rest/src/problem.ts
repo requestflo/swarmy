@@ -3,6 +3,7 @@
  * a `swarmyCode` (see `@swarmy/trpc/errors`). One mapper keeps both front doors
  * (tRPC + REST) consistent: tRPC code → HTTP status, `swarmyCode` carried through.
  */
+import { HTTPException } from 'hono/http-exception';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { invalidParamsFromFieldErrors, type InvalidParam } from './invalid-params';
 
@@ -116,6 +117,8 @@ export function trpcErrorToProblem(e: unknown, instance?: string): Problem {
       ...(invalidParams ? { invalid_params: invalidParams } : {}),
     };
   }
+  // Hono's own refusals (a malformed JSON body is a 400) keep their status.
+  if (e instanceof HTTPException && e.status < 500) return { ...problem(e.status, e.message), instance };
   return {
     type: 'https://swarmy.dev/problems/internal_server_error',
     title: 'Internal Server Error',
