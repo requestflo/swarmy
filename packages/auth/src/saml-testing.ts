@@ -30,7 +30,9 @@ export interface TestKey {
 export function selfSignedCert(name = 'swarmy test idp'): TestKey {
   const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
   const serial = randomBytes(8);
-  serial[0]! &= 0x7f;
+  // Positive and minimally encoded: a leading 0x00 before a byte < 0x80 is
+  // invalid DER, which X.509 parsers refuse (a ~1-in-256 flaky test).
+  serial[0] = (serial[0]! & 0x3f) | 0x40;
   const now = Date.now();
   const tbs = seq(
     der(0xa0, der(0x02, Buffer.from([2]))),
