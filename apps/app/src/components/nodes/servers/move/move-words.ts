@@ -1,4 +1,4 @@
-import { OLD_COPY_KEEP_DAYS } from '@swarmy/core';
+import { OLD_COPY_KEEP_DAYS, diskFitRefusal, diskFitWarning } from '@swarmy/core';
 import type { Tone } from '@/components/calm';
 import { gb } from '../server-words';
 import { FIT_WORD } from './fit-check';
@@ -6,8 +6,9 @@ import type { MovePlan, TargetPlan } from './use-move-plan';
 
 /**
  * The move preview's words (board 9's verdict chip, title and body), pure.
- * Only what swarmy knows: memory now, and how the mover works — no time
- * estimates, no disk sizes.
+ * Only what swarmy knows: memory now, its data's size against the target's
+ * free disk (the mover's own `diskFit` refusal and warning words), and how
+ * the mover works — no time estimates.
  */
 
 export interface Preview {
@@ -26,10 +27,22 @@ export function howItMoves(short: string, from: string, to: string): string {
 }
 
 export function previewWords(o: { short: string; from: string; plan: MovePlan; target: TargetPlan }): Preview {
-  const { short, from, plan, target: t } = o;
+  const { short, plan, target: t } = o;
   const other = plan.best && plan.best.id !== t.id ? plan.best : null;
   if (plan.block) return { tone: 'bad', verdict: 'Can’t move', title: plan.block, body: '', go: false };
   if (t.block) return { tone: 'bad', verdict: 'Can’t move there', title: t.block, body: other ? `Try ${other.name}.` : '', go: false };
+  if (t.disk?.verdict === 'wont-fit') {
+    const body = `${diskFitRefusal(short, t.name, t.disk)}${other ? ` Try ${other.name}.` : ''}`;
+    return { tone: 'bad', verdict: 'Won’t fit', title: `${t.name} doesn’t have room for ${short}’s data`, body, go: false };
+  }
+  const p = memoryWords(o);
+  const caution = t.disk ? diskFitWarning(short, t.name, t.disk) : null;
+  return p.go && caution ? { ...p, body: `${p.body} ${caution}` } : p;
+}
+
+function memoryWords(o: { short: string; from: string; plan: MovePlan; target: TargetPlan }): Preview {
+  const { short, from, plan, target: t } = o;
+  const other = plan.best && plan.best.id !== t.id ? plan.best : null;
   const f = t.fit;
   const base = { tone: VERDICT_TONE[f.verdict] as Tone, verdict: FIT_WORD[f.verdict] };
   switch (f.verdict) {

@@ -128,6 +128,7 @@ describe('previewWords', () => {
     name: id,
     block,
     fit: fitCheck({ needBytes: 2 * GB, dest: { usedBytes: used * GB, totalBytes: 16 * GB } }),
+    disk: null,
   });
   const plan = (targets: ReturnType<typeof t>[], block: string | null = null) => ({
     block,

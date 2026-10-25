@@ -1,6 +1,8 @@
-import type { MoveState, MoveStep, NodeDetail } from '@swarmy/core';
-import { MOVE_STATE_LABEL } from '@swarmy/core';
+import type { MoveState, MoveStep, NodeDetail, NodeStatsSnapshot } from '@swarmy/core';
+import { MOVE_STATE_LABEL, diskFit, diskFitRefusal, diskFitWarning, freeDiskBytes } from '@swarmy/core';
 import type { DemoStore, DomainResolvers } from '../types';
+import { core } from './core';
+import { demoVolumeSizes } from './volume-sizes';
 
 /**
  * Demo `decommission.moveService` (boards 9 + 11): moving a service's data
@@ -66,7 +68,15 @@ export const movesDemo: DomainResolvers = {
         sv.volumes.some((v) => v.type === 'volume' && v.source) &&
         to?.status === 'online' &&
         !moves(store)[sv.id];
-      if (!ok) return { started: true, service };
+      if (!ok) return { started: true, service, warnings: [] };
+      // The mover's disk fit (board 9): refused in plain words, or a warning when a size is unreported.
+      const vols = sv.volumes.map((v) => v.source!).filter(Boolean);
+      const from = demoVolumeSizes(store).find((r) => r.nodeId === sv.nodeId);
+      const live = core.handlers!['nodes.liveStatsLatest']!({ nodeId: toNodeId }, store) as NodeStatsSnapshot | null;
+      const sizes = from?.sampledAt ? new Map(from.volumes.map((v) => [v.name, v.sizeBytes])) : null;
+      const disk = diskFit({ volumes: vols, sizes, freeBytes: freeDiskBytes(live) });
+      if (disk.verdict === 'wont-fit') throw new Error(diskFitRefusal(sv.name, to?.name ?? toNodeId, disk));
+      const warning = diskFitWarning(sv.name, to?.name ?? toNodeId, disk);
       const state: MoveState = {
         id: `mv-${Date.now().toString(36)}`,
         step: 'serve',
@@ -83,7 +93,7 @@ export const movesDemo: DomainResolvers = {
         sv.constraints = [`node.id == swarm-${toNodeId}`];
         delete moves(store)[sv.id];
       }, DONE_AT_S * 1000);
-      return { started: true, service };
+      return { started: true, service, warnings: warning ? [warning] : [] };
     },
   },
 };

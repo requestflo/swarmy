@@ -50,6 +50,8 @@ import {
   addOldCopies,
   behindWatermarkBytes,
   compareManifests,
+  diskFitRefusal,
+  diskFitWarning,
   isValidVolumeName,
   manifestScript,
   moverSecretName,
@@ -61,6 +63,7 @@ import {
   pullScript,
   repinSpec,
   serveScript,
+  type DiskFit,
   type MoveState,
   type MoveStep,
   type VolumeManifest,
@@ -70,6 +73,7 @@ import type { OrgContext } from '../context';
 import { commandRejected, notFound } from '../errors';
 import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
+import { moveDiskFit } from './move-disk-fit';
 import { liveServiceSpec } from './service-patch';
 
 const SERVICE_NAME_LABEL = 'com.docker.swarm.service.name';
@@ -228,6 +232,10 @@ export interface MovePlan {
   destSwarm: string;
   volumes: string[];
   manager: Awaited<ReturnType<typeof resolveManagerNode>>;
+  /** The data against the target's free disk (`@swarmy/core` `diskFit`). */
+  disk: DiskFit;
+  /** Plain-words cautions that don't stop the move (a size nobody reported). */
+  warnings: string[];
 }
 
 /**
@@ -266,9 +274,13 @@ export async function planServiceMove(ctx: Ctx, input: { service: string; toNode
   }
   const volumes = serviceVolumes(ctx, svc, fromNodeId);
   if (volumes.length === 0) throw commandRejected(`${svc.name} has no named volumes to move.`);
+  // Disk fit (board 9): the data × 1.2 must be free on the target; unknown only warns.
+  const disk = moveDiskFit(ctx, { volumes, fromNodeId, toNodeId });
+  if (disk.verdict === 'wont-fit') throw commandRejected(diskFitRefusal(svc.name, hostnameOf(ctx, toNodeId), disk));
+  const warning = diskFitWarning(svc.name, hostnameOf(ctx, toNodeId), disk);
 
   const manager = await resolveManagerNode(ctx);
-  return { svc, replicas, fromNodeId, toNodeId, srcSwarm, destSwarm, volumes, manager };
+  return { svc, replicas, fromNodeId, toNodeId, srcSwarm, destSwarm, volumes, manager, disk, warnings: warning ? [warning] : [] };
 }
 
 export async function moveServiceData(
@@ -277,7 +289,7 @@ export async function moveServiceData(
   progress: ProgressFn = () => {},
   deps: MoverDeps = realDeps,
 ): Promise<MoveResult> {
-  const { svc, replicas, fromNodeId, toNodeId, srcSwarm, destSwarm, volumes, manager } = await planServiceMove(ctx, input);
+  const { svc, replicas, fromNodeId, toNodeId, srcSwarm, destSwarm, volumes, manager, warnings } = await planServiceMove(ctx, input);
   const moveId = newMoveId(deps.now());
   const secret = deps.secret();
   const state: MoveState = {
@@ -313,6 +325,7 @@ export async function moveServiceData(
 
   try {
     await setState('serve');
+    for (const w of warnings) say('serve', w);
     say('serve', `Opening a private copy channel on ${from.hostname}.`);
     await ctx.hub.dispatch(manager.id, 'secret.create', {
       name: moverSecretName(moveId),

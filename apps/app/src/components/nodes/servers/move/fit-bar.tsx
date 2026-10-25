@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { diskFitLine, type DiskFit } from '@swarmy/core';
 import { cn } from '@swarmy/ui';
 import { TONE_TEXT } from '@/components/calm';
 import type { Fit } from './fit-check';
@@ -32,6 +33,16 @@ export function FitBar({ server, fit }: { server: string; fit: Fit }): React.JSX
           />
         ) : null}
       </span>
+    </div>
+  );
+}
+
+/** The data against the target's free disk: "needs 4.2 GB · target has 31 GB free" (board 9's disk fit). */
+export function DiskFitLine({ server, fit }: { server: string; fit: DiskFit }): React.JSX.Element {
+  return (
+    <div className="flex items-baseline justify-between gap-3 text-[12.5px]">
+      <span className="text-muted-foreground shrink-0">{server} disk</span>
+      <span className={cn('text-right font-mono', TONE_TEXT[WORD[fit.verdict]])}>{diskFitLine(fit)}</span>
     </div>
   );
 }

@@ -23,6 +23,7 @@ export * from './disk-forecast';
 export * from './disk-inventory';
 export * from './volume-move';
 export * from './volume-sizes';
+export * from './disk-fit';
 export * from './dotenv';
 export * from './secret-args';
 export * from './pull-errors';

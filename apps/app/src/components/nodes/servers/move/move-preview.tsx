@@ -2,14 +2,15 @@ import * as React from 'react';
 import { cn } from '@swarmy/ui';
 import { TONE_DOT, TONE_TEXT, Tech } from '@/components/calm';
 import { gb } from '../server-words';
-import { FitBar } from './fit-bar';
+import { DiskFitLine, FitBar } from './fit-bar';
 import type { MoveDraft } from './move-context';
 import { previewWords } from './move-words';
 import type { MovePlan, TargetPlan } from './use-move-plan';
 
 /**
  * Board 9's preview card: the verdict, a sentence title, why, memory before
- * → after on both servers, and the actions (confirm, or "release to review").
+ * → after on both servers, the data against the target's free disk, and the
+ * actions (confirm, or "release to review").
  */
 export function MovePreview({
   draft,
@@ -37,6 +38,7 @@ export function MovePreview({
       {!plan.block && !target.block ? (
         <div className="bg-foreground/[0.04] flex flex-col gap-2.5 rounded-xl px-3 py-2.5">
           <FitBar server={target.name} fit={target.fit} />
+          {target.disk ? <DiskFitLine server={target.name} fit={target.disk} /> : null}
           {src ? (
             <div className="flex items-baseline justify-between gap-3 text-[12.5px]">
               <span className="text-muted-foreground">{from} memory</span>

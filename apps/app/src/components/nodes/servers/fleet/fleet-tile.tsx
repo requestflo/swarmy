@@ -25,6 +25,7 @@ const pctOr = (v: number | null): string => (v === null ? '—' : `${v}%`);
 /** Memory now, or before → after while a service hovers here (board 9's "RAM 35% → 52%"). */
 function MemoryLine({ v, plan }: { v: FleetView; plan: TargetPlan | null }): React.JSX.Element {
   if (plan?.block) return <span className="text-tone-bad">can’t take it</span>;
+  if (plan?.disk?.verdict === 'wont-fit') return <span className="text-tone-bad">not enough disk</span>;
   if (plan && plan.fit.afterPct !== null) {
     return (
       <span className={TONE_TEXT[VERDICT_TONE[plan.fit.verdict]!]}>
@@ -91,7 +92,7 @@ export function FleetTile({
         selected && !picking && 'ring-foreground/35 ring-2',
         picked && 'ring-status-progress ring-2',
         droppable && !hovered && 'border-dashed',
-        hovered && cn('ring-2', VERDICT_RING[plan?.block ? 'bad' : VERDICT_TONE[plan?.fit.verdict ?? 'unknown']!]),
+        hovered && cn('ring-2', VERDICT_RING[plan?.block || plan?.disk?.verdict === 'wont-fit' ? 'bad' : VERDICT_TONE[plan?.fit.verdict ?? 'unknown']!]),
         className,
       )}
     >

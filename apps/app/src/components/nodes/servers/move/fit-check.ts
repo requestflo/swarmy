@@ -3,8 +3,8 @@
  * check is memory only, from numbers swarmy already has: the service's
  * busiest copy right now (`services.usage`, peak) times the copies being
  * moved, against the destination's live memory (`nodes.liveStatsLatest`).
- * Disk room is not known client-side (volume sizes aren't reported), so it
- * is never claimed here.
+ * Disk room is the mover's own rule, `@swarmy/core` `diskFit`, applied in
+ * `move-targets.ts` — never a copy of it here.
  */
 
 /** Memory use (after the move) from which a server is "nearly full". */

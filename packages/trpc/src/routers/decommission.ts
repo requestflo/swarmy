@@ -65,8 +65,9 @@ export const decommissionRouter = router({
   moveService: adminProcedure
     .input(z.object({ service: z.string(), toNodeId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await planServiceMove(ctx, input);
+      const plan = await planServiceMove(ctx, input);
       void moveServiceData(ctx, input).catch(() => undefined); // failures roll back + audit inside
-      return { started: true, service: input.service };
+      // `warnings`: e.g. a volume size nobody reported, so the disk fit went unchecked.
+      return { started: true, service: input.service, warnings: plan.warnings };
     }),
 });

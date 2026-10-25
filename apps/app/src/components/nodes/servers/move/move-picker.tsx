@@ -19,7 +19,8 @@ export function MovePicker({ plan }: { plan: MovePlan }): React.JSX.Element {
   return (
     <ul aria-label="Move to" className="flex flex-col gap-1.5">
       {plan.targets.map((t, i) => {
-        const tone = t.block ? 'bad' : TONE[t.fit.verdict];
+        const noDisk = t.disk?.verdict === 'wont-fit';
+        const tone = t.block || noDisk ? 'bad' : TONE[t.fit.verdict];
         return (
           <li key={t.id}>
             <button
@@ -32,7 +33,7 @@ export function MovePicker({ plan }: { plan: MovePlan }): React.JSX.Element {
               <span aria-hidden className={cn('size-2 shrink-0 rounded-full', TONE_DOT[tone])} />
               <span className="text-[13.5px] font-semibold">{t.name}</span>
               <span className={cn('ml-auto text-right font-mono text-[12px]', TONE_TEXT[tone])}>
-                {t.block ?? (t.fit.afterPct !== null ? `${FIT_WORD[t.fit.verdict]} · ${t.fit.beforePct}% → ${t.fit.afterPct}%` : FIT_WORD[t.fit.verdict])}
+                {t.block ?? (noDisk ? 'Not enough disk' : t.fit.afterPct !== null ? `${FIT_WORD[t.fit.verdict]} · ${t.fit.beforePct}% → ${t.fit.afterPct}%` : FIT_WORD[t.fit.verdict])}
               </span>
             </button>
           </li>

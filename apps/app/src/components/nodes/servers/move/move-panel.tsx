@@ -10,7 +10,7 @@ import { MoveProgress } from './move-progress';
 import { useMovePlan } from './use-move-plan';
 import { useMoveProgress, useStartMove } from './use-move-run';
 
-const CHECKS = ['Enough memory on the new server', 'Its data is copied before it switches', 'The copy is checked file by file', 'If anything fails, it goes back where it was'];
+const CHECKS = ['Enough memory on the new server', 'Room on its disk for the data, with 20% to spare', 'Its data is copied before it switches', 'The copy is checked file by file', 'If anything fails, it goes back where it was'];
 
 /**
  * Board 9 in the aside: while a service is dragged, picked or moving, the
