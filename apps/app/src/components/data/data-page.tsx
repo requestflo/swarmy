@@ -9,12 +9,14 @@ import { SHARED } from './data-board-model';
 import { DataClusters } from './data-clusters';
 import { EstateDataCode } from './data-code';
 import { DataNextAction } from './data-next-action';
+import { DataPgCopies } from './data-pg-copies';
 import { storeCount } from './estate-data';
 import { useDataBoard } from './use-data-board';
 
 /**
  * Data hub (board 15): everything the apps keep, by app, with who can reach
- * each bucket. Drop a bucket on an app to attach it.
+ * each bucket. Drop a bucket on an app to attach it; drag a database's writer
+ * onto a standby copy to hand it the writes.
  */
 export function DataPage(): React.JSX.Element {
   const d = useDataBoard();
@@ -50,6 +52,7 @@ export function DataPage(): React.JSX.Element {
         <div className="flex min-w-0 flex-col gap-5">
           {d.worst ? <DataNextAction worst={d.worst} /> : null}
           <DataClusters d={d} target={target} onTarget={setTarget} />
+          <DataPgCopies rows={d.pgRows} />
         </div>
         <aside className="flex min-w-0 flex-col gap-4">
           <EstateDataCode d={d} />

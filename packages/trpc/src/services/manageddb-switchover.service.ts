@@ -1,6 +1,7 @@
 import {
   DB_FAILOVER_PENDING_LABEL,
   STACK_LABEL,
+  SWITCHOVER_BUSY,
   connectViaOf,
   planSwitchover,
   plannedRestartActive,
@@ -41,9 +42,9 @@ export function switchoverWriter(members: readonly SwarmServiceInfo[]): SwarmSer
 export function switchoverBusy(ctx: OrgContext, stack: string, cluster: string, now = Date.now()): string | null {
   const members = switchoverMembers(ctx, stack, cluster);
   const writer = switchoverWriter(members);
-  if (members.some((s) => s.labels[DB_FAILOVER_PENDING_LABEL])) return 'A switch-over is held for your confirmation. Settle that first.';
-  if (switchoverInFlight(ctx.activeOrgId, stack, cluster) || switchoverRequested(writer?.labels, now)) return 'A switch-over is already running.';
-  if (plannedRestartActive(writer?.labels, now)) return 'The main copy is restarting for an extension or memory change. Try again in a minute.';
+  if (members.some((s) => s.labels[DB_FAILOVER_PENDING_LABEL])) return SWITCHOVER_BUSY.held;
+  if (switchoverInFlight(ctx.activeOrgId, stack, cluster) || switchoverRequested(writer?.labels, now)) return SWITCHOVER_BUSY.running;
+  if (plannedRestartActive(writer?.labels, now)) return SWITCHOVER_BUSY.restarting;
   return null;
 }
 
@@ -54,6 +55,16 @@ export function directApps(ctx: OrgContext, stack: string, cluster: string): str
     .services.filter((s) => s.labels[STACK_LABEL] === stack && s.labels[DB_INJECT_LABEL] === cluster && connectViaOf(s.labels) !== 'pooler')
     .map((s) => s.name)
     .sort();
+}
+
+/** "wkr-2's copy": a member's copy by the server its running task is on (else the service). */
+export function copyNamer(ctx: OrgContext, stack: string, cluster: string): (service: string) => string {
+  const tasks = clusterTasks(ctx, stack, cluster);
+  return (service) => {
+    const node = tasks.find((t) => t.service === service)?.nodeId;
+    const host = node ? ctx.hub.nodeInfoFor(node)?.hostname : undefined;
+    return host ? `${host}'s copy` : service;
+  };
 }
 
 export interface SwitchoverFacts {
@@ -71,12 +82,7 @@ export async function planDbSwitchover(ctx: OrgContext, input: { stack: string; 
         throw commandRejected(`couldn't read how far behind each copy is: ${e instanceof Error ? e.message : String(e)}`);
       })
     : [];
-  const tasks = clusterTasks(ctx, input.stack, input.cluster);
-  const where = (service: string): string => {
-    const node = tasks.find((t) => t.service === service)?.nodeId;
-    const host = node ? ctx.hub.nodeInfoFor(node)?.hostname : undefined;
-    return host ? `${host}'s copy` : service;
-  };
+  const where = copyNamer(ctx, input.stack, input.cluster);
   const view = (s: SwarmServiceInfo): SwitchoverMember => ({
     service: s.name,
     role: s === writer ? 'primary' : (s.labels['swarmy.db.role'] ?? ''),

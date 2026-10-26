@@ -17,7 +17,7 @@ import { commandRejected } from '../errors';
 import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
 import { recordIncidentEvent } from './incidents-record';
-import { planDbSwitchover } from './manageddb-switchover.service';
+import { copyNamer, planDbSwitchover } from './manageddb-switchover.service';
 import { putSwitchoverRun } from './manageddb-switchover.runs';
 import { awaitPromotion, drainTo, live, repointed, restoreWriter, until, type RunScope, type SwitchoverIo } from './manageddb-switchover.steps';
 
@@ -75,6 +75,8 @@ export async function runDbSwitchover(
     put();
     if (message) o.say?.(message);
   };
+  const named = copyNamer(ctx, stack, cluster);
+  const [F, T] = [named(from), named(target)];
   const ref = `${stack}/${cluster}`;
   const audit = (action: string, metadata: Record<string, unknown>) =>
     writeAudit(ctx, { action, targetType: 'dbCluster', targetId: ref, metadata }).catch(() => undefined);
@@ -92,7 +94,7 @@ export async function runDbSwitchover(
   const pausedAt = io.now();
   const at = iso();
   try {
-    step('pause', 'running', `Pausing writes on ${from}.`);
+    step('pause', 'running', `Pausing writes on ${F}.`);
     await labels({ [DB_SWITCHOVER_LABEL]: encodeSwitchoverRequest({ at, target }) });
     let finalLsn: string;
     try {
@@ -103,15 +105,15 @@ export async function runDbSwitchover(
       finalLsn = (await io.psql(from, SWITCHOVER_SQL.flushLsn)).trim();
       if (!/^[0-9A-F]+\/[0-9A-F]+$/i.test(finalLsn)) throw commandRejected(`couldn't read the main copy's last position (got "${finalLsn.slice(0, 40)}")`);
       step('pause', 'done', `Writes paused; the main copy's last change is at ${finalLsn}.`);
-      step('catch-up', 'running', `Waiting for ${target} to replay up to ${finalLsn}.`);
+      step('catch-up', 'running', `Waiting for ${T} to replay up to ${finalLsn}.`);
       await drainTo(s, finalLsn, t.drainMs);
     } catch (e) {
       await thaw();
       throw e;
     }
-    step('catch-up', 'done', `${target} has every change.`);
+    step('catch-up', 'done', `${T} has every change.`);
 
-    step('promote', 'running', `Stopping ${from}; swarmy makes ${target} the writer.`);
+    step('promote', 'running', `Stopping ${F}; swarmy makes ${T} the writer.`);
     try {
       await labels({ [DB_SWITCHOVER_LABEL]: encodeSwitchoverRequest({ at, target, finalLsn }) });
       await ctx.hub.dispatch(mgr.id, 'service.scale', { service: from, replicas: 0 });
@@ -123,18 +125,18 @@ export async function runDbSwitchover(
     if (d.kind === 'abort' && !(await restoreWriter(s, mgr.id, t.startMs ?? 180_000))) throw commandRejected(d.reason);
     const pausedSeconds = Math.max(0, Math.round((io.now() - pausedAt) / 1000));
     view = { ...view, pausedSeconds };
-    step('promote', 'done', `${target} takes the writes. Writes were paused for ${pausedSeconds} s.`);
+    step('promote', 'done', `${T} takes the writes. Writes were paused for ${pausedSeconds} s.`);
 
     step('repoint', 'running', 'Pointing the other copies and the pooler at it.');
     const moved = await until(s, t.repointMs ?? 60_000, () => repointed(s));
     step('repoint', moved ? 'done' : 'warn', moved ? 'The other copies and the pooler follow the new writer.' : 'The repoint is still settling; the reconcile finishes it.');
 
-    step('rejoin', 'running', `${from} starts again as a standby (its old data is kept aside).`);
+    step('rejoin', 'running', `${F} starts again as a standby (its old data is kept aside).`);
     const demoted = live(s, from);
     const rejoin = o.rejoin ?? (async (m: SwarmServiceInfo) => void (await ctx.hub.dispatch(mgr.id, 'service.scale', { service: m.name, replicas: 1 })));
     if (demoted) await rejoin(demoted);
     const rejoined = await until(s, t.rejoinMs ?? 10 * 60_000, () => (live(s, from)?.runningReplicas ?? 0) > 0);
-    step('rejoin', rejoined ? 'done' : 'warn', rejoined ? `${from} follows ${target}.` : `${from} is still copying from ${target}; nothing is lost meanwhile.`);
+    step('rejoin', rejoined ? 'done' : 'warn', rejoined ? `${F} follows ${T}.` : `${F} is still copying from ${T}; nothing is lost meanwhile.`);
 
     await audit('db.switchover', { from, to: target, finalLsn, pausedSeconds, rejoined });
     await recordIncidentEvent(ctx, {

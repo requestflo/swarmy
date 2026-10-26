@@ -1290,8 +1290,9 @@ export const data: DomainResolvers = {
 
     // Live cluster topologies (slice A2): the data/main cluster runs failover
     // with two healthy replicas + a consensus member (crowned leader, sub-second
-    // lag, PITR shipping); storefront/checkout has one replica falling behind
-    // (the amber lag badge); platform/metrics is a bare single-writer.
+    // lag, PITR shipping); storefront/checkout has one caught-up standby, so it
+    // can take the writes (db.switchover, boards 15 and 39); platform/metrics is
+    // a bare single-writer.
     const dbTopologies: DbTopoState[] = [
       {
         stack: 'data',
@@ -1310,7 +1311,7 @@ export const data: DomainResolvers = {
         leader: 'storefront_checkout-primary',
         members: [
           { service: 'storefront_checkout-primary', role: 'primary', status: 'running', desired: 1, running: 1 },
-          { service: 'storefront_checkout-replica', role: 'replica', status: 'degraded', desired: 2, running: 1, lagSeconds: 14.2 },
+          { service: 'storefront_checkout-replica', role: 'replica', status: 'running', desired: 1, running: 1, lagSeconds: 0.6 },
         ],
       },
       {

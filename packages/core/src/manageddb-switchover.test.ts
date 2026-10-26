@@ -86,7 +86,9 @@ describe('planSwitchover — every refusal', () => {
 
   it('a copy sharing its service with another copy cannot be promoted alone', () => {
     const shared = input({ target: R, members: input().members.map((m) => (m.service === R ? { ...m, desired: 2, running: 2 } : m)) });
-    expect(code(shared)).toBe('shared-copy');
+    const p = planSwitchover(shared);
+    expect(p).toMatchObject({ ok: false, code: 'shared-copy', target: R });
+    if (!p.ok) expect(p.reason).toBe('shop_db-replica runs 2 standby copies as one service, so no one of them can take the writes on its own. Keep one standby copy per service first.');
   });
 
   it('a copy that is not streaming (or has no row at all)', () => {

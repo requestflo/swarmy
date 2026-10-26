@@ -25,6 +25,13 @@
 /** One WAL segment: close enough to pause writes and wait for the rest. */
 export const SWITCHOVER_CATCH_UP_BYTES = 16 * 1024 * 1024;
 
+/** Why the writer is busy, in the words the controller and the dashboard both say. */
+export const SWITCHOVER_BUSY = {
+  held: 'A switch-over is held for your confirmation. Settle that first.',
+  running: 'A switch-over is already running.',
+  restarting: 'The main copy is restarting for an extension or memory change. Try again in a minute.',
+} as const;
+
 export type SwitchoverRefusal =
   | 'no-writer'
   | 'not-supported'
@@ -85,7 +92,8 @@ const refuse = (code: SwitchoverRefusal, reason: string, target?: string): Refus
 /** One copy's verdict: eligible with its lag, or why not. */
 function judge(m: SwitchoverMember, i: SwitchoverPlanInput, name: string): SwitchoverPlan {
   if (m.desired > 1 || m.running > 1) {
-    return refuse('shared-copy', `${name} shares its service with another copy, so it can't take the writes on its own. Keep one standby copy per service first.`, m.service);
+    const n = Math.max(m.desired, m.running);
+    return refuse('shared-copy', `${m.service} runs ${n} standby copies as one service, so no one of them can take the writes on its own. Keep one standby copy per service first.`, m.service);
   }
   const row = i.standbys.find((s) => s.service === m.service);
   if (!row || row.state !== 'streaming') {

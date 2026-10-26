@@ -6,9 +6,10 @@ import { managedMemberServers } from './managed-members';
  * Demo `db.replication` (Postgres page, board 39): `pg_stat_replication` on
  * the main copy, one row per running standby task, on the servers the demo
  * places them (managed-members.ts). The story: data/main's two standbys are
- * caught up or a few hundred bytes behind; checkout's one running standby is
- * 38 MB and 14 s behind (its second copy isn't running). The primary's LSN
- * moves with the clock so the page reads as live.
+ * caught up or a few hundred bytes behind; so is checkout's one standby (a
+ * standby with 5 s or more of lag reads 38 MB behind). Roles come from the
+ * demo topology, so after a demo switch-over the old main copy is the standby.
+ * The primary's LSN moves with the clock so the page reads as live.
  */
 
 type Out<T> = T extends { _def: { $types: { output: infer X } } } ? X : never;

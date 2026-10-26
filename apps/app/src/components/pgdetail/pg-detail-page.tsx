@@ -14,6 +14,7 @@ import { PgPoolerSection } from './pg-pooler-section';
 import { standbyBoxStats } from './pg-replication';
 import { PgReplicationSection } from './pg-replication-section';
 import { PgSizeSection } from './pg-size-section';
+import { PgSwitchoverSection } from './pg-switchover-section';
 import { PgTopologySection } from './pg-topology-section';
 import type { PgMode } from './pg-topology';
 import { usePgDetail } from './use-pg-detail';
@@ -32,7 +33,8 @@ function Back({ stack }: { stack: string }): React.JSX.Element {
 /**
  * One managed Postgres database (board 39, PgDetail): the sentence, how it's
  * laid out (a diagram that morphs with the picked shape, what you could lose
- * and how long it's down), extensions, the connection pooler; the aside carries the code, the
+ * and how long it's down), handing the writes to another copy (Controls),
+ * extensions, the connection pooler; the aside carries the code, the
  * switch-over rule with "Simulate <region> outage", Connect and its size.
  */
 export function PgDetailPage({ stack, cluster }: { stack: string; cluster: string }): React.JSX.Element {
@@ -85,6 +87,7 @@ export function PgDetailPage({ stack, cluster }: { stack: string; cluster: strin
           <PgTopologySection stack={stack} d={d} mode={mode} onMode={setPicked} behind={r.view ? standbyBoxStats(r.view.standbys) : undefined} />
           <PgModeApply stack={stack} d={d} mode={mode} />
           <PgReplicationSection d={d} r={r} />
+          <PgSwitchoverSection stack={stack} d={d} />
           <PgExtensionsSection stack={stack} d={d} />
           <PgPoolerSection stack={stack} d={d} />
         </div>

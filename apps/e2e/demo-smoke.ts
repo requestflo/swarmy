@@ -106,7 +106,8 @@ const routes: Array<[string, RegExp?]> = [
   // The Calm Layers shell's top-level destinations.
   ['/deploy'],
   ['/network', /How a visit reaches your apps/],
-  ['/data'],
+  // Board 15: each database's copies by server; the writer moves by a planned switch-over.
+  ['/data', /Where each database’s copies run[\s\S]*standby copies stay where they were placed/],
   ['/activity'],
   ['/nodes'],
   ['/nodes/new'],
@@ -325,6 +326,37 @@ try {
     else console.log('✓ route driver: cdn rides the tunnel at Controls; picking the front door saves on the route');
   } catch (e) {
     fail(`route driver: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`);
+  }
+
+  // Board 39 at Controls: make checkout's standby on mgr-2 the writer, and watch the run finish.
+  try {
+    const before = pageErrors.length;
+    await page.goto(`${BASE}/stacks/storefront/data/checkout`, { waitUntil: 'networkidle' });
+    await page.getByRole('group', { name: 'Detail on this page' }).getByRole('button', { name: 'Controls' }).first().click();
+    const make = page.getByRole('button', { name: 'Make this copy the writer' }).first();
+    await make.waitFor({ timeout: 10_000 });
+    await page.waitForFunction(() => [...document.querySelectorAll('button')].some((b) => b.textContent === 'Make this copy the writer' && !b.disabled), null, { timeout: 20_000 });
+    await make.click();
+    await page.getByText("Writes pause for a few seconds; nothing is lost. wkr-1's copy then follows it as a standby.").first().waitFor({ timeout: 10_000 });
+    await page.getByRole('button', { name: 'Make it the writer', exact: true }).click();
+    await page.getByText("mgr-2's copy is the writer.").first().waitFor({ timeout: 20_000 });
+    if (pageErrors.length > before) fail(`switch-over: ${pageErrors.slice(before).join(' | ')}`);
+    else console.log("✓ switch-over: mgr-2's copy takes checkout's writes at Controls; the progress card walks to done");
+  } catch (e) {
+    fail(`switch-over: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`);
+  }
+
+  // Board 15: picking checkout's standby (the drag's keyboard twin) offers the switch-over first.
+  try {
+    const before = pageErrors.length;
+    await page.goto(`${BASE}/data`, { waitUntil: 'networkidle' });
+    await page.getByRole('button', { name: 'mgr-2: a standby copy. Make it the writer…' }).first().click();
+    await page.getByText("Make mgr-2's copy the writer, then move?").first().waitFor({ timeout: 20_000 });
+    await page.getByRole('button', { name: 'Make it the writer', exact: true }).waitFor({ timeout: 20_000 });
+    if (pageErrors.length > before) fail(`board 15 switch-over: ${pageErrors.slice(before).join(' | ')}`);
+    else console.log("✓ board 15: the writer's move is offered as making mgr-2's copy the writer");
+  } catch (e) {
+    fail(`board 15 switch-over: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`);
   }
 
   // A server at Controls: the Disks card renders (wkr-1's provider attached a blank volume).

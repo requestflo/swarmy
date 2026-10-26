@@ -7,8 +7,9 @@ import { stackLinks } from './stack-links';
  * `via` (Postgres page, board 39). Wraps stack-links' `db.inject` (so it
  * comes after it in the registry) and reads its wired apps. A change walks
  * the reconcile's pace on a clock: the pooler is "starting" for ~4 s. Seeded:
- * storefront/checkout pools in transaction mode with storefront_api through
- * it; data/main has none.
+ * storefront/checkout pools in transaction mode with both its apps through
+ * it (so a planned switch-over leaves no app behind); data/main has none.
+ * The writer is whichever copy the demo topology says writes.
  */
 
 interface PoolerState {
@@ -23,7 +24,7 @@ const LINKS = stackLinks.handlers!;
 function state(s: DemoStore): PoolerState {
   s.extra.pgPooler ??= {
     decl: { 'storefront/checkout': { mode: 'transaction', poolSize: 20, at: 0 } },
-    via: { 'storefront/checkout': { storefront_api: 'pooler' } },
+    via: { 'storefront/checkout': { storefront_api: 'pooler', storefront_checkout: 'pooler' } },
   } satisfies PoolerState;
   return s.extra.pgPooler as PoolerState;
 }
@@ -38,7 +39,8 @@ function view(s: DemoStore, stack: string, cluster: string): DbPoolerView {
   const d = state(s).decl[key];
   const via = state(s).via[key] ?? {};
   const starting = !!d && Date.now() - d.at < STEP_MS;
-  const writer = `${stack}_${cluster}-primary`;
+  const topo = (s.extra.data as { dbTopologies?: Array<{ stack: string; cluster: string; members: Array<{ service: string; role: string }> }> } | undefined)?.dbTopologies;
+  const writer = topo?.find((t) => t.stack === stack && t.cluster === cluster)?.members.find((m) => m.role === 'primary')?.service ?? `${stack}_${cluster}-primary`;
   const apps = wired(s, stack, cluster).map((service) => ({ service, envVar: 'DATABASE_URL', via: via[service] ?? ('direct' as const) }));
   const through = apps.filter((a) => a.via === 'pooler').length;
   return {

@@ -81,6 +81,7 @@ import { pgExtensions } from './resolvers/pg-extensions';
 import { pgReplication } from './resolvers/pg-replication';
 import { pgMemoryDemo } from './resolvers/pg-memory';
 import { pgPoolerDemo } from './resolvers/pg-pooler';
+import { pgSwitchoverDemo } from './resolvers/pg-switchover';
 import { studioSlow } from './resolvers/studio-slow';
 import { studioIndexes } from './resolvers/studio-indexes';
 import { gaps } from './resolvers/gaps';
@@ -216,6 +217,8 @@ const MODULES: DomainResolvers[] = [
   stackLinks,
   // Wraps stack-links' db.inject (the pooler path), so it comes after it.
   pgPoolerDemo,
+  // Reads the pooler's wired apps and the demo db.replication.
+  pgSwitchoverDemo,
   scaling,
   movesDemo,
   // Overrides gaps' empty decommission.oldCopies with the copies demo moves keep.
