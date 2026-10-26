@@ -16,16 +16,18 @@ describe('Headscale (tailscale client) relayed state', () => {
   it('one relayed active link makes the node relayed; all-direct is direct', () => {
     const relayed = parseTailscaleStatus(
       status({
-        a: { TailscaleIPs: ['100.64.0.2'], Online: true, Active: true, CurAddr: '198.51.100.4:41641', Relay: 'lhr' },
-        b: { TailscaleIPs: ['100.64.0.3'], Online: true, Active: true, CurAddr: '', Relay: 'nyc' },
+        a: { TailscaleIPs: ['100.64.0.2'], Online: true, Active: true, CurAddr: '198.51.100.4:41641', Relay: 'lhr', RxBytes: 734003, TxBytes: 91234 },
+        b: { TailscaleIPs: ['100.64.0.3'], Online: true, Active: true, CurAddr: '', Relay: 'nyc', LastHandshake: '2026-10-26T10:41:10Z' },
       }),
       5,
     );
     expect(relayed.relayed).toBe(true);
+    // Each online peer carries its link facts: path and bytes, never a latency (status has none).
     expect(relayed.peers).toEqual([
-      { meshIp: '100.64.0.2', connected: true, relayed: false },
-      { meshIp: '100.64.0.3', connected: true, relayed: true },
+      { meshIp: '100.64.0.2', connected: true, relayed: false, link: { relayed: false, rxBytes: 734003, txBytes: 91234 } },
+      { meshIp: '100.64.0.3', connected: true, relayed: true, lastHandshakeAt: '2026-10-26T10:41:10.000Z', link: { relayed: true } },
     ]);
+    expect(MeshStatePayload.parse(relayed).peers[0]?.link).toEqual({ relayed: false, rxBytes: 734003, txBytes: 91234 });
     const direct = parseTailscaleStatus(status({ a: { Online: true, Active: true, CurAddr: '198.51.100.4:41641' } }), 5);
     expect(direct.relayed).toBe(false);
   });

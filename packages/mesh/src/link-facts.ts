@@ -17,16 +17,10 @@
  *   link reports its path and bytes and leaves latency out: never a guess.
  */
 
-/** What one end says about its link to one peer. Absent fields are unknown, never zero. */
-export interface PeerLinkFacts {
-  /** Round trip in milliseconds, as the client measured it. */
-  latencyMs?: number;
-  /** true = through a relay (still end-to-end encrypted), false = peer to peer. */
-  relayed?: boolean;
-  /** Bytes received from / sent to this peer since the tunnel came up. */
-  rxBytes?: number;
-  txBytes?: number;
-}
+import type { MeshLinkFacts } from '@swarmy/core/protocol';
+
+/** What one end says about its link to one peer (the wire's `meshState.peers[].link`). Absent = unknown, never zero. */
+export type PeerLinkFacts = MeshLinkFacts;
 
 /** One peer this node sees, with its link facts when the client has any. */
 export interface PeerLinkSample {

@@ -13,6 +13,7 @@ import {
 } from '../services/mesh.service';
 import { nodesOnMesh } from '../services/mesh-onmesh';
 import { getMeshMtuCheck } from '../services/mesh-mtu.service';
+import { getMeshLinks } from '../services/mesh-links.service';
 import { addAccessRule, listAccessRules, removeAccessRule } from '../services/mesh-rules.service';
 import { commandRejected } from '../errors';
 import { getControlPlaneCard, moveControlPlane, reconcileMeshControl, setBreakGlass, setRelaysOnEdges } from '../services/mesh-control.service';
@@ -70,6 +71,9 @@ export const meshRouter = router({
 
   /** "Networks are too big for the mesh": wt0 MTU vs every overlay's (agent telemetry; null when the swarm isn't on the mesh). */
   mtu: orgProcedure.query(({ ctx }) => getMeshMtuCheck(ctx)),
+
+  /** Server-to-server links with each end's latency, path and bytes (agent telemetry; both directions). */
+  links: orgProcedure.query(({ ctx }) => getMeshLinks(ctx)),
 
   /** Provision + dispatch `applyMesh` to join a node to the mesh. */
   enrollNode: adminProcedure

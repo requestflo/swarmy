@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { CommandId } from './primitives';
 import { MeshRelayStatus } from './mesh-relay';
+import { MeshLinkFacts } from './mesh-link';
 import { MeshControlLeaseView } from './mesh-control-lease';
 import { RegistryAuth } from './commands';
 
@@ -170,9 +171,9 @@ export const MeshStatePayload = z.object({
   publicKey: z.string().optional(),
   connected: z.boolean(),
   /**
-   * Any of this node's live links going through a relay. Absent = unknown (a
-   * Headscale node with no active peer can't tell), which the controller keeps
-   * as null. Older controllers read absent as false, as before.
+   * Any of this node's live links going through a relay. Absent = unknown (no
+   * connected NetBird peer, or no active Headscale peer, to tell by), which
+   * the controller keeps as null. Older controllers read absent as false.
    */
   relayed: z.boolean().optional(),
   /** ISO timestamp of the last WireGuard handshake, if known. */
@@ -188,6 +189,8 @@ export const MeshStatePayload = z.object({
         connected: z.boolean(),
         relayed: z.boolean().default(false),
         lastHandshakeAt: z.string().optional(),
+        /** Latency, path and bytes of this node's link to the peer (mesh-link.ts). Absent on older agents. */
+        link: MeshLinkFacts.optional(),
       }),
     )
     .default([]),

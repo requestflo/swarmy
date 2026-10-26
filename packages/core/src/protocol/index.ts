@@ -25,6 +25,7 @@ export * from './swarmres';
 export * from './run-once-binds';
 export * from './mesh';
 export * from './mesh-relay';
+export * from './mesh-link';
 export * from './mesh-reimage';
 export * from './mesh-control-lease';
 export * from './dns';

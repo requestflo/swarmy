@@ -7,50 +7,31 @@
  * (`PeerRelay`). Idle peers say nothing either way, so with no active peer the
  * node's `relayed` is left out (unknown) rather than claimed: the controller
  * keeps it null instead of showing "relayed" (or "direct") on a guess.
+ *
+ * Each online peer also carries its link facts (path and bytes; Tailscale's
+ * status has no latency), read by `tailscalePeerLinks` (@swarmy/mesh).
  */
 import type { MeshStatePayload } from '@swarmy/core/protocol';
+import { firstIpv4, nodeRelayed, tailscalePeerLinks, tailscalePeerRelayed } from '@swarmy/mesh';
 
-interface TsPeer {
-  TailscaleIPs?: string[];
-  Online?: boolean;
-  Active?: boolean;
-  CurAddr?: string;
-  Relay?: string;
-  PeerRelay?: string;
-}
-
-interface TsStatus {
-  Self?: { TailscaleIPs?: string[]; Online?: boolean };
-  BackendState?: string;
-  Peer?: Record<string, TsPeer> | null;
-}
-
-function firstIpv4(ips: string[] | undefined): string | undefined {
-  return ips?.find((ip) => ip.includes('.')) ?? ips?.[0];
-}
-
-/** Is this peer's traffic going through a relay right now? `undefined` = idle, can't tell. */
-export function tailscalePeerRelayed(p: TsPeer): boolean | undefined {
-  if (!p.Active) return undefined;
-  if (p.CurAddr) return false;
-  return Boolean(p.Relay || p.PeerRelay);
-}
+export { tailscalePeerRelayed };
 
 export function parseTailscaleStatus(stdout: string, sampledAt: number): MeshStatePayload {
-  const j = JSON.parse(stdout) as TsStatus;
-  const raw = Object.values(j.Peer ?? {});
-  const states = raw.map(tailscalePeerRelayed);
-  const known = states.filter((s): s is boolean => s !== undefined);
+  const j = JSON.parse(stdout) as { Self?: { TailscaleIPs?: string[] }; BackendState?: string };
+  const links = tailscalePeerLinks(j);
+  const relayed = nodeRelayed(links);
   return {
     driver: 'headscale',
     meshIp: firstIpv4(j.Self?.TailscaleIPs),
     connected: j.BackendState === 'Running',
-    ...(known.length ? { relayed: known.some(Boolean) } : {}),
+    ...(relayed !== undefined ? { relayed } : {}),
     advertisedRoutes: [],
-    peers: raw.map((p, i) => ({
-      meshIp: firstIpv4(p.TailscaleIPs),
-      connected: p.Online === true,
-      relayed: states[i] === true,
+    peers: links.map((p) => ({
+      meshIp: p.meshIp,
+      connected: p.connected,
+      relayed: p.link?.relayed === true,
+      ...(p.lastHandshakeAt ? { lastHandshakeAt: p.lastHandshakeAt } : {}),
+      ...(p.link ? { link: p.link } : {}),
     })),
     sampledAt,
   };

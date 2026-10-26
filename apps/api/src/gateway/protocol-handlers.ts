@@ -16,6 +16,7 @@ import {
   enrollMeshNode,
   foreignSwarmOf,
   meshMtuLive,
+  meshLinksLive,
   orchestrateSwarmMembership,
   reconcileMeshPeer,
   stampDefaultBuilderRole,
@@ -248,6 +249,8 @@ export async function handleAgentMessage(ws: AgentSocket, raw: string, deps: Dep
       reconcileMeshPeer(orgId, nodeId, env.payload);
       // Interface + overlay MTUs for the "too big for the mesh" check (newer agents).
       meshMtuLive.report(orgId, nodeId, env.payload);
+      // Per-peer latency, path and bytes for `mesh.links` (newer agents; older ones send none).
+      meshLinksLive.report(orgId, nodeId, env.payload.peers);
       return;
     }
     default:

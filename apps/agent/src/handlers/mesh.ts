@@ -31,6 +31,7 @@ import { sampleMeshRelay } from './mesh-relay';
 import { resolveMeshClientImage, type MeshImageHint } from './mesh-image';
 import { loadImageFromController } from './controller-image';
 import { parseTailscaleStatus } from './mesh-tailscale';
+import { parseNetbirdStatus } from './mesh-netbird';
 import { putSecretFile } from './secret-file';
 
 /** Default client images if the controller didn't send one: the BOM's pins (`ref@digest`). */
@@ -195,19 +196,11 @@ export async function applyMesh(docker: DockerClient, rendered: RenderedMesh, hi
 // ── meshState reporter (telemetry the agent pushes) ──────────────────────────
 
 /**
- * Strip a CIDR prefix from a mesh address so it's a bare host IP. NetBird's
- * `status --json` reports `netbirdIp` as `100.71.108.238/16`, but the value is
- * used verbatim as a Docker Swarm `--advertise-addr`, which rejects anything
- * that isn't a plain IP (or IP:port). Idempotent for already-bare IPs.
- *
- * Empty ⇒ undefined: a NetBird client that is
- * connected but not yet addressed reports `netbirdIp: ""`, and an empty mesh IP
- * used to reach the controller, which then sent `advertiseAddr: ""` — a
- * swarmJoin the agent's own schema rejects, dropped 6/6 (QA-063).
+ * Strip a CIDR prefix from a mesh address so it's a bare host IP: NetBird's
+ * `netbirdIp` is `100.71.108.238/16`, used verbatim as a swarm
+ * `--advertise-addr`; empty ⇒ undefined (QA-063). Lives in mesh-netbird.ts.
  */
-export function bareMeshIp(ip: string | undefined): string | undefined {
-  return ip ? ip.split('/')[0] || undefined : undefined;
-}
+export { bareMeshIp } from './mesh-netbird';
 
 /**
  * Sample the live mesh state from whichever client is present and return a
@@ -243,26 +236,10 @@ async function sampleClientState(docker: DockerClient): Promise<MeshStatePayload
   );
   if (nb.code === 0 && nb.stdout) {
     try {
-      const j = JSON.parse(nb.stdout) as {
-        management?: { connected?: boolean };
-        netbirdIp?: string;
-        peers?: { details?: { ip?: string; status?: string; relayed?: boolean }[] };
-      };
-      lastMeshCidr = j.netbirdIp || undefined;
-      const peers = (j.peers?.details ?? []).map((p) => ({
-        meshIp: bareMeshIp(p.ip),
-        connected: p.status === 'Connected',
-        relayed: Boolean(p.relayed),
-      }));
-      return {
-        driver: 'netbird',
-        meshIp: bareMeshIp(j.netbirdIp),
-        connected: Boolean(j.management?.connected),
-        relayed: peers.some((p) => p.relayed),
-        advertisedRoutes: [],
-        peers,
-        sampledAt,
-      };
+      // Per-peer link facts (latency, path, bytes) ride each peer (mesh-netbird.ts).
+      const { state, cidr } = parseNetbirdStatus(nb.stdout, sampledAt);
+      lastMeshCidr = cidr;
+      return state;
     } catch (e) {
       return { driver: 'netbird', connected: false, relayed: false, advertisedRoutes: [], peers: [], error: e instanceof Error ? e.message : String(e), sampledAt };
     }
