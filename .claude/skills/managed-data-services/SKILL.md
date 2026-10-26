@@ -156,6 +156,16 @@ state belongs see `skill("docker-native-storage")`.
     command starting with `-` is blocked (redis-cli has no `--`). The agent
     runs the same classifier again. `studio.query` audit rows store
     `redact.ts`'s shape (literals → `?`, ≤ 1000 chars), never the statement.
+17. **Postgres memory is a label, applied from the member's own stamp.**
+    `db.setMemory` only rewrites `swarmy.db.memoryMb` on the primary.
+    `applyPgMember` derives the swarm memory limit and the boot layer's
+    `SWARMY_PG_SHARED_BUFFERS` (25%) / `_EFFECTIVE_CACHE_SIZE` (75%) from the
+    member's `swarmy.db.memoryMb.applied`, so every rebuild keeps the size the
+    copy was last restarted with. The reconcile steps the pure `planPgMemory`
+    only once the extensions step is idle (standbys, verify `SHOW
+    shared_buffers`, then the writer in place under `swarmy.db.restart.planned`).
+    A promotion carries the writer's declarations (`primaryDeclarations`:
+    memory + extensions) to the new primary.
 
 ## Contracts between the layers
 
@@ -197,6 +207,8 @@ state belongs see `skill("docker-native-storage")`.
 | Garage render (toml/layout/ports) | `packages/trpc/src/services/garage-render.ts` |
 | Estate-wide store cluster (StorageCluster) | `packages/trpc/src/services/replicatedStore.service.ts` (router `routers/storage.ts`) |
 | Swarm CSI cluster volumes | `packages/trpc/src/services/clusterVolume.service.ts` (REST `packages/api-rest/src/routes/volumes.ts`; no tRPC router) |
+| Postgres memory (label codec + 25/75 sizing, rolling-restart plan, `db.setMemory`, converge step) | `packages/core/src/manageddb-memory{,-plan}.ts`, `packages/trpc/src/services/manageddb-memory.service.ts`, `apps/api/src/workers/manageddb-memory.ts` (`memorySpec` in `manageddb-reconcile`) |
+| Per-standby replay LSN + lag (`db.replication`: `pg_stat_replication` via the studio's bounded read, origin `replication`) | `packages/core/src/manageddb-replication.ts`, `packages/trpc/src/services/manageddb-replication.service.ts`; UI `components/pgdetail/pg-replication*.ts(x)`; disk per copy `pg-disk.ts` (`nodes.volumeSizes` + live stats) |
 | Postgres extensions (label codec, rolling-restart plan, toggle, view, converge step) | `packages/core/src/manageddb-extensions{,-plan}.ts`, `packages/trpc/src/services/manageddb-extensions{.service,-view}.ts`, `apps/api/src/workers/manageddb-extensions.ts` (called from `manageddb-reconcile`) |
 | Slow queries (snapshot deltas, 24 h read) | `apps/api/src/workers/pg-slow-queries.ts`, `packages/core/src/studio/slow-queries.ts`, `packages/trpc/src/services/studio-slow.service.ts` (`studio.slowQueries`) |
 | Search indexes, settings, Try it, key rotation | `packages/core/src/search-{indexes,synonyms}.ts`, `packages/trpc/src/services/search-{indexes.core,indexes.parse,indexes.service,index-settings.service,key.service,gate}.ts` |
