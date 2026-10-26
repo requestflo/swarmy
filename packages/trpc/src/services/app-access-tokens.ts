@@ -135,6 +135,9 @@ export interface AppLoginCode {
   org: string;
   /** Path + query to land on after the cookie is set (always same-host, starts with `/`). */
   rd: string;
+  /** The app signed in to (its stack, or the lone service): what the sign-in row is filed under. */
+  app?: string;
+  kind?: 'stack' | 'service';
   nonce: string;
   exp: number;
 }

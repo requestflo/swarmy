@@ -24,23 +24,24 @@
  *
  * Pure over its deps (db + live hub inventory + clock), so the HTTP adapter
  * (apps/api/src/app-auth.ts) stays thin and this is unit-tested directly.
- * State: none persisted — route toggles live on the `swarmy.ingress.routes`
+ * State: none of its own — route toggles live on the `swarmy.ingress.routes`
  * label (`access.login`), keys are derived (app-access-tokens.ts), and the
- * one-time-code nonces + decision cache are in memory.
+ * one-time-code nonces + decision cache are in memory. Each sign-in and each
+ * (throttled) refusal is an audit row: the app's Recent sign-ins
+ * (app-access-sign-ins.ts), pruned with the org's audit retention.
  */
 import { randomBytes } from 'node:crypto';
-import { buildInventory, UNGROUPED } from '@swarmy/core';
-import { displayEmail, sessionsRevokedSince } from '@swarmy/auth';
-import type { ResourceInput } from '@swarmy/abac';
+import { sessionsRevokedSince } from '@swarmy/auth';
 import type { DB } from '@swarmy/db';
-import { APP_AUTH_ORIGINAL_URI_HEADER, APP_AUTH_MODE_HEADER, APP_AUTH_PATH_PREFIX, isBroadWildcard } from '@swarmy/ingress';
-import type { OrgContext } from '../context';
+import { APP_AUTH_ORIGINAL_URI_HEADER, APP_AUTH_MODE_HEADER, APP_AUTH_PATH_PREFIX } from '@swarmy/ingress';
 import type { AgentHub } from '../hub/types';
-import { decide, liveStackLabels, principalFromMember } from '../abac';
-import { appAccessWall } from './app-access-walls';
+import { auditDenied, decideAccess, liveSession, resetDenyThrottle, sweep, type Decision } from './app-access-decide';
+import { APP_LOGIN_ACTION } from './app-access-sign-ins';
+import { appTarget, findProtectedRoute, pathOf, type ProtectedRoute } from './app-access-route';
 import { writeAudit } from './audit.service';
-import { readRoutes } from './ingress-routes';
 import { openToken, sealToken, signAppJwt, type AppCookie, type AppLoginCode } from './app-access-tokens';
+
+export { appResource, findProtectedRoute, type ProtectedRoute } from './app-access-route';
 
 /** `__Host-` prefix: Secure, Path=/, no Domain — the browser guarantees it is this host's own. */
 export const APP_COOKIE_SECURE = '__Host-swarmy-app';
@@ -128,78 +129,6 @@ export function parseCookies(header: string): Map<string, string> {
   return out;
 }
 
-// ── route lookup (Docker truth) ──────────────────────────────────────────────
-
-export interface ProtectedRoute {
-  orgId: string;
-  host: string;
-  path: string;
-  serviceName: string;
-  /** Docker stack of the owning service ('' when standalone). */
-  stack: string;
-}
-
-/**
- * A wildcard over a public suffix (`*.com`, `*.co.uk`) never matches: it
- * would let the login round trip mint a code for, and redirect it to, any
- * host under the suffix. Such a route fails closed (403 / 404).
- */
-function hostMatches(pattern: string, host: string): boolean {
-  const p = pattern.toLowerCase();
-  if (p.startsWith('*.')) return !isBroadWildcard(p) && host.endsWith(p.slice(1)) && host.length > p.length - 1;
-  return p === host;
-}
-
-function pathOf(uri: string): string {
-  const q = uri.search(/[?#]/);
-  return q >= 0 ? uri.slice(0, q) : uri;
-}
-
-/**
- * The login-protected route serving `host` + `path` in this org, from the live
- * `swarmy.ingress.routes` labels: longest matching prefix among the host's
- * protected routes, else any protected route on the host (the edge only asks
- * for protected routes). Null ⇒ nothing here is protected — callers fail closed.
- */
-export function findProtectedRoute(
-  hub: Pick<AgentHub, 'liveInventory'>,
-  orgId: string,
-  host: string,
-  path = '/',
-): ProtectedRoute | null {
-  const { services, containers } = hub.liveInventory(orgId);
-  const candidates: ProtectedRoute[] = [];
-  for (const s of buildInventory(services, containers).services) {
-    for (const r of readRoutes(s.labels)) {
-      if (!r.access?.login || !hostMatches(r.host, host)) continue;
-      candidates.push({
-        orgId,
-        host: r.host.toLowerCase(),
-        path: r.path && r.path.length > 0 ? r.path : '/',
-        serviceName: s.name,
-        stack: s.stack && s.stack !== UNGROUPED ? s.stack : '',
-      });
-    }
-  }
-  if (candidates.length === 0) return null;
-  const matching = candidates
-    .filter((c) => c.path === '/' || path.startsWith(c.path))
-    .sort((a, b) => b.path.length - a.path.length);
-  return matching[0] ?? candidates[0]!;
-}
-
-/** The ABAC resource an app login is evaluated on: its stack (or the lone service). */
-export function appResource(hub: Pick<AgentHub, 'liveInventory'>, route: ProtectedRoute): ResourceInput {
-  if (route.stack) {
-    const labels =
-      liveStackLabels({ hub, activeOrgId: route.orgId } as unknown as OrgContext, route.stack) ?? {};
-    return { type: 'stack', id: route.stack, orgId: route.orgId, labels };
-  }
-  const { services, containers } = hub.liveInventory(route.orgId);
-  const svc = buildInventory(services, containers).services.find((s) => s.name === route.serviceName);
-  return { type: 'service', id: route.serviceName, orgId: route.orgId, labels: svc?.labels ?? {} };
-}
-
 // ── responses ────────────────────────────────────────────────────────────────
 
 function esc(s: string): string {
@@ -252,100 +181,27 @@ function unauthenticated(deps: AppAccessDeps, req: EdgeRequest, clear: boolean):
   return { status: 302, headers: { location: login, 'cache-control': 'no-store', ...extra } };
 }
 
-// ── decision cache + throttled deny audit ────────────────────────────────────
+// ── decision cache ───────────────────────────────────────────────────────────
 
 const decisions = new Map<string, { at: number; res: AppAuthResponse }>();
-const deniedAudit = new Map<string, number>();
 const usedNonces = new Map<string, number>();
 
 /** Test hook. */
 export function resetAppAccessState(): void {
   decisions.clear();
-  deniedAudit.clear();
   usedNonces.clear();
-}
-
-function sweep(map: Map<string, number>, olderThan: number): void {
-  if (map.size < 2000) return;
-  for (const [k, t] of map) if (t < olderThan) map.delete(k);
-}
-
-// ── session + decision ───────────────────────────────────────────────────────
-
-interface Identity {
-  uid: string;
-  sid: string;
-  email: string | null;
-  name: string | null;
-  sessionExpiresAt: Date;
-}
-
-/** The swarmy Better Auth session behind an id pair, if it is still live and fully signed in. */
-async function liveSession(db: DB, sid: string, uid: string, now: number): Promise<Identity | null> {
-  const s = await db.session.findFirst({
-    where: { id: sid, userId: uid },
-    select: { expiresAt: true, mfaPending: true },
-  });
-  if (!s || s.mfaPending || s.expiresAt.getTime() <= now) return null;
-  const u = await db.user.findUnique({ where: { id: uid }, select: { email: true, name: true } });
-  if (!u) return null;
-  return { uid, sid, email: displayEmail(u.email), name: u.name || null, sessionExpiresAt: s.expiresAt };
-}
-
-interface Decision {
-  permit: boolean;
-  groups: string[];
-  policyId: string | null;
-  member: boolean;
-  /** The org's account wall refused this session (2FA owed, SSO only): its words. */
-  wall?: string;
-}
-
-async function decideAccess(
-  deps: AppAccessDeps,
-  route: ProtectedRoute,
-  uid: string,
-  sid: string,
-): Promise<Decision> {
-  const m = await deps.db.member.findFirst({
-    where: { organizationId: route.orgId, userId: uid },
-    select: { id: true, userId: true, role: true, attributes: true, createdAt: true },
-  });
-  if (!m) return { permit: false, groups: [], policyId: null, member: false };
-  const role = m.role as 'owner' | 'admin' | 'member';
-  const wall = await appAccessWall(deps.db, { uid, sid, orgId: route.orgId, role, memberSince: m.createdAt });
-  if (wall) return { permit: false, groups: [], policyId: null, member: true, wall };
-  const principal = principalFromMember(route.orgId, m);
-  const d = await decide({
-    db: deps.db,
-    orgId: route.orgId,
-    principal,
-    action: 'app.access',
-    resource: appResource(deps.hub, route),
-  });
-  return { permit: d.decision === 'permit', groups: principal.groups ?? [], policyId: d.policyId, member: true };
-}
-
-async function auditDenied(deps: AppAccessDeps, route: ProtectedRoute, uid: string, policyId: string | null): Promise<void> {
-  const now = (deps.now ?? Date.now)();
-  const key = `${route.orgId}|${uid}|${route.host}`;
-  if ((deniedAudit.get(key) ?? 0) > now - 60_000) return;
-  deniedAudit.set(key, now);
-  sweep(deniedAudit, now - 60_000);
-  await writeAudit(
-    { db: deps.db, activeOrgId: route.orgId, user: { id: uid } },
-    {
-      action: 'authz.deny:app.access',
-      targetType: route.stack ? 'stack' : 'service',
-      targetId: route.stack || route.serviceName,
-      metadata: { host: route.host, policyId },
-    },
-  );
+  resetDenyThrottle();
 }
 
 /** The org's account wall: finish signing in to swarmy the way this org asks. */
 function walled(deps: AppAccessDeps, words: string): AppAuthResponse {
   return page(403, 'Finish signing in to swarmy', `<p>${esc(words)}</p><p><a href="${deps.publicUrl}/login">Sign in to swarmy</a></p>`);
+}
+
+/** A signed-in person refused: audited (throttled), then the wall's words or the plain 403. */
+async function refused(deps: AppAccessDeps, route: ProtectedRoute, uid: string, d: Decision): Promise<AppAuthResponse> {
+  await auditDenied(deps, route, uid, d);
+  return d.wall ? walled(deps, d.wall) : denied(route);
 }
 
 function denied(route: ProtectedRoute): AppAuthResponse {
@@ -385,11 +241,7 @@ export async function verifyAppRequest(
   const who = await liveSession(deps.db, cookie.sid, cookie.uid, now);
   if (!who) return unauthenticated(deps, req, true);
   const d = await decideAccess(deps, route, who.uid, who.sid);
-  if (d.wall) return walled(deps, d.wall);
-  if (!d.permit) {
-    await auditDenied(deps, route, who.uid, d.policyId);
-    return denied(route);
-  }
+  if (!d.permit) return refused(deps, route, who.uid, d);
   const jwt = signAppJwt(
     {
       iss: deps.publicUrl,
@@ -469,11 +321,8 @@ export async function startAppLogin(
     return page(404, 'Not a protected app', `<p><strong>${esc(host)}</strong> is not a swarmy app you can sign in to.</p>`);
   }
   const d = await decideAccess(deps, route, session.userId, session.id);
-  if (d.wall) return walled(deps, d.wall);
-  if (!d.permit) {
-    await auditDenied(deps, route, session.userId, d.policyId);
-    return denied(route);
-  }
+  if (!d.permit) return refused(deps, route, session.userId, d);
+  const app = appTarget(route);
   const code = sealToken('code', {
     v: 1,
     sid: session.id,
@@ -481,6 +330,8 @@ export async function startAppLogin(
     host,
     org: route.orgId,
     rd: `${target.pathname}${target.search}` || '/',
+    app: app.id,
+    kind: app.type,
     nonce: randomBytes(12).toString('base64url'),
     exp: Math.floor(now / 1000) + LOGIN_CODE_TTL_SECONDS,
   } satisfies AppLoginCode);
@@ -517,9 +368,15 @@ export async function completeAppLogin(
   const secure = req.proto === 'https' ? '; Secure' : '';
   const setCookie = `${cookieName(req.proto)}=${token}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secure}`;
   const rd = c.rd.startsWith('/') && !c.rd.startsWith('//') && !c.rd.startsWith(APP_AUTH_PATH_PREFIX) ? c.rd : '/';
+  // One row per sign-in (never per request): the Access tab's Recent sign-ins.
   await writeAudit(
     { db: deps.db, activeOrgId: c.org, user: { id: c.uid } },
-    { action: 'app.access.login', targetType: 'app', targetId: c.host, metadata: { host: c.host } },
+    {
+      action: APP_LOGIN_ACTION,
+      targetType: c.kind ?? 'app',
+      targetId: c.app ?? c.host,
+      metadata: { host: c.host, path: pathOf(rd), method: who.method },
+    },
   );
   return { status: 302, headers: { location: rd, 'set-cookie': setCookie, 'cache-control': 'no-store' } };
 }

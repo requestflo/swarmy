@@ -8,6 +8,7 @@ import { ConnectFromLaptop } from '@/components/networking/connect-from-laptop';
 import { OtherAppsSection } from '@/components/connections/other-apps-section';
 import { AccessCode } from './access-code';
 import { AppAccessSection } from './app-access-section';
+import { RecentSignIns } from './recent-sign-ins';
 import { SimulateRequest } from './simulate-request';
 import type { AppAccessRoute, AppAccessViewData } from './types';
 
@@ -23,7 +24,8 @@ function whoWords(v: AppAccessViewData): string {
  * The app's Access tab (AppAccess board): who can open the app, in a
  * sentence; each address as a row ("anyone" / "signs in first"); one next
  * action when an admin-looking path is open to the world; a simulated request
- * (member or stranger) walked through the edge. Controls: the
+ * (member or stranger) walked through the edge; who signed in lately (and
+ * who was turned away). Controls: the
  * Require login / who can enter / own users cards and laptop access. Last,
  * which other apps can reach it (→ Network › Connections).
  */
@@ -84,6 +86,7 @@ export function AccessTabPage({ stack }: { stack: string }): React.JSX.Element {
         ) : null}
       </Depth>
       {routes.length > 0 ? <SimulateRequest stack={stack} view={v} /> : null}
+      {locked.length > 0 ? <RecentSignIns stack={stack} /> : null}
       <Depth at="controls">
         <AppAccessSection stack={stack} />
         <ConnectFromLaptop stack={stack} />

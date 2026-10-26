@@ -31,8 +31,8 @@ const PEOPLE = [
 
 function state(s: DemoStore): AppAccessState {
   const st = (s.extra.appaccess ??= {
-    login: {},
-    rules: {},
+    login: { 'storefront|shop.northwind.dev': true },
+    rules: { storefront: { everyone: true, groups: [], people: [] } },
     users: [
       { id: 'eu1', email: 'jo@shopper.dev', name: 'Jo', createdAt: new Date(Date.now() - 86_400_000 * 9).toISOString(), emailVerified: true, disabled: false },
       { id: 'eu2', email: 'sam@shopper.dev', name: 'Sam', createdAt: new Date(Date.now() - 86_400_000 * 2).toISOString(), emailVerified: true, disabled: false },

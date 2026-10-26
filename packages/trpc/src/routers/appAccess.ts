@@ -8,6 +8,7 @@ import {
   setEndUserDisabled,
   setRequireLogin,
 } from '../services/app-access-admin.service';
+import { recentAppSignIns, SIGN_INS_MAX } from '../services/app-access-sign-ins';
 
 const stack = z.string().min(1).max(120);
 
@@ -20,6 +21,11 @@ export const appAccessRouter = router({
   get: abacProcedure('stack.read', resolveStackByName)
     .input(z.object({ stack }))
     .query(({ ctx, input }) => getAppAccess(ctx, input.stack)),
+
+  /** Recent sign-ins: who signed in (and how), who was refused — newest first, from the audit log. */
+  signIns: abacProcedure('stack.read', resolveStackByName)
+    .input(z.object({ stack, limit: z.number().int().min(1).max(SIGN_INS_MAX).optional() }))
+    .query(({ ctx, input }) => recentAppSignIns(ctx, input)),
 
   /** Gate every route of the app (or the listed ones) behind swarmy sign-in. */
   setRequireLogin: abacProcedure('ingress.write', resolveStackByName)
