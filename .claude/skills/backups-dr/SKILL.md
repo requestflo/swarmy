@@ -173,6 +173,21 @@ and where everything lives. Backups are dispatched to the agent as commands — 
     (no source, name taken, nothing to restore) throw before anything exists;
     a later failure removes the copy's services and keeps its volume. A copy
     is a different cluster, so it takes no safety backup.
+15. **A whole-app restore is the existing paths in a row, never a new one.**
+    `backups.restoreApp` (`appRestore.*.ts`; `data.restore` on the stack, the
+    app's name typed back, one `app.restore` audit row listing every part)
+    re-plans with the pure `planAppRestore` (`@swarmy/core`
+    `app-restore-plan.ts`, the dashboard's planner too): each saved volume
+    and managed Postgres goes to its newest point at or before T, and a part
+    that can't reach T refuses the whole restore. Managed Postgres volumes are
+    restored as the database, other managed stores and global services are
+    left alone (`appRestore.scope.ts`). It stops the app's plain services
+    once, then per part: `backupVolume` + `restoreSnapshot`, or `restoreDb`
+    (whose own safety copy it hears via `onSafetyCopy`). A failure puts the
+    written parts back from those copies, newest first (a failed PITR puts
+    itself back), and the app is started again either way. It is a
+    compensating rollback, not a transaction: a controller restart mid-run
+    leaves the app stopped and the safety copies in the catalogue.
 
 ## Contracts between the layers
 
@@ -242,6 +257,7 @@ and where everything lives. Backups are dispatched to the agent as commands — 
 | UI: per-stack Backups tab (schedules, what isn't protected yet, drills) | `routes/_authed/stacks/$name.backups.tsx` → `components/backups/{stack-backups,stack-schedules-card,…}.tsx`, `components/resilience/*` |
 | UI: Postgres backups on that tab (schedule, retention preview, point-in-time scrubber, restore) | `components/pgbackups/*` (`pitr-scrub.ts`, `retention-preview.ts` pure + tested) |
 | UI: Time travel — an app's week of releases, incidents and saves; a read-only replay; restore to the nearest save | `routes/_authed/stacks/$name_.time-travel.tsx` → `components/time-travel/*` (`time-travel-model.ts`, `time-travel-replay.ts` pure + tested) |
+| Whole-app restore (plan, scope, run with rollback, words; the Time travel card) | `packages/core/src/app-restore-{plan,view}.ts`, `packages/trpc/src/services/appRestore.{scope,inputs,run,steps,words,service}.ts` (router `routers/appRestore.ts`, spread into `backups`), UI `components/time-travel/{app-restore-card,app-restore-parts,app-restore-words,use-app-restore}.ts(x)` |
 | Crypto: `encryptSecret`/`decryptSecret`, `generateRestorePassphrase` + fingerprint | `packages/core/src/crypto.ts` |
 
 ## Adding a check or a drill (the recipe)

@@ -2,6 +2,7 @@ import * as React from 'react';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import type { DbBackupOverviewRow, DbBackupSnapshotView, ReleaseView } from '@swarmy/core';
 import { useTRPC } from '@/integrations/trpc';
+import type { SnapshotLike } from '@/components/estate-map/rewind-ticks';
 import { travelEvents, type TravelEvent } from './time-travel-model';
 import { useAppIncidents } from './use-app-incidents';
 
@@ -31,6 +32,8 @@ export interface TimeTravelData {
   releases: ReleaseView[];
   events: TravelEvent[];
   databases: AppDatabase[];
+  /** The app's volume saves (`backups.listSnapshots`, newest first). */
+  snapshots: SnapshotLike[];
 }
 
 /** One app's week: releases, its incidents, volume backups and managed-database saves. */
@@ -62,5 +65,6 @@ export function useTimeTravel(stack: string): TimeTravelData {
     releases: releases.data ?? [],
     events,
     databases: rows.map((row, i) => ({ row, saves: saves[i]?.data })),
+    snapshots: snaps.data ?? [],
   };
 }

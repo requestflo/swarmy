@@ -15,6 +15,7 @@ import {
 import { autoBackupCoverage, setAutoVolumeBackup } from '../services/autoBackup.service';
 import { getCopyLag } from '../services/backupCopyLag.service';
 import { appDbBackupRouter } from './appDbBackup';
+import { appRestoreProcedures } from './appRestore';
 
 const retentionDays = z.number().int().min(1).max(3650);
 
@@ -126,4 +127,7 @@ export const backupsRouter = router({
 
   /** Logical dumps + one-click restore of compose MySQL/MariaDB/Mongo/Redis/Valkey. */
   appDb: appDbBackupRouter,
+
+  /** Whole-app restore: `appRestoreScope` + `restoreApp`. */
+  ...appRestoreProcedures,
 });

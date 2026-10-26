@@ -842,11 +842,17 @@ export async function preflightPitrFromSource(
   });
 }
 
+/** What a caller hears while a restore runs. */
+export interface RestoreDbHooks {
+  /** The pre-restore safety copy, as soon as it exists (a whole-app restore puts a failed part back from it). */
+  onSafetyCopy?: (snapshotId: string) => void;
+}
+
 /**
  * `progress`: a run the caller already shows (restore as a copy: its own
  * `create` step first) and finishes itself; else this restore begins one.
  */
-export async function restoreDb(ctx: OrgContext, input: RestoreDbInput, progress?: RestoreRun): Promise<DbRestoreRunView> {
+export async function restoreDb(ctx: OrgContext, input: RestoreDbInput, progress?: RestoreRun, hooks: RestoreDbHooks = {}): Promise<DbRestoreRunView> {
   assertEngineOffered(input.engine);
   const destStack = input.targetStack ?? input.stack;
   const destCluster = input.targetCluster ?? input.cluster;
@@ -904,7 +910,7 @@ export async function restoreDb(ctx: OrgContext, input: RestoreDbInput, progress
       targetTime: input.targetTime,
     });
   try {
-    const view = await restoreAfterChecks(ctx, input, { destStack, destCluster, primary, dataVolume, schedule, target, snapshotId, pitrNode, run });
+    const view = await restoreAfterChecks(ctx, input, { destStack, destCluster, primary, dataVolume, schedule, target, snapshotId, pitrNode, run, hooks });
     if (!progress) run.finish(true);
     return view;
   } catch (e) {
@@ -923,11 +929,12 @@ interface RestoreSteps {
   snapshotId: string;
   pitrNode: { id: string } | null;
   run: RestoreRun;
+  hooks: RestoreDbHooks;
 }
 
 /** restoreDb once its checks passed: the safety copy, then the restore itself, each a step on `run`. */
 async function restoreAfterChecks(ctx: OrgContext, input: RestoreDbInput, s: RestoreSteps): Promise<DbRestoreRunView> {
-  const { destStack, destCluster, primary, dataVolume, schedule, target, snapshotId, pitrNode, run } = s;
+  const { destStack, destCluster, primary, dataVolume, schedule, target, snapshotId, pitrNode, run, hooks } = s;
   // Writing over the source? Save its current data first, or refuse.
   if (overwritesSource(input) && !input.skipSafetyBackup) run.stage('safety');
   const safety = await ensureSafetyCopy(ctx, input, (plan) =>
@@ -942,6 +949,7 @@ async function restoreAfterChecks(ctx: OrgContext, input: RestoreDbInput, s: Res
     }),
   );
   const safetySnapshotId = safety?.snapshotId ?? null;
+  if (safetySnapshotId) hooks.onSafetyCopy?.(safetySnapshotId);
   const safetyAudit = { safetySnapshotId, safetySkipped: input.skipSafetyBackup === true && overwritesSource(input) };
 
   // PITR owns the whole stop → aside + fetch → start → promote sequence and

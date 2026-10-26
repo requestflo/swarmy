@@ -8,9 +8,11 @@ import { changesSince, nearestRestorePoint, replayAt } from './time-travel-repla
 import { timeTravelCode } from './time-travel-code';
 import { TimeTravelHeader } from './time-travel-header';
 import { ChangesSince, ViewingCard } from './changes-since';
+import { AppRestoreCard } from './app-restore-card';
 import { ReplaySection } from './replay-section';
 import { RestorePointCard } from './restore-point-card';
 import { TravelTimeline } from './travel-timeline';
+import { useAppRestore } from './use-app-restore';
 import { useTimeTravel } from './use-time-travel';
 import { useTravelHead } from './use-travel-head';
 
@@ -18,7 +20,8 @@ import { useTravelHead } from './use-travel-head';
  * Time travel (board 10): one app over the last 7 days. Drag the head (or
  * ←/→ between deploys, incidents and backups) to see what ran then, what
  * changed since, and restore the database to the nearest save — as a copy or
- * in place. Read-only until you press a restore or put-back button.
+ * in place — or put every saved part of the app back to that moment at once.
+ * Read-only until you press a restore or put-back button.
  */
 export function TimeTravelPage({ stack }: { stack: string }): React.JSX.Element {
   const d = useTimeTravel(stack);
@@ -28,6 +31,7 @@ export function TimeTravelPage({ stack }: { stack: string }): React.JSX.Element 
   const firstAt = d.releases.length ? Math.min(...d.releases.map((r) => Date.parse(r.createdAt))) : null;
   const db = d.databases[0];
   const point = db?.saves ? nearestRestorePoint(db.saves, head.at) : null;
+  const app = useAppRestore(stack, d, head.at);
 
   const chip = head.live ? (
     <span className="text-tone-ok border-tone-ok/40 inline-flex h-6 items-center gap-1.5 rounded-full border px-2.5 text-[12px] font-semibold">
@@ -65,10 +69,13 @@ export function TimeTravelPage({ stack }: { stack: string }): React.JSX.Element 
           <>
             <TravelTimeline events={d.events} head={head} now={d.now} partial={d.partial} className="order-1 lg:sticky lg:bottom-4 lg:z-10 lg:order-3" />
             <div className="order-2 grid gap-5 xl:grid-cols-[minmax(0,1fr)_400px]">
-              <ReplaySection stack={stack} at={head.at} live={head.live} replay={replay} head={d.releases[0]} firstAt={firstAt} />
+              <div className="flex min-w-0 flex-col gap-5">
+                <ReplaySection stack={stack} at={head.at} live={head.live} replay={replay} head={d.releases[0]} firstAt={firstAt} />
+                {head.live ? null : <AppRestoreCard stack={stack} at={head.at} now={d.now} app={app} onGo={head.go} />}
+              </div>
               <aside className="flex min-w-0 flex-col gap-4" aria-label="This moment">
                 <CodeView
-                  tabs={timeTravelCode({ stack, at: head.at, replay, changes, cluster: db?.row.cluster ?? null, point })}
+                  tabs={timeTravelCode({ stack, at: head.at, replay, changes, cluster: db?.row.cluster ?? null, point, wholeApp: head.live ? null : app.plan })}
                   source="readonly"
                   note="Read-only: releases and database restores have no public REST path yet."
                 />

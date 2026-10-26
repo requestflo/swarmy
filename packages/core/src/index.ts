@@ -28,6 +28,8 @@ export * from './manageddb-pooler-rotation';
 export * from './manageddb-pooler-view';
 export * from './data-pin';
 export * from './db-restore-copy';
+export * from './app-restore-plan';
+export * from './app-restore-view';
 export * from './disk-forecast';
 export * from './disk-inventory';
 export * from './volume-move';

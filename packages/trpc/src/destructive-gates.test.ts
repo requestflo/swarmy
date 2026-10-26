@@ -109,6 +109,7 @@ const GATES: Array<[string, unknown, string]> = [
   ['backups.restoreSnapshot', {}, 'data.restore'],
   ['dbBackups.restore', {}, 'data.restore'],
   ['dbBackups.restoreAsCopy', {}, 'data.restore'],
+  ['backups.restoreApp', {}, 'data.restore'],
   ['controllerBackup.restore', {}, 'data.restore'],
   ['swarmKv.revert', {}, 'data.restore'],
   ['secrets.deleteFamily', {}, 'secret.delete'],
