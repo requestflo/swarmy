@@ -56,6 +56,7 @@ import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { writeAudit } from './audit.service';
 import { assertEngineOffered, engineImageFor } from './dbBackupEngines';
 import { runPitrRestore } from './dbPitrRestore.service';
+import { readWritesBeforeSave } from './dbWrites.service';
 import { restoreProgress, type RestoreRun } from './restore-progress';
 import { knownPitrWindow, pitrPreflight, pitrWindowView, readPitrWindow, rememberPitrWindow } from './dbPitrWindow.service';
 import { PRE_RESTORE_REASON, ensureSafetyCopy, latestRestorable, overwritesSource } from './dbRestoreSafety.service';
@@ -470,6 +471,9 @@ export async function backupDb(ctx: OrgContext, input: BackupDbInput): Promise<D
 
   const node = physical ? await physicalNode(ctx, primary.labels) : await resolveManagerNode(ctx);
   const stamp = (run: DbBackupLastRun) => (input.reason ? Promise.resolve() : stampLastRun(ctx, primary.name, run));
+  // The primary's write counters just before a logical save of the main database, kept on its
+  // audit row so "rows written since" can be counted later (dbWrites.service). Never fails the save.
+  const writes = physical || input.database ? null : await readWritesBeforeSave(ctx, input.stack, input.cluster, primary.name);
   try {
     const result = await ctx.hub.dispatch<DbBackupResult>(node.id, 'db.backup', {
       jobId: randomToken('dbk'),
@@ -494,6 +498,7 @@ export async function backupDb(ctx: OrgContext, input: BackupDbInput): Promise<D
         snapshotId: result.snapshotId,
         fromReplica,
         ...(input.reason ? { reason: input.reason } : {}),
+        ...(writes ? { writes } : {}),
       },
     });
     await auditRetentionOutcome(

@@ -15,6 +15,7 @@ import {
 import { dbBackupEngineOffers } from '../services/dbBackupEngines';
 import { restoreDbAsCopy } from '../services/dbRestoreCopy.service';
 import { getDbWalCheck } from '../services/dbWalCheck.service';
+import { getDbWrites } from '../services/dbWrites.service';
 import { restoreProgress } from '../services/restore-progress';
 
 const copyName = z
@@ -61,6 +62,16 @@ export const dbBackupRouter = router({
   walCheck: orgProcedure
     .input(z.object({ stack: z.string().min(1), cluster: z.string().min(1) }))
     .query(({ ctx, input }) => getDbWalCheck(ctx, input)),
+
+  /**
+   * Rows written since each save that recorded the primary's write counters
+   * (`pg_stat_user_tables`, kept on its `db.backup` audit row), read live
+   * through the studio's bounded path (data.read, audited under `writes`).
+   * A restart, switch-over or stats reset since says so instead of a count.
+   */
+  writes: orgProcedure
+    .input(z.object({ stack: z.string().min(1), cluster: z.string().min(1) }))
+    .query(({ ctx, input }) => getDbWrites(ctx, input)),
 
   /** The cluster's recurring-backup schedule, or null when none is set. */
   getSchedule: orgProcedure

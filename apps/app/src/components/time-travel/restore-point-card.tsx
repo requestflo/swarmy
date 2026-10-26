@@ -8,6 +8,7 @@ import { CardSkeleton } from '@/components/states';
 import { agoLabel, clockLabel, momentLabel } from './time-travel-model';
 import { nearestRestorePoint, pitrTarget, restoreModes } from './time-travel-replay';
 import { RestoreOptions } from './restore-options';
+import { RowsSince } from './rows-since';
 import type { AppDatabase } from './use-time-travel';
 
 const HATCH = {
@@ -15,7 +16,7 @@ const HATCH = {
     'repeating-linear-gradient(135deg, color-mix(in oklch, var(--status-offline) 55%, transparent) 0 5px, color-mix(in oklch, var(--status-offline) 18%, transparent) 5px 10px)',
 };
 
-/** The saved point → now: everything an in-place restore would drop, as time (rows written aren't known). */
+/** The saved point → now: everything an in-place restore would drop, as time (rows written, when recorded, below it). */
 function LossBar({ savedAt, now, pitr }: { savedAt: number; now: number; pitr: boolean }): React.JSX.Element {
   const lost = agoLabel(savedAt, now);
   return (
@@ -98,6 +99,7 @@ export function RestorePointCard({ stack, databases, at, now }: RestorePointCard
             {db.row.targetName ? ` · ${db.row.targetName}` : ''}
           </Tech>
           <LossBar savedAt={target ?? point.at} now={now} pitr={pitr} />
+          {pitr ? null : <RowsSince stack={stack} cluster={cluster} saveId={point.backup.id} />}
           <RestoreOptions stack={stack} cluster={cluster} targetId={db.row.targetId ?? undefined} backup={point.backup} savedAt={point.at} at={target ?? at} />
         </>
       )}
