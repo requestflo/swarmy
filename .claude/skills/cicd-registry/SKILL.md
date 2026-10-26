@@ -111,9 +111,21 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
    `apps.createPreview` (`orgProcedure`, the same guard as the REST route; the
    plan's own gates still apply) and `apps.teardownPreview`
    (`abacProcedure('stack.remove')` on the preview's live stack, audited
-   `app.preview.teardown` with a `user` actor). The rules it shows come from
-   production's last applied plan (`AppView.previewRules`, `previewRulesOf`)
-   and are read-only: changing them is a commit. The older compose-swap engine
+   `app.preview.teardown` with a `user` actor). The rules it shows are the
+   ones in force (`AppView.previewRules`, `rulesInForce`): **the file decides**
+   — when production's swarmy.yaml has a `previews:` block the page only
+   builds the YAML to paste (no git write path); without one,
+   `apps.setPreviewRules` (`abacProcedure('service.configure')` on the
+   production stack, audited `app.previews.rules`) stamps the block as ONE
+   JSON label `swarmy.previews.rules` on every production service, under
+   production's apply lock (`services/apps/preview-rules{,.service}.ts`).
+   `planCommit` reads it live and passes `toDesired(..., { dashboardPreviews })`;
+   `desired.previews.source` says file / dashboard / default, and production's
+   compose re-stamps the label (`previewRulesLabels`) so a redeploy never drops
+   it. The rules: `enabled`, `branches`, `ttl`, `data` (copy + scrub),
+   `sleep_after` (default 2 h, `never`; routed services ride the scale-to-zero
+   labels, `previewSleepSeconds`) and `size` (a cap, `capToSize`) — pure in
+   `@swarmy/app-config` `previews.ts`. The older compose-swap engine
    (`previews.service`) was removed (2026-09).
 10. **Docker owns "what runs"; the DB owns swarmy's identity + history.** New CI
     state that describes a running thing (registry, builder role, preview stack)

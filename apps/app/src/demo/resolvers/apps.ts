@@ -88,6 +88,10 @@ interface AppRow {
     data?: { from: string; scrub?: string };
     /** Routed preview services sleep after this long idle (null = never). */
     sleepAfterSeconds: number | null;
+    size?: string;
+    baseDomain: string | null;
+    /** swarmy.yaml sets them, the dashboard saved them, or nothing yet. */
+    source: 'file' | 'dashboard' | 'default';
   } | null;
 }
 
@@ -208,6 +212,8 @@ function buildSeed(): AppsState {
           resources: 'isolated',
           data: { from: 'production', scrub: 'db/scrub.sql' },
           sleepAfterSeconds: 2 * 3600,
+          baseDomain: 'preview.northwind.dev',
+          source: 'file',
         },
       },
       {
@@ -223,6 +229,8 @@ function buildSeed(): AppsState {
         envBranches: {},
         drift: {},
         driftCheckedAt: iso(4 * MIN),
+        // services/payments/swarmy.yaml has no previews: block — the rules can be saved from Branch previews.
+        previewRules: { enabled: false, branches: [], ttlSeconds: 72 * 3600, resources: 'isolated', sleepAfterSeconds: 2 * 3600, baseDomain: null, source: 'default' },
       },
     ],
     plans: [

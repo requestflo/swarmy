@@ -51,7 +51,7 @@ describe('toDesired', () => {
       ],
       jobs: [],
       connect: [],
-      previews: { enabled: false, ttlSeconds: 259200, resources: 'isolated', branches: [], sleepAfterSeconds: 7200 },
+      previews: { enabled: false, ttlSeconds: 259200, resources: 'isolated', branches: [], sleepAfterSeconds: 7200, source: 'default' },
     });
   });
 

@@ -226,13 +226,17 @@ Four ideas, one story:
   `previews.ttl`. While nobody opens it, a preview's services with an address
   sleep after `previews.sleep_after` (default 2 h; `never` keeps them up) —
   the same idle sleeper as any service, reading the edge's traffic — and the
-  activator wakes them on the next request. An app's **Branch previews** page lists every preview with
-  its address, data and time left, starts one from any branch with no pull
-  request needed (`apps.createPreview`, any member, the plan's own gates
-  still apply), and tears one down now (`apps.teardownPreview`, the
-  `stack.remove` policy on the preview's stack, audited). It shows the
-  `previews:` rules production's swarmy.yaml declares, read-only: changing
-  them is a commit.
+  activator wakes them on the next request; `previews.size` caps how big any
+  one preview service gets. An app's **Branch previews** page lists every
+  preview with its address, data, time left and whether it is asleep, starts
+  one from any branch with no pull request needed (`apps.createPreview`, any
+  member, the plan's own gates still apply), and tears one down now
+  (`apps.teardownPreview`, the `stack.remove` policy on the preview's stack,
+  audited). Its rules are editable at Controls, and the file decides: when
+  production's swarmy.yaml has a `previews:` block the page builds the block
+  to paste (swarmy never writes to your repo); without one, saving keeps the
+  rules on the production stack's services (`apps.setPreviewRules`, the
+  `service.configure` policy, audited) until the file names `previews:`.
 - **An AI agent can ship with a Deploy key.** The MCP server registers each
   tool for the scope its REST route needs: `deploy`, `trial_deploy` and
   `env_set` need `deploy` (the dashboard's Deploy preset), and

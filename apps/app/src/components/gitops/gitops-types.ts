@@ -141,6 +141,12 @@ export interface PreviewRules {
   data?: { from: string; scrub?: string };
   /** Routed preview services sleep after this long idle, waking on the next request (null = never; absent = an older controller). */
   sleepAfterSeconds?: number | null;
+  /** The most any one preview service gets (a size preset). */
+  size?: string;
+  /** Preview hosts live under it; null = none set (previews are skipped). */
+  baseDomain?: string | null;
+  /** production's swarmy.yaml (edit the file), saved in the dashboard, or nothing set yet. */
+  source?: 'file' | 'dashboard' | 'default';
 }
 
 /** Actions still waiting for a human on this plan. */

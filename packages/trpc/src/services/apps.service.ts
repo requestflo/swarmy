@@ -33,6 +33,8 @@ import {
   signature,
   toDesired,
   cloneNameProblem,
+  environmentStack,
+  previewsBlock,
   type AppConfig,
   type ConfigIssue,
   type DashboardEnvironment,
@@ -76,6 +78,7 @@ import {
 import { appliedCommits, staleCommitReason } from './apps/stale-commit';
 import { withExistingOwnSecrets } from './apps/own-secrets';
 import { previewSleepState, rulesSleepSeconds } from './apps/preview-sleep';
+import { effectivePreviews, fileSetsPreviews, readDashboardPreviews } from './apps/preview-rules';
 import { planDashboardPush, type DashboardPushInput } from './apps/dashboard-push';
 import { reportCommitStatus, upsertPrComment } from './git-feedback.service';
 import { controllerPublicUrl } from './git-credentials';
@@ -219,13 +222,22 @@ export interface AppPreviewRules {
   data?: { from: string; scrub?: string };
   /** A preview's routed services sleep after this long idle and wake on the next request (null = never). */
   sleepAfterSeconds: number | null;
+  /** The most any one preview service gets (a size preset); absent = what the app asks for. */
+  size?: string;
+  /** Preview hosts are `<label>.<baseDomain>`; null = none set yet (previews are skipped). */
+  baseDomain: string | null;
+  /** Where they come from: production's swarmy.yaml (edit the file), the dashboard, or nothing set yet. */
+  source: 'file' | 'dashboard' | 'default';
 }
 
 /** `previews:` off a plan's desired state — what the dashboard shows as the rules. */
-export function previewRulesOf(desired: DesiredApp | null | undefined): AppPreviewRules | null {
+export function previewRulesOf(desired: Pick<DesiredApp, 'previews'> | null | undefined): AppPreviewRules | null {
   const p = desired?.previews;
   if (!p) return null;
   return {
+    source: fileSetsPreviews(p) ? 'file' : (p.source ?? 'default'),
+    baseDomain: p.baseDomain ?? null,
+    ...(p.size ? { size: p.size } : {}),
     enabled: p.enabled,
     branches: [...p.branches],
     ttlSeconds: p.ttlSeconds,
@@ -963,6 +975,9 @@ export async function planCommit(
     };
   }
   const cfg = parsed.config;
+  // Preview rules saved from the dashboard apply while the file has no previews: block (apps/preview-rules.ts).
+  const savedPreviews = cfg.previews ? null : readDashboardPreviews(liveServices(ctx), environmentStack(cfg.app, PRODUCTION));
+  const previews = previewsBlock(cfg, savedPreviews);
 
   // ③ which environment does this commit deploy?
   let environment: string;
@@ -971,8 +986,8 @@ export async function planCommit(
   let branchPr: number | undefined;
   if (input.trigger === 'branch') {
     // Branch previews: any branch matching previews.branches (this commit's own file decides).
-    const patterns = cfg.previews?.branches ?? [];
-    if (!input.manualPreview && (!cfg.previews?.enabled || !branchMatchesAny(patterns, input.ref))) {
+    const patterns = previews?.branches ?? [];
+    if (!input.manualPreview && (!previews?.enabled || !branchMatchesAny(patterns, input.ref))) {
       return {
         planId: null,
         status: 'skipped',
@@ -981,36 +996,36 @@ export async function planCommit(
         reason: `branch ${input.ref} has no preview`,
       };
     }
-    const baseDomain = cfg.previews?.base_domain ?? legacyPreviewDomain(repo.previewsJson);
+    const baseDomain = previews?.base_domain ?? legacyPreviewDomain(repo.previewsJson);
     if (!baseDomain) {
       return {
         planId: null,
         status: 'skipped',
         environment: null,
         stack: null,
-        reason: 'set previews.base_domain in swarmy.yaml first',
+        reason: 'set previews.base_domain first (swarmy.yaml, or Branch previews when the file has no previews: block)',
       };
     }
     environment = 'preview';
     branchPr = branchPreviewId(input.ref);
     preview = { pr: branchPr, baseDomain, branch: input.ref };
   } else if (input.trigger === 'pr' && input.prNumber) {
-    if (!cfg.previews?.enabled)
+    if (!previews?.enabled)
       return {
         planId: null,
         status: 'skipped',
         environment: null,
         stack: null,
-        reason: 'previews are off in swarmy.yaml',
+        reason: 'previews are off (previews.enabled)',
       };
-    const baseDomain = cfg.previews?.base_domain ?? legacyPreviewDomain(repo.previewsJson);
+    const baseDomain = previews?.base_domain ?? legacyPreviewDomain(repo.previewsJson);
     if (!baseDomain) {
       return {
         planId: null,
         status: 'skipped',
         environment: null,
         stack: null,
-        reason: 'set previews.base_domain in swarmy.yaml first',
+        reason: 'set previews.base_domain first (swarmy.yaml, or Branch previews when the file has no previews: block)',
       };
     }
     environment = 'preview';
@@ -1063,7 +1078,7 @@ export async function planCommit(
     ctx,
     dashboard
       ? dashboardDesired(cfg, dashboard, await cloneHosts(ctx, cfg.app, dashboard.name))
-      : toDesired(cfg, preview ? { preview, environment: previewBase } : { environment }),
+      : toDesired(cfg, { ...(preview ? { preview, environment: previewBase } : { environment }), dashboardPreviews: savedPreviews }),
   );
   const prNumber = branchPr ?? input.prNumber ?? 0;
   return withAppLock(envKey(repo.id, environment, prNumber), async () => {
@@ -1493,6 +1508,7 @@ export async function listApps(ctx: OrgContext): Promise<AppView[]> {
     orderBy: { createdAt: 'desc' },
   });
   const out: AppView[] = [];
+  const live = liveServices(ctx);
   for (const r of repos) {
     const rows = await ctx.db.appPlan.findMany({
       where: { repoId: r.id, prNumber: 0, NOT: { environment: '?' } },
@@ -1556,7 +1572,7 @@ export async function listApps(ctx: OrgContext): Promise<AppView[]> {
       environments: envs.filter((e) => e.environment),
       previews: await previewSummaries(ctx, r.id),
       connectionId: r.connectionId ?? null,
-      previewRules: previewRulesOf(latestByEnv.get(PRODUCTION)?.desiredJson as unknown as DesiredApp | null),
+      previewRules: previewRulesOf(rulesInForce(live, r.appName, latestByEnv.get(PRODUCTION)?.desiredJson)),
       drift: driftCache.get(r.id) ?? null,
     });
   }
@@ -1602,6 +1618,18 @@ async function previewSummaries(ctx: OrgContext, repoId: string): Promise<AppVie
 }
 
 const withSleep = (sleep: 'asleep' | 'awake' | null): { sleep?: 'asleep' | 'awake' } => (sleep ? { sleep } : {});
+
+/** The preview rules in force for an app: its file's, else what the dashboard saved on production's services. */
+export function rulesInForce(
+  live: Array<{ labels: Record<string, string> }>,
+  appName: string | null,
+  prodDesiredJson: unknown,
+): Pick<DesiredApp, 'previews'> | null {
+  const prod = (prodDesiredJson as DesiredApp | null | undefined)?.previews;
+  const saved = appName ? readDashboardPreviews(live, environmentStack(appName, PRODUCTION)) : null;
+  const previews = effectivePreviews(prod, saved);
+  return previews ? { previews } : null;
+}
 
 export async function listPlans(
   ctx: OrgContext,
@@ -2203,7 +2231,7 @@ export async function handleBranchPush(
       select: { desiredJson: true },
     })
   ).find((r) => r.desiredJson != null);
-  const patterns = (prod?.desiredJson as unknown as DesiredApp | null)?.previews?.branches ?? [];
+  const patterns = rulesInForce(liveServices(ctx), (prod?.desiredJson as unknown as DesiredApp | null)?.app ?? null, prod?.desiredJson)?.previews.branches ?? [];
   if (!branchMatchesAny(patterns, input.ref)) return { status: 'ignored', stack: null };
   return planCommit(ctx, {
     repoId: input.repoId,

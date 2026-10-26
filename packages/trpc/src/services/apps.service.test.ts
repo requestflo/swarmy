@@ -8,6 +8,8 @@ describe('preview rules (read-only, from the last production plan)', () => {
       'version: 1\napp: shop\nservices: { web: { image: "a:1" } }\npreviews: { enabled: true, ttl: 48h, branches: ["feature/*"], data: { from: production, scrub: db/scrub.sql } }\n',
     ).config!;
     expect(previewRulesOf(toDesired(cfg))).toEqual({
+      source: 'file',
+      baseDomain: null,
       enabled: true,
       branches: ['feature/*'],
       ttlSeconds: 48 * 3600,

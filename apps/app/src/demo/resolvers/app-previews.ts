@@ -1,3 +1,4 @@
+import { PreviewsSchema, desiredPreviews } from '@swarmy/app-config';
 import type { DomainResolvers } from '../types';
 import { appsState, demoHex, demoPlan, type DemoAction } from './apps';
 import { pushDemoAudit } from './auditlog';
@@ -65,6 +66,29 @@ export const appPreviews: DomainResolvers = {
       const stack = rows[0]!.stack;
       pushDemoAudit(s, { action: 'app.preview.teardown', targetType: 'gitRepo', targetId: repoId, metadata: { stack, pr: prNumber } });
       return { stack };
+    },
+
+    // As setPreviewRules: refused when swarmy.yaml sets previews:, else kept on the app (the same normaliser as the controller).
+    'apps.setPreviewRules': (i, s) => {
+      const { stack, rules } = i as { stack: string; rules: unknown };
+      const app = appsState(s).apps.find((a) => a.appName === stack);
+      if (!app) throw new Error(`git app "${stack}" not found`);
+      if (app.previewRules?.source === 'file') throw new Error(`${app.configPath} sets previews:, so the file decides — change the rules there and push`);
+      const block = rules === null ? null : PreviewsSchema.parse(rules);
+      const p = desiredPreviews({}, block);
+      app.previewRules = {
+        enabled: p.enabled,
+        branches: p.branches,
+        ttlSeconds: p.ttlSeconds,
+        resources: p.resources,
+        ...(p.data ? { data: p.data } : {}),
+        sleepAfterSeconds: p.sleepAfterSeconds,
+        ...(p.size ? { size: p.size } : {}),
+        baseDomain: p.baseDomain ?? null,
+        source: p.source,
+      };
+      pushDemoAudit(s, { action: 'app.previews.rules', targetType: 'gitRepo', targetId: app.repoId, metadata: { stack, rules: block, cleared: !block } });
+      return app.previewRules;
     },
   },
 };

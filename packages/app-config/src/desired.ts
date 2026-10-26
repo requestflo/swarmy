@@ -19,14 +19,13 @@ import {
 import { parseDuration, parseRate, parseSizeMb } from './units';
 import { environmentStack, PRODUCTION, resolveEnvironment } from './environments';
 import { branchSlug } from './branches';
-import { previewIdleSeconds, previewSleepSeconds } from './previews';
+import { capToSize, desiredPreviews, previewsBlock, previewSleepSeconds, type DesiredPreviews, type PreviewsBlock } from './previews';
 import { defaultJobService, domainHost } from './validate';
 import { toDesiredAi, type DesiredAi } from './ai';
 import { emailEnvFor, toDesiredEmail, type DesiredEmail, type EmailBindingField } from './email';
 import { AUTH_PORT, AUTH_ROUTE_PATH, AUTH_UNIT, authServiceInput, authServiceUrl } from './auth';
 import type { DashboardEnvMarker } from './clone-env';
 
-export const DEFAULT_PREVIEW_TTL_SECONDS = 72 * 3600;
 export const DEFAULT_JOB_TIMEOUT_SECONDS = 600;
 /** Owner decision (2026-09): a git app's Postgres is a single primary with nightly backups unless it asks for HA. */
 export const DEFAULT_POSTGRES_HA: PostgresHa = 'single';
@@ -194,16 +193,7 @@ export interface DesiredApp {
   ai?: DesiredAi;
   /** `email:` — services bound to the email service (SMTP_* / EMAIL_API_* on deploy). */
   email?: DesiredEmail;
-  previews: {
-    enabled: boolean;
-    ttlSeconds: number;
-    baseDomain?: string;
-    resources: 'isolated' | 'shared';
-    branches: string[];
-    data?: { from: string; scrub?: string };
-    /** A preview's routed services sleep after this long idle (null = never). */
-    sleepAfterSeconds: number | null;
-  };
+  previews: DesiredPreviews;
 }
 
 export interface DesiredOptions {
@@ -217,6 +207,8 @@ export interface DesiredOptions {
    * per-environment host, `<service>-<stack>.<base>`). Unset: no route.
    */
   hostFor?: (service: string) => string;
+  /** Preview rules saved from the dashboard: they apply while swarmy.yaml has no `previews:` block (previews.ts). */
+  dashboardPreviews?: PreviewsBlock | null;
 }
 
 const toCommand = (c: string | string[] | undefined): string[] | undefined =>
@@ -249,25 +241,10 @@ export function toDesired(input: AppConfig, opts: DesiredOptions = {}): DesiredA
   const stack = preview
     ? previewStack(cfg.app, preview.pr, preview.branch)
     : environmentStack(cfg.app, environment);
-  const previewsCfg = {
-    enabled: cfg.previews?.enabled ?? false,
-    ttlSeconds:
-      cfg.previews?.ttl !== undefined
-        ? (parseDuration(cfg.previews.ttl) ?? 0)
-        : DEFAULT_PREVIEW_TTL_SECONDS,
-    baseDomain: cfg.previews?.base_domain,
-    resources: cfg.previews?.resources ?? 'isolated',
-    branches: [...(input.previews?.branches ?? [])],
-    sleepAfterSeconds: previewIdleSeconds(input.previews?.sleep_after),
-    ...(input.previews?.data
-      ? {
-          data: {
-            from: input.previews.data.from,
-            ...(input.previews.data.scrub ? { scrub: input.previews.data.scrub } : {}),
-          },
-        }
-      : {}),
-  };
+  const previewsCfg = desiredPreviews(input, opts.dashboardPreviews);
+  const previewsIn = previewsBlock(input, opts.dashboardPreviews);
+  // A preview of a named environment never shares resources: "shared" means production's.
+  if (environment !== PRODUCTION) previewsCfg.resources = 'isolated';
   const shared = preview !== undefined && previewsCfg.resources === 'shared';
   const resourceNames = new Set(Object.keys(cfg.resources ?? {}));
   const serviceNames = new Set(Object.keys(cfg.services));
@@ -408,6 +385,8 @@ export function toDesired(input: AppConfig, opts: DesiredOptions = {}): DesiredA
       const cpu = s.cpu ?? preset?.cpu;
       const memoryMb =
         s.memory !== undefined ? (parseSizeMb(s.memory) ?? undefined) : preset?.memoryMb;
+      // previews.size: no preview service gets more than the preset.
+      const sized = preview ? capToSize({ cpu, memoryMb }, previewsCfg.size) : { cpu, memoryMb };
 
       let healthcheck: DesiredHealthcheck | undefined;
       if (s.healthcheck) {
@@ -436,7 +415,7 @@ export function toDesired(input: AppConfig, opts: DesiredOptions = {}): DesiredA
       if (preview) {
         replicas = Math.min(replicas, 1);
         sleepAfterSeconds = previewSleepSeconds({
-          previewsSleepAfter: input.previews?.sleep_after,
+          previewsSleepAfter: previewsIn?.sleep_after,
           serviceSleepSeconds: sleepAfterSeconds,
           routed: s.port !== undefined && (s.domains ?? input.services[name]?.domains ?? []).length > 0,
         });
@@ -451,8 +430,8 @@ export function toDesired(input: AppConfig, opts: DesiredOptions = {}): DesiredA
         ...(s.port !== undefined ? { port: s.port } : {}),
         replicas,
         ...(sleepAfterSeconds !== undefined ? { sleepAfterSeconds } : {}),
-        ...(cpu !== undefined ? { cpu } : {}),
-        ...(memoryMb !== undefined ? { memoryMb } : {}),
+        ...(sized.cpu !== undefined ? { cpu: sized.cpu } : {}),
+        ...(sized.memoryMb !== undefined ? { memoryMb: sized.memoryMb } : {}),
         ...(healthcheck ? { healthcheck } : {}),
         env,
         bindings: [...bindings].sort(),

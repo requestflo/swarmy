@@ -351,6 +351,8 @@ export const PreviewsSchema = z
     branches: z.array(z.string().min(1).max(200)).optional(),
     /** A preview's routed services sleep after this long idle and wake on the next request (default 2h; `never` keeps them up). */
     sleep_after: z.union([z.literal('never'), duration]).optional(),
+    /** The most any one preview service gets (a size preset) — less when it asks for less. */
+    size: z.enum(Object.keys(SIZE_PRESETS) as [SizePreset, ...SizePreset[]]).optional(),
     /**
      * Previews with data: each preview's Postgres starts as a COPY of `from`'s
      * latest backup (production or a named environment), optionally scrubbed

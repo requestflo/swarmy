@@ -14,9 +14,9 @@ import { previewsCode } from './previews-code';
 
 /**
  * Config › Branch previews (board BranchPreviews): every preview with its
- * state, address, data and time left; the rules production's swarmy.yaml
- * sets (read only); the picked preview's data story; and a new preview from
- * any branch, no pull request needed.
+ * state, address, data and time left; the rules (swarmy.yaml's, else saved
+ * here — changed at Controls); the picked preview's data story; and a new
+ * preview from any branch, no pull request needed.
  */
 export function PreviewsTab({ stack }: { stack: string }): React.JSX.Element {
   const trpc = useTRPC();
@@ -60,7 +60,7 @@ export function PreviewsTab({ stack }: { stack: string }): React.JSX.Element {
           ) : (
             <p className="text-muted-foreground text-[13.5px]">Open a pull request{app.previewRules?.branches.length ? ' or push a matching branch' : ''} and swarmy starts one — or start one from a branch here.</p>
           )}
-          <PreviewRulesCard rules={app.previewRules} configPath={app.configPath} />
+          <PreviewRulesCard app={app} />
         </div>
         <div className="flex min-w-0 flex-col gap-4">
           {current ? <PreviewDetail key={current.stack} app={app} preview={current} /> : null}

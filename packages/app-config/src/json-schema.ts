@@ -422,6 +422,10 @@ export const SWARMY_YAML_JSON_SCHEMA = {
           default: '2h',
           description: "A preview's services with an address sleep after this long idle and wake on the next request; never keeps them up",
         },
+        size: {
+          enum: Object.keys(SIZE_PRESETS),
+          description: 'The most any one preview service gets (a size preset); less when it asks for less',
+        },
         data: {
           type: 'object',
           additionalProperties: false,

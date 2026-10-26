@@ -47,6 +47,8 @@ describe('M8: planCommit refuses a stale push before planning anything', () => {
         isOnline: () => true,
         nodeInfoFor: () => ({ labels: { 'swarmy.node.builder': 'true' } }),
         agentBuildFor: () => undefined,
+        // planCommit reads production's saved preview rules off the live services.
+        liveInventory: () => ({ services: [], containers: [] }),
         dispatch: async (_n: string, cmd: string) => {
           dispatched.push(cmd);
           return { exitCode: 0, timedOut: false, output: `SWARMY_BEGIN\nSWARMY_HEAD ${Y}\nSWARMY_FILE\tswarmy.yaml\t${yaml}\nSWARMY_END\n` };

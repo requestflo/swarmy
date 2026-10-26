@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'bun:test';
 import { parseAppConfig } from './parse';
 import { toDesired } from './desired';
-import { PREVIEW_SLEEP_AFTER_SECONDS, previewIdleSeconds, previewSleepSeconds } from './previews';
+import { PREVIEW_SLEEP_AFTER_SECONDS, capToSize, desiredPreviews, previewIdleSeconds, previewSleepSeconds } from './previews';
+import { PreviewsSchema } from './schema';
 
 const yaml = (previews: string, webExtra = ''): string => `version: 1
 app: shop
@@ -63,5 +64,35 @@ describe('previews sleep when idle (board 68: "sleeps after 2 h idle")', () => {
   it('sleep_after takes a duration or never, nothing else', () => {
     const bad = parseAppConfig(yaml('\n  sleep_after: sometimes'));
     expect(bad.config).toBeUndefined();
+  });
+});
+
+describe('preview rules: the file decides, else the dashboard (board 68: editing preview rules)', () => {
+  const NO_BLOCK = 'version: 1\napp: shop\nservices:\n  web:\n    build: .\n    port: 3000\n    domains: [shop.example.com]\n    size: large\n';
+  const dash = PreviewsSchema.parse({ enabled: true, ttl: '24h', branches: ['feature/*'], sleep_after: '30m', size: 'small', data: { from: 'production' } });
+
+  it('no previews: block → the dashboard’s rules apply, marked as such and kept for re-stamping', () => {
+    const d = toDesired(parseAppConfig(NO_BLOCK).config!, { dashboardPreviews: dash });
+    expect(d.previews).toMatchObject({ enabled: true, ttlSeconds: 86_400, branches: ['feature/*'], sleepAfterSeconds: 1800, size: 'small', source: 'dashboard', data: { from: 'production' } });
+    expect(d.previews.dashboard).toEqual(dash);
+  });
+
+  it('a previews: block in swarmy.yaml wins over anything saved in the dashboard', () => {
+    const d = toDesired(parseAppConfig(yaml('\n  ttl: 48h')).config!, { dashboardPreviews: dash });
+    expect(d.previews).toMatchObject({ ttlSeconds: 172_800, branches: [], source: 'file' });
+    expect(d.previews.dashboard).toBeUndefined();
+  });
+
+  it('previews.size caps every preview service; production keeps what it asks for', () => {
+    const cfg = parseAppConfig(NO_BLOCK).config!;
+    const preview = toDesired(cfg, { dashboardPreviews: dash, preview: { pr: 3, baseDomain: 'p.example.com' } });
+    expect(preview.services.find((s) => s.name === 'web')).toMatchObject({ cpu: 0.5, memoryMb: 512, sleepAfterSeconds: 1800 });
+    expect(toDesired(cfg, { dashboardPreviews: dash }).services.find((s) => s.name === 'web')).toMatchObject({ cpu: 2, memoryMb: 2048 });
+    expect(capToSize({ cpu: 0.25 }, 'medium')).toEqual({ cpu: 0.25, memoryMb: 1024 });
+    expect(capToSize({ cpu: 4, memoryMb: 8192 }, undefined)).toEqual({ cpu: 4, memoryMb: 8192 });
+  });
+
+  it('no block anywhere → the defaults', () => {
+    expect(desiredPreviews({}, null)).toMatchObject({ enabled: false, ttlSeconds: 259_200, sleepAfterSeconds: 7200, source: 'default' });
   });
 });

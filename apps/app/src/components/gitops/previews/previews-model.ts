@@ -54,7 +54,9 @@ export function rulesYaml(rules: PreviewRules): Record<string, unknown> {
   return {
     previews: {
       enabled: rules.enabled,
+      ...(rules.baseDomain ? { base_domain: rules.baseDomain } : {}),
       ...(rules.ttlSeconds ? { ttl: yamlDuration(rules.ttlSeconds) } : {}),
+      ...(rules.size ? { size: rules.size } : {}),
       ...(rules.sleepAfterSeconds !== undefined ? { sleep_after: rules.sleepAfterSeconds === null ? 'never' : yamlDuration(rules.sleepAfterSeconds) } : {}),
       ...(rules.resources !== 'isolated' ? { resources: rules.resources } : {}),
       ...(rules.branches.length ? { branches: rules.branches } : {}),
