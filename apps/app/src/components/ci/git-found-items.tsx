@@ -4,14 +4,19 @@ import { GitBuildDetected, type BuildDetected } from './git-build-detected';
 
 const where = (dir: string): string => dir || 'the repo root';
 
+const hasIn = (dir: string, files: string[], f: string): boolean => files.some((p) => p === (dir ? `${dir}/${f}` : f));
+
+/** The folder already has a swarmy.yaml: the file says what the app needs. */
+export const hasSwarmyYaml = (dir: string, files: string[]): boolean => hasIn(dir, files, 'swarmy.yaml') || hasIn(dir, files, 'swarmy.yml');
+
 /** The headline for the picked folder, from what the read found there. */
 export function foundWords(
   dir: string,
   files: string[],
   hasDraft: boolean,
 ): { head: string; sub: string } {
-  const has = (f: string): boolean => files.some((p) => p === (dir ? `${dir}/${f}` : f));
-  if (has('swarmy.yaml') || has('swarmy.yml'))
+  const has = (f: string): boolean => hasIn(dir, files, f);
+  if (hasSwarmyYaml(dir, files))
     return { head: 'swarmy.yaml found', sub: `${where(dir)} describes its own app — swarmy builds and runs what it says.` };
   if (has('Dockerfile'))
     return { head: 'A Dockerfile', sub: `No swarmy.yaml in ${where(dir)} yet. swarmy builds the Dockerfile as-is; a swarmy.yaml adds the rest.` };
@@ -20,9 +25,8 @@ export function foundWords(
 }
 
 /**
- * The files the read found in the picked folder, and — for the repo root,
- * where `inspectSource` runs build detection — how swarmy will build it
- * (framework, runtime, port).
+ * The files the read found in the picked folder, and how swarmy will build
+ * it (framework, runtime, port) — `inspectSource` detects in that folder.
  */
 export function GitFoundItems({
   dir,
@@ -46,7 +50,7 @@ export function GitFoundItems({
           ))}
         </ul>
       ) : null}
-      {detected && !dir ? <GitBuildDetected detected={detected} showStarter={false} /> : null}
+      {detected ? <GitBuildDetected detected={detected} showStarter={false} /> : null}
     </div>
   );
 }

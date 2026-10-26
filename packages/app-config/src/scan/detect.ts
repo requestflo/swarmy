@@ -5,8 +5,10 @@
  * it was sent — same detections, same evidence.
  */
 import { buildCtx } from './context';
-import { detectBucket, detectCache, detectPostgres } from './detect-data';
-import { detectCron, detectWeb, detectWorkers, type FrameworkHint } from './detect-process';
+import { detectBucket } from './detect-bucket';
+import { detectCron } from './detect-cron';
+import { detectCache, detectPostgres } from './detect-data';
+import { detectWeb, detectWorkers, type FrameworkHint } from './detect-process';
 import { at } from './files';
 import type { BuildFacts, Detection, ScanFile, ScanResult } from './types';
 

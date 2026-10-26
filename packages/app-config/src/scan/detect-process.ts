@@ -1,9 +1,7 @@
 /**
  * The processes the app runs: the web service and the port it listens on,
- * background workers, and scheduled work (Vercel crons, a clock process,
- * scripts named for a cadence, in-process schedulers like node-cron).
+ * and background workers. Scheduled work is detect-cron.ts.
  */
-import { isCron } from '../units';
 import { unitNameOf } from './files';
 import type { ScanCtx } from './context';
 import { uniqEvidence } from './detect-data';
@@ -55,7 +53,8 @@ export function detectWeb(c: ScanCtx, hint?: FrameworkHint): Detection {
   };
 }
 
-const CLOCK = /^(clock|scheduler|beat|cron)$/;
+/** Procfile names of a process that runs its own schedule (detect-cron.ts makes it a clock). */
+export const CLOCK = /^(clock|scheduler|beat|cron)$/;
 
 export function detectWorkers(c: ScanCtx, claim: (n: string) => string): Detection[] {
   const out: Detection[] = [];
@@ -80,61 +79,5 @@ export function detectWorkers(c: ScanCtx, claim: (n: string) => string): Detecti
     if (s) worker('worker', c.run(s.name), [s.ev, queueCode]);
     else if (c.dep('sidekiq')) worker('worker', 'bundle exec sidekiq', [c.dep('sidekiq')!.ev]);
   } else if (queueCode) out[0]!.evidence = uniqEvidence([...out[0]!.evidence, queueCode]);
-  return out;
-}
-
-const CADENCE: Record<string, string> = { hourly: '0 * * * *', daily: '0 2 * * *', nightly: '0 2 * * *', weekly: '0 3 * * 1' };
-const IN_PROCESS = ['node-cron', 'cron', 'node-schedule', 'croner', '@nestjs/schedule', 'agenda', 'apscheduler', 'rufus-scheduler', 'sidekiq-cron', 'sidekiq-scheduler', 'github.com/robfig/cron/v3'];
-
-/** `claim` takes a service/resource name, `claimJob` a job name (jobs are their own namespace). */
-export function detectCron(c: ScanCtx, claim: (n: string) => string, claimJob: (n: string) => string): Detection[] {
-  const out: Detection[] = [];
-  const job = (raw: string, d: Omit<Detection, 'id' | 'kind' | 'name' | 'maps'>, maps: 'jobs' | 'services') => {
-    const name = (maps === 'jobs' ? claimJob : claim)(unitNameOf(raw) ?? 'job');
-    out.push({ id: `cron:${name}`, kind: 'cron', name, maps: `${maps}.${name}`, ...d });
-  };
-  // Vercel crons: an HTTP path on a schedule.
-  const vercel = c.file('vercel.json');
-  if (vercel) {
-    const lines = vercel.lines;
-    for (let i = 0; i < lines.length && out.length < 5; i++) {
-      const p = /"path"\s*:\s*"(\/[^"]*)"/.exec(lines[i]!.text);
-      if (!p) continue;
-      const near = lines.slice(Math.max(0, i - 2), i + 3).map((l) => /"schedule"\s*:\s*"([^"]+)"/.exec(l.text)?.[1]).find(Boolean);
-      if (!near || !isCron(near)) continue;
-      const ev = { file: vercel.path, line: lines[i]!.no, text: lines[i]!.text.trim() };
-      job(p[1]!.split('/').filter(Boolean).pop() ?? 'cron', { label: 'Scheduled request', why: `Calls ${p[1]} on the web service at "${near}", as Vercel did.`, evidence: [ev], via: 'http', schedule: near, path: p[1]! }, 'jobs');
-    }
-  }
-  // A clock process (Heroku-style) runs its own schedule; it becomes a one-copy service.
-  for (const p of c.procfile.filter((x) => CLOCK.test(x.name) || /celery\s.*\bbeat\b/.test(x.value)).slice(0, 1)) {
-    job(p.name, { label: 'Clock process', why: `Runs "${p.value}" as one always-on copy, so each schedule fires once.`, evidence: [p.ev], via: 'clock', command: p.value }, 'services');
-  }
-  // Scripts named for a cadence: `invoices:nightly`, `cron:hourly`.
-  for (const s of c.scripts) {
-    const cadence = /(?:^|[:_-])(hourly|daily|nightly|weekly)(?:[:_-]|$)/.exec(s.name)?.[1];
-    if (!cadence || out.length >= 5) continue;
-    const base = s.name.replace(/(?:^|[:_-])(hourly|daily|nightly|weekly|cron)(?=[:_-]|$)/g, '').replace(/^[:_-]+|[:_-]+$/g, '') || cadence;
-    job(base, { label: 'Scheduled script', why: `Runs ${c.run(s.name)} at "${CADENCE[cadence]}" (${cadence}) — change the time in jobs:.`, evidence: [s.ev], via: 'script', schedule: CADENCE[cadence]!, command: c.run(s.name) }, 'jobs');
-  }
-  // In-process schedulers fire once per copy of the process that loads them
-  // (the web service, unless the code says otherwise): keep it at one copy.
-  const lib = c.dep(...IN_PROCESS);
-  if (lib) {
-    const call = c.grep(/(?:schedule|scheduleJob|CronJob|Cron)\(\s*['"]([^'"]+)['"]/).find((h) => isCron(h.value));
-    const host = 'web';
-    out.push({
-      id: 'cron:in-process',
-      kind: 'cron',
-      name: host,
-      maps: `services.${host}.replicas`,
-      label: `In-app schedule (${lib.name})`,
-      why: `${lib.name} runs inside ${host}${call ? ` ("${call.value}")` : ''}, so every copy fires it — swarmy keeps ${host} at one copy.`,
-      evidence: uniqEvidence([lib.ev, call?.ev]),
-      via: 'in-process',
-      host,
-      ...(call ? { schedule: call.value } : {}),
-    });
-  }
   return out;
 }

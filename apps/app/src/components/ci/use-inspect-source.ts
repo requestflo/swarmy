@@ -6,11 +6,13 @@ interface InspectSourceInput {
   connectionId?: string;
   cloneUrl: string;
   ref: string;
+  /** The picked folder: build detection and the "What we found" scan run there. */
+  dir?: string;
 }
 
 /**
  * Peek inside a repo BEFORE linking (`gitConnections.inspectSource`) to find
- * its swarmy.yaml files. The procedure is a mutation (it runs a container on a
+ * its swarmy.yaml files and what the picked folder's code needs. The procedure is a mutation (it runs a container on a
  * builder), but the read is idempotent, so it's cached as a query keyed on the
  * source — re-picking the same repo + branch doesn't re-run it.
  */

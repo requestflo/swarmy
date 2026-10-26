@@ -658,10 +658,12 @@ export interface InspectExtras {
 /**
  * Read a repo BEFORE it is linked (the wizard's "we found swarmy.yaml in
  * services/orders"): through a connection's credentials, or a public URL.
+ * `dir` is the folder the wizard picked: build detection and the "What we
+ * found" scan run there (default the repo root).
  */
 export async function inspectSource(
   ctx: OrgContext,
-  input: { connectionId?: string; cloneUrl: string; ref: string; paths?: string[] },
+  input: { connectionId?: string; cloneUrl: string; ref: string; paths?: string[]; dir?: string },
 ): Promise<InspectResult & InspectExtras & { composeDraft: ComposeDraft | null }> {
   let creds: GitCredentials = {};
   if (input.connectionId) {
@@ -674,6 +676,7 @@ export async function inspectSource(
     url: input.cloneUrl,
     ref: input.ref,
     paths: [...(input.paths ?? ['swarmy.yaml']), ...COMPOSE_FILES],
+    ...(input.dir ? { detectDir: input.dir.replace(/^\.?\/*|\/+$/g, '') } : {}),
     scan: true,
     creds,
   });

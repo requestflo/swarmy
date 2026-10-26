@@ -5,7 +5,10 @@
  */
 import type { Evidence, ScanFile, ScanLine } from './types';
 
-/** Manifests the detectors read in the app's folder (git.inspect probes them). */
+/** The compose files a scan reads, in the order compose itself prefers. */
+export const COMPOSE_FILES = ['compose.yaml', 'compose.yml', 'docker-compose.yaml', 'docker-compose.yml'] as const;
+
+/** Manifests the detectors read in the app's folder (git.inspect probes them, 4 KB each). */
 export const SCAN_FILES = [
   'Dockerfile',
   'package.json',
@@ -25,6 +28,11 @@ export const SCAN_FILES = [
   'prisma/schema.prisma',
   'drizzle.config.ts',
   'drizzle.config.js',
+  ...COMPOSE_FILES,
+  // Rails: the database adapter, Active Storage's service, whenever's schedule.
+  'config/database.yml',
+  'config/storage.yml',
+  'config/schedule.rb',
 ] as const;
 /** Files whose presence alone says something (migration tools, lockfiles). */
 export const SCAN_PRESENCE_FILES = ['manage.py', 'alembic.ini', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lock', 'bun.lockb'] as const;
@@ -34,7 +42,7 @@ export const SCAN_PRESENCE_FILES = ['manage.py', 'alembic.ini', 'pnpm-lock.yaml'
  * it as a RegExp). Drivers, clients, env reads, schedulers and listen().
  */
 export const SOURCE_SCAN_PATTERN =
-  'DATABASE_URL|POSTGRES|postgres|PrismaClient|drizzle|psycopg|create_engine|REDIS|Redis\\(|ioredis|createClient|bullmq|new (Queue|Worker)\\(|VALKEY|S3Client|AWS\\.S3|boto3|S3_[A-Z]|_BUCKET|schedule\\(|scheduleJob|CronJob|@Cron|listen\\(';
+  'DATABASE_URL|POSTGRES|postgres|PrismaClient|drizzle|psycopg|create_engine|REDIS|Redis\\(|ioredis|createClient|bullmq|new (Queue|Worker)\\(|VALKEY|S3Client|AWS\\.S3|boto3|S3_[A-Z]|_BUCKET|schedule\\(|scheduleJob|CronJob|@Cron|beat_schedule|CELERY_BEAT|listen\\(';
 export const SOURCE_SCAN_MAX_FILES = 40;
 export const SOURCE_SCAN_MAX_HITS_PER_FILE = 4;
 export const SOURCE_SCAN_MAX_HITS = 60;

@@ -464,10 +464,11 @@ export const gitconnections: DomainResolvers = {
 
     'gitConnections.draftConfig': (i) => demoDraft(i as Parameters<typeof demoDraft>[0]),
 
+    // Like the controller, the read before linking always scans: the picked folder (`dir`), else the root.
     'gitConnections.inspectSource': (i) => {
-      const { cloneUrl, paths } = i as { cloneUrl: string; paths?: string[] };
+      const { cloneUrl, paths, dir } = i as { cloneUrl: string; paths?: string[]; dir?: string };
       const name = cloneUrl.replace(/\.git$/, '');
-      return fakeInspect(name, paths?.[0] ?? 'swarmy.yaml');
+      return fakeInspect(name, dir ? `${dir}/swarmy.yaml` : (paths?.[0] ?? 'swarmy.yaml'), true);
     },
 
     'gitConnections.updateRepo': (i, s) => {

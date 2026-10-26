@@ -43,6 +43,8 @@ export const DetectionSchema = z.object({
   label: z.string().max(80),
   /** Plain words: why, and what swarmy does with it. */
   why: z.string().max(240),
+  /** Plain words: what in the repo says so ("uses Prisma with PostgreSQL in prisma/schema.prisma"). */
+  reason: z.string().max(200).optional(),
   /** The app can't do without it (the web service). */
   required: z.boolean().optional(),
   evidence: z.array(EvidenceSchema).min(1).max(6),
@@ -64,6 +66,8 @@ export const DetectionSchema = z.object({
   path: z.string().startsWith('/').max(200).optional(),
   /** cron in-process: the service it runs inside. */
   host: z.string().regex(UNIT_NAME_RE).optional(),
+  /** cron via script: the image it runs in, when not the app's own build (a compose service's `image:`). */
+  image: z.string().min(1).max(200).optional(),
 });
 export type Detection = z.infer<typeof DetectionSchema>;
 

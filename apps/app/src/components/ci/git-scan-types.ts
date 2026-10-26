@@ -20,6 +20,8 @@ export interface Detection {
   maps: string;
   label: string;
   why: string;
+  /** Plain words: what in the repo says so ("uses Prisma with PostgreSQL in prisma/schema.prisma"). */
+  reason?: string;
   required?: boolean;
   evidence: Evidence[];
   port?: number;
@@ -31,6 +33,8 @@ export interface Detection {
   schedule?: string;
   path?: string;
   host?: string;
+  /** cron via script: the image it runs in (a compose service's `image:`). */
+  image?: string;
 }
 
 export interface BuildFacts {

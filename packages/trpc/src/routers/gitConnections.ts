@@ -206,6 +206,13 @@ export const gitConnectionsRouter = router({
         cloneUrl: z.string().min(1).max(500),
         ref: z.string().min(1).max(200),
         paths: z.array(configPath).max(20).optional(),
+        /** The picked folder: build detection + the "What we found" scan run there. */
+        dir: z
+          .string()
+          .max(300)
+          .regex(/^[A-Za-z0-9._/@+-]*$/)
+          .refine((p) => !p.split('/').includes('..'), 'no .. segments')
+          .optional(),
       }),
     )
     .mutation(({ ctx, input }) => inspectSource(ctx, input)),

@@ -83,7 +83,7 @@ export function generateAppConfig(detections: Detection[], opts: GenerateOptions
   for (const c of of('cron')) {
     if (c.via === 'clock') services[c.name] = { build, command: c.command, replicas: 1 };
     else if (c.via === 'script' && c.schedule && c.command) {
-      jobs[c.name] = { schedule: c.schedule, service: workerHost ?? 'web', run: c.command };
+      jobs[c.name] = { schedule: c.schedule, ...(c.image ? { image: c.image } : { service: workerHost ?? 'web' }), run: c.command };
     } else if (c.via === 'http' && c.schedule && c.path) {
       if (!web?.port) {
         notes.push(`${c.path} runs on a schedule, but the web service has no port to call — add a port, then jobs.${c.name}.`);

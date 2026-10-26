@@ -1,9 +1,10 @@
 /**
  * One pass over the scanned files → the facts detectors ask about: every
  * dependency (npm, pip, gem, go, composer) with its line, package.json
- * scripts, dotenv entries, env vars the code reads, Procfile processes, and a
- * grep over the source lines.
+ * scripts, dotenv entries, env vars the code reads, Procfile processes, the
+ * compose file's services, and a grep over the source lines.
  */
+import { COMPOSE_FILES, composeServices, type ComposeService } from './compose-facts';
 import { at, envEntries, ev, isSourcePath, jsonEntries, procfileEntries } from './files';
 import type { Evidence, ScanFile } from './types';
 
@@ -21,8 +22,10 @@ export interface ScanCtx {
   deps: Fact[];
   dep(...names: string[]): Fact | undefined;
   scripts: Fact[];
-  /** Entries of the folder's .env.example (and friends). */
+  /** Entries of the folder's .env.example (and friends), and the environment of compose services it builds. */
   dotenv: Fact[];
+  /** The folder's compose file, service by service (empty without one). */
+  compose: ComposeService[];
   /** Env vars the code and config read (`process.env.X`, `env("X")`, `os.environ["X"]`). */
   reads: Fact[];
   procfile: Fact[];
@@ -83,6 +86,9 @@ export function buildCtx(files: ScanFile[], dir: string, present: readonly strin
     const f = file(n);
     return f ? envEntries(f).map((e) => ({ name: e.name, value: e.value, ev: ev(f, e.line) })) : [];
   });
+  const composeFile = COMPOSE_FILES.map((n) => file(n)).find(Boolean);
+  const compose = composeFile ? composeServices(composeFile) : [];
+  dotenv.push(...compose.filter((s) => s.build).flatMap((s) => s.env));
   const proc = file('Procfile');
   const procfile = proc ? procfileEntries(proc).map((e) => ({ name: e.name, value: e.value, ev: ev(proc, e.line) })) : [];
   const sources = files.filter((f) => isSourcePath(f.path, dir));
@@ -111,6 +117,7 @@ export function buildCtx(files: ScanFile[], dir: string, present: readonly strin
     dep: (...names) => deps.find((d) => names.includes(d.name)),
     scripts,
     dotenv,
+    compose,
     reads,
     procfile,
     grep,

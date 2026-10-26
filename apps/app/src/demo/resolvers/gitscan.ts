@@ -6,6 +6,7 @@
  * YAML is laid out the way `generateAppConfig` lays it out.
  */
 import type { AppGraph, AppScan, BuildOptions, Detection, Draft } from '@/components/ci/git-scan-types';
+import { demoFolderScan } from './gitscan-found';
 import { demoHerokuScan } from './gitscan-heroku';
 
 const D = 'services/orders';
@@ -14,17 +15,17 @@ const ev = (file: string, line: number, text: string) => ({ file: `${D}/${file}`
 const ORDERS: Detection[] = [
   { id: 'web', kind: 'web', name: 'web', maps: 'services.web', label: 'Web service', required: true, port: 3000, why: 'The app itself, built from its Dockerfile, answering on port 3000.', evidence: [ev('Dockerfile', 17, 'EXPOSE 3000'), ev('Dockerfile', 1, 'FROM node:22-alpine AS deps')] },
   { id: 'worker:worker', kind: 'worker', name: 'worker', maps: 'services.worker', label: 'Background worker', command: 'pnpm run worker', why: 'Runs "pnpm run worker" from the same build, with no address — it only does work in the background.', evidence: [ev('package.json', 9, '"worker": "node dist/worker.js",'), ev('src/queue/worker.ts', 6, "export const worker = new Worker('invoices', render, { connection });")] },
-  { id: 'postgres', kind: 'postgres', name: 'db', maps: 'resources.db', label: 'Postgres', env: ['DATABASE_URL'], release: 'pnpm run migrate', why: 'A managed Postgres 16, backed up nightly. DATABASE_URL is filled in at deploy; pnpm run migrate runs before each release.', evidence: [ev('package.json', 21, '"pg": "^8.12.0",'), ev('.env.example', 1, 'DATABASE_URL=postgres://orders:orders@localhost:5432/orders'), ev('package.json', 8, '"migrate": "node dist/migrate.js",')] },
-  { id: 'queue', kind: 'queue', name: 'queue', maps: 'resources.queue', label: 'Job queue (bullmq)', env: ['REDIS_URL'], why: 'A managed Valkey set up for queues — nothing is evicted and it is saved to disk. REDIS_URL points at it.', evidence: [ev('package.json', 19, '"bullmq": "^5.8.0",'), ev('package.json', 22, '"ioredis": "^5.4.1",'), ev('src/queue.ts', 3, 'export const connection = new Redis(process.env.REDIS_URL!, { maxRetriesPerRequest: null });'), ev('.env.example', 2, 'REDIS_URL=redis://localhost:6379')] },
-  { id: 'bucket', kind: 'bucket', name: 'invoices', maps: 'resources.invoices', label: 'S3 object storage', env: ['S3_ENDPOINT', 'S3_BUCKET'], why: 'A private bucket on your own object storage. Its address and keys arrive at deploy — the secret key as a file, never in git.', evidence: [ev('package.json', 18, '"@aws-sdk/client-s3": "^3.600.0",'), ev('src/pdf/store.ts', 7, 'const s3 = new S3Client({ endpoint: process.env.S3_ENDPOINT, forcePathStyle: true });'), ev('.env.example', 4, 'S3_BUCKET=invoices')] },
-  { id: 'cron:invoices', kind: 'cron', name: 'invoices', maps: 'jobs.invoices', label: 'Scheduled script', via: 'script', schedule: '0 2 * * *', command: 'pnpm run invoices:nightly', why: 'Runs pnpm run invoices:nightly at "0 2 * * *" (nightly) — change the time in jobs:.', evidence: [ev('package.json', 11, '"invoices:nightly": "node dist/jobs/invoices.js",')] },
+  { id: 'postgres', kind: 'postgres', name: 'db', maps: 'resources.db', label: 'Postgres', reason: 'uses the pg driver in package.json', env: ['DATABASE_URL'], release: 'pnpm run migrate', why: 'A managed Postgres 16, backed up nightly. DATABASE_URL is filled in at deploy; pnpm run migrate runs before each release.', evidence: [ev('package.json', 21, '"pg": "^8.12.0",'), ev('.env.example', 1, 'DATABASE_URL=postgres://orders:orders@localhost:5432/orders'), ev('package.json', 8, '"migrate": "node dist/migrate.js",')] },
+  { id: 'queue', kind: 'queue', name: 'queue', maps: 'resources.queue', label: 'Job queue (bullmq)', reason: 'uses BullMQ for jobs in package.json', env: ['REDIS_URL'], why: 'A managed Valkey set up for queues — nothing is evicted and it is saved to disk. REDIS_URL points at it.', evidence: [ev('package.json', 19, '"bullmq": "^5.8.0",'), ev('package.json', 22, '"ioredis": "^5.4.1",'), ev('src/queue.ts', 3, 'export const connection = new Redis(process.env.REDIS_URL!, { maxRetriesPerRequest: null });'), ev('.env.example', 2, 'REDIS_URL=redis://localhost:6379')] },
+  { id: 'bucket', kind: 'bucket', name: 'invoices', maps: 'resources.invoices', label: 'S3 object storage', reason: 'uses the AWS S3 SDK (@aws-sdk/client-s3) in package.json', env: ['S3_ENDPOINT', 'S3_BUCKET'], why: 'A private bucket on your own object storage. Its address and keys arrive at deploy — the secret key as a file, never in git.', evidence: [ev('package.json', 18, '"@aws-sdk/client-s3": "^3.600.0",'), ev('src/pdf/store.ts', 7, 'const s3 = new S3Client({ endpoint: process.env.S3_ENDPOINT, forcePathStyle: true });'), ev('.env.example', 4, 'S3_BUCKET=invoices')] },
+  { id: 'cron:invoices', kind: 'cron', name: 'invoices', maps: 'jobs.invoices', label: 'Scheduled script', reason: 'has the script invoices:nightly in package.json', via: 'script', schedule: '0 2 * * *', command: 'pnpm run invoices:nightly', why: 'Runs pnpm run invoices:nightly at "0 2 * * *" (nightly) — change the time in jobs:.', evidence: [ev('package.json', 11, '"invoices:nightly": "node dist/jobs/invoices.js",')] },
 ];
 
 /** The scan for a linked folder, when the demo has one. */
 export function demoScan(fullName: string, configPath: string): AppScan | undefined {
   // A Heroku app at the root: "Looks like a Heroku app", drafted by the importer.
   if (fullName.endsWith('/shop-classic') && configPath === 'swarmy.yaml') return demoHerokuScan();
-  if (!fullName.endsWith('/platform') || configPath !== `${D}/swarmy.yaml`) return undefined;
+  if (!fullName.endsWith('/platform') || configPath !== `${D}/swarmy.yaml`) return demoFolderScan(fullName, configPath);
   return {
     dir: D,
     app: 'orders',

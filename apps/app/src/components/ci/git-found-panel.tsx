@@ -2,7 +2,8 @@ import * as React from 'react';
 import { Link } from '@tanstack/react-router';
 import { Button } from '@swarmy/ui';
 import { TextSkeleton } from '@/components/states';
-import { foundWords, GitFoundItems } from './git-found-items';
+import { foundWords, GitFoundItems, hasSwarmyYaml } from './git-found-items';
+import { GitFoundNeeds } from './git-found-needs';
 import type { GitLink } from './use-git-link';
 import type { GitWizard } from './use-git-wizard';
 import { useInspectSource } from './use-inspect-source';
@@ -28,6 +29,10 @@ export function GitFoundPanel({
   const found = useInspectSource(l.linked ? null : w.source);
   const path = w.configPath || 'swarmy.yaml';
   const dir = dirOf(path);
+  // The root read is the folder picker's too; a subfolder is scanned on its own.
+  const folder = useInspectSource(!l.linked && w.source && dir ? { ...w.source, dir } : null);
+  const scan = (dir ? folder.data : found.data)?.found;
+  const hasConfig = found.data ? hasSwarmyYaml(dir, found.data.tree) : false;
   const existing = w.source ? appAt(w.source.cloneUrl, path) : undefined;
   // Same repo + swarmy.yaml + branch is already an app; another branch is a new one.
   const app = existing?.branch === w.branch.trim() ? existing : undefined;
@@ -80,7 +85,8 @@ export function GitFoundPanel({
       ) : (
         <TextSkeleton className="h-16 w-full rounded-xl" />
       )}
-      {found.data && !app && !l.linked ? <GitFoundItems dir={dir} files={found.data.tree} detected={found.data.detected} /> : null}
+      {found.data && !app && !l.linked ? <GitFoundItems dir={dir} files={found.data.tree} detected={dir ? (folder.data?.detected ?? null) : found.data.detected} /> : null}
+      {!app && !l.linked && !hasConfig ? (scan ? <GitFoundNeeds scan={scan} /> : dir && folder.isPending && found.data ? <TextSkeleton className="h-12 w-full rounded-xl" /> : null) : null}
       {l.linked ? (
         <Button asChild variant="outline" className="w-fit pointer-coarse:min-h-11">
           <Link to="/ci">Open CI & registry</Link>
