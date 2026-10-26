@@ -9,9 +9,9 @@ import { bytes } from '@/lib/format';
 import { DestroySearchDialog } from './destroy-search-dialog';
 import { SearchAttachSection } from './search-attach-section';
 import { SearchBackupsSection } from './search-backups-section';
+import { SearchEngineRow } from './search-engine-row';
 import { SearchIndexes } from './search-indexes';
 import { SearchKeyRow } from './search-key-row';
-import { Kv } from './search-kv';
 
 const ENGINE = { meilisearch: { label: 'Meilisearch', env: 'MEILI_HOST' }, typesense: { label: 'Typesense', env: 'TYPESENSE_HOST' } } as const;
 const short = (svc: string): string => svc.replace(/^[^_]*_/, '');
@@ -72,9 +72,7 @@ export function SearchBlock({ v }: { v: SearchInstanceView }): React.JSX.Element
       <SearchIndexes v={v} />
       <div className="flex flex-col">
         <SearchKeyRow v={v} />
-        <Kv k="Engine" tech={`swarmy.search.engine=${v.engine} · fixed when it was made`}>
-          <span className="text-[13px]">{e.label}{where ? `, one copy on ${where}` : ''}</span>
-        </Kv>
+        <SearchEngineRow v={v} where={where} />
       </div>
       <Depth at="controls">
         <div className="border-border flex flex-col gap-5 border-t pt-4">
