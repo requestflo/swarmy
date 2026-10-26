@@ -1,12 +1,9 @@
 import { registryConfigs } from './apps.repo';
 import type { OrgContext } from '../context';
 import type { AdmissionIntent, Violation } from './admission.service';
-import {
-  canonicalRegistryHost,
-  isOrgRegistryImage,
-  refAtDigest,
-  verifyImageSignature,
-} from './registryPolicy.service';
+import { canonicalRegistryHost, isOrgRegistryImage, refAtDigest } from './registryPolicy.service';
+import { checkImageSignature } from './image-signature.service';
+import { recordSignatureCheck } from './image-signature-record';
 
 /**
  * Image-policy admission evaluator (slice D3) — enforces the org registry
@@ -15,10 +12,12 @@ import {
  *
  * - `blockCriticalCves`: latest `ImageScan` (by digest when the ref is pinned,
  *   else by ref) — criticals block, a missing/errored scan warns `unscanned`.
- * - `requireSignedImages`: cosign verify, memoized per digest for
- *   {@link VERIFY_CACHE_TTL_MS} — a synchronous verify per deploy is heavy, so
- *   the cache absorbs repeat deploys; a cache miss verifies inline once (60s
- *   timeout inside `verifyImageSignature`) and FAILS CLOSED on any failure.
+ * - `requireSignedImages`: cosign verify against the org key, then each key
+ *   the org trusts, memoized per digest for {@link VERIFY_CACHE_TTL_MS} — a
+ *   synchronous verify per deploy is heavy, so the cache absorbs repeat
+ *   deploys; a cache miss verifies inline once (60s timeout per key) and
+ *   FAILS CLOSED on any failure. Each definitive answer is recorded per digest
+ *   (`ImageSignatureCheck`) for the app canvas's sign chip.
  */
 
 export const VERIFY_CACHE_TTL_MS = 10 * 60_000;
@@ -30,6 +29,11 @@ interface CacheEntry {
 
 /** digest (or ref when unpinned) → last definitive cosign verify result. */
 const verifyCache = new Map<string, CacheEntry>();
+
+/** Forget every memoized verify (the trusted keys changed). */
+export function clearVerifyCache(): void {
+  verifyCache.clear();
+}
 
 /** Pure cache read honoring the TTL (exported for tests). */
 export function readVerifyCache(
@@ -145,7 +149,7 @@ export function decideImageAdmission(input: {
           severity: 'block',
           message:
             signed === false
-              ? `${image.image} is not signed with the org cosign key — rebuild with signing enabled or override.`
+              ? `${image.image} is not signed with the org cosign key or a key you trust — rebuild with signing enabled or override.`
               : `${image.image}: signature could not be verified (verify failed or timed out) — failing closed.`,
           resource: image.service,
         });
@@ -203,16 +207,17 @@ export async function evaluate(ctx: OrgContext, intent: AdmissionIntent): Promis
         signatures.set(img.image, cached);
         continue;
       }
-      if (!cfg.cosignPublicKey) {
-        // Signing was never enabled — nothing can verify; definitive false.
-        signatures.set(img.image, false);
-        continue;
-      }
       try {
         const ref = img.digest ? refAtDigest(img.image, img.digest) : img.image;
-        const ok = await verifyImageSignature(ctx, ref);
+        // Null: signing was never enabled and no key is trusted, so nothing can
+        // verify — a definitive false, but nothing was checked to record.
+        const check = await checkImageSignature(ctx, ref, cfg);
+        const ok = check !== null && check.verdict !== 'unsigned';
         verifyCache.set(key, { ok, at: now });
         signatures.set(img.image, ok);
+        if (check && img.digest) {
+          await recordSignatureCheck(ctx, { digest: img.digest, imageRef: img.image, verdict: check.verdict, keyName: check.keyName, source: 'admission' });
+        }
       } catch {
         signatures.set(img.image, null);
       }

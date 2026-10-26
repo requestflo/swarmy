@@ -1,5 +1,5 @@
 import { MarkerType, type Node as FlowNode } from '@xyflow/react';
-import type { Inventory, InvService } from '@swarmy/core';
+import type { ImageSignatureView, Inventory, InvService } from '@swarmy/core';
 import { shortOf } from '@/components/connections/connections-model';
 import type { CanvasEdge, CanvasNode, ServiceFlowNode } from './build-graph';
 import type { DomainSpec, ServiceMetric } from './canvas-signals';
@@ -17,6 +17,8 @@ export interface CanvasExtras {
   metrics: Map<string, ServiceMetric>;
   /** Per part (short name): the last hour's calls, for its sparkline. */
   sparks: Map<string, (number | null)[]>;
+  /** Per part (full service name): who signed the image it runs. */
+  signs: Map<string, ImageSignatureView>;
 }
 
 const MANAGED = ['swarmy.db.cluster', 'swarmy.cache.cluster', 'swarmy.search.engine', 'swarmy.vector.name'];
@@ -66,7 +68,8 @@ export function withExtras(graph: { nodes: CanvasNode[]; edges: CanvasEdge[] }, 
     const short = shortOf(x.stack, n.data.service.name);
     const metric = x.metrics.get(short);
     const spark = x.sparks.get(short);
-    return metric || spark ? { ...n, data: { ...n.data, ...(metric ? { metric } : {}), ...(spark ? { spark } : {}) } } : n;
+    const sign = x.signs.get(n.data.service.name);
+    return metric || spark || sign ? { ...n, data: { ...n.data, ...(metric ? { metric } : {}), ...(spark ? { spark } : {}), ...(sign ? { sign } : {}) } } : n;
   });
   const edges: CanvasEdge[] = [...graph.edges];
 

@@ -20,6 +20,7 @@ import { RegistrySummary } from './registry-summary';
 import { ScanList } from './scan-list';
 import { ScanPolicyCard } from './scan-policy-card';
 import { SupplyChainGate } from './supply-chain-gate';
+import { TrustedKeysCard } from './trusted-keys-card';
 
 /** Settings → CI & registry: git → build on your servers → the registry inside them. */
 export function CiPage(): React.JSX.Element {
@@ -76,6 +77,7 @@ export function CiPage(): React.JSX.Element {
           <RegistryCredentialsCard />
           <GcPolicyCard value={gc.data} onDone={() => qc.invalidateQueries({ queryKey: trpc.cicd.getGcPolicy.queryKey() })} />
           <ScanPolicyCard />
+          <TrustedKeysCard />
         </div>
         <ScanList />
       </Depth>

@@ -21,8 +21,9 @@ export interface CanvasExtrasData {
  * the app's stores and their wiring (`stacks.endpoints`, Docker truth), each
  * store's own list for its size and health, the service map's RED rows
  * (`observability.map`, empty while telemetry is off), each part's last hour
- * in one batched query (`observability.requestSeriesMany`, the sparklines)
- * and visits at the edge (`traffic.now`). Each fills in when it lands.
+ * in one batched query (`observability.requestSeriesMany`, the sparklines),
+ * visits at the edge (`traffic.now`) and who signed each part's image
+ * (`registryPolicy.signatures`). Each fills in when it lands.
  */
 export function useCanvasExtras(stack: string, services: readonly InvService[]): CanvasExtrasData {
   const trpc = useTRPC();
@@ -34,6 +35,7 @@ export function useCanvasExtras(stack: string, services: readonly InvService[]):
   const buckets = useQuery({ ...trpc.buckets.overview.queryOptions(), refetchInterval: 30_000 });
   const map = useQuery({ ...trpc.observability.map.queryOptions({ windowMinutes: 15 }), refetchInterval: 15_000 });
   const traffic = useQuery({ ...trpc.traffic.now.queryOptions(), refetchInterval: 15_000 });
+  const signs = useQuery({ ...trpc.registryPolicy.signatures.queryOptions({ stack }), refetchInterval: 60_000 });
   const domains = useQuery({ ...trpc.ingress.listDomains.queryOptions({ stack }), refetchInterval: 15_000 });
   // Managed-store members draw as data nodes, not parts: no sparkline to ask for.
   const names = React.useMemo(() => sparkNames(stack, services.filter((s) => !isManagedMember(s))), [stack, services]);
@@ -64,8 +66,9 @@ export function useCanvasExtras(stack: string, services: readonly InvService[]):
       domain: domains.data ? domainSpec(domains.data, traffic.data?.apps.find((a) => a.app === stack)) : null,
       metrics: serviceMetrics(stack, services, rows),
       sparks: series.data?.status === 'ok' ? serviceSparks(stack, services, series.data.series, series.dataUpdatedAt || Date.now()) : new Map(),
+      signs: new Map((signs.data ?? []).map((s) => [s.service, s])),
     };
-  }, [endpoints, lists, map.data, domains.data, traffic.data, series.data, series.dataUpdatedAt, services, stack]);
+  }, [endpoints, lists, map.data, domains.data, traffic.data, series.data, series.dataUpdatedAt, signs.data, services, stack]);
 
   return { extras, endpoints, lists };
 }

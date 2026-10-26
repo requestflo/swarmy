@@ -9,6 +9,7 @@ import type { ServiceFlowNode } from './build-graph';
 import { DROP_TARGET, useConnectMode } from './connect/connect-context';
 import { PartSpark } from './part-spark';
 import { serviceRole } from './service-role';
+import { SignChip } from './sign-chip';
 
 /** First ingress host on a service, from the `swarmy.ingress.routes` JSON label. */
 function firstIngressHost(labels?: Record<string, string>): string | undefined {
@@ -38,7 +39,7 @@ const HANDLE: React.CSSProperties = {
  * bottom sheet shows the rest).
  */
 export function ServiceNode({ id, data, selected }: NodeProps<ServiceFlowNode>): React.JSX.Element {
-  const { service, tone, metric, spark } = data;
+  const { service, tone, metric, spark, sign } = data;
   const connect = useConnectMode();
   const drop = connect.on && !!connect.from && connect.from !== id;
   const { replicas, ports, status, scaleToZero } = service;
@@ -84,11 +85,20 @@ export function ServiceNode({ id, data, selected }: NodeProps<ServiceFlowNode>):
         />
         <span className="truncate text-[14.5px] font-semibold">{service.name}</span>
         {(idle || scaleToZero) && (
-          <span className="text-tone-idle ml-auto inline-flex shrink-0 items-center gap-1 text-[11px] font-semibold">
+          // Beside the sign chip the moon alone says it (the words go to its title), so the name keeps its room.
+          <span
+            className="text-tone-idle ml-auto inline-flex shrink-0 items-center gap-1 text-[11px] font-semibold"
+            title={sign ? (idle ? 'asleep' : 'sleeps when quiet') : undefined}
+          >
             <MoonIcon aria-hidden className="size-3" />
-            {idle ? 'asleep' : 'sleeps when quiet'}
+            <span className={cn(sign && 'sr-only')}>{idle ? 'asleep' : 'sleeps when quiet'}</span>
           </span>
         )}
+        {sign ? (
+          <span className={cn('flex shrink-0', !(idle || scaleToZero) && 'ml-auto')}>
+            <SignChip sign={sign} />
+          </span>
+        ) : null}
       </div>
       <p className="text-muted-foreground mt-0.5 flex items-baseline gap-2 text-[12.5px]">
         <span className="truncate">{serviceRole(service)}</span>

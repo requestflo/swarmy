@@ -248,6 +248,15 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
   (`images/critical-cves` block, `images/unscanned` warn, `images/unsigned`
   block). `verifyImageSignature` runs cosign in a `container.runOnce` on a
   builder node; verify is memoized per digest for `VERIFY_CACHE_TTL_MS` (10 min).
+  It tries the org key, then each trusted key (`registryPolicy.addTrustedKey`,
+  `trustedKeys` in the registry swarm-kv doc; public keys only, audited); a
+  trusted-key signature passes. Each definitive answer (and every digest the
+  build signs) is recorded per digest in control.db (`ImageSignatureCheck`,
+  history beside `ImageScan`, never a label: an attestation must not be
+  writable by anyone with Docker access). `registryPolicy.signatures({stack})`
+  joins each part's LIVE running digest with the newest verdict for the app
+  canvas's sign chip; no row, an unpinned ref or another registry reads "not
+  checked", never a guess (`image-signature{,.service}.ts`).
 - **Previews**: the webhook receiver parses PR/MR events with
   `parsePrWebhookEvent` (`apps/api/src/webhook-verify.ts`) and calls
   `planCommitForRepo` / `teardownAppPreviewForRepo`; the TTL sweep is
@@ -265,6 +274,7 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
 | Offline bundle: BOM-driven image list (platform + data sections; `--without data-images` leaves the data section out and lists it in the bundle's `omitted.txt`, which the installer and the upload skip), air-gapped install (`install-swarmy.sh --bundle`: verify, `docker load` by digest — needs the containerd image store), registry seed from the node's `swarmy-bundle` volume; a release pins the data images' upstream tags via `scripts/data-image-digests.ts` | `packages/core/src/platform-bundle-plan.ts`, `scripts/platform-bundle.ts`, `scripts/install-swarmy.sh` (`bundle_*`), `packages/core/src/system-images-bundle.ts`, `packages/trpc/src/services/system-images-bundle.service.ts`, worker `bundle-seed` |
 | Registry reachability (M16): loopback forwarder spec, agent supervisor, topology rule + migration reconcile | `packages/core/src/registry-forwarder.ts`, `apps/agent/src/handlers/registry-forwarder.ts`, `packages/trpc/src/services/registry-topology{,.service}.ts` (ticked by `system-image-mirror`) |
 | Image admission decision (pure + evaluator) | `packages/trpc/src/services/admission-images.ts` |
+| Per-digest signing record + trusted keys (canvas sign chip) | `packages/trpc/src/services/{image-signature,image-signature.service,image-signature-record,trusted-keys.service}.ts`; UI `apps/app/src/components/canvas/sign-chip{,-model}.ts(x)`, `components/ci/trusted-keys-card.tsx` |
 | Previews (PR / branch / trial) | `packages/trpc/src/services/apps.service.ts` (`planCommit`, `createAppPreview`, `teardownAppPreview*`) |
 | Build-log fan-out bus | `packages/trpc/src/services/build-log-bus.ts` |
 | Railpack program + meta capture (agent) | `apps/agent/src/handlers/build.ts` (`renderRailpackSteps`, `parseBuildMeta`) |

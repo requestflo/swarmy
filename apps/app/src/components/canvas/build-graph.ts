@@ -1,5 +1,5 @@
 import { type Edge as FlowEdge, type Node as FlowNode, MarkerType } from '@xyflow/react';
-import type { Inventory, InvEdge, InvService } from '@swarmy/core';
+import type { ImageSignatureView, Inventory, InvEdge, InvService } from '@swarmy/core';
 import { aggregateTone, STATUS_TONE } from './stack-aggregates';
 
 export interface ServiceNodeData extends Record<string, unknown> {
@@ -10,6 +10,8 @@ export interface ServiceNodeData extends Record<string, unknown> {
   metric?: { rate: string; tech: string };
   /** Calls per bucket over the last hour (`observability.requestSeriesMany`); null = before it reported. */
   spark?: (number | null)[];
+  /** Who signed the image it runs (`registryPolicy.signatures`), once known. */
+  sign?: ImageSignatureView;
 }
 /** One per-region summary chip on a logical-app frame (e.g. `eu × 5`). */
 export interface RegionBadge {

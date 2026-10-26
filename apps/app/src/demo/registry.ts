@@ -41,6 +41,7 @@ import { statuspages } from './resolvers/statuspages';
 import { releases } from './resolvers/releases';
 import { rollbackTiming } from './resolvers/rollback-timing';
 import { registrypolicy } from './resolvers/registrypolicy';
+import { registrypolicySigning } from './resolvers/registrypolicy-signing';
 import { registrycreds } from './resolvers/registrycreds';
 import { secretsmgr } from './resolvers/secretsmgr';
 import { configsmgr } from './resolvers/configsmgr';
@@ -161,6 +162,7 @@ const MODULES: DomainResolvers[] = [
   releases,
   rollbackTiming,
   registrypolicy,
+  registrypolicySigning,
   registrycreds,
   secretsmgr,
   configsmgr,

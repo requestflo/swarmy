@@ -19,6 +19,8 @@ interface RegistryPolicyView {
   requireSignedImages: boolean;
   blockCriticalCves: boolean;
   signingEnabled: boolean;
+  /** Keys trusted besides the org's (name + fingerprint; `registrypolicy-signing.ts` edits them). */
+  trustedKeys: { name: string; fingerprint: string }[];
   updatedAt: string;
 }
 
@@ -264,6 +266,7 @@ export const registrypolicy: DomainResolvers = {
         requireSignedImages: true,
         blockCriticalCves: true,
         signingEnabled: true,
+        trustedKeys: [{ name: 'Acme payments SDK', fingerprint: '5be0c41d93a7e2f8' }],
         updatedAt: iso(3 * 24 * HOUR),
       },
       publicKey: DEMO_PUBLIC_KEY,

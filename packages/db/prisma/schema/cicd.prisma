@@ -215,6 +215,33 @@ model ImageScan {
   @@map("image_scan")
 }
 
+// Image signature verdicts: queryable HISTORY, the sibling of ImageScan. One
+// row per definitive cosign answer about a digest: admission's verify at
+// deploy, or swarmy's build signing it with the org key. The newest row per
+// digest is the app canvas's sign chip; a digest with no row reads "not
+// checked" (never a guess). Kept here, not on a service label: it is an
+// attestation, and a label anyone with Docker access can write would let them
+// paint an image "signed".
+model ImageSignatureCheck {
+  id        String   @id @default(cuid())
+  orgId     String
+  /// `sha256:…` of the image checked.
+  digest    String
+  imageRef  String
+  /// swarmy (the org key) | trusted (a key the org trusts) | unsigned.
+  verdict   String
+  /// The trusted key's name when `verdict = trusted`.
+  keyName   String?
+  /// admission (verified at deploy) | build (signed by swarmy's build).
+  source    String
+  checkedAt DateTime @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, digest, checkedAt])
+  @@map("image_signature_check")
+}
+
 // Third-party registry credentials (GHCR, Docker Hub, GitLab, ECR/GCR/ACR, any
 // `host[/path]`). Org-scoped, matched to an image by the LONGEST `prefix`, and
 // injected JIT on every pull/build by the hub dispatch decorator

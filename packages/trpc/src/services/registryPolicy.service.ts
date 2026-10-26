@@ -29,6 +29,8 @@ import { writeAudit } from './audit.service';
 import { scanUsedStaleDb, trivyScanRunOnce } from './trivy-db';
 import { scanStage } from './build-stages';
 import { timeStage } from './build-stages.service';
+import { keyFingerprint } from './image-signature';
+import { recordSignatureCheck } from './image-signature-record';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -217,6 +219,7 @@ interface PolicyRow {
   blockCriticalCves: boolean;
   cosignPublicKey: string | null;
   cosignPrivateKeyEnc: string | null;
+  trustedKeys?: { name: string; publicKey: string }[];
   updatedAt: Date;
 }
 
@@ -258,6 +261,7 @@ function toPolicyView(row: PolicyRow): RegistryPolicyView {
     requireSignedImages: row.requireSignedImages,
     blockCriticalCves: row.blockCriticalCves,
     signingEnabled: Boolean(row.cosignPublicKey),
+    trustedKeys: (row.trustedKeys ?? []).map((k) => ({ name: k.name, fingerprint: keyFingerprint(k.publicKey) })),
     updatedAt: row.updatedAt.toISOString(),
   };
 }
@@ -588,6 +592,16 @@ export async function verifyImageSignature(
 ): Promise<boolean> {
   const cfg = await ensurePolicyConfig(ctx);
   if (!cfg.cosignPublicKey) return false;
+  return verifyImageSignatureWith(ctx, ref, cfg.cosignPublicKey);
+}
+
+/** {@link verifyImageSignature} against any public key (the org's, or one it trusts). */
+export async function verifyImageSignatureWith(
+  ctx: OrgContext,
+  ref: string,
+  publicKey: string,
+): Promise<boolean> {
+  const cfg = await ensurePolicyConfig(ctx);
   const creds = registryCreds(cfg);
   const node = await resolveScanNode(ctx);
   const res = await ctx.hub.dispatch<RunOnceResult>(
@@ -604,7 +618,7 @@ export async function verifyImageSignature(
         ...(creds ? ['--registry-username', creds.username, '--registry-password', creds.password] : []),
         hostReachableRef(ref),
       ],
-      env: { COSIGN_PUBLIC_KEY: cfg.cosignPublicKey },
+      env: { COSIGN_PUBLIC_KEY: publicKey },
       // Host network: reach the registry at `localhost:5000` (the node's loopback
       // forwarder, or the routing mesh before M16's move) exactly as dockerd does.
       networks: ['host'],
@@ -638,6 +652,8 @@ export async function onImageBuilt(
     if (cfg.cosignPublicKey && input.digest) {
       const digest = input.digest;
       await timeStage(ctx.db, input.buildId, 'sign', () => signImage(ctx, input.nodeId, cfg, input.imageRef, digest));
+      // The canvas's sign chip: swarmy's build signed this digest with the org key.
+      await recordSignatureCheck(ctx, { digest, imageRef: input.imageRef, verdict: 'swarmy', keyName: null, source: 'build' });
     }
   } catch (e) {
     await writeAudit(ctx, {

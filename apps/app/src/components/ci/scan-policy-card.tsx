@@ -83,7 +83,7 @@ export function ScanPolicyCard(): React.JSX.Element {
           <div>
             <Label className="font-medium">Only deploy signed images</Label>
             <p className="text-muted-foreground text-xs">
-              Require a valid cosign signature from your org key. Fails closed.
+              Require a valid cosign signature from your org key or a key you trust. Fails closed.
             </p>
           </div>
           <QuietSwitch

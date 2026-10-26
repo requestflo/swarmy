@@ -190,6 +190,7 @@ model Organization {
   inboundDeliveries      InboundDelivery[]
   releases               Release[]
   imageScans             ImageScan[]
+  imageSignatureChecks   ImageSignatureCheck[]
   exposureConfig         ExposureConfig?
   guardrailConfig        GuardrailConfig?
   notificationConfig     NotificationConfig?

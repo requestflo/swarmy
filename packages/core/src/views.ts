@@ -502,8 +502,14 @@ export interface RegistryPolicyView {
   blockCriticalCves: boolean;
   /** True once the org cosign keypair exists (public key stored). */
   signingEnabled: boolean;
+  /** Other keys whose signatures count as signed (admission + the canvas sign chip). */
+  trustedKeys: TrustedKeyView[];
   updatedAt: string;
 }
+
+// Who signed the image each part runs (the app canvas's sign chip).
+export * from './image-signing';
+import type { TrustedKeyView } from './image-signing';
 
 /** One trivy CVE scan of a built image (row of the CI scans table). */
 export interface ImageScanView {

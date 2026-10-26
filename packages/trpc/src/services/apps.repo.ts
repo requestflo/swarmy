@@ -38,6 +38,8 @@ export interface RegistryConfigDoc {
   cacheUsername?: string | null;
   /** Docker secret holding that login's password/token (the value never lands here). */
   cacheSecret?: string | null;
+  /** Public cosign keys (besides the org's own) whose signatures count as signed. Additive. */
+  trustedKeys?: { name: string; publicKey: string }[];
 }
 export const registryConfigs = kvTable<RegistryConfigDoc>('registry', {
   singleton: true,

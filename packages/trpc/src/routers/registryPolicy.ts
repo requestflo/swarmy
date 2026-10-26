@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { RescanImageInput, SetRegistryPolicyInput } from '@swarmy/core';
+import { ImageSignaturesInput, RemoveTrustedKeyInput, RescanImageInput, SetRegistryPolicyInput, TrustedKeyInput } from '@swarmy/core';
 import { adminProcedure, orgProcedure, router } from '../trpc';
 import {
   enableSigning,
@@ -10,6 +10,8 @@ import {
   setPolicy,
   signingStatus,
 } from '../services/registryPolicy.service';
+import { stackSignatures } from '../services/image-signature.service';
+import { addTrustedKey, removeTrustedKey } from '../services/trusted-keys.service';
 
 /**
  * Registry policy — image CVE scans (trivy), cosign signing, admission toggles
@@ -45,4 +47,15 @@ export const registryPolicyRouter = router({
   // ── Signing ──
   signingStatus: orgProcedure.query(({ ctx }) => signingStatus(ctx)),
   enableSigning: adminProcedure.mutation(({ ctx }) => enableSigning(ctx)),
+  /** Keys besides the org's whose signatures count as signed (admin, audited). */
+  addTrustedKey: adminProcedure
+    .input(TrustedKeyInput)
+    .mutation(({ ctx, input }) => addTrustedKey(ctx, input)),
+  removeTrustedKey: adminProcedure
+    .input(RemoveTrustedKeyInput)
+    .mutation(({ ctx, input }) => removeTrustedKey(ctx, input.name)),
+  /** Each part of an app and who signed the digest it runs (the canvas's sign chip). */
+  signatures: orgProcedure
+    .input(ImageSignaturesInput)
+    .query(({ ctx, input }) => stackSignatures(ctx, input.stack)),
 });
