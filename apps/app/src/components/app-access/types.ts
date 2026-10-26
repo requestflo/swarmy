@@ -1,3 +1,5 @@
+import type { AppPathRule } from '@swarmy/core';
+
 /**
  * The Access panel's view shapes — structural mirrors of
  * packages/trpc/src/services/app-access-admin.service.ts (query data is
@@ -11,6 +13,10 @@ export interface AppAccessRoute {
   path: string;
   requireLogin: boolean;
   endUserAuth: boolean;
+  /** Per-path who-can-enter (`access.paths` on the route label). */
+  pathRules: AppPathRule[];
+  /** The label's path rules can't be read: the edge lets nobody in. */
+  pathRulesError: boolean;
 }
 
 export interface AppAccessRules {

@@ -5,11 +5,12 @@ import { useTRPC } from '@/integrations/trpc';
 import { CardSkeleton, EmptyState, ErrorState } from '@/components/states';
 import { RequireLoginCard } from './require-login-card';
 import { WhoCanEnterCard } from './who-can-enter-card';
+import { PathRulesCard } from './path-rules-card';
 import { EndUsersCard } from './end-users-card';
 import { SignInPreview } from './sign-in-preview';
 import type { AppAccessViewData } from './types';
 
-/** The app Access tab: Require login, who can enter, and (with `auth:`) the app's own users. */
+/** The app Access tab: Require login, who can enter (the app, then each path), and (with `auth:`) the app's own users. */
 export function AppAccessSection({ stack }: { stack: string }): React.JSX.Element {
   const trpc = useTRPC();
   const q = useQuery({ ...trpc.appAccess.get.queryOptions({ stack }), refetchInterval: 10_000 });
@@ -40,6 +41,7 @@ export function AppAccessSection({ stack }: { stack: string }): React.JSX.Elemen
         <>
           <RequireLoginCard stack={stack} routes={appRoutes} />
           <WhoCanEnterCard stack={stack} view={view} />
+          <PathRulesCard stack={stack} view={view} />
         </>
       )}
       {view.endUserAuth ? (

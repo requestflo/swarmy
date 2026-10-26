@@ -9,8 +9,19 @@ import {
   setRequireLogin,
 } from '../services/app-access-admin.service';
 import { recentAppSignIns, SIGN_INS_MAX } from '../services/app-access-sign-ins';
+import { setAppPathRules } from '../services/app-access-paths.service';
 
 const stack = z.string().min(1).max(120);
+const names = z.array(z.string().min(1).max(200)).max(200).optional();
+const pathRule = z
+  .object({
+    path: z.string().min(1).max(512),
+    everyone: z.boolean().optional(),
+    roles: z.array(z.enum(['owner', 'admin', 'member'])).max(3).optional(),
+    groups: names,
+    people: names,
+  })
+  .strict();
 
 /**
  * The app Access panel (dev-platform §2): "Require login" (identity-aware
@@ -43,6 +54,14 @@ export const appAccessRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => setAppAccessRules(ctx, input)),
+
+  /**
+   * Per-path who-can-enter on one protected address ("/admin/* → group
+   * admins"). Narrows who gets in, so it is an access-rule write.
+   */
+  setPathRules: abacProcedure('policy.write', resolveStackByName)
+    .input(z.object({ stack, routeId: z.string().min(1).max(600), rules: z.array(pathRule).max(50) }))
+    .mutation(({ ctx, input }) => setAppPathRules(ctx, input)),
 
   /** The app's own users (auth: in swarmy.yaml) — its customers, not org members. */
   users: abacProcedure('service.configure', resolveStackByName)

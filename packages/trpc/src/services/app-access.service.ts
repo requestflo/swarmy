@@ -35,7 +35,7 @@ import { sessionsRevokedSince } from '@swarmy/auth';
 import type { DB } from '@swarmy/db';
 import { APP_AUTH_ORIGINAL_URI_HEADER, APP_AUTH_MODE_HEADER, APP_AUTH_PATH_PREFIX } from '@swarmy/ingress';
 import type { AgentHub } from '../hub/types';
-import { auditDenied, decideAccess, liveSession, resetDenyThrottle, sweep, type Decision } from './app-access-decide';
+import { auditDenied, decideAccess, liveSession, pathRefusal, resetDenyThrottle, sweep, type Decision } from './app-access-decide';
 import { APP_LOGIN_ACTION } from './app-access-sign-ins';
 import { appTarget, findProtectedRoute, pathOf, type ProtectedRoute } from './app-access-route';
 import { writeAudit } from './audit.service';
@@ -183,7 +183,7 @@ function unauthenticated(deps: AppAccessDeps, req: EdgeRequest, clear: boolean):
 
 // ── decision cache ───────────────────────────────────────────────────────────
 
-const decisions = new Map<string, { at: number; res: AppAuthResponse }>();
+const decisions = new Map<string, { at: number; res: AppAuthResponse; who: Decision['who'] }>();
 const usedNonces = new Map<string, number>();
 
 /** Test hook. */
@@ -202,6 +202,25 @@ function walled(deps: AppAccessDeps, words: string): AppAuthResponse {
 async function refused(deps: AppAccessDeps, route: ProtectedRoute, uid: string, d: Decision): Promise<AppAuthResponse> {
   await auditDenied(deps, route, uid, d);
   return d.wall ? walled(deps, d.wall) : denied(route);
+}
+
+/**
+ * The route's path rules, after the app let them in: null = through. A
+ * refusal is audited like any other; an unreadable path is a plain 400.
+ */
+async function pathGate(deps: AppAccessDeps, route: ProtectedRoute, uri: string, uid: string, who: Decision['who']): Promise<AppAuthResponse | null> {
+  const r = pathRefusal(route, uri, who);
+  if (!r) return null;
+  if (r.reason === 'unreadable') return page(400, 'Bad request', '<p>swarmy could not read this address safely, so it did not let it through.</p>');
+  await auditDenied(deps, route, uid, { policyId: null, reason: r.reason, path: r.path });
+  if (r.reason === 'rules') {
+    return page(403, "This app's access rules couldn't be read", "<p>Nobody is let in until an admin fixes them on the app's <em>Access</em> tab.</p>");
+  }
+  return page(
+    403,
+    "You don't have access to this part of the app",
+    `<p>You are signed in, but <strong>${esc(route.host)}${esc(r.path.replace(/\/?\*$/, ''))}</strong> only admits the people and groups its owners chose for it.</p><p><a href="/">Go to the app's front page</a></p>`,
+  );
 }
 
 function denied(route: ProtectedRoute): AppAuthResponse {
@@ -236,7 +255,9 @@ export async function verifyAppRequest(
 
   const cacheKey = `${raw}|${req.host}|${route.stack || route.serviceName}`;
   const hit = decisions.get(cacheKey);
-  if (hit && now - hit.at < DECISION_CACHE_MS && !sessionsRevokedSince(cookie.uid, hit.at)) return hit.res;
+  if (hit && now - hit.at < DECISION_CACHE_MS && !sessionsRevokedSince(cookie.uid, hit.at)) {
+    return (await pathGate(deps, route, req.uri, cookie.uid, hit.who)) ?? hit.res;
+  }
 
   const who = await liveSession(deps.db, cookie.sid, cookie.uid, now);
   if (!who) return unauthenticated(deps, req, true);
@@ -266,8 +287,8 @@ export async function verifyAppRequest(
     },
   };
   if (decisions.size > 5000) decisions.clear();
-  decisions.set(cacheKey, { at: now, res });
-  return res;
+  decisions.set(cacheKey, { at: now, res, who: d.who });
+  return (await pathGate(deps, route, req.uri, who.uid, d.who)) ?? res;
 }
 
 /** nginx's `@swarmy_login` fallback: the same redirect verify gives Caddy/Traefik. */
@@ -322,6 +343,8 @@ export async function startAppLogin(
   }
   const d = await decideAccess(deps, route, session.userId, session.id);
   if (!d.permit) return refused(deps, route, session.userId, d);
+  const gate = await pathGate(deps, route, target.pathname, session.userId, d.who);
+  if (gate) return gate;
   const app = appTarget(route);
   const code = sealToken('code', {
     v: 1,

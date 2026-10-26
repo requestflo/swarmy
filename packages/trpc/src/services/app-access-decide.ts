@@ -9,11 +9,12 @@
  * a sign-in writes, that is the Access tab's Recent sign-ins.
  */
 import { displayEmail } from '@swarmy/auth';
+import { decideAppPath, type AppPathPrincipal } from '@swarmy/core';
 import type { DB } from '@swarmy/db';
 import type { AgentHub } from '../hub/types';
 import { decide, principalFromMember } from '../abac';
 import { appAccessWall } from './app-access-walls';
-import { appResource, appTarget, type ProtectedRoute } from './app-access-route';
+import { appResource, appTarget, pathOf, type ProtectedRoute } from './app-access-route';
 import { writeAudit } from './audit.service';
 
 export interface Identity {
@@ -39,7 +40,7 @@ export async function liveSession(db: DB, sid: string, uid: string, now: number)
 }
 
 /** Why a signed-in person was refused, as the audit row and Recent sign-ins name it. */
-export type DenyReason = 'not-member' | 'wall' | 'policy';
+export type DenyReason = 'not-member' | 'wall' | 'policy' | 'path' | 'rules';
 
 export interface Decision {
   permit: boolean;
@@ -49,6 +50,8 @@ export interface Decision {
   /** The org's account wall refused this session (2FA owed, SSO only): its words. */
   wall?: string;
   reason?: DenyReason;
+  /** Who they are in the app's org, for the route's path rules (members only). */
+  who?: AppPathPrincipal;
 }
 
 export interface DecideDeps {
@@ -74,7 +77,28 @@ export async function decideAccess(deps: DecideDeps, route: ProtectedRoute, uid:
     resource: appResource(deps.hub, route),
   });
   const permit = d.decision === 'permit';
-  return { permit, groups: principal.groups ?? [], policyId: d.policyId, member: true, ...(permit ? {} : { reason: 'policy' as const }) };
+  const groups = principal.groups ?? [];
+  return {
+    permit,
+    groups,
+    policyId: d.policyId,
+    member: true,
+    who: { memberId: m.id, role, groups },
+    ...(permit ? {} : { reason: 'policy' as const }),
+  };
+}
+
+/**
+ * The route's path rules (`access.paths`) for one URI, after the app let
+ * them in: null = admitted; otherwise the refusal to audit. A path that
+ * cannot be read safely is `unreadable` (a 400, not a who-can-enter answer).
+ */
+export function pathRefusal(route: ProtectedRoute, uri: string, who: AppPathPrincipal | undefined): { reason: 'path' | 'rules' | 'unreadable'; path: string } | null {
+  if (route.access?.paths === undefined) return null;
+  const d = decideAppPath(route.access.paths, uri, who ?? { role: '', groups: [] });
+  if (d.admit) return null;
+  const path = pathOf(uri).slice(0, 200);
+  return { reason: d.reason === 'unreadable-path' ? 'unreadable' : d.reason, path: d.rule ?? path };
 }
 
 const deniedAudit = new Map<string, number>();

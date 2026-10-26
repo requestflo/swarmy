@@ -8,6 +8,7 @@ import { ConnectFromLaptop } from '@/components/networking/connect-from-laptop';
 import { OtherAppsSection } from '@/components/connections/other-apps-section';
 import { AccessCode } from './access-code';
 import { AppAccessSection } from './app-access-section';
+import { pathRulesLine } from './path-rules-model';
 import { RecentSignIns } from './recent-sign-ins';
 import { SimulateRequest } from './simulate-request';
 import type { AppAccessRoute, AppAccessViewData } from './types';
@@ -79,7 +80,7 @@ export function AccessTabPage({ stack }: { stack: string }): React.JSX.Element {
             <RowList label="Addresses">
               {routes.map((r) => (
                 <CalmRow key={r.id} tone={r.requireLogin ? 'mesh' : 'idle'} name={`${r.host}${r.path !== '/' ? r.path : ''}`} sub={r.serviceName.replace(`${stack}_`, '')}
-                  say={r.requireLogin ? `Signs in first. ${who[0]?.toUpperCase()}${who.slice(1)}.` : 'Anyone, no sign-in.'} word={r.requireLogin ? 'Sign-in' : 'Public'} wordTone={r.requireLogin ? 'mesh' : 'idle'} />
+                  say={r.requireLogin ? `Signs in first. ${who[0]?.toUpperCase()}${who.slice(1)}.${pathRulesLine(r, v.people)}` : 'Anyone, no sign-in.'} word={r.requireLogin ? 'Sign-in' : 'Public'} wordTone={r.requireLogin ? 'mesh' : 'idle'} />
               ))}
             </RowList>
           </Section>

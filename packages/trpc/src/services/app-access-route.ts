@@ -3,7 +3,7 @@
  * resource it is judged on (app-access.service.ts). Docker truth: routes are
  * read live from the `swarmy.ingress.routes` labels; nothing is stored.
  */
-import { buildInventory, UNGROUPED } from '@swarmy/core';
+import { appPathReadings, buildInventory, UNGROUPED } from '@swarmy/core';
 import type { ResourceInput } from '@swarmy/abac';
 import { isBroadWildcard } from '@swarmy/ingress';
 import type { OrgContext } from '../context';
@@ -71,8 +71,11 @@ export function findProtectedRoute(
     }
   }
   if (candidates.length === 0) return null;
+  // The path as the edge's route matcher reads it (decoded, cleaned, any case).
+  const edge = appPathReadings(path)?.[0];
+  const p = edge ? (path.endsWith('/') && edge !== '/' ? `${edge}/` : edge) : path.toLowerCase();
   const matching = candidates
-    .filter((c) => c.path === '/' || path.startsWith(c.path))
+    .filter((c) => c.path === '/' || p.startsWith(c.path.toLowerCase()))
     .sort((a, b) => b.path.length - a.path.length);
   return matching[0] ?? candidates[0]!;
 }

@@ -1,3 +1,4 @@
+import type { AppPathRule } from '@swarmy/core';
 import type { AppAccessRules, AppAccessViewData } from '@/components/app-access/types';
 import type { DemoStore, DomainResolvers } from '../types';
 
@@ -19,6 +20,8 @@ interface EndUserRow {
 interface AppAccessState {
   login: Record<string, boolean>;
   rules: Record<string, AppAccessRules>;
+  /** Per-path who-can-enter, by route id. */
+  paths: Record<string, AppPathRule[]>;
   users: EndUserRow[];
 }
 
@@ -33,6 +36,7 @@ function state(s: DemoStore): AppAccessState {
   const st = (s.extra.appaccess ??= {
     login: { 'storefront|shop.northwind.dev': true },
     rules: { storefront: { everyone: true, groups: [], people: [] } },
+    paths: { 'storefront|shop.northwind.dev': [{ path: '/admin/*', roles: ['owner', 'admin'], groups: ['sre'] }] },
     users: [
       { id: 'eu1', email: 'jo@shopper.dev', name: 'Jo', createdAt: new Date(Date.now() - 86_400_000 * 9).toISOString(), emailVerified: true, disabled: false },
       { id: 'eu2', email: 'sam@shopper.dev', name: 'Sam', createdAt: new Date(Date.now() - 86_400_000 * 2).toISOString(), emailVerified: true, disabled: false },
@@ -53,6 +57,8 @@ function view(s: DemoStore, stack: string): AppAccessViewData {
     path: '/',
     requireLogin: st.login[`${stack}|${host}`] ?? false,
     endUserAuth: false,
+    pathRules: (st.login[`${stack}|${host}`] && st.paths[`${stack}|${host}`]) || [],
+    pathRulesError: false,
   }));
   const people = PEOPLE.map((p) => ({
     ...p,
@@ -89,6 +95,11 @@ export const appaccess: DomainResolvers = {
     'appAccess.setRequireLogin': (i, s) => {
       const { stack, on, routeIds } = i as { stack: string; on: boolean; routeIds?: string[] };
       for (const r of view(s, stack).routes) if (!routeIds || routeIds.includes(r.id)) state(s).login[r.id] = on;
+      return view(s, stack);
+    },
+    'appAccess.setPathRules': (i, s) => {
+      const { stack, routeId, rules } = i as { stack: string; routeId: string; rules: AppPathRule[] };
+      state(s).paths[routeId] = rules;
       return view(s, stack);
     },
     'appAccess.setRules': (i, s) => {

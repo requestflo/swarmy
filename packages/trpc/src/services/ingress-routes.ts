@@ -66,6 +66,12 @@ export interface Route {
 /** A route's identity-aware-proxy setting (dev-platform §2A). */
 export interface RouteAccess {
   login: true;
+  /**
+   * Per-path who-can-enter (`AppPathRule[]`, `@swarmy/core` app-access-paths):
+   * kept VERBATIM, so a rewrite of the label for any other reason never drops
+   * a rule it could not read. Judged at decision time; unparseable fails closed.
+   */
+  paths?: unknown;
 }
 
 /** A route together with the live Docker service carrying it. */
@@ -110,10 +116,15 @@ function coerceRoute(value: unknown): Route | undefined {
   return route;
 }
 
-/** Tolerant: only `{ login: true }` means protected; anything else is public. */
+/**
+ * Tolerant: only `{ login: true }` means protected; anything else is public.
+ * A protected route's rule fields ride along untouched (see {@link RouteAccess}).
+ */
 export function coerceAccess(value: unknown): RouteAccess | undefined {
   if (typeof value !== 'object' || value === null) return undefined;
-  return (value as Record<string, unknown>).login === true ? { login: true } : undefined;
+  const v = value as Record<string, unknown>;
+  if (v.login !== true) return undefined;
+  return { login: true, ...(v.paths !== undefined ? { paths: v.paths } : {}) };
 }
 
 /**

@@ -3,14 +3,15 @@ import { CodeView, toYaml, withHeader } from '@/components/calm';
 import { IDENTITY_HEADERS, type AppAccessViewData } from './types';
 
 /**
- * Code depth of Access: the route entries swarmy writes (`access.login` in the
+ * Code depth of Access: the route entries swarmy writes (`access.login` and
+ * per-path `access.paths` in the
  * `swarmy.ingress.routes` label), who may enter, the headers the app gets,
  * and — when the app has its own sign-in — the swarmy.yaml `auth:` block.
  */
 export function AccessCode({ view }: { view: AppAccessViewData }): React.JSX.Element {
   const routes = view.routes
     .filter((r) => !r.endUserAuth)
-    .map((r) => JSON.stringify({ host: r.host, path: r.path, ...(r.requireLogin ? { access: { login: true } } : {}) }))
+    .map((r) => JSON.stringify({ host: r.host, path: r.path, ...(r.requireLogin ? { access: { login: true, ...(r.pathRules.length ? { paths: r.pathRules } : {}) } } : {}) }))
     .join('\n');
   const who = view.rules.everyone ? 'everyone in the organisation' : [...view.rules.groups.map((g) => `group ${g}`), ...view.rules.people.map((p) => `person ${p}`)].join(', ') || 'nobody yet';
   const edge = [

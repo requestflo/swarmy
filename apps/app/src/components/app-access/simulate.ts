@@ -1,3 +1,4 @@
+import { canEnterPath, ruleFor, rulePath, ruleWho } from './path-rules-model';
 import type { AppAccessPerson, AppAccessRoute } from './types';
 
 /**
@@ -31,8 +32,14 @@ export function personName(p: AppAccessPerson): string {
   return p.name ?? p.email ?? 'This member';
 }
 
-export function simulateRequest(route: AppAccessRoute, person: AppAccessPerson | null, stack: string): Simulation {
-  const where = route.path === '/' ? route.host : `${route.host}${route.path}`;
+export function simulateRequest(
+  route: AppAccessRoute,
+  person: AppAccessPerson | null,
+  stack: string,
+  path: string = route.path,
+  people: readonly AppAccessPerson[] = [],
+): Simulation {
+  const where = path === '/' ? route.host : `${route.host}${path}`;
   if (!route.requireLogin) {
     return { outcome: 'public', checked: false, reaches: true, caption: `${where} is public, so every request goes straight to ${stack}.` };
   }
@@ -40,7 +47,16 @@ export function simulateRequest(route: AppAccessRoute, person: AppAccessPerson |
     return { outcome: 'signin', checked: true, reaches: false, caption: 'No session, so they are sent to sign in first. The app never sees the request.' };
   }
   const who = personName(person);
-  return person.canEnter
-    ? { outcome: 'passes', checked: true, reaches: true, caption: `${who} is signed in and allowed, so the request passes with their identity attached.` }
-    : { outcome: 'denied', checked: true, reaches: false, caption: `${who} is signed in but not allowed in, so swarmy answers 403. The app never sees it.` };
+  if (!person.canEnter) {
+    return { outcome: 'denied', checked: true, reaches: false, caption: `${who} is signed in but not allowed in, so swarmy answers 403. The app never sees it.` };
+  }
+  if (route.pathRulesError) {
+    return { outcome: 'denied', checked: true, reaches: false, caption: `The path rules on ${route.host} can't be read, so swarmy lets nobody in until they are fixed.` };
+  }
+  if (!canEnterPath(route, person, path)) {
+    const rule = ruleFor(route, path);
+    const only = rule ? ` only admits ${ruleWho(rule, people)}` : ' is closed to them';
+    return { outcome: 'denied', checked: true, reaches: false, caption: `${who} is signed in, but ${rule ? rulePath(rule) : path}${only}, so swarmy answers 403.` };
+  }
+  return { outcome: 'passes', checked: true, reaches: true, caption: `${who} is signed in and allowed, so the request passes with their identity attached.` };
 }

@@ -14,6 +14,7 @@
  */
 import { TRPCError } from '@trpc/server';
 import { parsePolicyDoc } from '@swarmy/abac';
+import { parseAppPathRules, type AppPathRule } from '@swarmy/core';
 import { isBroadWildcard } from '@swarmy/ingress';
 import type { OrgContext } from '../context';
 import { notFound } from '../errors';
@@ -38,6 +39,10 @@ export interface AppAccessRouteView {
   requireLogin: boolean;
   /** The app's own `auth:` service route (never login-gated). */
   endUserAuth: boolean;
+  /** Per-path who-can-enter on this route (`access.paths`), most specific first at the edge. */
+  pathRules: AppPathRule[];
+  /** The label's path rules can't be read: the edge refuses everyone until they are fixed. */
+  pathRulesError: boolean;
 }
 
 export interface AppAccessRules {
@@ -77,7 +82,7 @@ export interface AppAccessView {
 }
 
 const AUTH_UNIT = 'swarmy-auth';
-const routeId = (serviceId: string, host: string, path?: string) => `${serviceId}|${host}|${path ?? ''}`;
+export const routeId = (serviceId: string, host: string, path?: string) => `${serviceId}|${host}|${path ?? ''}`;
 
 function ruleName(stack: string, kind: RuleKind): string {
   return `${APP_RULE_PREFIX}${stack} · ${kind}`;
@@ -154,6 +159,8 @@ export async function getAppAccess(ctx: OrgContext, stack: string): Promise<AppA
     path: route.path ?? '/',
     requireLogin: route.access?.login === true,
     endUserAuth: serviceName.endsWith(`_${AUTH_UNIT}`),
+    pathRules: parseAppPathRules(route.access?.paths) ?? [],
+    pathRulesError: parseAppPathRules(route.access?.paths) === null,
   }));
   const { rules } = await readRules(ctx, stack);
   const first = routes.find((r) => !r.serviceName.endsWith(`_${AUTH_UNIT}`)) ?? routes[0];
@@ -204,7 +211,8 @@ export async function setRequireLogin(
     // The app's own /auth service must stay reachable, or nobody could sign in.
     const target = !serviceName.endsWith(`_${AUTH_UNIT}`) && (!wanted || wanted.has(routeId(serviceId, route.host, route.path)));
     const { access: _drop, ...rest } = route;
-    const next: Route = target ? (input.on ? { ...rest, access: { login: true } } : { ...rest, access: undefined }) : route;
+    // Turning on keeps the route's path rules; turning off clears them with the gate.
+    const next: Route = target ? (input.on ? { ...rest, access: { ...route.access, login: true } } : { ...rest, access: undefined }) : route;
     if (target && (route.access?.login === true) !== input.on) entry.changed = true;
     entry.routes.push(next);
     byService.set(serviceId, entry);
