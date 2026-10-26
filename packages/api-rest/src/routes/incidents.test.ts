@@ -80,7 +80,7 @@ describe('incident + event mappers (golden)', () => {
     expect(
       incidentToDto({
         id: 'i1', title: 't', status: 'resolved', severity: 'major', summary: 's', openedAt: 'a', resolvedAt: 'b',
-        durationSec: 9, eventCount: 2, lastEventAt: 'c',
+        durationSec: 9, eventCount: 2, lastEventAt: 'c', owner: null,
       }),
     ).toEqual({
       id: 'i1', title: 't', status: 'resolved', severity: 'major', summary: 's', opened_at: 'a', resolved_at: 'b',

@@ -13,7 +13,7 @@ import type {
   PublicIncidentView,
   ResolveIncidentInput,
 } from '@swarmy/core';
-import { INCIDENT_SEVERITIES, INCIDENT_UPDATE_PHASES } from '@swarmy/core';
+import { INCIDENT_SEVERITIES, INCIDENT_UPDATE_PHASES, incidentOwner, type IncidentHoldRow } from '@swarmy/core';
 import type { OrgContext } from '../context';
 import { commandRejected, notFound } from '../errors';
 import { writeAudit } from './audit.service';
@@ -31,7 +31,7 @@ import { writeAudit } from './audit.service';
 
 // ── View mapping (pure) ───────────────────────────────────────────────────────
 
-interface IncidentRow {
+interface IncidentRow extends IncidentHoldRow {
   id: string;
   title: string;
   status: 'OPEN' | 'RESOLVED';
@@ -66,6 +66,7 @@ function toIncidentView(
   row: IncidentRow,
   eventCount: number,
   lastEventAt: Date | null,
+  viewerId: string | null,
 ): IncidentView {
   return {
     id: row.id,
@@ -78,6 +79,7 @@ function toIncidentView(
     durationSec: incidentDurationSec(row.openedAt, row.resolvedAt),
     eventCount,
     lastEventAt: lastEventAt?.toISOString() ?? null,
+    owner: row.status === 'OPEN' ? incidentOwner(row, viewerId) : null,
   };
 }
 
@@ -127,7 +129,7 @@ export async function listIncidents(
       events: { orderBy: { at: 'desc' }, take: 1, select: { at: true } },
     },
   });
-  return rows.map((r) => toIncidentView(r, r._count.events, r.events[0]?.at ?? null));
+  return rows.map((r) => toIncidentView(r, r._count.events, r.events[0]?.at ?? null, ctx.user?.id ?? null));
 }
 
 /** One incident with its full timeline, oldest event first. */
@@ -142,7 +144,7 @@ export async function getIncident(
   if (!row) throw notFound('incident', input.id);
   const events = row.events.map(toEventView);
   return {
-    ...toIncidentView(row, events.length, row.events.at(-1)?.at ?? null),
+    ...toIncidentView(row, events.length, row.events.at(-1)?.at ?? null, ctx.user?.id ?? null),
     events,
   };
 }

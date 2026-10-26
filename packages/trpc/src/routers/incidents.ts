@@ -4,8 +4,12 @@ import {
   IncidentsListInput,
   PostIncidentUpdateInput,
   ResolveIncidentInput,
+  TakeIncidentInput,
 } from '@swarmy/core';
+import { abacProcedure } from '../abac';
+import { resolveConfigRow } from '../abac-config';
 import { orgProcedure, router } from '../trpc';
+import { releaseIncident, takeIncident } from '../services/incidents-owner';
 import {
   addNote,
   getIncident,
@@ -52,4 +56,18 @@ export const incidentsRouter = router({
   reopen: orgProcedure
     .input(IncidentRefInput)
     .mutation(({ ctx, input }) => reopenIncident(ctx, input)),
+
+  /**
+   * "Take it for 30 min": the caller has the incident for 30 minutes (again =
+   * 30 more; `takeOver` takes it from whoever has it). Lapses on its own.
+   * `incident.take` — members may by default.
+   */
+  take: abacProcedure('incident.take', resolveConfigRow('incident'))
+    .input(TakeIncidentInput)
+    .mutation(({ ctx, input }) => takeIncident(ctx, input)),
+
+  /** Let go of an incident the caller has (`incident.take`). */
+  release: abacProcedure('incident.take', resolveConfigRow('incident'))
+    .input(IncidentRefInput)
+    .mutation(({ ctx, input }) => releaseIncident(ctx, input)),
 });

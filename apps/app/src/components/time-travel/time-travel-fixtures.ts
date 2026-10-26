@@ -48,4 +48,5 @@ export const INCIDENT: IncidentView = {
   durationSec: 1020,
   eventCount: 3,
   lastEventAt: null,
+  owner: null,
 };

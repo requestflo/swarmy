@@ -30,6 +30,7 @@ import { alertsDisk } from './resolvers/alerts-disk';
 import { nodeStatsHistory } from './resolvers/node-stats-history';
 import { dataHistory } from './resolvers/data-history';
 import { incidents } from './resolvers/incidents';
+import { incidentHold } from './resolvers/incident-hold';
 import { statuspages } from './resolvers/statuspages';
 import { releases } from './resolvers/releases';
 import { registrypolicy } from './resolvers/registrypolicy';
@@ -132,6 +133,7 @@ const MODULES: DomainResolvers[] = [
   nodeStatsHistory,
   dataHistory,
   incidents,
+  incidentHold,
   statuspages,
   releases,
   registrypolicy,

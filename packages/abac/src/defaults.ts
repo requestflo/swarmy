@@ -1,6 +1,7 @@
 import type { PolicyInput } from './types';
 import type { PolicyDoc } from './policy';
 import { CONFIG_REMOVE_SPECS } from './defaults-config';
+import { INCIDENT_SPECS } from './defaults-incidents';
 
 export interface DefaultPolicySpec {
   key: string; // stable identifier, also the seeded policy name
@@ -27,6 +28,7 @@ export const NON_PRODUCTION = { attr: 'resource.env', op: 'ne', value: 'producti
  *  - members may read NON-production databases in the studio (`data.read`);
  *  - members may call AI models through the gateway (`ai.use`);
  *  - members keep the config-level deletes they always had (`defaults-config.ts`);
+ *  - members may take incidents (`incident.take`, `defaults-incidents.ts`);
  *  - a production deploy or mesh connect, every destructive action (`data.*`,
  *    `*.remove`, `secret.delete`, …), `terminal.open` and `secrets.read` need
  *    an explicit grant: a policy naming the member's group / the member, or a
@@ -138,6 +140,7 @@ export const DEFAULT_POLICY_SPECS: DefaultPolicySpec[] = [
     },
   },
   ...CONFIG_REMOVE_SPECS,
+  ...INCIDENT_SPECS,
 ];
 
 /** The default policies as {@link PolicyInput} rows for the engine (no DB ids). */

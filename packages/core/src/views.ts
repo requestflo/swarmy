@@ -1468,6 +1468,7 @@ export interface NodeHygieneRunView {
 }
 
 // ── Incidents (slice C4) — open/resolve lifecycle + event timeline ────────────
+import type { IncidentOwnerView } from './incident-owner';
 
 export const INCIDENT_STATUSES = ['open', 'resolved'] as const;
 export type IncidentStatusView = (typeof INCIDENT_STATUSES)[number];
@@ -1489,12 +1490,15 @@ export interface IncidentView {
   durationSec: number;
   eventCount: number;
   lastEventAt: string | null;
+  /** Who has it ("Take it for 30 min"); null when nobody does, and once resolved. */
+  owner: IncidentOwnerView | null;
 }
 
 /**
  * One timeline entry. `kind` is an open vocabulary written by automation
  * (`opened`, `alert.fired`, `alert.resolved`, `db.failover`, `deploy.gate.*`,
- * `resolved`, `reopened`) plus the manual `note`.
+ * `resolved`, `reopened`) plus the manual `note` and the hold kinds
+ * (`owner.taken`, `owner.kept`, `owner.takenOver`, `owner.released`).
  */
 export interface IncidentEventView {
   id: string;

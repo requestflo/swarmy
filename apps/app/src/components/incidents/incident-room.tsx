@@ -7,6 +7,7 @@ import type { IncidentDetailView } from '@swarmy/core';
 import { useTRPC } from '@/integrations/trpc';
 import { Section } from '@/components/calm';
 import { ErrorState, SkeletonBody } from '@/components/states';
+import { firstName } from './hold-words';
 import { formatDuration, relativeTime } from './incident-status';
 import { IncidentAside } from './incident-aside';
 import { IncidentPublicCard } from './incident-public-card';
@@ -59,7 +60,8 @@ function RoomBody({ incident: d, back }: { incident: IncidentDetailView; back?: 
   const words = (t: string): string => plainWords(t, ctx);
   const open = d.status === 'open';
   const putBackOffered = open && guess?.cause === 'deploy' && guess.putBack !== null;
-  const eyebrow = [d.id, d.status, open ? formatDuration(d.durationSec) : `took ${formatDuration(d.durationSec)}`, d.severity].join(' · ');
+  const owner = d.owner ? `owner ${d.owner.mine ? 'you' : firstName(d.owner.name)}` : null;
+  const eyebrow = [d.id, d.status, open ? formatDuration(d.durationSec) : `took ${formatDuration(d.durationSec)}`, d.severity, owner].filter(Boolean).join(' · ');
   return (
     <article aria-label={`Incident: ${d.title}`} className="@container flex min-w-0 flex-col gap-5">
       {back}

@@ -9,6 +9,7 @@ import {
   RotateCcwIcon,
   ServerCrashIcon,
   SirenIcon,
+  UserRoundIcon,
 } from 'lucide-react';
 import type { IncidentEventView } from '@swarmy/core';
 import { cn } from '@swarmy/ui';
@@ -27,6 +28,7 @@ export function kindStyle(kind: string): KindStyle {
     return { icon: CheckCircle2Icon, tone: 'text-status-online' };
   if (kind === 'reopened') return { icon: RotateCcwIcon, tone: 'text-status-warning' };
   if (kind === 'note') return { icon: MessageSquareTextIcon, tone: 'text-primary' };
+  if (kind.startsWith('owner.')) return { icon: UserRoundIcon, tone: 'text-primary' };
   if (kind.startsWith('alert.')) return { icon: BellRingIcon, tone: 'text-status-warning' };
   if (kind.startsWith('db.')) return { icon: DatabaseZapIcon, tone: 'text-status-progress' };
   if (kind.startsWith('deploy.') || kind.startsWith('release.'))

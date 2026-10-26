@@ -3,8 +3,10 @@ import type {
   IncidentEventView,
   IncidentView,
   IncidentsOverview,
+  IncidentHoldRow,
   PostIncidentUpdateInput,
 } from '@swarmy/core';
+import { incidentOwner } from '@swarmy/core';
 import type { DemoStore, DomainResolvers } from '../types';
 
 /**
@@ -27,17 +29,19 @@ export interface DemoIncident {
   openedAt: string;
   resolvedAt: string | null;
   events: IncidentEventView[];
+  /** Who has it ("Take it for 30 min", `incident-hold.ts`); lapses by itself. */
+  hold?: IncidentHoldRow;
 }
 
 export interface IncidentsState {
   incidents: DemoIncident[];
 }
 
-function getState(store: DemoStore): IncidentsState {
+export function getState(store: DemoStore): IncidentsState {
   return store.extra.incidents as IncidentsState;
 }
 
-function rid(prefix: string): string {
+export function rid(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
@@ -46,7 +50,7 @@ function durationSec(openedAt: string, resolvedAt: string | null): number {
   return Math.max(0, Math.round((end - new Date(openedAt).getTime()) / 1000));
 }
 
-function toView(i: DemoIncident): IncidentView {
+function toView(i: DemoIncident, s: DemoStore): IncidentView {
   return {
     id: i.id,
     title: i.title,
@@ -58,14 +62,15 @@ function toView(i: DemoIncident): IncidentView {
     durationSec: durationSec(i.openedAt, i.resolvedAt),
     eventCount: i.events.length,
     lastEventAt: i.events.at(-1)?.at ?? null,
+    owner: i.status === 'open' && i.hold ? incidentOwner(i.hold, s.user.id) : null,
   };
 }
 
-function toDetail(i: DemoIncident): IncidentDetailView {
-  return { ...toView(i), events: [...i.events] };
+export function toDetail(i: DemoIncident, s: DemoStore): IncidentDetailView {
+  return { ...toView(i, s), events: [...i.events] };
 }
 
-function requireIncident(s: DemoStore, id: string): DemoIncident {
+export function requireIncident(s: DemoStore, id: string): DemoIncident {
   const found = getState(s).incidents.find((i) => i.id === id);
   if (!found) throw new Error(`incident "${id}" not found`);
   return found;
@@ -107,12 +112,12 @@ export const incidents: DomainResolvers = {
           return a.openedAt < b.openedAt ? 1 : -1;
         })
         .slice(0, input.limit ?? 50)
-        .map(toView);
+        .map((row) => toView(row, s));
     },
 
     'incidents.get': (i, s): IncidentDetailView => {
       const { id } = i as { id: string };
-      return toDetail(requireIncident(s, id));
+      return toDetail(requireIncident(s, id), s);
     },
 
     'incidents.addNote': (i, s): IncidentEventView => {
@@ -143,7 +148,7 @@ export const incidents: DomainResolvers = {
         message: message?.trim() || `Manually resolved by ${s.user.name}`,
         meta: { manual: true },
       });
-      return toDetail(incident);
+      return toDetail(incident, s);
     },
 
     'incidents.postUpdate': (i, s): IncidentDetailView => {
@@ -157,7 +162,7 @@ export const incidents: DomainResolvers = {
         incident.resolvedAt = now;
         incident.events.push({ id: rid('ie'), at: now, kind: 'resolved', message: message.trim(), meta: { manual: true } });
       }
-      return toDetail(incident);
+      return toDetail(incident, s);
     },
 
     'incidents.reopen': (i, s): IncidentDetailView => {
@@ -173,7 +178,7 @@ export const incidents: DomainResolvers = {
         message: `Reopened by ${s.user.name}`,
         meta: { manual: true },
       });
-      return toDetail(incident);
+      return toDetail(incident, s);
     },
   },
 
@@ -257,6 +262,8 @@ export const incidents: DomainResolvers = {
       summary: null,
       openedAt: minutesAgo(18),
       resolvedAt: null,
+      // Calum took it 6 minutes ago: others see "Calum has this until …".
+      hold: { ownerUserId: 'user-calum', ownerName: 'Calum Macrae', ownedUntil: new Date(Date.now() + 24 * 60_000) },
       events: [
         {
           id: 'ie-d1',
@@ -271,6 +278,13 @@ export const incidents: DomainResolvers = {
           kind: 'alert.fired',
           message: 'error-rate on service:storefront_checkout — Error rate on storefront_checkout is 6.2% over 5m (41/662 spans)',
           meta: { ...gkRel, signal: 'error-rate', resource: 'service:storefront_checkout', stackName: 'storefront' },
+        },
+        {
+          id: 'ie-d1c',
+          at: minutesAgo(6),
+          kind: 'owner.taken',
+          message: 'Calum Macrae took this incident for 30 minutes.',
+          meta: { author: 'Calum Macrae', owner: 'user-calum' },
         },
         {
           id: 'ie-d2',

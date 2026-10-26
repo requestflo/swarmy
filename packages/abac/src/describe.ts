@@ -63,6 +63,7 @@ export const ACTION_CATALOG: ActionInfo[] = [
   { id: 'job.remove', label: 'remove scheduled jobs', group: 'configure' },
   { id: 'ai.remove', label: 'revoke AI keys and routes', group: 'configure' },
   { id: 'savedquery.remove', label: 'remove saved queries', group: 'configure' },
+  { id: 'incident.take', label: 'take incidents', group: 'operate' },
   { id: 'rum.remove', label: 'erase visitor analytics and replays', group: 'destructive' },
   { id: 'mesh.revoke', label: 'revoke private-network access', group: 'access' },
   { id: 'mesh.rules', label: 'change who can reach whom on the private network', group: 'access' },
@@ -89,6 +90,7 @@ const TYPE_WORDS: Record<string, string> = {
   node: 'servers',
   org: 'the workspace',
   inboundEndpoint: 'inbound webhooks',
+  incident: 'incidents',
 };
 
 function attrWords(attr: string): string {

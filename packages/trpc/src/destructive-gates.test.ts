@@ -186,6 +186,9 @@ const GATES: Array<[string, unknown, string]> = [
   ['mesh.rules.add', { from: 'Office', to: 'Databases', protocol: 'tcp', ports: [5432] }, 'mesh.rules'],
   ['mesh.rules.remove', { id: 'p1' }, 'mesh.rules'],
   ['studio.saved.remove', { stack: 'shop', id: 'q1' }, 'savedquery.remove'],
+  // Incident response: taking or letting go of an incident; members may by default.
+  ['incidents.take', { id: 'inc1' }, 'incident.take'],
+  ['incidents.release', { id: 'inc1' }, 'incident.take'],
 ];
 
 /** Member-allowed today (orgProcedure before the sweep) — must stay allowed. Actions or paths. */
@@ -202,6 +205,7 @@ const MEMBER_KEEPS = new Set([
   'job.remove',
   'ai.remove',
   'savedquery.remove',
+  'incident.take',
   // `webhook.remove` is member-permitted on inbound endpoints only (by type).
   'inboundWebhooks.removeEndpoint',
 ]);

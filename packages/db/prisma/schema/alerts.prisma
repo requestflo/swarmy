@@ -160,6 +160,12 @@ model Incident {
   summary    String?
   openedAt   DateTime       @default(now())
   resolvedAt DateTime?
+  /// "Take it for 30 min": who has this incident, and until when. It lapses
+  /// on its own (a read past `ownedUntil` is nobody); no worker clears it.
+  /// Who took, kept or let go of it, and when, is on the timeline.
+  ownerUserId String?
+  ownerName   String?
+  ownedUntil  DateTime?
 
   org    Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
   events IncidentEvent[]

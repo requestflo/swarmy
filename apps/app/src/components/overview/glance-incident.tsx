@@ -13,6 +13,7 @@ import { incidentMetric, type IncidentMetric } from '@/components/incidents/inci
 import { plainWords } from '@/components/incidents/incident-words';
 import { useIncidentEvidence } from '@/components/incidents/use-incident-evidence';
 import { useIncidentScope } from '@/components/incidents/use-incident-scope';
+import { GlanceHold } from './glance-hold';
 import { alsoFiring, causeLines, incidentAlerts, metricLine } from './glance-words';
 import { OverviewNext, pickNext } from './overview-next';
 import type { GlanceActions } from './use-glance-actions';
@@ -20,7 +21,8 @@ import type { GlanceActions } from './use-glance-actions';
 /**
  * The open incident on a phone: what's wrong and since when, the incident
  * room's best guess as a sentence (with the metric before vs now), the chart
- * as a sparkline, Put back / Ack inline, and what else is firing.
+ * as a sparkline, who has it (Take it for 30 min), Put back / Ack inline, and
+ * what else is firing.
  */
 export function GlanceIncident({ incident, firing, actions }: { incident: IncidentView; firing: AlertEventView[]; actions: GlanceActions }): React.JSX.Element {
   const trpc = useTRPC();
@@ -68,6 +70,7 @@ function IncidentBody({ d, firing, actions }: { d: IncidentDetailView; firing: A
       </div>
       {lines ? <p className="text-foreground/80 text-[14px] leading-normal">{lines.join(' ')}</p> : <TextSkeleton className="w-4/5" />}
       {metric && series && series.length >= 2 ? <Spark points={series} tone={tone} label={`${METRIC_TITLE[metric]}, last 3 hours`} /> : null}
+      <GlanceHold incidentId={d.id} owner={d.owner} />
       <div className="flex gap-2">
         {putBack && label ? (
           <Button className="h-11 flex-1" disabled={actions.busy} onClick={() => actions.putBack(d.id, putBack, guess?.suspect ?? null)}>
@@ -86,7 +89,7 @@ function IncidentBody({ d, firing, actions }: { d: IncidentDetailView; firing: A
       </div>
       {also ? <p className="text-muted-foreground text-[12.5px] leading-snug">{also}</p> : null}
       <Tech>
-        {d.id} · {d.severity}
+        {d.id} · {d.severity} · incidents.{d.owner?.mine ? 'release' : 'take'}
         {putBack ? ` · releases.rollback ${putBack.id}` : ''}
         {linked.length ? ` · alerts.ack ${linked.map((a) => a.id).join(', ')}` : ''}
       </Tech>

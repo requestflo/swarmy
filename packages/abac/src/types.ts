@@ -133,6 +133,11 @@ export const ACTIONS = [
   'mesh.rules',
   /** Delete a saved database-studio query. */
   'savedquery.remove',
+  // Incident response (2026-10). Taking an open incident ("Take it for 30
+  // min"), keeping it longer, taking it over or letting it go. Changes no
+  // infrastructure, so members may by default (`defaults-incidents.ts`).
+  /** Take, keep, take over or let go of an open incident (resource type `incident`). */
+  'incident.take',
 ] as const;
 
 export type Action = (typeof ACTIONS)[number];

@@ -21,6 +21,7 @@ describe('rolesAtAGlance (the real role sentences)', () => {
           'Members can remove alerts, status pages, jobs and AI keys',
           'Members can remove inbound webhooks',
           'Members can remove saved queries',
+          'Members can take incidents',
         ],
       },
     ]);
