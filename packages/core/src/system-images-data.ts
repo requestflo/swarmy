@@ -39,10 +39,15 @@ export type DataImageKey =
   | 'qdrant'
   | 'restic'
   | 'walg'
+  | 'pgbouncer'
   | 'alpine';
 
-/** What swarmy runs the image for. The first four are engines; `backup` and `volume` are one-shot helpers. */
-export type DataImageRole = 'postgres' | 'cache' | 'search' | 'vector' | 'backup' | 'volume';
+/**
+ * What swarmy runs the image for. The first four are engines; `pooler` is a
+ * long-running sidecar in front of an engine; `backup` and `volume` are
+ * one-shot helpers.
+ */
+export type DataImageRole = 'postgres' | 'cache' | 'search' | 'vector' | 'pooler' | 'backup' | 'volume';
 export type DataEngine = 'postgres' | 'valkey' | 'redis' | 'meilisearch' | 'typesense' | 'qdrant';
 
 export interface DataImage extends SystemImage {
@@ -78,6 +83,14 @@ export const DATA_IMAGES: readonly DataImage[] = [
   // platform.json pins its digest like swarmy's other builds.
   { key: 'restic', ref: 'restic/restic:0.16.4', digest: 'sha256:dad38b8042cfb1a759a958ed0061b888ebd05b1e780125a1fb4e2d687c6c0556', role: 'backup', majors: [] },
   { key: 'walg', ref: 'ghcr.io/requestflo/swarmy-walg:latest', role: 'backup', engine: 'postgres', majors: POSTGRES_MAJORS },
+  // The optional connection pooler in front of a managed Postgres writer
+  // (`swarmy.db.pooler`, manageddb-pooler*.ts). PgBouncer publishes source
+  // tarballs, not images; edoburu/pgbouncer is the long-standing minimal
+  // Alpine build of each release (it ships psql + pg_isready, runs as
+  // `postgres`). swarmy writes its own pgbouncer.ini, so only the binary and
+  // the user are relied on. v1.26.1-p0 = PgBouncer 1.26.1, the index digest
+  // read from Docker Hub on 2026-10-26. It serves every Postgres major.
+  { key: 'pgbouncer', ref: 'edoburu/pgbouncer:v1.26.1-p0', digest: 'sha256:488422e38cff912895d0d65d8963fcd306e6ac589a724398b6eb8e294e94d624', role: 'pooler', engine: 'postgres', majors: POSTGRES_MAJORS },
   // Volume moves, decommission drains and the operator's tar export copy data with it.
   { key: 'alpine', ref: 'alpine:3.20', role: 'volume', majors: [], ...UPSTREAM },
 ];

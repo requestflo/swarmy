@@ -21,6 +21,7 @@ import { setDbExtension } from '../services/manageddb-extensions.service';
 import { getDbExtensions } from '../services/manageddb-extensions-view';
 import { getDbReplication } from '../services/manageddb-replication.service';
 import { setDbMemory } from '../services/manageddb-memory.service';
+import { poolerProcedures } from './manageddb-pooler';
 import { PG_EXTENSION_NAMES, PG_MEMORY_MAX_MB, PG_MEMORY_MIN_MB } from '@swarmy/core';
 
 /** `postgres://user:secret@host` → `postgres://user:***@host`. */
@@ -56,6 +57,7 @@ type PgExtName = (typeof PG_EXTENSION_NAMES)[number];
  * into an app service — all Docker-truth (labels), no new Prisma model.
  */
 export const managedDbRouter = router({
+  ...poolerProcedures,
   /** Provision a cluster (deploy primary + N replicas, stamp swarmy.db.* labels). */
   provision: abacProcedure('stack.deploy', resolveStackByName)
     .input(

@@ -20,6 +20,7 @@ export * from './manageddb-extensions-plan';
 export * from './manageddb-replication';
 export * from './manageddb-memory';
 export * from './manageddb-memory-plan';
+export * from './manageddb-pooler';
 export * from './data-pin';
 export * from './db-restore-copy';
 export * from './disk-forecast';
