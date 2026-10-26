@@ -149,6 +149,11 @@ server and the BuildKit registry cache. What is left (none launch-blocking):
 - pgBackRest is offered only with an operator-supplied image
   (`SWARMY_PGBACKREST_IMAGE`; no upstream image exists). Even then it needs its
   own WAL pipeline (swarmy archives WAL for wal-g) and its S3 key env names.
+- Failover left directly-connected apps on the old writer: their
+  `DATABASE_URL` names the writer member's service, and the promotion pass
+  repointed replicas and the pooler but never apps. Being fixed 2026-10-26
+  (re-mint each app's writer URL in the promotion pass); until then the new
+  planned switchover (`db.switchover`) refuses clusters with such apps.
 - PgBouncer for managed Postgres shipped 2026-10-26 (`swarmy.db.pooler`,
   `auth_query` through its own role so a rotation needs no restart, repointed
   in the promotion pass, apps connect `via: 'pooler'`). Owed: a pass on a real
@@ -176,9 +181,12 @@ server and the BuildKit registry cache. What is left (none launch-blocking):
 
 ## Observability
 
-- No gateway tier yet (`docs/product/observability.md` describes it). Container
-  stdout logs ship since 2026-10-24 (opt-in per org: a per-node `filelog`
-  agent); verify Swarm passes the `labels=` log option through on a real swarm.
+- Container stdout logs ship since 2026-10-24 (opt-in per org: a per-node
+  `filelog` agent); verify Swarm passes the `labels=` log option through on a
+  real swarm. (There is deliberately no separate gateway tier: the one
+  collector does tail sampling and redaction — `docs/product/observability.md`.)
+- Done 2026-10-26: an `X-Request-Id` on every edge request, kept beside a
+  replay's failed requests with "Find in logs".
 
 ## REST API & Terraform
 
