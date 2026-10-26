@@ -116,8 +116,10 @@ export const studioRouter = router({
 
   /**
    * Slow queries over the last 24 h (managed Postgres with pg_stat_statements):
-   * calls, mean and an ESTIMATED p95 from the 5-minute snapshot deltas in
-   * telemetry.db. Read-only, this org's rows only; nothing runs on the database.
+   * calls, the mean and its spread (exact), and the slowest call since the
+   * statistics were reset, from the 5-minute snapshot deltas in telemetry.db.
+   * No p95: Postgres keeps no per-call times. Read-only, this org's rows only;
+   * nothing runs on the database.
    */
   slowQueries: orgProcedure
     .input(z.object({ ...ref, hours: z.number().int().min(1).max(24 * 7).optional() }))

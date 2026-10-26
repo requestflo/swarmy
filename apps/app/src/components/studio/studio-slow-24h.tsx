@@ -11,9 +11,12 @@ const fmtCalls = (n: number) => n.toLocaleString('en-US');
 
 /**
  * The last 24 hours of a managed Postgres's statements (`studio.slowQueries`):
- * mean, an estimated p95 and calls per 24 h from swarmy's 5-minute
- * pg_stat_statements snapshots, each with Copy SQL. Renders nothing until the
- * first two snapshots exist, so the cumulative list below stays the answer.
+ * the mean, its spread (± one standard deviation, exact over the window),
+ * the slowest single call since the statistics were reset, and calls per
+ * 24 h, from swarmy's 5-minute pg_stat_statements snapshots, each with Copy
+ * SQL. No p95: Postgres keeps no per-call times, and the note says so.
+ * Renders nothing until the first two snapshots exist, so the cumulative
+ * list below stays the answer.
  */
 export function StudioSlow24h({ scope, onOpen }: { scope: StudioScope; onOpen: (statement: string) => void }): React.JSX.Element | null {
   const trpc = useTRPC();
@@ -25,7 +28,7 @@ export function StudioSlow24h({ scope, onOpen }: { scope: StudioScope; onOpen: (
     );
   }
   const d = q.data;
-  const cols = 'sm:grid-cols-[minmax(0,1fr)_4.5rem_4.5rem_5.5rem_7rem]';
+  const cols = 'sm:grid-cols-[minmax(0,1fr)_4.5rem_4.5rem_4.5rem_5.5rem_7rem]';
   return (
     <section aria-label="Slow queries, last 24 hours" className="space-y-2">
       <p className="text-sm">
@@ -36,26 +39,31 @@ export function StudioSlow24h({ scope, onOpen }: { scope: StudioScope; onOpen: (
         <div className={`bg-muted hidden gap-3 px-3 py-2 text-xs font-semibold sm:grid ${cols}`}>
           <span>statement</span>
           <span>mean</span>
-          <span title={d.p95Note}>p95 (est.)</span>
-          <span>calls / 24 h</span>
+          <span title="One standard deviation of call time over these hours">± spread</span>
+          <span title="The slowest single call since the statistics were last reset">slowest</span>
+          <span>calls / {d.windowHours} h</span>
           <span className="sr-only">copy</span>
         </div>
         {d.rows.map((s) => (
-          <div key={s.queryId} className={`border-border grid grid-cols-3 items-center gap-x-3 gap-y-1 border-t px-3 py-2 font-mono text-xs ${cols}`}>
-            <button type="button" onClick={() => onOpen(s.query)} title="Open in the console" className="hover:text-primary col-span-3 min-h-11 truncate text-left sm:col-span-1 sm:min-h-0">
+          <div key={s.queryId} className={`border-border grid grid-cols-4 items-center gap-x-3 gap-y-1 border-t px-3 py-2 font-mono text-xs ${cols}`}>
+            <button type="button" onClick={() => onOpen(s.query)} title="Open in the console" className="hover:text-primary col-span-4 min-h-11 truncate text-left sm:col-span-1 sm:min-h-0">
               {s.query || `queryid ${s.queryId}`}
             </button>
             <span className={(s.meanMs ?? 0) > 150 ? 'text-tone-warn font-semibold whitespace-nowrap' : 'whitespace-nowrap'}>
               <span className="text-muted-foreground sm:hidden">mean </span>{fmtMs(s.meanMs)}
             </span>
-            <span className="whitespace-nowrap"><span className="text-muted-foreground sm:hidden">p95 ~</span>{fmtMs(s.p95Ms)}</span>
+            <span className="whitespace-nowrap"><span className="text-muted-foreground">± </span>{fmtMs(s.stddevMs)}</span>
+            <span className="whitespace-nowrap"><span className="text-muted-foreground sm:hidden">max </span>{fmtMs(s.maxMs)}</span>
             <span className="whitespace-nowrap"><span className="text-muted-foreground sm:hidden">calls </span>{fmtCalls(s.calls)}</span>
-            <CopyButton value={s.query} label="Copy SQL" className="col-span-3 justify-self-start font-sans pointer-coarse:min-h-11 sm:col-span-1 sm:justify-self-end" />
+            <CopyButton value={s.query} label="Copy SQL" className="col-span-4 justify-self-start font-sans pointer-coarse:min-h-11 sm:col-span-1 sm:justify-self-end" />
           </div>
         ))}
       </div>
-      <p className="text-muted-foreground text-xs">{d.p95Note}</p>
-      <Tech>studio.slowQueries · pg_stat_statements deltas every {d.everyMinutes} min → telemetry.db · since {d.since ?? '—'}</Tech>
+      <p className="text-muted-foreground text-xs">{d.note}</p>
+      <Tech>
+        studio.slowQueries · pg_stat_statements deltas every {d.everyMinutes} min → telemetry.db · ± from Σ calls·(stddev² + mean²) deltas · slowest =
+        max_exec_time · since {d.since ?? '—'}
+      </Tech>
     </section>
   );
 }

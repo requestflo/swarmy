@@ -9,7 +9,7 @@ import { prunePgQuerySamples, slowQueryTargets, snapshotSlowQueries, studioSlowQ
  * `system`), only deltas are stored, and the view is org-scoped.
  */
 
-const COLS = ['queryid', 'calls', 'total_ms', 'rows', 'query'];
+const COLS = ['queryid', 'calls', 'total_ms', 'rows', 'query', 'sumsq_ms2', 'max_ms'];
 let t: TestDb | null = null;
 afterEach(async () => {
   await t?.close();
@@ -52,12 +52,12 @@ describe('slow queries over 24 h', () => {
     expect(slowQueryTargets(harness(t, []).ctx)).toEqual([{ stack: 'shop', target: 'main' }]);
   });
 
-  it('baseline, then deltas; the view sums them with an estimated p95', async () => {
+  it('baseline, then deltas; the view sums them with the exact spread and the slowest call, and no p95', async () => {
     t = await createTestDb();
     const h = harness(t, [
-      [['7', '100', '1000', '100', 'SELECT * FROM orders WHERE id = $1']],
-      [['7', '150', '6000', '150', 'SELECT * FROM orders WHERE id = $1']],
-      [['7', '160', '6100', '160', 'SELECT * FROM orders WHERE id = $1']],
+      [['7', '100', '1000', '100', 'SELECT * FROM orders WHERE id = $1', '10000', '10']],
+      [['7', '150', '6000', '150', 'SELECT * FROM orders WHERE id = $1', '530000', '180']],
+      [['7', '160', '6100', '160', 'SELECT * FROM orders WHERE id = $1', '531000', '180']],
     ]);
     const ref = { stack: 'shop', target: 'main' };
     const now = Date.parse('2026-10-24T10:00:00Z');
@@ -70,9 +70,9 @@ describe('slow queries over 24 h', () => {
     expect(h.queries[0]).toContain('FROM pg_stat_statements');
 
     const v = await studioSlowQueries(h.ctx, ref, now);
-    expect(v.rows).toEqual([{ queryId: '7', query: 'SELECT * FROM orders WHERE id = $1', calls: 60, totalMs: 5100, meanMs: 85, p95Ms: 100, rows: 60, samples: 2 }]);
+    expect(v.rows).toEqual([{ queryId: '7', query: 'SELECT * FROM orders WHERE id = $1', calls: 60, totalMs: 5100, meanMs: 85, stddevMs: 38.19, maxMs: 180, rows: 60, samples: 2 }]);
     expect(v.since).toBe(new Date(now - 300_000).toISOString());
-    expect(v.p95Note).toContain('estimated');
+    expect(v.note).toContain('no honest p95');
 
     const other = { ...h.ctx, activeOrgId: 'org2' } as OrgContext;
     expect((await studioSlowQueries(other, ref, now)).rows).toEqual([]);

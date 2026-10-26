@@ -79,15 +79,21 @@ model EdgeTrafficRollup {
 // metric samples (METRICS_RETENTION_DAYS). `target` = the studio target (the
 // managed cluster name); `queryId` = pg_stat_statements' queryid.
 model PgQuerySample {
-  id      Int      @id @default(autoincrement())
-  orgId   String
-  stack   String
-  target  String
-  queryId String
-  calls   Int
-  totalMs Float
-  rows    Int
-  ts      DateTime
+  id       Int      @id @default(autoincrement())
+  orgId    String
+  stack    String
+  target   String
+  queryId  String
+  calls    Int
+  totalMs  Float
+  rows     Int
+  // Σ call time² (ms²) in the interval, for the window's exact standard
+  // deviation; null on rows sampled before it was read.
+  sumSqMs2 Float?
+  // The statement's slowest call since its statistics were reset, as of this
+  // snapshot (pg_stat_statements max_exec_time is cumulative).
+  maxMs    Float?
+  ts       DateTime
 
   @@index([orgId, stack, target, ts])
   @@index([ts])

@@ -18,8 +18,10 @@ import { studioSystemRead } from './studio.service';
  * Postgres with pg_stat_statements on: one bounded, audited system read
  * through the studio path, the per-statement DELTAS since the previous
  * snapshot into telemetry.db (`PgQuerySample`, texts once in `PgQueryText`).
- * `studio.slowQueries` sums the window. p95 is estimated from the per-snapshot
- * means (Postgres keeps no per-call latencies) and the view says so.
+ * `studio.slowQueries` sums the window: calls, the mean and its spread
+ * (standard deviation, exact from the sum-of-squares deltas), and the slowest
+ * call since the statistics were reset. Postgres keeps no per-call times, so
+ * there is no p95, and the view says why.
  */
 
 export interface SlowQueryTarget { stack: string; target: string }
@@ -58,7 +60,7 @@ export async function snapshotSlowQueries(
   const tdb = telemetryOf(ctx);
   const key = { orgId: ctx.activeOrgId, stack: t.stack, target: t.target };
   await tdb.pgQuerySample.createMany({
-    data: deltas.map((d) => ({ ...key, queryId: d.queryId, calls: d.calls, totalMs: d.totalMs, rows: d.rows, ts: now })),
+    data: deltas.map((d) => ({ ...key, queryId: d.queryId, calls: d.calls, totalMs: d.totalMs, rows: d.rows, sumSqMs2: d.sumSqMs2 ?? null, maxMs: d.maxMs ?? null, ts: now })),
   });
   for (const d of deltas) {
     await tdb.pgQueryText.upsert({
@@ -77,9 +79,12 @@ export interface SlowQueriesView {
   /** Oldest sample in the window (null = none yet). */
   since: string | null;
   rows: SlowQueryRow[];
-  /** How p95 is computed, in plain words. */
-  p95Note: string;
+  /** What the columns are and why there is no p95, in plain words. */
+  note: string;
 }
+
+export const SLOW_QUERIES_NOTE =
+  'Postgres keeps each statement’s mean, spread and slowest call, not the time of every call, so there is no honest p95 to show. ± is the spread (standard deviation) over these hours; slowest is the slowest single call since the statistics were last reset.';
 
 /** `studio.slowQueries` — this org's stored deltas for one database, summed over the window. */
 export async function studioSlowQueries(
@@ -92,7 +97,7 @@ export async function studioSlowQueries(
   const tdb = telemetryOf(ctx);
   const samples = await tdb.pgQuerySample.findMany({
     where: { ...key, ts: { gte: new Date(now - windowHours * 3_600_000) } },
-    select: { queryId: true, calls: true, totalMs: true, rows: true, ts: true },
+    select: { queryId: true, calls: true, totalMs: true, rows: true, sumSqMs2: true, maxMs: true, ts: true },
     orderBy: { ts: 'asc' },
   });
   const rows = aggregateSlowQueries(samples, new Map());
@@ -106,7 +111,7 @@ export async function studioSlowQueries(
     everyMinutes: SLOW_SNAPSHOT_MS / 60_000,
     since: samples[0]?.ts.toISOString() ?? null,
     rows: rows.map((r) => ({ ...r, query: byId.get(r.queryId) ?? '' })),
-    p95Note: 'p95 is estimated from each 5-minute average, weighted by calls: Postgres keeps no per-call times, so a single slow call in a busy window is averaged away.',
+    note: SLOW_QUERIES_NOTE,
   };
 }
 

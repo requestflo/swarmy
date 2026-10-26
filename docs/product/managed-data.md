@@ -207,8 +207,10 @@ Four ideas, one story:
 - **Slow queries over 24 hours.** With `pg_stat_statements` on, a worker
   snapshots it every 5 minutes (an audited, read-only system query) and keeps
   per-statement deltas in `telemetry.db`. The studio's insights show calls,
-  mean time and an estimated p95 per statement (estimated from the
-  per-snapshot means, and labelled so).
+  mean time and its spread (standard deviation, exact over the window from
+  the sum-of-squares deltas) per statement, plus the slowest single call
+  since the statistics were reset. There is no p95: Postgres keeps no
+  per-call times, and swarmy won't invent a percentile.
 - **Index suggestions.** The studio reads one database's own statistics (one
   audited read) and suggests indexes for foreign keys with none, big tables
   read start to finish, and indexes nothing uses — each as SQL to copy with
