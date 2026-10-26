@@ -309,8 +309,12 @@ export const buckets: DomainResolvers = {
     },
 
     'buckets.setAccess': (i, s) => {
-      const input = i as { bucketId: string; mode: DemoAccessMode };
+      const input = i as { bucketId: string; mode: DemoAccessMode; confirm?: string };
       const b = requireBucket(getState(s), input.bucketId);
+      // As the controller (bucket-public-confirm.ts): going public needs the name typed back.
+      if (input.mode === 'PUBLIC' && b.access !== 'PUBLIC' && input.confirm?.trim() !== b.name) {
+        throw new Error(`type ${b.name} to confirm`);
+      }
       b.access = input.mode;
       return demoAccessView(b.id, b.name, input.mode);
     },

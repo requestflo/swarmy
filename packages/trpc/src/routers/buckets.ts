@@ -142,9 +142,10 @@ export const objectStorageRouter = router({
 
   /** Change one bucket's reachability; the edges re-render (and redeploy when ports change). */
   setAccess: adminProcedure
-    .input(z.object({ bucketId: z.string().min(1), mode: accessMode }))
+    // `confirm`: the bucket's name, typed back to make it public (refused without it).
+    .input(z.object({ bucketId: z.string().min(1), mode: accessMode, confirm: z.string().max(200).optional() }))
     .mutation(async ({ ctx, input }) => {
-      const res = await setBucketAccess(ctx, { ...input, dashboardDomain: await orgDashboardDomain(ctx) });
+      const res = await setBucketAccess(ctx, { ...input, confirm: input.confirm ?? null, dashboardDomain: await orgDashboardDomain(ctx) });
       await applyObjectStorageExposure(ctx, res.edgePortsChanged);
       return accessView(ctx, res.bucketId);
     }),

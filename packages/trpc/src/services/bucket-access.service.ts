@@ -21,6 +21,7 @@ import type { OrgContext } from '../context';
 import { commandRejected, notFound } from '../errors';
 import { writeAudit } from './audit.service';
 import { getBucket, objectStoreState } from './buckets.service';
+import { publicConfirmRefusal } from './bucket-public-confirm';
 import { OBJECT_STORAGE_MESH_PORT } from './ingress-controller';
 import { bucketAccessRepo, storageClusterRepo } from './storage-cluster.repo';
 
@@ -131,11 +132,13 @@ export interface SetBucketAccessResult {
 /**
  * Set one bucket's reachability. DB + audit only; the caller re-renders the
  * edge (and redeploys it when `edgePortsChanged`). PUBLIC is refused while no
- * public hostname is known — the edge would have nowhere to serve it.
+ * public hostname is known — the edge would have nowhere to serve it — and,
+ * for a person, until they type the bucket's name (`bucket-public-confirm.ts`;
+ * `confirm` left out = the swarmy.yaml apply).
  */
 export async function setBucketAccess(
   ctx: OrgContext,
-  input: { bucketId: string; mode: BucketAccessMode; dashboardDomain: string | null | undefined },
+  input: { bucketId: string; mode: BucketAccessMode; dashboardDomain: string | null | undefined; confirm?: string | null },
 ): Promise<SetBucketAccessResult> {
   if (!BUCKET_ACCESS_MODES.includes(input.mode)) throw commandRejected(`unknown access mode "${input.mode}"`);
   const store = await objectStoreState(ctx);
@@ -147,8 +150,10 @@ export async function setBucketAccess(
       'set a public S3 domain first (Buckets → Access) — there is no dashboard domain to derive one from',
     );
   }
-  const before = await meshListenerNeeded(ctx);
   const previous = await bucketAccessMode(ctx, bucket.id);
+  const refusal = publicConfirmRefusal({ bucket: bucket.name, from: previous, to: input.mode, confirm: input.confirm });
+  if (refusal) throw refusal;
+  const before = await meshListenerNeeded(ctx);
   if (input.mode === 'INTERNAL') {
     await bucketAccessRepo.remove(ctx, ctx.activeOrgId, bucket.id);
   } else {
@@ -159,7 +164,7 @@ export async function setBucketAccess(
     action: 'buckets.setAccess',
     targetType: 'bucket',
     targetId: bucket.id,
-    metadata: { bucket: bucket.name, from: previous, to: input.mode },
+    metadata: { bucket: bucket.name, from: previous, to: input.mode, ...(input.confirm != null && input.mode === 'PUBLIC' ? { typedConfirm: true } : {}) },
   });
   return { bucketId: bucket.id, bucket: bucket.name, mode: input.mode, edgePortsChanged: before !== after };
 }
