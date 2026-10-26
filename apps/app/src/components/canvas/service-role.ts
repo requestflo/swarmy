@@ -24,6 +24,7 @@ const RULES: [RegExp, string][] = [
 
 export function serviceRole(s: Pick<InvService, 'name' | 'image' | 'labels'>): string {
   const hay = `${s.name} ${s.image}`.toLowerCase();
+  if (s.labels['swarmy.db.role'] === 'pooler') return 'Shares connections to your data';
   if (s.labels['swarmy.db.cluster']) return 'Keeps your data';
   for (const [re, say] of RULES) if (re.test(hay)) return say;
   return 'Part of this app';

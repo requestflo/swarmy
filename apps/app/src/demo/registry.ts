@@ -75,6 +75,7 @@ import { studio } from './resolvers/studio';
 import { pgExtensions } from './resolvers/pg-extensions';
 import { pgReplication } from './resolvers/pg-replication';
 import { pgMemoryDemo } from './resolvers/pg-memory';
+import { pgPoolerDemo } from './resolvers/pg-pooler';
 import { studioSlow } from './resolvers/studio-slow';
 import { gaps } from './resolvers/gaps';
 import { serviceSettings } from './resolvers/service-settings';
@@ -196,6 +197,8 @@ const MODULES: DomainResolvers[] = [
   invitePreview,
   traffic,
   stackLinks,
+  // Wraps stack-links' db.inject (the pooler path), so it comes after it.
+  pgPoolerDemo,
   scaling,
   movesDemo,
   meshGrants,

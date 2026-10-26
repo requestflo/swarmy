@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import { POOLER_MODES, POOLER_POOL_MAX, POOLER_POOL_MIN } from '@swarmy/core';
+import { orgProcedure } from '../trpc';
 import { abacProcedure, resolveStackByName, resolveStackService } from '../abac';
 import { detachConnection } from '../services/manageddb-connect.service';
+import { getDbPooler } from '../services/manageddb-pooler-view';
 import { setDbPooler } from '../services/manageddb-pooler.service';
 
 const stackName = z
@@ -22,6 +24,11 @@ const clusterName = z
  * pooler) is `db.inject`.
  */
 export const poolerProcedures = {
+  /** The pooler: declaration, status, the writer it points at, apps through it and its live clients. */
+  pooler: orgProcedure
+    .input(z.object({ stack: stackName, cluster: clusterName }))
+    .query(({ ctx, input }) => getDbPooler(ctx, input)),
+
   /**
    * Turn the PgBouncer pooler on or off, or change its mode / pool size:
    * rewrites `swarmy.db.pooler` on the primary; the reconcile creates,

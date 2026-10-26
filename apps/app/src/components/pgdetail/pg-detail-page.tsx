@@ -10,6 +10,7 @@ import { pgDetailHeadline } from './pg-detail-headline';
 import { PgExtensionsSection } from './pg-extensions-section';
 import { PgFailoverSection } from './pg-failover-section';
 import { PgModeApply } from './pg-mode-apply';
+import { PgPoolerSection } from './pg-pooler-section';
 import { standbyBoxStats } from './pg-replication';
 import { PgReplicationSection } from './pg-replication-section';
 import { PgSizeSection } from './pg-size-section';
@@ -31,7 +32,7 @@ function Back({ stack }: { stack: string }): React.JSX.Element {
 /**
  * One managed Postgres database (board 39, PgDetail): the sentence, how it's
  * laid out (a diagram that morphs with the picked shape, what you could lose
- * and how long it's down), extensions; the aside carries the code, the
+ * and how long it's down), extensions, the connection pooler; the aside carries the code, the
  * switch-over rule with "Simulate <region> outage", Connect and its size.
  */
 export function PgDetailPage({ stack, cluster }: { stack: string; cluster: string }): React.JSX.Element {
@@ -85,6 +86,7 @@ export function PgDetailPage({ stack, cluster }: { stack: string; cluster: strin
           <PgModeApply stack={stack} d={d} mode={mode} />
           <PgReplicationSection d={d} r={r} />
           <PgExtensionsSection stack={stack} d={d} />
+          <PgPoolerSection stack={stack} d={d} />
         </div>
         <aside aria-label={`About ${c.name}`} className="flex min-w-0 flex-col gap-5">
           <PgDetailCode stack={stack} d={d} mode={mode} />
