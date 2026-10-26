@@ -22,6 +22,7 @@ import { getDbExtensions } from '../services/manageddb-extensions-view';
 import { getDbReplication } from '../services/manageddb-replication.service';
 import { setDbMemory } from '../services/manageddb-memory.service';
 import { poolerProcedures } from './manageddb-pooler';
+import { switchoverProcedures } from './manageddb-switchover';
 import { PG_EXTENSION_NAMES, PG_MEMORY_MAX_MB, PG_MEMORY_MIN_MB } from '@swarmy/core';
 
 /** `postgres://user:secret@host` → `postgres://user:***@host`. */
@@ -58,6 +59,7 @@ type PgExtName = (typeof PG_EXTENSION_NAMES)[number];
  */
 export const managedDbRouter = router({
   ...poolerProcedures,
+  ...switchoverProcedures,
   /** Provision a cluster (deploy primary + N replicas, stamp swarmy.db.* labels). */
   provision: abacProcedure('stack.deploy', resolveStackByName)
     .input(

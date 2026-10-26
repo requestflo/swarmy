@@ -184,6 +184,29 @@ Four ideas, one story:
   asynchronous scheme; only synchronous replication closes it (not offered in
   the base slice).
 
+- **A planned switch-over loses nothing.** `db.switchover` ("Make this copy
+  the writer" on the database page, dragging the writer on the Data page, and
+  the server-retire flow) hands the writes to a chosen standby copy, or the
+  most caught-up one. It refuses, before touching anything, unless the copy is
+  the only one in its service, streaming, and within one WAL segment; the
+  writer runs; nothing else is in flight (a held failover, another switch-over,
+  a planned restart); and no app connects straight to the writer's address
+  (the promotion repoints the copies and the pooler, never an app's
+  `DATABASE_URL`, so such an app would be left on a copy that can't save:
+  send it through the pooler first). Then: writes pause
+  (`default_transaction_read_only`, open read-write transactions ended — rolled
+  back, never committed), the copy must replay the writer's final flushed
+  position within a minute, the writer stops under the `swarmy.db.switchover`
+  request (target + final position), and the reconcile's own promotion pass
+  promotes it through `decideFailover` — no second copy of the rule — and
+  repoints the other copies and the pooler. Any abort gives the writes back to
+  the old writer. The old writer then rejoins as a standby (its data kept
+  aside, re-cloned). The pure plan and run decisions are `@swarmy/core`
+  `manageddb-switchover{,-run,-view}.ts`; gate `data.failover`; audited
+  `db.switchover.start` / `db.switchover` / `db.switchover.abort` on the
+  cluster. A run that died while writes were paused is undone by the
+  reconcile once its request is ten minutes old.
+
 - **Each Postgres database has its own page** (an app's Data tab → the
   database). The page shows the database's shape, which redraws as you pick
   another mode and applies through `db.setTopology` (the same readiness rules

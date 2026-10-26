@@ -17,7 +17,7 @@ import {
   choosePinNode,
   DB_SWITCHOVER_LABEL,
   decideFailover,
-  switchoverRequested,
+  plannedPromotion,
   encodePendingFailover,
   parseFailoverConfirmation,
   parsePendingFailover,
@@ -70,6 +70,7 @@ import { restoreWatermark } from './manageddb-watermark.core';
 import { convergePgExtensions } from './manageddb-extensions';
 import { convergePgMemory } from './manageddb-memory';
 import { convergeDbPooler, repointPoolerAfterPromotion } from './manageddb-pooler';
+import { plannedRequest, promotionRecord, thawStaleSwitchover } from './manageddb-switchover';
 import { createWatermarkStore } from './manageddb-watermark';
 import {
   DB_PITR_ARCHIVE_CMD_LABEL,
@@ -1100,6 +1101,12 @@ async function maybePromote(
       watermarkStore.record(orgId, clusterRef, { primary: primary!.name, lsn: lag.primaryLsn, sampledAt: now });
     }
     if (handshakeHolders.length > 0) await clearHandshake();
+    await thawStaleSwitchover(primary!, now, {
+      sql: (statement) => execIn(orgId, primary!, psql(statement)),
+      dropLabel: () => hub.dispatch(node, 'service.updateLabels', { service: primary!.name, add: {}, removeKeys: [DB_SWITCHOVER_LABEL] }).catch(() => undefined),
+      audit: (metadata) =>
+        seams.writeAudit(ctx, { action: 'db.switchover.thaw', actorType: 'system', targetType: 'dbCluster', targetId: clusterRef, metadata }).catch(() => undefined),
+    });
     if (confirmAlerted.delete(key)) {
       await seams.fireEvent(ctx, {
         signal: 'db-failover-confirm',
@@ -1140,7 +1147,8 @@ async function maybePromote(
   // no grace window and no "unhealthy" alarm — but the promotion below still
   // goes through decideFailover, so a replica that is not provably caught up
   // still holds for confirmation.
-  const planned = switchoverRequested(primary?.labels, now);
+  const request = plannedRequest(primary?.labels, now);
+  const planned = request !== null;
   if (ticks === 1 && !planned) {
     await seams.fireEvent(ctx, {
       signal: 'db-degraded',
@@ -1183,10 +1191,12 @@ async function maybePromote(
       healthyAt = restored.lastHealthyAt;
     }
   }
+  // A planned request narrows the candidates to its copy and can only raise the watermark.
+  const scoped = plannedPromotion({ candidates, watermark }, request);
   const decision = decideFailover({
     topology,
-    candidates,
-    watermark,
+    candidates: scoped.candidates,
+    watermark: scoped.watermark,
     lastHealthyAt: healthyAt,
     confirmation,
   });
@@ -1291,15 +1301,16 @@ async function maybePromote(
   await clearHandshake();
 
   const lagSecs = measured[target.name]?.lagSeconds;
+  const record = promotionRecord(planned);
   const lagNote =
     (decision.confirmed
       ? ` — admin-confirmed, accepted window ${decision.behindBytes === null ? 'unknown' : `${decision.behindBytes} bytes`}`
       : ' — provably caught up (0 bytes behind)') + (lagSecs !== undefined ? ` (replica lag ${lagSecs}s)` : '');
   await seams.recordIncidentEvent(ctx, {
     groupKey,
-    kind: 'db.failover',
-    message: `Promoted ${target.name} to primary${lagNote} after ${ticks} unhealthy ticks`,
-    severity: 'critical',
+    kind: record.kind,
+    message: `Promoted ${target.name} to primary${lagNote}${planned ? ' (planned switch-over)' : ` after ${ticks} unhealthy ticks`}`,
+    severity: record.severity,
     meta: { promoted: target.name, demoted: primary?.name ?? null, cluster: c.cluster, stack: c.stack },
   }).catch(() => undefined);
   if (repointed.length > 0) {
@@ -1319,9 +1330,9 @@ async function maybePromote(
   }).catch(() => null);
   await seams.fireEvent(ctx, {
     signal: 'db-failover',
-    severity: 'critical',
+    severity: record.signal,
     resource,
-    message: `${decision.confirmed ? 'Confirmed' : 'Automatic'} failover: ${target.name} promoted to primary of ${c.cluster}${lagNote}`,
+    message: `${record.lead(decision.confirmed)}: ${target.name} promoted to primary of ${c.cluster}${lagNote}`,
   }).catch(() => undefined);
   await seams.writeAudit(ctx, {
     action: 'db.failover.promote',
@@ -1337,6 +1348,7 @@ async function maybePromote(
       lagSeconds: lagSecs ?? null,
       behindBytes: decision.behindBytes,
       confirmed: decision.confirmed,
+      planned,
       ...(decision.confirmed && confirmation?.by ? { confirmedBy: confirmation.by } : {}),
     },
   }).catch(() => undefined);

@@ -21,6 +21,7 @@
  * interpolated unquoted.
  */
 import { dataImage } from './data-images';
+import { parseSwitchoverRequest } from './manageddb-switchover-run';
 
 /** Mover image (the BOM's data section); rsync is installed on start when missing. */
 export const MOVER_IMAGE = dataImage('alpine').ref;
@@ -42,10 +43,12 @@ export const MOVE_OLD_COPIES_LABEL = 'swarmy.move.oldCopies';
 /** Days an old copy is kept before the owner is prompted (never auto-deleted). */
 export const OLD_COPY_KEEP_DAYS = 7;
 /**
- * Primary label for a PLANNED Postgres switchover: `<iso time>`. With the
- * primary stopped on purpose, the manageddb-reconcile worker skips the grace
- * window (and the "primary unhealthy" alert) — the promotion still goes through
- * `decideFailover`, so a replica that is not provably caught up still holds.
+ * Primary label for a PLANNED Postgres switchover: JSON `{ at, target,
+ * finalLsn }` (`manageddb-switchover-run.ts`; a bare `<iso time>` still
+ * parses). With the primary stopped on purpose, the manageddb-reconcile worker
+ * skips the grace window (and the "primary unhealthy" alert) — the promotion
+ * still goes through `decideFailover`, so a replica that is not provably caught
+ * up still holds.
  */
 export const DB_SWITCHOVER_LABEL = 'swarmy.db.switchover';
 /** A switchover request older than this is ignored (a crashed run must not skip grace forever). */
@@ -292,6 +295,11 @@ export function oldCopiesDue(raw: string | undefined, now: number): OldCopy[] {
 
 /** Is a planned switchover requested (and fresh) on this primary? */
 export function switchoverRequested(labels: Record<string, string> | undefined, now: number): boolean {
-  const at = Date.parse(labels?.[DB_SWITCHOVER_LABEL] ?? '');
+  const at = Date.parse(parseSwitchoverRequest(labels?.[DB_SWITCHOVER_LABEL])?.at ?? '');
   return Number.isFinite(at) && now - at >= 0 && now - at <= DB_SWITCHOVER_MAX_AGE_MS;
+}
+
+/** A request label left behind by a run that died (past its age, or unreadable). */
+export function switchoverStale(labels: Record<string, string> | undefined, now: number): boolean {
+  return labels?.[DB_SWITCHOVER_LABEL] !== undefined && !switchoverRequested(labels, now);
 }
