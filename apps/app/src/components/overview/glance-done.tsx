@@ -13,7 +13,7 @@ function words(done: GlanceDone, last: RollbackTimingView | null | undefined): {
     if (last?.releaseId === done.releaseId) {
       return { title: `${done.app} is back on ${done.label}`, body: `Every copy is healthy. It took ${rollbackSpanWords(last.tookSec)}.${kept}` };
     }
-    const before = last ? ` Last rollback took ${rollbackSpanWords(last.tookSec)}.` : '';
+    const before = last ? ` The last put-back took ${rollbackSpanWords(last.tookSec)}.` : '';
     return {
       title: `Putting back ${done.label}`,
       body: `${done.app} goes back to ${done.label} one copy at a time, and your data isn’t touched.${before}${kept}`,

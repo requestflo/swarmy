@@ -33,9 +33,9 @@ describe('causeLines', () => {
       'Putting back v41 goes one copy at a time, and your data isn’t touched.',
     ]);
   });
-  test('says how long the last rollback took, only beside a put-back', () => {
+  test('says how long the last put-back took, only beside a put-back', () => {
     const g = guess('deploy', 'Likely the deploy.');
-    expect(causeLines(g, 'v41', 41).at(-1)).toBe('Last rollback took 41 s.');
+    expect(causeLines(g, 'v41', 41).at(-1)).toBe('The last put-back took 41 s.');
     expect(causeLines(g, null, 41)).toEqual(['Likely the deploy.']);
   });
   test('an unknown cause says so plainly', () => {

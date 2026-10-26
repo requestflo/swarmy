@@ -37,7 +37,7 @@ export function metricLine(metric: IncidentMetric | null, points: ChartPoint[], 
 export function causeLines(guess: Guess, putBackLabel: string | null, lastTookSec: number | null = null): string[] {
   const lines = [guess.cause === 'unknown' ? 'swarmy isn’t sure what started it yet.' : guess.headline];
   if (putBackLabel) lines.push(`Putting back ${putBackLabel} goes one copy at a time, and your data isn’t touched.`);
-  if (putBackLabel && lastTookSec !== null) lines.push(`Last rollback took ${rollbackSpanWords(lastTookSec)}.`);
+  if (putBackLabel && lastTookSec !== null) lines.push(`The last put-back took ${rollbackSpanWords(lastTookSec)}.`);
   return lines;
 }
 
