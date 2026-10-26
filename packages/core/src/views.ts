@@ -1514,6 +1514,22 @@ export interface AlertDiskHistoryView {
   servers: Array<{ name: string; peaks: Array<number | null> }>;
 }
 
+/**
+ * The waiting jobs of every queue a queue-depth rule watches over the last 7
+ * days (`alerts.queueHistory`, from telemetry.db's QueueStatSample): one
+ * subject per worker part × queue, as the evaluator fires, `peaks[i]` the
+ * deepest backlog in the slot, null where nothing was sampled.
+ */
+export interface AlertQueueHistoryView {
+  from: string;
+  stepSeconds: number;
+  queues: Array<{ name: string; peaks: Array<number | null> }>;
+  /** Watched queues that keep no history (raw Redis lists): the replay leaves them out. */
+  untracked: string[];
+  /** The rule watches more queues than one replay reads (pick an app); null when it doesn't. */
+  tooMany: number | null;
+}
+
 /** Aggregates for the Alerts page hero + the shell bell badge. */
 export interface AlertsOverview {
   firing: number;

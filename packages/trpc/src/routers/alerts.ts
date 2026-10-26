@@ -1,6 +1,7 @@
 import {
   AckAlertEventInput,
   AlertDiskHistoryInput,
+  AlertQueueHistoryInput,
   AlertEventsInput,
   AlertRuleRefInput,
   ChannelRefInput,
@@ -33,6 +34,7 @@ import {
   updateRule,
 } from '../services/alerts.service';
 import { diskHistory } from '../services/alerts-disk-history';
+import { queueHistory } from '../services/alerts-queue-history';
 
 /**
  * Alerting (slice C3) — notification channels, alert rules and the
@@ -91,6 +93,10 @@ export const alertsRouter = router({
   diskHistory: orgProcedure
     .input(AlertDiskHistoryInput)
     .query(({ ctx, input }) => diskHistory(ctx, input)),
+  /** Each watched queue's waiting jobs over the last 7 days (5-minute peaks) — the queue-depth rule backtest. */
+  queueHistory: orgProcedure
+    .input(AlertQueueHistoryInput)
+    .query(({ ctx, input }) => queueHistory(ctx, input)),
 
   // ── Quiet hours ─────────────────────────────────────────────────────────────
   /** The workspace quiet hours (defaults when never set: off, 22:00–07:00 UTC). */

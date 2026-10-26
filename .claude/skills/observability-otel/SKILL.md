@@ -143,11 +143,17 @@ db→protocol→service→router→UI shape see `skill("add-feature-slice")`.
   `alerts.diskHistory` (`alerts-disk-history.ts`) returns a week of each
   server's disk use from telemetry.db as 5-minute peaks on one fixed grid
   (`null` where no sample was kept, never a zero; org-scoped, unknown nodes
-  dropped); error rate comes from `observability.requestSeries`. The pure
+  dropped); error rate comes from `observability.requestSeries`; queue
+  depth from `alerts.queueHistory` (`alerts-queue-history.ts`: the
+  evaluator's subjects, worker part × queue narrowed by `selectorMatches`,
+  each its BullMQ queue's deepest backlog per 5 minutes from QueueStatSample;
+  raw-list queues keep no history and are named as left out). The pure
   `components/alerts/rule-backtest.ts` mirrors `alert-evaluator`: strictly
   above the threshold, held for at least `forSeconds`, each subject on its
-  own. Only error rate and disk have a backtest; a new signal needs a history
-  source first.
+  own. Error rate, disk and queue depth have a backtest. Standby lag, crash
+  loops and the budget keep no history; cache hit rate, edge latency and
+  server CPU/memory keep history but are not alert signals, so there is no
+  rule to replay. A new signal needs a history source first.
 
 ## File map
 
@@ -165,7 +171,7 @@ db→protocol→service→router→UI shape see `skill("add-feature-slice")`.
 | tRPC router (getConfig/status/traces/…/health) | `packages/trpc/src/routers/observability.ts` |
 | Alerts spine | `services/{alerts.service,alerts-fire}.ts` + `routers/alerts.ts` |
 | Notification words (pure, shared with the dashboard) + transport | `packages/core/src/alert-render{,-apps}.ts`, `packages/trpc/src/services/alerts-channels.ts`; UI `apps/app/src/components/alerts/channel-preview{,-apps}.tsx` |
-| Rule backtest: a week of disk peaks + the "would have fired" replay | `packages/trpc/src/services/alerts-disk-history.ts` (+ `.test.ts`, `alerts.diskHistory`); UI `apps/app/src/components/alerts/{rule-backtest.ts,rule-backtest-chart.tsx,use-rule-backtest.ts,use-error-rate-history.ts}` |
+| Rule backtest: a week of disk and queue peaks + the "would have fired" replay | `packages/trpc/src/services/alerts-{disk,queue}-history.ts` (+ tests, `alerts.diskHistory`, `alerts.queueHistory`); UI `apps/app/src/components/alerts/{rule-backtest.ts,rule-backtest-chart.tsx,use-rule-backtest.ts,use-error-rate-history.ts,queue-backtest.ts}` |
 | Incidents spine | `services/{incidents.service,incidents-record}.ts` + `routers/incidents.ts` |
 | Status pages (+ public snapshot) | `services/statusPages.service.ts`, `routers/statusPages.ts`, `apps/api/src/status-public.ts` |
 | Store-state reconcile (probe reachability/footprint) | `apps/api/src/workers/observability-reconcile.ts` |

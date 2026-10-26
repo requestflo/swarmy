@@ -810,6 +810,10 @@ export type AckAlertEventInput = z.infer<typeof AckAlertEventInput>;
 export const AlertDiskHistoryInput = z.object({ server: ALERT_TARGET_NAME.optional() });
 export type AlertDiskHistoryInput = z.infer<typeof AlertDiskHistoryInput>;
 
+/** The last 7 days of every queue a queue-depth rule watches: one app (optionally one part), or every app. */
+export const AlertQueueHistoryInput = z.object({ app: ALERT_TARGET_NAME.optional(), service: ALERT_TARGET_NAME.optional() });
+export type AlertQueueHistoryInput = z.infer<typeof AlertQueueHistoryInput>;
+
 // ── Incidents (slice C4) — list/detail, notes, resolve/reopen ─────────────────
 import { INCIDENT_STATUSES } from './views';
 

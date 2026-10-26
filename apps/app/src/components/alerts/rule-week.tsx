@@ -18,8 +18,8 @@ interface RuleWeekProps {
 }
 
 /**
- * The editor's "Last 7 days · real data". Error-rate and disk rules replay the
- * week against the threshold and duration in the editor ("would have fired
+ * The editor's "Last 7 days · real data". Error-rate, disk and queue-depth
+ * rules replay the week against the threshold and duration in the editor ("would have fired
  * N×"); every other signal shows what really fired, and says plainly that a
  * backtest isn't available once there's a setting to test.
  */

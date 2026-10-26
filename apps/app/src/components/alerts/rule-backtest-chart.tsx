@@ -11,6 +11,9 @@ const H = 104;
 const COARSE = 6;
 const when = (t: number): string => new Date(t).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
 const pct = (v: number): string => `${v < 10 ? v.toFixed(1) : Math.round(v * 10) / 10}%`;
+/** A reading in the signal's unit: "86.3%" · "2,600 jobs". */
+const readingOf = (signal: string) => (v: number): string => (signal === 'queue-depth' ? `${Math.round(v).toLocaleString('en-GB')} jobs` : pct(v));
+const SERIES: Record<string, string> = { 'disk-usage': 'Disk used', 'queue-depth': 'Waiting jobs', 'error-rate': 'Error rate' };
 
 interface RuleBacktestChartProps {
   signal: string;
@@ -35,6 +38,7 @@ export function RuleBacktestChart({ signal, grid, subjects, threshold, forSecond
   const peak = React.useMemo(() => peakOf(subjects), [subjects]);
   const known = line.filter((v): v is number => v !== null);
   const disk = signal === 'disk-usage';
+  const reading = readingOf(signal);
   const top = Math.max(peak?.v ?? 0, threshold ?? 0);
   const low = disk ? Math.max(0, Math.floor(Math.min(...known, threshold ?? 100) - 5)) : 0;
   const high = disk ? Math.min(100, Math.ceil(top + 5)) : Math.max(1, top * 1.25);
@@ -59,14 +63,14 @@ export function RuleBacktestChart({ signal, grid, subjects, threshold, forSecond
         </span>
       </div>
       <div className="border-border relative overflow-hidden rounded-lg border" style={{ height: H + 22 }}>
-        <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={`${disk ? 'Disk used' : 'Error rate'} over the last 7 days against the ${thr} line: would have fired ${n} times`} className="absolute inset-x-0 top-0 w-full" style={{ height: H }}>
+        <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={`${SERIES[signal] ?? 'Readings'} over the last 7 days against the ${thr} line: would have fired ${n} times`} className="absolute inset-x-0 top-0 w-full" style={{ height: H }}>
           {days.map((t) => (
             <line key={t} x1={x(t)} x2={x(t)} y1={0} y2={H} className="stroke-border" strokeWidth={1} vectorEffect="non-scaling-stroke" />
           ))}
           {r.fires.map((f) => (
             // A week is wide: every fire gets at least ~1% of it, with a solid cap so a short one still shows.
             <g key={`${f.subject}-${f.start}`} className="fill-status-offline">
-              <title>{`${when(f.start)} · ${lasted(f)}${f.open ? ' · firing now' : ''} · ${f.subject} · peak ${pct(f.peak)}`}</title>
+              <title>{`${when(f.start)} · ${lasted(f)}${f.open ? ' · firing now' : ''} · ${f.subject} · peak ${reading(f.peak)}`}</title>
               <rect x={x(f.start)} width={Math.max(7, x(f.end) - x(f.start))} y={0} height={H} fillOpacity={0.2} />
               <rect x={x(f.start)} width={Math.max(7, x(f.end) - x(f.start))} y={0} height={4} />
             </g>
@@ -93,7 +97,7 @@ export function RuleBacktestChart({ signal, grid, subjects, threshold, forSecond
         </p>
       ) : (
         <p className="text-muted-foreground text-[13px]">
-          Nothing crossed {thr}{held}, so this rule would have stayed quiet.{peak ? ` Peak this week ${pct(peak.v)} on ${peak.subject}` : ''}
+          Nothing crossed {thr}{held}, so this rule would have stayed quiet.{peak ? ` Peak this week ${reading(peak.v)} on ${peak.subject}` : ''}
           {blips ? ` · ${blips}.` : peak ? '.' : ''}
         </p>
       )}
