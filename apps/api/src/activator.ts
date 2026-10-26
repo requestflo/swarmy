@@ -22,8 +22,10 @@ import { findWakeable, orgForWakeToken } from './activator-auth';
  */
 const lastActivity = new Map<string, number>();
 
-export function recordActivity(name: string): void {
-  lastActivity.set(name, Date.now());
+/** A request reached `name` at `at` (default now); an older sighting never moves the clock back. */
+export function recordActivity(name: string, at = Date.now()): void {
+  const prev = lastActivity.get(name);
+  if (prev === undefined || at > prev) lastActivity.set(name, at);
 }
 export function lastActivityMs(name: string): number | undefined {
   return lastActivity.get(name);

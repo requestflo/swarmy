@@ -349,6 +349,8 @@ export const PreviewsSchema = z
     resources: z.enum(['isolated', 'shared']).optional(),
     /** Also preview every push to a matching branch (`feature/*`, `release/**`) — not only PRs. */
     branches: z.array(z.string().min(1).max(200)).optional(),
+    /** A preview's routed services sleep after this long idle and wake on the next request (default 2h; `never` keeps them up). */
+    sleep_after: z.union([z.literal('never'), duration]).optional(),
     /**
      * Previews with data: each preview's Postgres starts as a COPY of `from`'s
      * latest backup (production or a named environment), optionally scrubbed

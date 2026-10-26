@@ -223,7 +223,10 @@ Four ideas, one story:
   swarmy.yaml as its own preview environment (own stack, own URL under
   `previews.base_domain`, optionally a scrubbed data copy). Closing the PR or
   deleting the branch tears it down; `app-reconcile` removes anything past
-  `previews.ttl`. An app's **Branch previews** page lists every preview with
+  `previews.ttl`. While nobody opens it, a preview's services with an address
+  sleep after `previews.sleep_after` (default 2 h; `never` keeps them up) —
+  the same idle sleeper as any service, reading the edge's traffic — and the
+  activator wakes them on the next request. An app's **Branch previews** page lists every preview with
   its address, data and time left, starts one from any branch with no pull
   request needed (`apps.createPreview`, any member, the plan's own gates
   still apply), and tears one down now (`apps.teardownPreview`, the

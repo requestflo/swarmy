@@ -86,8 +86,14 @@ interface AppRow {
     ttlSeconds: number;
     resources: 'isolated' | 'shared';
     data?: { from: string; scrub?: string };
+    /** Routed preview services sleep after this long idle (null = never). */
+    sleepAfterSeconds: number | null;
   } | null;
 }
+
+/** The demo has no traffic: a preview sleeps once its window has passed since its last push. */
+const demoSleep = (at: string, window: number | null | undefined): { sleep?: 'asleep' | 'awake' } =>
+  window === null || window === undefined ? {} : { sleep: Date.now() - Date.parse(at) > window * 1000 ? 'asleep' : 'awake' };
 
 interface AppsState {
   apps: AppRow[];
@@ -201,6 +207,7 @@ function buildSeed(): AppsState {
           ttlSeconds: 48 * 3600,
           resources: 'isolated',
           data: { from: 'production', scrub: 'db/scrub.sql' },
+          sleepAfterSeconds: 2 * 3600,
         },
       },
       {
@@ -472,6 +479,7 @@ export const apps: DomainResolvers = {
                 : `https://pr-${p.prNumber}.preview.northwind.dev`,
               updatedAt: p.appliedAt ?? p.createdAt,
               planId: p.id,
+              ...demoSleep(p.appliedAt ?? p.createdAt, a.previewRules?.sleepAfterSeconds),
             }),
           ),
           drift: { checkedAt: a.driftCheckedAt, environments: driftEnvs(a) },

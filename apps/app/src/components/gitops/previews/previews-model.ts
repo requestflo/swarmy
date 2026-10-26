@@ -37,12 +37,25 @@ export function dataWords(rules: PreviewRules): string {
   return 'empty — migrations run, no customer data';
 }
 
+/** A preview's routed services sleep after 2 h idle unless `previews.sleep_after` says otherwise. */
+export const PREVIEW_SLEEP_DEFAULT_SECONDS = 2 * 3600;
+
+/** "sleeps after 2 h idle" (board 68) · "never sleeps". */
+export function sleepWords(rules: PreviewRules): string {
+  const s = rules.sleepAfterSeconds === undefined ? PREVIEW_SLEEP_DEFAULT_SECONDS : rules.sleepAfterSeconds;
+  return s === null ? 'never sleeps — stays up until it’s cleaned up' : `sleeps after ${duration(s)} idle, wakes on the next visit`;
+}
+
+/** "48h" · "30m" — a duration as swarmy.yaml writes it. */
+export const yamlDuration = (seconds: number): string => duration(seconds).replace(' ', '').replace('min', 'm');
+
 /** The previews: block as it reads in swarmy.yaml (for the Code view). */
 export function rulesYaml(rules: PreviewRules): Record<string, unknown> {
   return {
     previews: {
       enabled: rules.enabled,
-      ...(rules.ttlSeconds ? { ttl: duration(rules.ttlSeconds).replace(' ', '').replace('min', 'm') } : {}),
+      ...(rules.ttlSeconds ? { ttl: yamlDuration(rules.ttlSeconds) } : {}),
+      ...(rules.sleepAfterSeconds !== undefined ? { sleep_after: rules.sleepAfterSeconds === null ? 'never' : yamlDuration(rules.sleepAfterSeconds) } : {}),
       ...(rules.resources !== 'isolated' ? { resources: rules.resources } : {}),
       ...(rules.branches.length ? { branches: rules.branches } : {}),
       ...(rules.data ? { data: rules.data } : {}),

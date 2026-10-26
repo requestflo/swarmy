@@ -75,6 +75,7 @@ import {
 } from './apps/dashboard-envs';
 import { appliedCommits, staleCommitReason } from './apps/stale-commit';
 import { withExistingOwnSecrets } from './apps/own-secrets';
+import { previewSleepState, rulesSleepSeconds } from './apps/preview-sleep';
 import { planDashboardPush, type DashboardPushInput } from './apps/dashboard-push';
 import { reportCommitStatus, upsertPrComment } from './git-feedback.service';
 import { controllerPublicUrl } from './git-credentials';
@@ -192,6 +193,8 @@ export interface AppView {
     url: string | null;
     updatedAt: string;
     planId: string;
+    /** Live: its routed services are asleep (idle past `previews.sleep_after`) / awake; absent when nothing of it sleeps. */
+    sleep?: 'asleep' | 'awake';
   }>;
   /** The last drift check (the worker refreshes it every 10 min); null = not checked yet. */
   drift: {
@@ -214,6 +217,8 @@ export interface AppPreviewRules {
   resources: 'isolated' | 'shared';
   /** Previews with data: a copy of this environment's latest backup, optionally scrubbed. */
   data?: { from: string; scrub?: string };
+  /** A preview's routed services sleep after this long idle and wake on the next request (null = never). */
+  sleepAfterSeconds: number | null;
 }
 
 /** `previews:` off a plan's desired state — what the dashboard shows as the rules. */
@@ -226,6 +231,7 @@ export function previewRulesOf(desired: DesiredApp | null | undefined): AppPrevi
     ttlSeconds: p.ttlSeconds,
     resources: p.resources,
     ...(p.data ? { data: { from: p.data.from, ...(p.data.scrub ? { scrub: p.data.scrub } : {}) } } : {}),
+    sleepAfterSeconds: rulesSleepSeconds(p),
   };
 }
 
@@ -1565,6 +1571,7 @@ async function previewSummaries(ctx: OrgContext, repoId: string): Promise<AppVie
   });
   const seen = new Set<number>();
   const out: AppView['previews'] = [];
+  const live = liveServices(ctx);
   for (const row of rows) {
     if (seen.has(row.prNumber)) continue;
     seen.add(row.prNumber);
@@ -1588,10 +1595,13 @@ async function previewSummaries(ctx: OrgContext, repoId: string): Promise<AppVie
       url: host ? `https://${host}` : null,
       updatedAt: row.updatedAt.toISOString(),
       planId: row.id,
+      ...withSleep(previewSleepState(live, row.stack)),
     });
   }
   return out;
 }
+
+const withSleep = (sleep: 'asleep' | 'awake' | null): { sleep?: 'asleep' | 'awake' } => (sleep ? { sleep } : {});
 
 export async function listPlans(
   ctx: OrgContext,

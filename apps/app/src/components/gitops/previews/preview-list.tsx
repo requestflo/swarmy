@@ -44,6 +44,7 @@ export function PreviewList({
                   {p.data ? `data: a copy of ${p.data.from}${p.data.scrub ? ' · scrubbed' : ''}` : rules?.resources === 'shared' ? 'data: shares production’s' : 'data: its own, empty'}
                 </span>
                 <span className="text-muted-foreground font-mono text-[11px]">{ttlLeft(p, rules)}</span>
+                {p.sleep === 'asleep' ? <span className="text-tone-idle text-[11.5px]">asleep · wakes on the next visit</span> : null}
               </span>
             </button>
           </li>

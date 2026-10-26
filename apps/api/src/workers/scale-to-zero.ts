@@ -35,6 +35,8 @@ export function startScaleToZero(): () => void {
         const edgeAt = hosts.size
           ? lastEdgeRequestMs(ring.cells(orgId, now - idleMs - MINUTE_MS, now), hosts, now)
           : undefined;
+        // Remember the edge's sighting: a window longer than the ring keeps (6 h) still counts from it.
+        if (edgeAt !== undefined) recordActivity(s.name, edgeAt);
         const decision = sleepDecision({ now, idleMs, activatorAt: lastActivityMs(s.name), edgeAt });
         if (decision === 'start-clock') {
           recordActivity(s.name); // first sight → start the clock now

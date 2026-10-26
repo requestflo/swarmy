@@ -417,6 +417,11 @@ export const SWARMY_YAML_JSON_SCHEMA = {
           items: { type: 'string' },
           description: 'Also preview pushes to matching branches, e.g. feature/*',
         },
+        sleep_after: {
+          anyOf: [{ const: 'never' }, duration],
+          default: '2h',
+          description: "A preview's services with an address sleep after this long idle and wake on the next request; never keeps them up",
+        },
         data: {
           type: 'object',
           additionalProperties: false,

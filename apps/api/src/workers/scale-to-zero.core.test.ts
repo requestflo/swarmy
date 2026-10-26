@@ -46,6 +46,22 @@ describe('sleepDecision', () => {
     expect(sleepDecision({ now: T0 + 6 * MINUTE_MS, idleMs, activatorAt: T0, edgeAt: undefined })).toBe('sleep');
   });
 
+  it('a preview’s 2 h window (previews.sleep_after): awake just under 2 h after its last request, asleep past it', () => {
+    const twoH = 120 * MINUTE_MS;
+    const lastHit = T0 - 119 * MINUTE_MS;
+    const cells = [cell(119, 'pr-7.preview.example.com', 3)];
+    const edgeAt = lastEdgeRequestMs(cells, new Set(['pr-7.preview.example.com']), T0);
+    expect(sleepDecision({ now: T0, idleMs: twoH, activatorAt: undefined, edgeAt })).toBe('awake');
+    expect(edgeAt).toBe(lastHit + MINUTE_MS);
+    expect(sleepDecision({ now: T0 + 3 * MINUTE_MS, idleMs: twoH, activatorAt: undefined, edgeAt })).toBe('sleep');
+  });
+
+  it('a remembered edge sighting carries a window longer than the ring', () => {
+    // The ring no longer holds the request from 7 h ago, but the worker kept it as activity.
+    const remembered = T0 - 7 * 60 * MINUTE_MS;
+    expect(sleepDecision({ now: T0, idleMs: 8 * 60 * MINUTE_MS, activatorAt: remembered, edgeAt: undefined })).toBe('awake');
+  });
+
   it('starts the clock on first sight rather than sleeping instantly', () => {
     expect(sleepDecision({ now: T0, idleMs, activatorAt: undefined, edgeAt: undefined })).toBe('start-clock');
   });

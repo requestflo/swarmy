@@ -98,6 +98,8 @@ export interface AppPreview {
   url: string | null;
   updatedAt: string;
   planId: string;
+  /** Live: its routed services sleep when idle — asleep now, or awake. Absent = nothing of it sleeps. */
+  sleep?: 'asleep' | 'awake';
 }
 
 export interface DriftEnv {
@@ -137,6 +139,8 @@ export interface PreviewRules {
   ttlSeconds: number;
   resources: 'isolated' | 'shared';
   data?: { from: string; scrub?: string };
+  /** Routed preview services sleep after this long idle, waking on the next request (null = never; absent = an older controller). */
+  sleepAfterSeconds?: number | null;
 }
 
 /** Actions still waiting for a human on this plan. */

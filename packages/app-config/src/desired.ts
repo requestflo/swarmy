@@ -19,6 +19,7 @@ import {
 import { parseDuration, parseRate, parseSizeMb } from './units';
 import { environmentStack, PRODUCTION, resolveEnvironment } from './environments';
 import { branchSlug } from './branches';
+import { previewIdleSeconds, previewSleepSeconds } from './previews';
 import { defaultJobService, domainHost } from './validate';
 import { toDesiredAi, type DesiredAi } from './ai';
 import { emailEnvFor, toDesiredEmail, type DesiredEmail, type EmailBindingField } from './email';
@@ -27,7 +28,6 @@ import type { DashboardEnvMarker } from './clone-env';
 
 export const DEFAULT_PREVIEW_TTL_SECONDS = 72 * 3600;
 export const DEFAULT_JOB_TIMEOUT_SECONDS = 600;
-export const PREVIEW_SLEEP_AFTER_SECONDS = 30 * 60;
 /** Owner decision (2026-09): a git app's Postgres is a single primary with nightly backups unless it asks for HA. */
 export const DEFAULT_POSTGRES_HA: PostgresHa = 'single';
 
@@ -201,6 +201,8 @@ export interface DesiredApp {
     resources: 'isolated' | 'shared';
     branches: string[];
     data?: { from: string; scrub?: string };
+    /** A preview's routed services sleep after this long idle (null = never). */
+    sleepAfterSeconds: number | null;
   };
 }
 
@@ -256,6 +258,7 @@ export function toDesired(input: AppConfig, opts: DesiredOptions = {}): DesiredA
     baseDomain: cfg.previews?.base_domain,
     resources: cfg.previews?.resources ?? 'isolated',
     branches: [...(input.previews?.branches ?? [])],
+    sleepAfterSeconds: previewIdleSeconds(input.previews?.sleep_after),
     ...(input.previews?.data
       ? {
           data: {
@@ -432,8 +435,11 @@ export function toDesired(input: AppConfig, opts: DesiredOptions = {}): DesiredA
         s.sleep_after !== undefined ? (parseDuration(s.sleep_after) ?? undefined) : undefined;
       if (preview) {
         replicas = Math.min(replicas, 1);
-        if ((s.domains ?? []).length)
-          sleepAfterSeconds = sleepAfterSeconds ?? PREVIEW_SLEEP_AFTER_SECONDS;
+        sleepAfterSeconds = previewSleepSeconds({
+          previewsSleepAfter: input.previews?.sleep_after,
+          serviceSleepSeconds: sleepAfterSeconds,
+          routed: s.port !== undefined && (s.domains ?? input.services[name]?.domains ?? []).length > 0,
+        });
       }
 
       const unit = {

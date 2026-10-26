@@ -13,7 +13,16 @@ describe('preview rules (read-only, from the last production plan)', () => {
       ttlSeconds: 48 * 3600,
       resources: 'isolated',
       data: { from: 'production', scrub: 'db/scrub.sql' },
+      sleepAfterSeconds: 7200,
     });
+  });
+  it('say when previews sleep: previews.sleep_after, never, or the 2 h default for a plan from before it', () => {
+    const rules = (previews: string) => previewRulesOf(toDesired(parseAppConfig(`version: 1\napp: shop\nservices: { web: { image: "a:1" } }\npreviews: { enabled: true${previews} }\n`).config!));
+    expect(rules(', sleep_after: 30m')?.sleepAfterSeconds).toBe(1800);
+    expect(rules(', sleep_after: never')?.sleepAfterSeconds).toBeNull();
+    const old = toDesired(parseAppConfig('version: 1\napp: shop\nservices: { web: { image: "a:1" } }\n').config!);
+    const { sleepAfterSeconds: _, ...before } = old.previews;
+    expect(previewRulesOf({ ...old, previews: before as typeof old.previews })?.sleepAfterSeconds).toBe(7200);
   });
   it('are null before any plan', () => {
     expect(previewRulesOf(null)).toBeNull();

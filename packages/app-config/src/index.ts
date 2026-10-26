@@ -17,6 +17,7 @@ export * from './clone-env';
 export * from './own-secrets';
 export * from './branches';
 export * from './desired';
+export * from './previews';
 export * from './plan';
 export * from './parse';
 export * from './ai';

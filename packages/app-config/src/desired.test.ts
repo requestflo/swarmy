@@ -51,7 +51,7 @@ describe('toDesired', () => {
       ],
       jobs: [],
       connect: [],
-      previews: { enabled: false, ttlSeconds: 259200, resources: 'isolated', branches: [] },
+      previews: { enabled: false, ttlSeconds: 259200, resources: 'isolated', branches: [], sleepAfterSeconds: 7200 },
     });
   });
 
@@ -129,7 +129,7 @@ describe('toDesired', () => {
     expect(d.preview).toEqual({ pr: 42 });
     expect(d.services.find((s) => s.name === 'web')?.serviceName).toBe('orders-pr42_web');
     expect(d.services.find((s) => s.name === 'web')?.replicas).toBe(1);
-    expect(d.services.find((s) => s.name === 'web')?.sleepAfterSeconds).toBe(1800);
+    expect(d.services.find((s) => s.name === 'web')?.sleepAfterSeconds).toBe(7200); // previews sleep after 2 h idle by default
     const db = d.resources.find((r) => r.name === 'db');
     expect(
       db?.type === 'postgres' && { ha: db.ha, replicas: db.replicas, backups: db.backups },

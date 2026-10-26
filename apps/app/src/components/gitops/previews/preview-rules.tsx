@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Section, Tech } from '@/components/calm';
 import type { PreviewRules } from '../gitops-types';
-import { branchesWords, dataWords, duration } from './previews-model';
+import { branchesWords, dataWords, duration, sleepWords } from './previews-model';
 
 /**
  * Preview rules, read-only: production swarmy.yaml's `previews:` block as it
@@ -12,6 +12,7 @@ export function PreviewRulesCard({ rules, configPath }: { rules: PreviewRules | 
     ? [
         ['Branches', branchesWords(rules)],
         ['Keep for', rules.ttlSeconds ? `${duration(rules.ttlSeconds)} after the last push` : 'until the branch or PR goes'],
+        ['While idle', sleepWords(rules)],
         ['New data', dataWords(rules)],
       ]
     : [];
