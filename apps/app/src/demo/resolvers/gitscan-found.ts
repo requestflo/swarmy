@@ -21,7 +21,7 @@ const web = (why: string, file: string, line: number, text: string, port?: numbe
 
 const LEGACY_BILLING: Detection[] = [
   web('The app itself, built from its Dockerfile, answering on port 3000.', 'Dockerfile', 14, 'EXPOSE 3000', 3000),
-  { id: 'worker:worker', kind: 'worker', name: 'worker', maps: 'services.worker', label: 'Background worker', command: 'bundle exec sidekiq', why: 'Runs "bundle exec sidekiq" from the same build, with no address — it only does work in the background.', evidence: [{ file: 'Gemfile', line: 9, text: "gem 'sidekiq', '~> 7.2'" }] },
+  { id: 'worker:worker', kind: 'worker', name: 'worker', maps: 'services.worker', label: 'Background worker', reason: 'runs Sidekiq workers in Gemfile', command: 'bundle exec sidekiq', why: 'Runs "bundle exec sidekiq" from the same build, with no address — it only does work in the background.', evidence: [{ file: 'Gemfile', line: 9, text: "gem 'sidekiq', '~> 7.2'" }] },
   {
     id: 'postgres',
     kind: 'postgres',

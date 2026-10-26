@@ -39,7 +39,7 @@ describe('"What we found": each finding says why, in plain words', () => {
       }),
     );
     expect(reasons(r.detections)).toEqual({
-      'worker:worker': undefined,
+      'worker:worker': 'runs Sidekiq workers in Gemfile',
       postgres: 'uses ActiveRecord with PostgreSQL in config/database.yml',
       queue: 'uses Sidekiq for jobs in Gemfile',
       bucket: 'stores Active Storage files on S3 in config/storage.yml',

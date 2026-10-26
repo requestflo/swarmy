@@ -4,7 +4,7 @@
  */
 import { unitNameOf } from './files';
 import type { ScanCtx } from './context';
-import { uniqEvidence } from './detect-data';
+import { relTo, uniqEvidence } from './signals';
 import type { Detection, Evidence } from './types';
 
 /** What the build detector already knows: the framework and its default port. */
@@ -58,8 +58,9 @@ export const CLOCK = /^(clock|scheduler|beat|cron)$/;
 
 export function detectWorkers(c: ScanCtx, claim: (n: string) => string): Detection[] {
   const out: Detection[] = [];
-  const worker = (raw: string, command: string, evidence: Array<Evidence | undefined>) => {
+  const worker = (raw: string, command: string, says: string, evidence: Array<Evidence | undefined>) => {
     const name = claim(unitNameOf(raw) ?? 'worker');
+    const first = evidence.find(Boolean);
     out.push({
       id: `worker:${name}`,
       kind: 'worker',
@@ -67,17 +68,18 @@ export function detectWorkers(c: ScanCtx, claim: (n: string) => string): Detecti
       maps: `services.${name}`,
       label: 'Background worker',
       why: `Runs "${command}" from the same build, with no address — it only does work in the background.`,
+      ...(first ? { reason: `${says} in ${relTo(c.dir, first.file)}` } : {}),
       evidence: uniqEvidence(evidence),
       command,
     });
   };
   const procs = c.procfile.filter((p) => !['web', 'release'].includes(p.name) && !CLOCK.test(p.name) && !/celery\s.*\bbeat\b|\bclock\b/.test(p.value));
-  for (const p of procs.slice(0, 3)) worker(p.name, p.value, [p.ev]);
+  for (const p of procs.slice(0, 3)) worker(p.name, p.value, `runs a ${p.name} process`, [p.ev]);
   const queueCode = c.grep(/(new Worker\(|@Processor\(|\.process\()/)[0]?.ev;
   if (!out.length) {
     const s = c.scripts.find((x) => /^(start:)?workers?(:start)?$/.test(x.name));
-    if (s) worker('worker', c.run(s.name), [s.ev, queueCode]);
-    else if (c.dep('sidekiq')) worker('worker', 'bundle exec sidekiq', [c.dep('sidekiq')!.ev]);
+    if (s) worker('worker', c.run(s.name), `has the script ${s.name}`, [s.ev, queueCode]);
+    else if (c.dep('sidekiq')) worker('worker', 'bundle exec sidekiq', 'runs Sidekiq workers', [c.dep('sidekiq')!.ev]);
   } else if (queueCode) out[0]!.evidence = uniqEvidence([...out[0]!.evidence, queueCode]);
   return out;
 }
