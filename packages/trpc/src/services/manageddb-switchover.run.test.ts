@@ -46,6 +46,13 @@ describe('runDbSwitchover — the happy path', () => {
     expect(view().pausedSeconds).toBeGreaterThan(0);
   });
 
+  it('an app wired straight to the writer: the repoint step waits until its URL names the new writer', async () => {
+    const { f, done } = run({ app: 'direct' });
+    await done;
+    expect(f.services.find((s) => s.name === 'shop_api')!.labels['swarmy.db.inject.host']).toBe('shop_db-replica');
+    expect(view().steps[3]).toMatchObject({ phase: 'repoint', status: 'done', message: 'The other copies, the pooler and shop_api follow the new writer.' });
+  });
+
   it('a slow rejoin is a warning, never an undo', async () => {
     const { f, done } = run({ noRejoin: true });
     expect((await done).rejoined).toBe(false);
@@ -65,8 +72,8 @@ describe('runDbSwitchover — the happy path', () => {
 
 describe('runDbSwitchover — every refusal and abort', () => {
   it('refused before anything is touched', async () => {
-    const { f, done } = run({ app: 'direct' });
-    await expect(done).rejects.toThrow('connects straight to the main copy');
+    const { f, done } = run({ shared: true });
+    await expect(done).rejects.toThrow('runs 2 standby copies as one service');
     expect(f.calls.map((c) => c.cmd)).toEqual(['db.query']);
     expect(f.sql).toEqual([]);
   });

@@ -4,6 +4,7 @@ import { Button, cn } from '@swarmy/ui';
 import { TONE_TEXT, Tech } from '@/components/calm';
 import { CardSkeleton } from '@/components/states';
 import { bytes } from '@/lib/format';
+import { restartWords } from './pg-switchover-words';
 
 /**
  * The confirm for a planned switchover (board 39's "Make this copy the
@@ -44,11 +45,12 @@ export function PgSwitchoverConfirm({
       ) : plan.ok ? (
         <>
           <p className="text-[13px] leading-relaxed">
-            Writes pause for a few seconds; nothing is lost. {copyName(plan.from)} then follows it as a standby.
+            Writes pause for a few seconds; nothing is lost. {copyName(plan.from)} then follows it as a standby. {restartWords(plan.restarts)}
           </p>
           <Tech>
             {bytes(plan.behindBytes)} behind now · writes paused (default_transaction_read_only) until {plan.target} replays the final flushed LSN, at most 60 s, else nothing
             switches · the reconcile promotes it through decideFailover and repoints the copies and the pooler · the old main copy re-clones, its data kept aside
+            {plan.restarts.length > 0 ? ' · each app wired straight to it gets a DATABASE_URL secret for the new writer and rolls onto it, start-first where it can' : ''}
           </Tech>
         </>
       ) : (

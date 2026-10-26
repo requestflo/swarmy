@@ -5,8 +5,11 @@ import {
   POOLER_ROLE,
   STACK_LABEL,
   SWITCHOVER_SQL,
+  appWriterHost,
+  connectViaOf,
   drainDecision,
   promoteDecision,
+  wiredApps,
   type PromoteDecision,
 } from '@swarmy/core';
 import type { SwarmServiceInfo } from '@swarmy/core/protocol';
@@ -96,12 +99,22 @@ export async function restoreWriter(s: RunScope, managerId: string, startMs: num
   return false;
 }
 
-/** The promotion pass repointed the old writer (its spec lost the request label) and the pooler. */
+/**
+ * The promotion pass repointed the old writer (its spec lost the request
+ * label), the pooler, and every app wired straight to the writer (its URL
+ * names the new one, `swarmy.db.inject.host`).
+ */
 export function repointed(s: RunScope): boolean {
   const old = live(s, s.from);
   const oldOk = !!old && old.labels['swarmy.db.role'] === 'replica' && old.labels[DB_SWITCHOVER_LABEL] === undefined;
-  const pooler = s.ctx.hub
-    .liveInventory(s.ctx.activeOrgId)
-    .services.find((x) => x.labels[STACK_LABEL] === s.stack && x.labels['swarmy.db.cluster'] === s.cluster && x.labels['swarmy.db.role'] === POOLER_ROLE);
-  return oldOk && (!pooler || pooler.labels[DB_POOLER_TARGET_LABEL] === s.target);
+  const services = s.ctx.hub.liveInventory(s.ctx.activeOrgId).services;
+  const pooler = services.find((x) => x.labels[STACK_LABEL] === s.stack && x.labels['swarmy.db.cluster'] === s.cluster && x.labels['swarmy.db.role'] === POOLER_ROLE);
+  const apps = wiredApps(services, s.stack, s.cluster).filter((a) => connectViaOf(a.labels) === 'direct');
+  return oldOk && (!pooler || pooler.labels[DB_POOLER_TARGET_LABEL] === s.target) && apps.every((a) => appWriterHost(a.labels, s.stack, s.cluster) === s.target);
+}
+
+/** Who follows the new writer, in words: "the other copies, the pooler and shop_api". */
+export function followers(apps: readonly string[]): string {
+  const all = ['the other copies', 'the pooler', ...apps];
+  return `${all.slice(0, -1).join(', ')} and ${all[all.length - 1]}`;
 }

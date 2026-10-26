@@ -22,9 +22,10 @@ import { nodesRunning, waitFor, type MoverDeps } from './volumeMove.service';
  *     server, so it re-clones elsewhere instead of on the server leaving;
  *   - the declared copies and topology put back afterwards.
  *
- * A refusal the operator must settle (an app wired straight to the writer,
- * a copy sharing its service, a held failover) comes back as `refused` so
- * the retire run waits for them instead of failing.
+ * A refusal the operator must settle (a copy sharing its service, a held
+ * failover) comes back as `refused` so the retire run waits for them instead
+ * of failing. An app wired straight to the writer is none: it restarts onto
+ * the new writer with the promotion pass.
  */
 
 export interface DbWriterMoveDeps extends MoverDeps {

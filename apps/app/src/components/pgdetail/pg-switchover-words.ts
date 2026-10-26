@@ -39,3 +39,15 @@ export function runWords(run: DbSwitchoverRunView, copyName: (service: string) =
     rest: `${paused}; nothing was lost.${settling ? ` ${copyName(run.from)} is still catching up as a standby.` : ''}`,
   };
 }
+
+/**
+ * The apps a switch-over restarts (the plan's `restarts`: wired straight to
+ * the main copy, not through the pooler), in a sentence; null when none.
+ */
+export function restartWords(apps: readonly string[]): string | null {
+  if (apps.length === 0) return null;
+  const names = apps.length === 1 ? apps[0]! : `${apps.slice(0, -1).join(', ')} and ${apps[apps.length - 1]}`;
+  return apps.length === 1
+    ? `${names} connects straight to the main copy, so it restarts onto the new writer.`
+    : `${names} connect straight to the main copy, so they restart onto the new writer.`;
+}

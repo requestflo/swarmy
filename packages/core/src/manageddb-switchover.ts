@@ -16,10 +16,11 @@
  *  - within {@link SWITCHOVER_CATCH_UP_BYTES} of it. Writes are still going,
  *    so exactly 0 is not the bar here; the run pauses writes and then waits
  *    for 0 bytes behind the writer's final flushed position.
- * And the cluster must have a running writer, a gated topology, nothing else
- * in flight, and no app connected straight to the writer's address: the
- * promotion repoints the copies and the pooler, not an app's DATABASE_URL,
- * which keeps naming the old writer — a copy that can no longer save.
+ * And the cluster must have a running writer, a gated topology and nothing
+ * else in flight. An app connected straight to the writer's address is no
+ * reason to refuse: the promotion pass re-mints its DATABASE_URL for the new
+ * writer and rolls it (`manageddb-app-repoint.ts`), so the plan names it in
+ * `restarts` for the confirm to say.
  */
 
 /** One WAL segment: close enough to pause writes and wait for the rest. */
@@ -36,7 +37,6 @@ export type SwitchoverRefusal =
   | 'no-writer'
   | 'not-supported'
   | 'busy'
-  | 'direct-apps'
   | 'no-standby'
   | 'unknown-target'
   | 'target-is-writer'
@@ -67,7 +67,7 @@ export interface SwitchoverPlanInput {
   standbys: readonly SwitchoverStandby[];
   /** Why the writer is busy (a held failover, a switchover, a planned restart), or null. */
   busy?: string | null;
-  /** Apps whose DATABASE_URL names the writer itself rather than the pooler. */
+  /** Apps whose DATABASE_URL names the writer itself rather than the pooler: they restart onto the new one. */
   directApps: readonly string[];
   /** The member service to hand the writes to; omitted = the most caught-up copy. */
   target?: string;
@@ -77,7 +77,15 @@ export interface SwitchoverPlanInput {
 
 export type SwitchoverPlan =
   | { ok: false; code: SwitchoverRefusal; reason: string; target?: string }
-  | { ok: true; from: string; target: string; nodeId: string | null; behindBytes: number };
+  | {
+      ok: true;
+      from: string;
+      target: string;
+      nodeId: string | null;
+      behindBytes: number;
+      /** Apps wired straight to the writer: each gets a URL for the new writer and restarts onto it. */
+      restarts: string[];
+    };
 
 type Refused = Extract<SwitchoverPlan, { ok: false }>;
 const MB = 1024 * 1024;
@@ -104,7 +112,7 @@ function judge(m: SwitchoverMember, i: SwitchoverPlanInput, name: string): Switc
   if (row.lagBytes > SWITCHOVER_CATCH_UP_BYTES) {
     return refuse('behind', `${name} is ${amount(row.lagBytes)} behind. Wait until it catches up.`, m.service);
   }
-  return { ok: true, from: '', target: m.service, nodeId: row.nodeId, behindBytes: row.lagBytes };
+  return { ok: true, from: '', target: m.service, nodeId: row.nodeId, behindBytes: row.lagBytes, restarts: [...i.directApps].sort() };
 }
 
 /** Who takes the writes in a planned switchover, or why nobody may. Deterministic. */
@@ -116,10 +124,6 @@ export function planSwitchover(i: SwitchoverPlanInput): SwitchoverPlan {
     return refuse('no-writer', `The main copy of ${i.cluster} isn't running, so this isn't a planned switch-over: swarmy's failover rule decides that one.`);
   }
   if (i.busy) return refuse('busy', i.busy);
-  if (i.directApps.length > 0) {
-    const apps = i.directApps.join(', ');
-    return refuse('direct-apps', `${apps} ${i.directApps.length === 1 ? 'connects' : 'connect'} straight to the main copy, so after the switch ${i.directApps.length === 1 ? 'it' : 'they'} would reach a copy that can't save. Send ${i.directApps.length === 1 ? 'it' : 'them'} through the pooler first: the pooler follows the writer.`);
-  }
   const standbys = i.members.filter((m) => m.role === 'replica' && m.desired > 0);
   if (i.topology === 'single' || standbys.length === 0) {
     return refuse('no-standby', `${i.cluster} has no standby copy to hand the writes to. Add one first.`);

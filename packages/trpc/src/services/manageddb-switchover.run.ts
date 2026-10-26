@@ -19,14 +19,15 @@ import { resolveManagerNode } from './dispatch.service';
 import { recordIncidentEvent } from './incidents-record';
 import { copyNamer, planDbSwitchover } from './manageddb-switchover.service';
 import { putSwitchoverRun } from './manageddb-switchover.runs';
-import { awaitPromotion, drainTo, live, repointed, restoreWriter, until, type RunScope, type SwitchoverIo } from './manageddb-switchover.steps';
+import { awaitPromotion, drainTo, followers, live, repointed, restoreWriter, until, type RunScope, type SwitchoverIo } from './manageddb-switchover.steps';
 
 /**
  * Run a planned switchover (`db.switchover`, the retire flow): pause →
  * catch-up → promote → repoint → rejoin, each a pure decision from @swarmy/core
  * `manageddb-switchover-run`. The PROMOTION is the manageddb reconcile's own
  * pass (`decideFailover`, narrowed to the target by the request label), which
- * also repoints the other copies and the pooler; this runner only pauses,
+ * also repoints the other copies, the pooler and every app wired straight to
+ * the writer (a new URL secret, a rolling restart); this runner only pauses,
  * stops, watches and re-joins. Any abort before the promotion gives the
  * writes back to the old writer. Audited `db.switchover.start` /
  * `db.switchover` / `db.switchover.abort` on the cluster; the progress lives
@@ -127,9 +128,10 @@ export async function runDbSwitchover(
     view = { ...view, pausedSeconds };
     step('promote', 'done', `${T} takes the writes. Writes were paused for ${pausedSeconds} s.`);
 
-    step('repoint', 'running', 'Pointing the other copies and the pooler at it.');
+    const who = followers(plan.restarts);
+    step('repoint', 'running', `Pointing ${who} at it.`);
     const moved = await until(s, t.repointMs ?? 60_000, () => repointed(s));
-    step('repoint', moved ? 'done' : 'warn', moved ? 'The other copies and the pooler follow the new writer.' : 'The repoint is still settling; the reconcile finishes it.');
+    step('repoint', moved ? 'done' : 'warn', moved ? `${who[0]!.toUpperCase()}${who.slice(1)} follow the new writer.` : 'The repoint is still settling; the reconcile finishes it.');
 
     step('rejoin', 'running', `${F} starts again as a standby (its old data is kept aside).`);
     const demoted = live(s, from);

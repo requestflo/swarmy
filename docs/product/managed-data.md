@@ -166,8 +166,15 @@ Four ideas, one story:
   what was accepted — a gap that grew voids the confirmation. If the primary
   comes back first, the hold is cleared and nothing is lost. On promotion role
   labels flip, the other members (the ex-primary included) are repointed at the
-  new writer, and the incident/event/audit rows say whether it was automatic
-  (0 bytes behind) or confirmed (and which window). The decision is pure
+  new writer, the pooler follows it, and every app connected straight to the
+  cluster gets a `DATABASE_URL` secret naming the new writer and rolls onto it
+  (start-first unless it publishes a host port or writes to a volume); a
+  read-only URL that named the promoted copy moves to a running standby, or
+  the writer. Apps through the pooler are not touched. Each move is on the
+  incident timeline ("Repointed shop_api at …") and audited `db.repoint.app`;
+  a pass the controller didn't finish is finished on the next ticks. The
+  incident/event/audit rows say whether it was automatic (0 bytes behind) or
+  confirmed (and which window). The decision is pure
   (`decideFailover` in `@swarmy/core` `manageddb-failover.ts`, unit-tested).
 
   | Topology | What happens when the primary dies |
@@ -189,17 +196,16 @@ Four ideas, one story:
   the server-retire flow) hands the writes to a chosen standby copy, or the
   most caught-up one. It refuses, before touching anything, unless the copy is
   the only one in its service, streaming, and within one WAL segment; the
-  writer runs; nothing else is in flight (a held failover, another switch-over,
-  a planned restart); and no app connects straight to the writer's address
-  (the promotion repoints the copies and the pooler, never an app's
-  `DATABASE_URL`, so such an app would be left on a copy that can't save:
-  send it through the pooler first). Then: writes pause
+  writer runs; and nothing else is in flight (a held failover, another
+  switch-over, a planned restart). An app connected straight to the writer is
+  no reason to refuse: the confirm names it, and it restarts onto the new
+  writer with the promotion pass, as in a failover. Then: writes pause
   (`default_transaction_read_only`, open read-write transactions ended — rolled
   back, never committed), the copy must replay the writer's final flushed
   position within a minute, the writer stops under the `swarmy.db.switchover`
   request (target + final position), and the reconcile's own promotion pass
   promotes it through `decideFailover` — no second copy of the rule — and
-  repoints the other copies and the pooler. Any abort gives the writes back to
+  repoints the other copies, the pooler and the directly connected apps. Any abort gives the writes back to
   the old writer. The old writer then rejoins as a standby (its data kept
   aside, re-cloned). The pure plan and run decisions are `@swarmy/core`
   `manageddb-switchover{,-run,-view}.ts`; gate `data.failover`; audited

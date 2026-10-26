@@ -70,8 +70,8 @@ export function PgSwitchoverSection({ stack, d }: { stack: string; d: PgDetailDa
           />
         ) : null}
         <Tech>
-          db.switchover · refused unless the copy is alone in its service, streaming and within 16 MB, and no app connects straight to the main copy (the pooler follows the
-          writer) · gate data.failover · audited db.switchover
+          db.switchover · refused unless the copy is alone in its service, streaming and within 16 MB · apps wired straight to the main copy restart onto the new writer (a
+          new DATABASE_URL secret); apps through the pooler don’t · gate data.failover · audited db.switchover
         </Tech>
       </Section>
     </Depth>

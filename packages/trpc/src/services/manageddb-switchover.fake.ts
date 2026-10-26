@@ -8,7 +8,8 @@ import type { SwitchoverIo } from './manageddb-switchover.steps';
  * wkr-1, one standby on wkr-2, an optional pooler and app. `db.query` answers
  * `pg_stat_replication` like the studio read; `service.scale` of the writer to
  * 0 plays the reconcile's promotion pass (`promote`): it promotes, holds, or
- * never comes. `psql` plays both Postgres copies: the standby replays up to
+ * never comes, and moves an app wired straight to the writer onto the new
+ * one. `psql` plays both Postgres copies: the standby replays up to
  * the writer's final position once writes are paused, unless `lagStuck`.
  */
 
@@ -100,6 +101,8 @@ export function fakeSwitchover(o: FakeOpts = {}) {
     delete primary.labels[DB_SWITCHOVER_LABEL];
     const pooler = services.find((s) => s.labels['swarmy.db.role'] === 'pooler');
     if (pooler) pooler.labels[DB_POOLER_TARGET_LABEL] = replica.name;
+    // An app wired straight to the writer gets a URL for the new one (repointDbApps).
+    for (const a of services.filter((s) => s.labels['swarmy.db.inject'] && !s.labels['swarmy.db.inject.via'])) a.labels['swarmy.db.inject.host'] = replica.name;
   };
   const sql: string[] = [];
   let frozen = false;

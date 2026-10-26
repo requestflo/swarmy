@@ -20,8 +20,8 @@ import { demoReplication } from './pg-replication';
  * 8 s) and swaps the writer and the standby in the demo topology once the
  * promotion lands. The story: storefront/checkout's standby on mgr-2 is caught
  * up and both its apps go through the pooler, so it can take the writes;
- * data/main can't yet (data_worker connects straight to the main copy, and its
- * two standbys share one service).
+ * data/main can't yet: its two standbys share one service (data_worker,
+ * connected straight to the main copy, would only restart onto the new one).
  */
 
 interface Topo {

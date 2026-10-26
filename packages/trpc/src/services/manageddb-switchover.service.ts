@@ -21,7 +21,8 @@ import { switchoverInFlight } from './manageddb-switchover.runs';
  * `planSwitchover`). Gathers the cluster's members off the live inventory,
  * each standby's position (`db.replication`: pg_stat_replication on the
  * writer, through the studio's audited read as the caller), the apps wired
- * straight to the writer, and anything else mid-flight on it. The dashboard
+ * straight to the writer (no refusal: they restart onto the new writer, and
+ * the plan names them), and anything else mid-flight on it. The dashboard
  * runs the SAME plan on the same three reads, so a refusal it shows is the
  * one this returns.
  */
@@ -48,7 +49,7 @@ export function switchoverBusy(ctx: OrgContext, stack: string, cluster: string, 
   return null;
 }
 
-/** Apps whose DATABASE_URL names the writer itself, not the pooler. */
+/** Apps whose DATABASE_URL names the writer itself, not the pooler: the promotion pass rolls them onto the new writer. */
 export function directApps(ctx: OrgContext, stack: string, cluster: string): string[] {
   return ctx.hub
     .liveInventory(ctx.activeOrgId)

@@ -31,11 +31,11 @@ const code = (i: SwitchoverPlanInput) => {
 
 describe('planSwitchover — who may take the writes', () => {
   it('picks the most caught-up streaming copy when none is named', () => {
-    expect(planSwitchover(input())).toEqual({ ok: true, from: P, target: EU, nodeId: 'n3', behindBytes: 120 });
+    expect(planSwitchover(input())).toEqual({ ok: true, from: P, target: EU, nodeId: 'n3', behindBytes: 120, restarts: [] });
   });
 
   it('takes a named copy that is streaming and within one WAL segment', () => {
-    expect(planSwitchover(input({ target: R }))).toEqual({ ok: true, from: P, target: R, nodeId: 'n2', behindBytes: 4096 });
+    expect(planSwitchover(input({ target: R }))).toEqual({ ok: true, from: P, target: R, nodeId: 'n2', behindBytes: 4096, restarts: [] });
   });
 
   it('ties go to the service name, so the pick is deterministic', () => {
@@ -64,14 +64,9 @@ describe('planSwitchover — every refusal', () => {
     expect(p).toEqual({ ok: false, code: 'busy', reason: 'A switch-over is already running.' });
   });
 
-  it('an app wired straight to the writer would lose its writer, so it goes through the pooler first', () => {
-    const p = planSwitchover(input({ directApps: ['shop_api'] }));
-    expect(p.ok).toBe(false);
-    if (!p.ok) {
-      expect(p.code).toBe('direct-apps');
-      expect(p.reason).toContain('shop_api connects straight to the main copy');
-      expect(p.reason).toContain('pooler');
-    }
+  it('an app wired straight to the writer is no refusal: it follows, and the plan names it to restart', () => {
+    const p = planSwitchover(input({ target: R, directApps: ['shop_worker', 'shop_api'] }));
+    expect(p).toEqual({ ok: true, from: P, target: R, nodeId: 'n2', behindBytes: 4096, restarts: ['shop_api', 'shop_worker'] });
   });
 
   it('single, or no standby declared', () => {

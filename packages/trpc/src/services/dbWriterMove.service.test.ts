@@ -39,11 +39,11 @@ describe('moveDbWriterOff — the retire flow', () => {
     expect(f.audit.filter((a) => a.startsWith('db.'))).toEqual(['db.switchover.start', 'db.switchover']);
   });
 
-  it('an app wired straight to the writer: refused for the operator to settle, nothing touched', async () => {
-    const { f, deps } = setup({ app: 'direct' });
+  it('a standby service holding two copies: refused for the operator to settle, nothing touched', async () => {
+    const { f, deps } = setup({ shared: true, app: 'direct' });
     const res = await moveDbWriterOff(f.ctx, IN, deps);
     expect(res).toMatchObject({ kind: 'refused' });
-    if (res.kind === 'refused') expect(res.reason).toContain('pooler');
+    if (res.kind === 'refused') expect(res.reason).toContain('one service');
     expect(f.calls.every((c) => c.cmd === 'db.query')).toBe(true);
     expect(f.sql).toEqual([]);
   });

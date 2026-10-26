@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { SWITCHOVER_BUSY, newSwitchoverRun, withSwitchoverStep } from '@swarmy/core';
 import { copyNameOf, planCopy, type PgSwitchoverFacts } from './pg-switchover-plan';
-import { runWords } from './pg-switchover-words';
+import { restartWords, runWords } from './pg-switchover-words';
 
 const P = 'storefront_checkout-primary';
 const R = 'storefront_checkout-replica';
@@ -32,11 +32,18 @@ describe('planCopy — the dashboard asks the shared plan, on the same reads', (
   });
 
   it('a caught-up copy with every app through the pooler can take the writes', () => {
-    expect(planCopy(facts(), R)).toEqual({ ok: true, from: P, target: R, nodeId: 'n-mgr-2', behindBytes: 232 });
+    expect(planCopy(facts(), R)).toEqual({ ok: true, from: P, target: R, nodeId: 'n-mgr-2', behindBytes: 232, restarts: [] });
   });
 
-  it('an app straight to the main copy, a held failover, a run in flight', () => {
-    expect(planCopy(facts({ apps: [{ service: 'storefront_checkout', via: 'direct' }] }), R)).toMatchObject({ ok: false, code: 'direct-apps' });
+  it('an app straight to the main copy restarts onto the new writer; one through the pooler doesn’t', () => {
+    const apps = [{ service: 'storefront_api', via: 'pooler' }, { service: 'storefront_worker', via: 'direct' }];
+    expect(planCopy(facts({ apps }), R)).toMatchObject({ ok: true, restarts: ['storefront_worker'] });
+    expect(restartWords(['storefront_worker'])).toBe('storefront_worker connects straight to the main copy, so it restarts onto the new writer.');
+    expect(restartWords(['a', 'b', 'c'])).toBe('a, b and c connect straight to the main copy, so they restart onto the new writer.');
+    expect(restartWords([])).toBeNull();
+  });
+
+  it('a held failover, a run in flight', () => {
     const held = facts();
     held.cluster = { ...held.cluster, pendingFailover: { target: R } };
     expect(planCopy(held, R)).toEqual({ ok: false, code: 'busy', reason: SWITCHOVER_BUSY.held });

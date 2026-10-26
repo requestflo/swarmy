@@ -23,9 +23,10 @@ export const switchoverProcedures = {
    * Hand the writes to a caught-up standby copy (`target`, a member service)
    * or the most caught-up one, losing nothing: writes pause for a few
    * seconds while the copy replays the main copy's final change, then the
-   * reconcile promotes it, repoints the other copies and the pooler, and the
-   * old main copy follows as a standby. A refusal (the copy is behind, an app
-   * connects straight to the main copy, …) is the error, before anything is
+   * reconcile promotes it, repoints the other copies, the pooler and every
+   * app wired straight to the main copy (they restart onto the new writer),
+   * and the old main copy follows as a standby. A refusal (the copy is
+   * behind, it shares its service with another copy, …) is the error, before anything is
    * touched. The closest data action, `data.failover` (owner/admin by
    * default); audited `db.switchover.start` / `db.switchover` / `.abort`.
    */

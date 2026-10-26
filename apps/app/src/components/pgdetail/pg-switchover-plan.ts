@@ -5,7 +5,8 @@ import { SWITCHOVER_BUSY, planSwitchover, type SwitchoverPlan } from '@swarmy/co
  * page (board 15) ask the SAME pure plan the controller runs before it
  * touches anything (@swarmy/core `planSwitchover`), on the same three reads:
  * `db.get` (the copies), `db.replication` (each standby's state and bytes
- * behind) and `db.pooler` (which apps go straight to the main copy). The
+ * behind) and `db.pooler` (which apps go straight to the main copy, so
+ * restart onto the new writer). The
  * dashboard never has its own copy of the rule. PURE — tested in
  * pg-switchover.test.ts.
  */

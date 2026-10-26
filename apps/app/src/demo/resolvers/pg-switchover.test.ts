@@ -15,8 +15,8 @@ describe('pg-switchover demo (boards 15 and 39)', () => {
   });
   afterEach(() => setSystemTime());
 
-  test('data/main is refused by the shared plan: data_worker connects straight to the main copy', () => {
-    expect(() => HANDLERS['db.switchover']!({ stack: 'data', cluster: 'main' }, getStore())).toThrow('data_worker connects straight to the main copy');
+  test('data/main is refused by the shared plan: its two standbys share one service', () => {
+    expect(() => HANDLERS['db.switchover']!({ stack: 'data', cluster: 'main' }, getStore())).toThrow('standby copies as one service');
   });
 
   test("checkout's caught-up standby takes the writes; the run walks its steps and the roles swap", () => {
