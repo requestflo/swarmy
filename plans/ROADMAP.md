@@ -149,7 +149,10 @@ server and the BuildKit registry cache. What is left (none launch-blocking):
 - pgBackRest is offered only with an operator-supplied image
   (`SWARMY_PGBACKREST_IMAGE`; no upstream image exists). Even then it needs its
   own WAL pipeline (swarmy archives WAL for wal-g) and its S3 key env names.
-- PgBouncer for managed Postgres: in progress 2026-10-26.
+- PgBouncer for managed Postgres shipped 2026-10-26 (`swarmy.db.pooler`,
+  `auth_query` through its own role so a rotation needs no restart, repointed
+  in the promotion pass, apps connect `via: 'pooler'`). Owed: a pass on a real
+  cluster (SCRAM via `auth_query`, a start-first repoint during a failover).
 - Done 2026-10-24: database-role placement, cache eviction/persistence
   settings, bucket CORS + lifecycle, the public S3 endpoint for presigned
   links, registry-side GC (keep-last-N mode), restore-as-a-copy creating its
