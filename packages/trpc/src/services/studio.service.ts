@@ -269,7 +269,7 @@ export function prepareStatement(engine: StudioEngine, text: string, name: strin
 
 // ── gate + run + audit ───────────────────────────────────────────────────────
 
-export type StudioOrigin = 'console' | 'browse' | 'schema' | 'edit' | 'insights' | 'saved' | 'snapshot' | 'replication';
+export type StudioOrigin = 'console' | 'browse' | 'schema' | 'edit' | 'insights' | 'saved' | 'snapshot' | 'replication' | 'indexes';
 
 export interface StudioRunView extends DbQueryResult {
   statement: string;
@@ -426,16 +426,17 @@ export async function studioSystemRead(
 }
 
 /**
- * A read swarmy composes for one of its own views (`db.replication`): the
- * person's data.read gate, the same bounds, and a `studio.query` row under
- * its own origin (the history lists only what people typed).
+ * A read swarmy composes for one of its own views (`db.replication`,
+ * `studio.indexAdvice`): the person's data.read gate, the same bounds, and a
+ * `studio.query` row under its own origin (the history lists only what
+ * people typed).
  */
 export async function studioViewRead(
   ctx: OrgContext,
-  input: { stack: string; target: string; statement: string; origin: 'replication'; rowCap?: number },
+  input: { stack: string; target: string; statement: string; origin: 'replication' | 'indexes'; rowCap?: number; database?: string | null },
 ): Promise<StudioRunView> {
   const t = requireTarget(ctx, input.stack, input.target);
-  return runPrepared(ctx, t, internal(t.engine, input.statement), { origin: input.origin, rowCap: input.rowCap });
+  return runPrepared(ctx, t, internal(t.engine, input.statement), { origin: input.origin, rowCap: input.rowCap, database: input.database });
 }
 
 /** Classify without running (the server's verdict; the dashboard also classifies live). */

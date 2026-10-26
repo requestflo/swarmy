@@ -13,3 +13,5 @@ export * from './sql';
 export * from './mongo';
 export * from './redis';
 export * from './slow-queries';
+export * from './index-facts';
+export * from './index-advice';

@@ -20,6 +20,7 @@ import {
   studioKeyValue,
   studioSchema,
 } from '../services/studio.service';
+import { studioIndexAdvice } from '../services/studio-indexes.service';
 import { studioSlowQueries } from '../services/studio-slow.service';
 
 /**
@@ -121,6 +122,13 @@ export const studioRouter = router({
   slowQueries: orgProcedure
     .input(z.object({ ...ref, hours: z.number().int().min(1).max(24 * 7).optional() }))
     .query(({ ctx, input }) => studioSlowQueries(ctx, input)),
+
+  /**
+   * Index suggestions for one Postgres database (unindexed foreign keys,
+   * big tables read start to finish, unused indexes): one bounded, audited
+   * read of its statistics. Tips are SQL to copy; nothing is ever run.
+   */
+  indexAdvice: orgProcedure.input(z.object({ ...ref, database })).query(({ ctx, input }) => studioIndexAdvice(ctx, input)),
 
   /** My console runs on this database (from the audit log). */
   history: orgProcedure

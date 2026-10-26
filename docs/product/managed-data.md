@@ -209,6 +209,10 @@ Four ideas, one story:
   per-statement deltas in `telemetry.db`. The studio's insights show calls,
   mean time and an estimated p95 per statement (estimated from the
   per-snapshot means, and labelled so).
+- **Index suggestions.** The studio reads one database's own statistics (one
+  audited read) and suggests indexes for foreign keys with none, big tables
+  read start to finish, and indexes nothing uses — each as SQL to copy with
+  the reason in plain words. swarmy never runs them.
 - **Caches and search read the same way.** Each is drawn as its shape, with
   "If `<server>` dies: …" worked out from its members and the servers they run
   on. A cache's "when full" (eviction) and persistence (off, RDB snapshots,

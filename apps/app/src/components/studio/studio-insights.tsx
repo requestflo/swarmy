@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { GaugeIcon, LightbulbIcon } from 'lucide-react';
 import { useTRPC } from '@/integrations/trpc';
 import { CardSkeleton, ErrorState } from '@/components/states';
+import { StudioIndexTips } from './studio-index-tips';
 import { StudioSlow24h } from './studio-slow-24h';
 import type { StudioScope } from './studio-types';
 
@@ -16,7 +17,7 @@ const SOURCE: Record<string, string> = {
 
 const ms = (v: number | null) => (v == null ? '—' : v >= 1000 ? `${(v / 1000).toFixed(1)} s` : `${v} ms`);
 
-/** Slow-query insights; degrades to the reason + how to turn a source on. */
+/** Slow-query insights (degrading to the reason + how to turn a source on), then index suggestions for Postgres. */
 export function StudioInsights({ scope, onOpen }: { scope: StudioScope; onOpen: (statement: string) => void }): React.JSX.Element {
   const trpc = useTRPC();
   const q = useQuery({ ...trpc.studio.insights.queryOptions({ stack: scope.stack, target: scope.target.name, database: scope.database }), refetchInterval: 30_000 });
@@ -65,6 +66,7 @@ export function StudioInsights({ scope, onOpen }: { scope: StudioScope; onOpen: 
       ) : !d.unavailable ? (
         <p className="text-muted-foreground text-sm">Nothing slow recorded yet.</p>
       ) : null}
+      {scope.target.engine === 'postgres' ? <StudioIndexTips scope={scope} /> : null}
       {d.active.length > 0 ? (
         <div className="calm-card shadow-none overflow-hidden border-0">
           <div className="border-border flex items-center gap-2 border-b px-3 py-2">

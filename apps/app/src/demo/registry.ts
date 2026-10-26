@@ -78,6 +78,7 @@ import { pgReplication } from './resolvers/pg-replication';
 import { pgMemoryDemo } from './resolvers/pg-memory';
 import { pgPoolerDemo } from './resolvers/pg-pooler';
 import { studioSlow } from './resolvers/studio-slow';
+import { studioIndexes } from './resolvers/studio-indexes';
 import { gaps } from './resolvers/gaps';
 import { serviceSettings } from './resolvers/service-settings';
 import { serviceHealth } from './resolvers/service-health';
@@ -187,6 +188,7 @@ const MODULES: DomainResolvers[] = [
   // Wraps data's db.get (each cluster's memory), so it comes after it.
   pgMemoryDemo,
   studioSlow,
+  studioIndexes,
   rum,
   rumFunnel,
   gaps,
