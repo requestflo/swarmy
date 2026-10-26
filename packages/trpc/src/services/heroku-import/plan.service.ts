@@ -43,7 +43,8 @@ export interface HerokuImportView {
 /** Pure: a resolved app → the browser's view (no values). */
 export function importView(r: ResolvedHeroku, source: 'api' | 'paste'): HerokuImportView {
   const yaml = r.conv.yaml!;
-  const plan = herokuImportPlan(r.conv);
+  const sealable = r.conv.secrets.filter((s) => r.config[s.key]).map((s) => s.name);
+  const plan = herokuImportPlan(r.conv, sealable);
   const issues = parseAppConfig(yaml).issues.map((i) => ({ severity: i.severity, message: i.message, ...(i.line ? { line: i.line } : {}) }));
   return {
     source,
@@ -55,7 +56,7 @@ export function importView(r: ResolvedHeroku, source: 'api' | 'paste'): HerokuIm
     issues,
     changes: r.conv.changes,
     steps: herokuMigrationSteps(r.conv, { herokuApp: r.herokuApp }),
-    sealable: r.conv.secrets.filter((s) => r.config[s.key]).map((s) => s.name),
+    sealable,
     copyable: r.conv.databases.filter((d) => parsePgUrl(r.config[d.envVar] ?? '')).map((d) => d.resource),
   };
 }

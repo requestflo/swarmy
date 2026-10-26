@@ -77,10 +77,24 @@ function dataItems(d: DesiredApp, conv: HerokuConversion): HerokuPlanData[] {
   });
 }
 
-export function herokuImportPlan(conv: HerokuConversion): HerokuImportPlan | null {
+/**
+ * The gaps, with each secret the import's Deploy seals (its value is known)
+ * moved to "swarmy does this itself": nothing left to create by hand.
+ */
+export function sealedGaps(conv: HerokuConversion, sealed: readonly string[]): HerokuGap[] {
+  const byKey = new Map(conv.secrets.filter((s) => sealed.includes(s.name)).map((s) => [s.key, s.name]));
+  return conv.untranslated.map((g) => {
+    const name = byKey.get(g.key.replace(/^(config|env)\./, ''));
+    return name && /^(config|env)\./.test(g.key) ? { key: g.key, reason: `Deploy seals it as the swarmy secret ${name} with Heroku’s value (the file reads \${{ secrets.${name} }})`, handled: true } : g;
+  });
+}
+
+/** The plan; `sealed` = the secrets Deploy will seal with Heroku's values. */
+export function herokuImportPlan(conv: HerokuConversion, sealed: readonly string[] = []): HerokuImportPlan | null {
   const parsed = conv.yaml ? parseAppConfig(conv.yaml) : null;
   if (!parsed?.config) return null;
   const d = toDesired(parsed.config);
+  const gaps = sealedGaps(conv, sealed);
   const services = serviceItems(d, parsed.config.services as Record<string, { command?: unknown; release?: unknown }>);
   const data = dataItems(d, conv).sort((a, b) => Number(a.kind !== 'postgres') - Number(b.kind !== 'postgres'));
   const secretKeys = new Set(conv.secrets.map((s) => s.key));
@@ -97,7 +111,7 @@ export function herokuImportPlan(conv: HerokuConversion): HerokuImportPlan | nul
     bound: conv.bound,
     domains: conv.domains,
     jobs,
-    todo: conv.untranslated.filter((g) => !g.handled),
-    handled: conv.untranslated.filter((g) => g.handled),
+    todo: gaps.filter((g) => !g.handled),
+    handled: gaps.filter((g) => g.handled),
   };
 }

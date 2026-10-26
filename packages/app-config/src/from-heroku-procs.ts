@@ -111,7 +111,7 @@ export function herokuExtras(json: HerokuAppJson, scheduler?: string): ExtrasCon
       key: scheduler,
       reason: json.cron.length
         ? "Heroku Scheduler's own jobs live in its dashboard: add any that aren't under jobs: yet"
-        : "Heroku Scheduler keeps its jobs in its dashboard, not app.json: add each one under jobs: with its schedule and command (they run in web's image and env)",
+        : "Heroku Scheduler keeps its jobs in its own dashboard (neither app.json nor the Platform API lists them): add each one under jobs: with its schedule and command (they run in web's image and env)",
     });
   }
   for (const [k, cmd] of Object.entries(json.scripts)) {

@@ -46,7 +46,8 @@ const esc = (s: string): string => s.replace(/\\/g, '\\\\').replace(/:/g, '\\:')
 
 /** The source's own line first (first match wins), then any host for the target's superuser. */
 export function copyPassfile(src: PgUrl, targetPassword: string): string {
-  return `${esc(src.host)}:${src.port}:${esc(src.database)}:${esc(src.user)}:${esc(src.password)}\n*:*:*:postgres:${esc(targetPassword)}\n`;
+  const line = (fields: string[]): string => `${fields.join(':')}\n`;
+  return line([esc(src.host), String(src.port), esc(src.database), esc(src.user), esc(src.password)]) + line(['*', '*', '*', 'postgres', esc(targetPassword)]);
 }
 
 const TABLES = `SELECT count(*) FROM pg_tables WHERE schemaname NOT IN ('pg_catalog','information_schema')`;

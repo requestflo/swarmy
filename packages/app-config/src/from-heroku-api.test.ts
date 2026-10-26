@@ -97,4 +97,13 @@ describe('the API import end to end: swarmy.yaml + the plan in plain words', () 
     expect(plan.handled.map((g) => g.key)).toEqual(expect.arrayContaining(['addons: papertrail:choklad', 'domains: acme-shop-1a2b3c.herokuapp.com']));
     for (const leaked of ['hunter2', 'redispw', '9f8e7d6c', 'pt_abc']) expect(conv.yaml).not.toContain(leaked);
   });
+
+  it('a secret Deploy seals moves from to-do to done, with where it went', () => {
+    expect(plan.todo.map((g) => g.key)).toContain('config.SECRET_KEY_BASE');
+    const sealed = herokuImportPlan(conv, ['secret-key-base'])!;
+    expect(sealed.todo.map((g) => g.key)).not.toContain('config.SECRET_KEY_BASE');
+    expect(sealed.handled.find((g) => g.key === 'config.SECRET_KEY_BASE')!.reason).toBe(
+      'Deploy seals it as the swarmy secret secret-key-base with Heroku’s value (the file reads ${{ secrets.secret-key-base }})',
+    );
+  });
 });

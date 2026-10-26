@@ -79,7 +79,7 @@ const HEROKU: HerokuScan = {
   untranslated: [
     { key: 'buildpacks: heroku/ruby', reason: 'Railpack detects the language and builds it the way the buildpack did', handled: true },
     { key: 'addons: papertrail:choklad', reason: "swarmy collects every service's logs itself", handled: true },
-    { key: 'addons: scheduler:standard', reason: "Heroku Scheduler keeps its jobs in its dashboard, not app.json: add each one under jobs: with its schedule and command (they run in web's image and env)" },
+    { key: 'addons: scheduler:standard', reason: "Heroku Scheduler keeps its jobs in its own dashboard (neither app.json nor the Platform API lists them): add each one under jobs: with its schedule and command (they run in web's image and env)" },
     { key: 'scripts.postdeploy', reason: 'it ran once, after Heroku first made the app, and swarmy.yaml has no one-time hook: run "bundle exec rails db:seed" yourself after the first deploy (release: runs on every deploy)' },
     { key: 'env.SECRET_KEY_BASE', reason: 'Heroku generated it when the app was made: create the swarmy secret secret-key-base with its value from heroku config (the file reads ${{ secrets.secret-key-base }})' },
   ],
