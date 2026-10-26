@@ -261,6 +261,8 @@ export interface DeployStrategyView {
 export interface HealthGateView {
   windowSec: number;
   autoRollback: boolean;
+  /** The error trip's floor (%), null = off; absent on releases recorded before the trip. */
+  errorTripPct?: number | null;
 }
 
 export interface ReleaseView {
@@ -300,6 +302,8 @@ export interface DeploySafetyView {
   enabled: boolean;
   windowSec: number;
   autoRollback: boolean;
+  /** Fail the release when its 5xx share passes 3× the pre-deploy share and this floor (%); null = off. */
+  errorTripPct: number | null;
   strategy: DeployStrategyView | null;
 }
 

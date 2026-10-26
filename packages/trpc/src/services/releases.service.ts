@@ -1,6 +1,8 @@
 import { displayEmail } from '@swarmy/auth';
 import {
+  ERROR_TRIP_DEFAULT_PCT,
   buildInventory,
+  parseErrorTripPct,
   type ComposeDiffLine,
   type DeploySafetyView,
   type DeployStrategyView,
@@ -43,10 +45,11 @@ const DEFAULT_WINDOW_SEC = 120;
 export function parseHealthGate(raw: string | null | undefined): HealthGateView | null {
   if (!raw) return null;
   try {
-    const v = JSON.parse(raw) as { windowSec?: unknown; autoRollback?: unknown };
+    const v = JSON.parse(raw) as { windowSec?: unknown; autoRollback?: unknown; errorTripPct?: unknown };
     const windowSec = Number(v.windowSec);
     if (!Number.isFinite(windowSec) || windowSec <= 0) return null;
-    return { windowSec: Math.round(windowSec), autoRollback: v.autoRollback === true };
+    // The error trip is part of the gate: a label that doesn't name it gets the default floor.
+    return { windowSec: Math.round(windowSec), autoRollback: v.autoRollback === true, errorTripPct: parseErrorTripPct(v.errorTripPct) };
   } catch {
     return null;
   }
@@ -174,10 +177,15 @@ function toView(row: ReleaseRow): ReleaseView {
         .map((x) => ({ name: x.name as string, image: x.image as string }))
     : [];
   const strategy = row.strategyJson ? parseStrategy(JSON.stringify(row.strategyJson)) : null;
-  const gateRaw = row.healthGateJson as { windowSec?: unknown; autoRollback?: unknown } | null;
+  const gateRaw = row.healthGateJson as { windowSec?: unknown; autoRollback?: unknown; errorTripPct?: unknown } | null;
+  // A row recorded before the error trip carries no floor: it had none.
   const gate =
     gateRaw && Number.isFinite(Number(gateRaw.windowSec))
-      ? { windowSec: Number(gateRaw.windowSec), autoRollback: gateRaw.autoRollback === true }
+      ? {
+          windowSec: Number(gateRaw.windowSec),
+          autoRollback: gateRaw.autoRollback === true,
+          errorTripPct: typeof gateRaw.errorTripPct === 'number' && gateRaw.errorTripPct > 0 ? gateRaw.errorTripPct : null,
+        }
       : null;
   return {
     id: row.id,
@@ -365,6 +373,7 @@ export async function getSafety(ctx: OrgContext, stackName: string): Promise<Dep
     enabled: gate !== null,
     windowSec: gate?.windowSec ?? DEFAULT_WINDOW_SEC,
     autoRollback: gate?.autoRollback ?? false,
+    errorTripPct: gate ? (gate.errorTripPct ?? null) : ERROR_TRIP_DEFAULT_PCT,
     strategy: parseStrategy(label(DEPLOY_STRATEGY_LABEL)),
   };
 }
@@ -376,8 +385,9 @@ export async function getSafety(ctx: OrgContext, stackName: string): Promise<Dep
  */
 export async function setSafety(
   ctx: OrgContext,
-  input: { stackName: string; enabled: boolean; windowSec: number; autoRollback: boolean },
+  input: { stackName: string; enabled: boolean; windowSec: number; autoRollback: boolean; errorTripPct?: number | null },
 ): Promise<DeploySafetyView> {
+  const errorTripPct = input.errorTripPct === undefined ? ERROR_TRIP_DEFAULT_PCT : input.errorTripPct;
   const svcs = liveStackServices(ctx, input.stackName);
   if (svcs.length === 0) {
     throw commandRejected(
@@ -385,7 +395,8 @@ export async function setSafety(
     );
   }
   const node = await resolveManagerNode(ctx);
-  const value = JSON.stringify({ windowSec: input.windowSec, autoRollback: input.autoRollback });
+  // `errorTripPct: null` is written out: an absent key means the default floor.
+  const value = JSON.stringify({ windowSec: input.windowSec, autoRollback: input.autoRollback, errorTripPct });
   try {
     for (const svc of svcs) {
       await ctx.hub.dispatch(node.id, 'service.updateLabels', {
@@ -406,6 +417,7 @@ export async function setSafety(
       enabled: input.enabled,
       windowSec: input.windowSec,
       autoRollback: input.autoRollback,
+      errorTripPct,
     },
   });
 
@@ -414,6 +426,7 @@ export async function setSafety(
     enabled: input.enabled,
     windowSec: input.windowSec,
     autoRollback: input.autoRollback,
+    errorTripPct,
     strategy: await getSafety(ctx, input.stackName).then((s) => s.strategy),
   };
 }

@@ -34,6 +34,11 @@ export const RELEASE_WORD: Record<ReleaseView['status'], string> = {
   superseded: 'Replaced',
 };
 
+/** What the safety gate's error trip wrote on a release ("Stopped: 7% of requests failed, up from 0.4%"), if anything. */
+export function tripNote(r: Pick<ReleaseView, 'notes'>): string | null {
+  return r.notes && /^(Stopped|Failed): \d/.test(r.notes) ? r.notes : null;
+}
+
 /** The version to put back to: the newest earlier one that ran healthy. */
 export function lastGood(rows: ReleaseView[]): ReleaseView | undefined {
   return rows.slice(1).find((r) => r.status === 'healthy' || r.status === 'superseded');

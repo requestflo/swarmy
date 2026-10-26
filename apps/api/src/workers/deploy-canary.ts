@@ -19,7 +19,7 @@
  *
  * The pure helpers in deploy-canary.core.ts MIRROR the unit-tested canonical
  * copies in `@swarmy/trpc` releases.service.ts — a worker cannot subpath-import
- * an internal trpc module (same constraint deploy-safety documents for
+ * an internal trpc module (same constraint deploy-gate.core.ts documents for
  * `decideGate`).
  */
 import { prisma } from '@swarmy/db';

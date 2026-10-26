@@ -4,7 +4,7 @@ import type { ReleaseView } from '@swarmy/core';
 import { CalmRow, Section, SectionLink } from '@/components/calm';
 import { ReleaseDetailCard } from '@/components/releases/release-detail-card';
 import { relativeTime } from '@/components/releases/release-status';
-import { RELEASE_TONE, RELEASE_WORD, actorName, releaseLabel } from './release-label';
+import { RELEASE_TONE, RELEASE_WORD, actorName, releaseLabel, tripNote } from './release-label';
 
 /** Every version of the app, newest first; picking one shows what changed and lets you put it back. */
 export function ReleaseHistory({ rows }: { rows: ReleaseView[] }): React.JSX.Element {
@@ -32,9 +32,12 @@ export function ReleaseHistory({ rows }: { rows: ReleaseView[] }): React.JSX.Ele
               tone={RELEASE_TONE[r.status]}
               name={releaseLabel(r)}
               sub={relativeTime(r.createdAt)}
-              say={`${r.notes?.toLowerCase().includes('rollback') ? 'Put back' : 'Deployed'} by ${actorName(r.actor)}${
-                r.images.length > 1 ? ` · ${r.images.length} services` : ''
-              }`}
+              say={
+                tripNote(r) ??
+                `${r.notes?.toLowerCase().includes('rollback') ? 'Put back' : 'Deployed'} by ${actorName(r.actor)}${
+                  r.images.length > 1 ? ` · ${r.images.length} services` : ''
+                }`
+              }
               tech={r.images.map((i) => i.image.split('/').pop()).join(' · ')}
               word={RELEASE_WORD[r.status]}
               onClick={() => setSelected((s) => (s === r.id ? null : r.id))}

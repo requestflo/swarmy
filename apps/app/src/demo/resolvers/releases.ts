@@ -26,7 +26,7 @@ interface ReleaseSeed extends ReleaseView {
 interface ReleasesState {
   releases: ReleaseSeed[];
   /** stackName → safety settings (mirrors the swarmy.deploy.safety label). */
-  safety: Record<string, { enabled: boolean; windowSec: number; autoRollback: boolean }>;
+  safety: Record<string, { enabled: boolean; windowSec: number; autoRollback: boolean; errorTripPct: number | null }>;
 }
 
 function getState(store: DemoStore): ReleasesState {
@@ -256,7 +256,7 @@ export const releases: DomainResolvers = {
         status: 'deploying',
         actor: s.user.email,
         notes: `Rollback to release ${target.id}`,
-        healthGate: gate?.enabled ? { windowSec: gate.windowSec, autoRollback: gate.autoRollback } : null,
+        healthGate: gate?.enabled ? { windowSec: gate.windowSec, autoRollback: gate.autoRollback, errorTripPct: gate.errorTripPct } : null,
         createdAt: new Date().toISOString(),
       };
       st.releases = [next, ...st.releases];
@@ -270,29 +270,33 @@ export const releases: DomainResolvers = {
     'releases.getSafety': (i, s): DeploySafetyView => {
       const { stackName } = i as { stackName: string };
       const st = getState(s);
-      const gate = st.safety[stackName] ?? { enabled: false, windowSec: 120, autoRollback: false };
+      const gate = st.safety[stackName] ?? { enabled: false, windowSec: 120, autoRollback: false, errorTripPct: 2 };
       return {
         stackName,
         enabled: gate.enabled,
         windowSec: gate.windowSec,
         autoRollback: gate.autoRollback,
+        errorTripPct: gate.errorTripPct,
         strategy: stackName === 'storefront' ? { type: 'canary', trafficPct: 10, durationMin: 15 } : null,
       };
     },
 
     'releases.setSafety': (i, s): DeploySafetyView => {
-      const b = i as { stackName: string; enabled: boolean; windowSec: number; autoRollback: boolean };
+      const b = i as { stackName: string; enabled: boolean; windowSec: number; autoRollback: boolean; errorTripPct?: number | null };
       const st = getState(s);
+      const errorTripPct = b.errorTripPct === undefined ? 2 : b.errorTripPct;
       st.safety[b.stackName] = {
         enabled: b.enabled,
         windowSec: b.windowSec,
         autoRollback: b.autoRollback,
+        errorTripPct,
       };
       return {
         stackName: b.stackName,
         enabled: b.enabled,
         windowSec: b.windowSec,
         autoRollback: b.autoRollback,
+        errorTripPct,
         strategy: b.stackName === 'storefront' ? { type: 'canary', trafficPct: 10, durationMin: 15 } : null,
       };
     },
@@ -380,8 +384,8 @@ export const releases: DomainResolvers = {
     // followed it), plus healthy/superseded history for believable diffs.
     const state: ReleasesState = {
       safety: {
-        storefront: { enabled: true, windowSec: 180, autoRollback: true },
-        platform: { enabled: true, windowSec: 120, autoRollback: false },
+        storefront: { enabled: true, windowSec: 180, autoRollback: true, errorTripPct: 2 },
+        platform: { enabled: true, windowSec: 120, autoRollback: false, errorTripPct: 5 },
       },
       releases: [
         {
@@ -475,8 +479,9 @@ export const releases: DomainResolvers = {
           ],
           actor: 'jamie@northwind.dev',
           strategy: { type: 'canary', trafficPct: 10, durationMin: 15 },
-          healthGate: { windowSec: 180, autoRollback: true },
-          notes: 'Health gate failed: api error rate 12% over 3m; 2/3 web tasks restarting',
+          healthGate: { windowSec: 180, autoRollback: true, errorTripPct: 2 },
+          // The error trip on the safety gate (board 35): what the worker writes when it puts one back.
+          notes: 'Stopped: 7% of requests failed, up from 0.4%',
           createdAt: iso(26 * HOUR + 20 * MIN),
           composeSource: storefrontCompose('1.8.3', '1.8.3', 2),
         },

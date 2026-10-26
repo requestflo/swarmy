@@ -2,15 +2,10 @@ import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import type { DeployStrategyView } from '@swarmy/core';
-import {
-  Button,
-  Input,
-  Label,
-  Switch,
-  toast,
-} from '@swarmy/ui';
+import { Button, Input, Label, Switch, toast } from '@swarmy/ui';
 import { Section } from '@/components/calm';
 import { useTRPC } from '@/integrations/trpc';
+import { ErrorTripRow } from './error-trip-row';
 
 function strategySummary(s: DeployStrategyView | null): string {
   if (!s) return 'Rolling update (default)';
@@ -37,6 +32,7 @@ export function SafetyCard({ stackName }: { stackName: string }): React.JSX.Elem
   const [enabled, setEnabled] = React.useState(false);
   const [windowSec, setWindowSec] = React.useState(120);
   const [autoRollback, setAutoRollback] = React.useState(false);
+  const [errorTripPct, setErrorTripPct] = React.useState<number | null>(2);
   const [dirty, setDirty] = React.useState(false);
 
   React.useEffect(() => {
@@ -44,6 +40,7 @@ export function SafetyCard({ stackName }: { stackName: string }): React.JSX.Elem
       setEnabled(safety.data.enabled);
       setWindowSec(safety.data.windowSec);
       setAutoRollback(safety.data.autoRollback);
+      setErrorTripPct(safety.data.errorTripPct);
     }
   }, [safety.data, dirty]);
 
@@ -118,6 +115,16 @@ export function SafetyCard({ stackName }: { stackName: string }): React.JSX.Elem
           />
         </div>
 
+        <ErrorTripRow
+          value={errorTripPct}
+          autoRollback={autoRollback}
+          disabled={!enabled}
+          onChange={(v) => {
+            setErrorTripPct(v);
+            setDirty(true);
+          }}
+        />
+
         <div className="flex items-center justify-between gap-4 border-t pt-4">
           <div>
             <Label className="text-sm font-medium">Strategy</Label>
@@ -131,7 +138,7 @@ export function SafetyCard({ stackName }: { stackName: string }): React.JSX.Elem
         <Button
           variant="outline"
           disabled={!dirty || save.isPending || (enabled && (windowSec < 30 || windowSec > 3600))}
-          onClick={() => save.mutate({ stackName, enabled, windowSec, autoRollback })}
+          onClick={() => save.mutate({ stackName, enabled, windowSec, autoRollback, errorTripPct })}
         >
           {save.isPending ? 'Saving…' : 'Save safety settings'}
         </Button>

@@ -219,6 +219,8 @@ export const SetDeploySafetyInput = z.object({
   windowSec: z.number().int().min(30).max(3600).default(120),
   /** Redeploy the previous healthy release automatically when the gate fails. */
   autoRollback: z.boolean().default(false),
+  /** The error trip: fail when the edge's 5xx share passes 3× the pre-deploy share and this floor (%); null = off. */
+  errorTripPct: z.number().min(0.5).max(50).nullable().default(2),
 });
 export type SetDeploySafetyInput = z.infer<typeof SetDeploySafetyInput>;
 

@@ -319,7 +319,7 @@ export const incidents: DomainResolvers = {
       title: 'Failed deploy on storefront',
       status: 'resolved',
       severity: 'critical',
-      summary: 'api errors went to 12% three minutes into 1.8.3; swarmy put 1.8.2 back by itself.',
+      summary: '7% of requests failed two minutes into 1.8.3, up from 0.4%; swarmy put 1.8.2 back by itself.',
       openedAt: minutesAgo(1577),
       resolvedAt: minutesAgo(1552),
       events: [
@@ -327,8 +327,8 @@ export const incidents: DomainResolvers = {
         {
           id: 'ie-g2',
           at: minutesAgo(1577),
-          kind: 'deploy.gate.failed',
-          message: 'Release rel-store-4 failed its health gate (api error rate 12% over 3m; 2/3 web tasks restarting)',
+          kind: 'deploy.gate.errors',
+          message: 'Release rel-store-4: 7% of requests failed, up from 0.4%',
           meta: { ...gkRel, releaseId: 'rel-store-4', stackName: 'storefront' },
         },
         {

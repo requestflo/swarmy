@@ -6,7 +6,7 @@
  *
  * These MIRROR the unit-tested canonical copies in `@swarmy/trpc`
  * releases.service.ts — a worker cannot subpath-import an internal trpc
- * module (same constraint deploy-safety documents for `decideGate`).
+ * module (same constraint deploy-gate.core.ts documents for `decideGate`).
  */
 import type { ServiceSpec } from '@swarmy/core/protocol';
 

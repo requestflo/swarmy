@@ -80,15 +80,22 @@ describe('parseHealthGate — swarmy.deploy.safety label codec', () => {
     expect(parseHealthGate('{"windowSec":300,"autoRollback":true}')).toEqual({
       windowSec: 300,
       autoRollback: true,
+      errorTripPct: 2,
     });
   });
 
   it('defaults autoRollback to false when absent or non-boolean', () => {
-    expect(parseHealthGate('{"windowSec":60}')).toEqual({ windowSec: 60, autoRollback: false });
+    expect(parseHealthGate('{"windowSec":60}')).toEqual({ windowSec: 60, autoRollback: false, errorTripPct: 2 });
     expect(parseHealthGate('{"windowSec":60,"autoRollback":"yes"}')).toEqual({
       windowSec: 60,
       autoRollback: false,
+      errorTripPct: 2,
     });
+  });
+
+  it('carries the error trip: the default floor when unnamed, off when null', () => {
+    expect(parseHealthGate('{"windowSec":60,"errorTripPct":5}')?.errorTripPct).toBe(5);
+    expect(parseHealthGate('{"windowSec":60,"errorTripPct":null}')?.errorTripPct).toBeNull();
   });
 
   it('rejects garbage, missing, and non-positive windows', () => {

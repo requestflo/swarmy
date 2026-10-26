@@ -6,7 +6,10 @@
  *  - `healthGateChecks` (D1): watch fresh `Release` rows in `deploying`; after
  *    the gate's `windowSec` consult the stack health narrative and mark the
  *    release healthy/failed — auto-rolling back to the previous healthy release
- *    when the `swarmy.deploy.safety` label asks for it.
+ *    when the `swarmy.deploy.safety` label asks for it. Inside the window the
+ *    error trip (`deploy-error-trip.ts`, pure rule in `@swarmy/core`) fails
+ *    it early when the app's 5xx share at the edge rises; the failure path is
+ *    `deploy-gate-fail.ts`, the pure bits `deploy-gate.core.ts`.
  *  - `canaryChecks` (D2): promote/rollback canary + blue/green deploys. D2
  *    registers by filling `canaryTick` in `deploy-canary.ts` — this file never
  *    changes for it.
@@ -17,24 +20,16 @@
  */
 import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
-import {
-  deployFromCompose,
-  fireEvent,
-  markRollback,
-  recordIncidentEvent,
-  summarizeStack,
-  systemContext,
-  writeAudit,
-} from '@swarmy/trpc';
+import { errorTripWatchSec } from '@swarmy/core';
+import { appTrafficMinutes, fireEvent, summarizeStack, systemContext, writeAudit } from '@swarmy/trpc';
 import type { OrgContext } from '@swarmy/trpc';
 import { hub } from '../gateway';
 import { canaryTick } from './deploy-canary';
+import { errorTripCheck, forgetErrorTrips } from './deploy-error-trip';
+import { failRelease } from './deploy-gate-fail';
+import { decideGate, gateOf, isAutoRollbackRelease } from './deploy-gate.core';
 
 const TICK_MS = 15_000;
-
-/** Gate applied to releases deployed WITHOUT a `swarmy.deploy.safety` label so
- *  they still settle out of `deploying` (never auto-rolled-back). */
-const DEFAULT_SETTLE_SEC = 120;
 
 /** One safety watcher, run every tick. */
 export type DeploySafetyHook = () => Promise<void>;
@@ -44,44 +39,7 @@ export const healthGateChecks: DeploySafetyHook[] = [healthGateTick];
 /** D2 canary/blue-green watchers (filled by `deploy-canary.ts`). */
 export const canaryChecks: DeploySafetyHook[] = [canaryTick];
 
-// ── pure gate decision ────────────────────────────────────────────────────────
-// Mirror of @swarmy/trpc releases.service.ts `decideGate` (the unit-tested
-// canonical copy — a worker cannot subpath-import an internal trpc module).
-
-export type GateDecision = 'wait' | 'healthy' | 'failed';
-
-export function decideGate(input: {
-  health: 'healthy' | 'degraded' | 'down' | 'unknown';
-  elapsedSec: number;
-  windowSec: number;
-}): GateDecision {
-  if (input.elapsedSec < input.windowSec) return 'wait';
-  if (input.health === 'healthy') return 'healthy';
-  if (input.health === 'degraded' || input.health === 'down') return 'failed';
-  // unknown: grace period, then benefit of the doubt — a gate never wedges.
-  return input.elapsedSec < input.windowSec * 2 ? 'wait' : 'healthy';
-}
-
-/** Loop guard: an automatic rollback release never auto-rolls back again. */
-export function isAutoRollbackRelease(notes: string | null): boolean {
-  return (notes ?? '').startsWith('Automatic rollback');
-}
-
 // ── health-gate tick ─────────────────────────────────────────────────────────
-
-interface GateJson {
-  windowSec?: unknown;
-  autoRollback?: unknown;
-}
-
-function gateOf(healthGateJson: unknown): { windowSec: number; autoRollback: boolean; configured: boolean } {
-  const g = healthGateJson as GateJson | null;
-  const windowSec = Number(g?.windowSec);
-  if (g && Number.isFinite(windowSec) && windowSec > 0) {
-    return { windowSec: Math.round(windowSec), autoRollback: g.autoRollback === true, configured: true };
-  }
-  return { windowSec: DEFAULT_SETTLE_SEC, autoRollback: false, configured: false };
-}
 
 async function judgeRelease(
   ctx: OrgContext,
@@ -94,11 +52,19 @@ async function judgeRelease(
   },
 ): Promise<void> {
   const gate = gateOf(release.healthGateJson);
+  // The error trip watches every whole minute of the window, before the health verdict.
+  if (gate.errorTripPct !== null && !isAutoRollbackRelease(release.notes)) {
+    const read = (from: number, to: number) => appTrafficMinutes(ctx, release.stackName, from, to);
+    const reasons = errorTripCheck(read, release, gate.errorTripPct);
+    if (reasons) return failRelease(ctx, release, gate.autoRollback, { by: 'errors', reasons });
+  }
+  // With the trip on the watch is long enough for the full minutes it needs.
+  const windowSec = gate.errorTripPct !== null ? Math.max(gate.windowSec, errorTripWatchSec()) : gate.windowSec;
   const elapsedSec = (Date.now() - release.createdAt.getTime()) / 1000;
-  if (elapsedSec < gate.windowSec) return; // still converging — cheap early out.
+  if (elapsedSec < windowSec) return; // still converging — cheap early out.
 
   const summary = await summarizeStack(ctx, release.stackName);
-  const decision = decideGate({ health: summary.status, elapsedSec, windowSec: gate.windowSec });
+  const decision = decideGate({ health: summary.status, elapsedSec, windowSec });
   if (decision === 'wait') return;
 
   if (decision === 'healthy') {
@@ -126,96 +92,13 @@ async function judgeRelease(
       actorType: 'system',
       targetType: 'release',
       targetId: release.id,
-      metadata: { stackName: release.stackName, windowSec: gate.windowSec },
+      metadata: { stackName: release.stackName, windowSec },
     });
     return;
   }
 
-  // Gate failed.
   const reasons = summary.reasons.length ? summary.reasons.join('; ') : summary.status;
-  await fireEvent(ctx, {
-    signal: 'deploy-failed',
-    severity: 'critical',
-    resource: `stack:${release.stackName}`,
-    message: `Health gate failed for ${release.stackName}: ${reasons}`,
-  });
-  await recordIncidentEvent(ctx, {
-    groupKey: `release:${release.stackName}`,
-    kind: 'deploy.gate.failed',
-    message: `Release ${release.id} failed its health gate (${reasons})`,
-    severity: 'critical',
-    meta: { releaseId: release.id, stackName: release.stackName },
-  });
-
-  const previousHealthy = gate.autoRollback
-    ? await prisma.release.findFirst({
-        where: { orgId: ctx.activeOrgId, stackName: release.stackName, status: 'HEALTHY' },
-        orderBy: { createdAt: 'desc' },
-        select: { id: true, composeSource: true },
-      })
-    : null;
-
-  if (!gate.autoRollback || !previousHealthy || isAutoRollbackRelease(release.notes)) {
-    await prisma.release.update({
-      where: { id: release.id },
-      data: { status: 'FAILED', notes: `Health gate failed: ${reasons}` },
-    });
-    await writeAudit(ctx, {
-      action: 'release.gate.failed',
-      actorType: 'system',
-      targetType: 'release',
-      targetId: release.id,
-      metadata: { stackName: release.stackName, reasons, autoRollback: false },
-    });
-    return;
-  }
-
-  // Auto-rollback: abandon the failed release, redeploy the previous healthy
-  // compose (a NEW release, gated again — the loop guard above stops cascades).
-  // Its start (before dispatch) and healthy instant go on the new release.
-  const startedAt = new Date();
-  await prisma.release.update({
-    where: { id: release.id },
-    data: { status: 'ROLLED_BACK', notes: `Health gate failed: ${reasons}` },
-  });
-  const deployed = await deployFromCompose(ctx, {
-    name: release.stackName,
-    composeSource: previousHealthy.composeSource,
-    override: true, // system remediation is never wedged by warn-level policy
-  });
-  if (deployed.releaseId) {
-    await markRollback(ctx, {
-      releaseId: deployed.releaseId,
-      rollbackOf: previousHealthy.id,
-      startedAt,
-      notes: `Automatic rollback to release ${previousHealthy.id} (failed gate on ${release.id})`,
-    });
-  }
-  await writeAudit(ctx, {
-    action: 'release.gate.autoRollback',
-    actorType: 'system',
-    targetType: 'release',
-    targetId: release.id,
-    metadata: {
-      stackName: release.stackName,
-      reasons,
-      rolledBackTo: previousHealthy.id,
-      newReleaseId: deployed.releaseId,
-    },
-  });
-  await fireEvent(ctx, {
-    signal: 'deploy-rolled-back',
-    severity: 'critical',
-    resource: `stack:${release.stackName}`,
-    message: `${release.stackName} failed its health gate (${reasons}) and was rolled back to release ${previousHealthy.id}`,
-  }).catch(() => undefined);
-  await recordIncidentEvent(ctx, {
-    groupKey: `release:${release.stackName}`,
-    kind: 'deploy.gate.rollback',
-    message: `Auto-rolled ${release.stackName} back to release ${previousHealthy.id}`,
-    severity: 'warning',
-    meta: { failedReleaseId: release.id, rolledBackTo: previousHealthy.id },
-  });
+  await failRelease(ctx, release, gate.autoRollback, { by: 'health', reasons });
 }
 
 async function healthGateTick(): Promise<void> {
@@ -232,6 +115,7 @@ async function healthGateTick(): Promise<void> {
     orderBy: { createdAt: 'asc' },
     take: 100,
   });
+  forgetErrorTrips(new Set(deploying.map((r) => r.id)));
   if (deploying.length === 0) return;
 
   const auth = authRegistry.getAuth();
