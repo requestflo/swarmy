@@ -35,6 +35,7 @@ import { SwarmJoinMsg, SwarmRotateTokensMsg, SwarmSetAutolockMsg } from './swarm
 import { BackupVolumeMsg, RestoreVolumeMsg, ListSnapshotsMsg } from './backup';
 import { DbBackupMsg, DbRestoreMsg } from './dbBackup';
 import { DbPitrWindowMsg } from './pitrWindow';
+import { DbWalVerifyMsg } from './walVerify';
 import { EdgeCertsMsg } from './edge-certs';
 import { EdgeCertRenewMsg } from './edge-cert-renew';
 import { ControllerServiceMsg } from './controllerService';
@@ -137,6 +138,7 @@ export const ControllerToAgentMessage = z.discriminatedUnion('type', [
   DbBackupMsg,
   DbRestoreMsg,
   DbPitrWindowMsg,
+  DbWalVerifyMsg,
   EdgeCertsMsg,
   EdgeCertRenewMsg,
   AppDbBackupMsg,

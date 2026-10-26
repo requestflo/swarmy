@@ -50,6 +50,7 @@ import { resilience } from './resolvers/resilience';
 import { resilienceLive } from './resolvers/resilience-live';
 import { dbRestoreCopy } from './resolvers/db-restore-copy';
 import { dbPitrWindow } from './resolvers/db-pitr-window';
+import { dbWalCheck } from './resolvers/db-wal-check';
 import { dbBackupEngines } from './resolvers/db-backup-engines';
 import { controllerstore } from './resolvers/controllerstore';
 import { platform } from './resolvers/platform';
@@ -157,6 +158,7 @@ const MODULES: DomainResolvers[] = [
   resilienceLive,
   dbRestoreCopy,
   dbPitrWindow,
+  dbWalCheck,
   dbBackupEngines,
   controllerstore,
   platform,

@@ -26,6 +26,8 @@ import type { OrgContext } from '../context';
 import { commandRejected } from '../errors';
 import { errorTail } from './dbPitrRestore.service';
 import { judgePitrTarget, type PitrTargetAsk } from './dbPitrWindow.judge';
+import { knownWalCheck } from './dbWalCheck.cache';
+import { judgeWalTarget, walGaps } from './dbWalCheck.judge';
 
 /** Where and how to read the WAL repo: the restore's own node, destination and networks. */
 export interface PitrWindowRequest {
@@ -99,8 +101,8 @@ export interface PitrPreflightInput extends PitrWindowRequest, PitrTargetAsk {
 }
 
 /**
- * Read the window and refuse a target outside it, before the safety copy or
- * the stop. Returns the read, or null when the check was skipped (logged):
+ * Read the window and refuse a target outside it (or inside a WAL gap the
+ * last check found), before the safety copy or the stop. Returns the read, or null when the check was skipped (logged):
  * an engine whose window cannot be read yet, or an agent without the command.
  * A failed read refuses too: the restore would fail at the same list, only
  * after the save and the stop.
@@ -129,5 +131,10 @@ export async function pitrPreflight(
   rememberPitrWindow(ctx.activeOrgId, input.ref, read.result);
   const refusal = judgePitrTarget(read.result, input);
   if (refusal) throw commandRejected(refusal);
+  // A gap the last WAL check found (this hour) is out of reach too; the
+  // fresh backup list says where restores can reach past it again.
+  const wal = knownWalCheck(ctx.activeOrgId, input.ref);
+  const gap = wal ? judgeWalTarget(input.ref, walGaps(wal, read.result.backups), input.targetTime) : null;
+  if (gap) throw commandRejected(gap);
   return read.result;
 }

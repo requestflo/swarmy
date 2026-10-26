@@ -14,6 +14,7 @@ import {
 } from '../services/dbBackup.service';
 import { dbBackupEngineOffers } from '../services/dbBackupEngines';
 import { restoreDbAsCopy } from '../services/dbRestoreCopy.service';
+import { getDbWalCheck } from '../services/dbWalCheck.service';
 
 const copyName = z
   .string()
@@ -49,6 +50,16 @@ export const dbBackupRouter = router({
   pitrWindow: orgProcedure
     .input(z.object({ stack: z.string().min(1), cluster: z.string().min(1) }))
     .query(({ ctx, input }) => getDbPitrWindow(ctx, input)),
+
+  /**
+   * Is the WAL archive continuous? A read-only `wal-g wal-verify` by the
+   * cluster's agent (a read from the last few minutes is reused);
+   * `source: 'unsupported'` on an agent that predates it, `none` without
+   * wal-g PITR.
+   */
+  walCheck: orgProcedure
+    .input(z.object({ stack: z.string().min(1), cluster: z.string().min(1) }))
+    .query(({ ctx, input }) => getDbWalCheck(ctx, input)),
 
   /** The cluster's recurring-backup schedule, or null when none is set. */
   getSchedule: orgProcedure

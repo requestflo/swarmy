@@ -31,6 +31,8 @@ export const AGENT_CAPABILITY = {
    * the controller ask every server without sending a frame an agent would drop.
    */
   probeSmtp: 'probeSmtp',
+  /** Read-only: is a wal-g PITR cluster's WAL archive continuous (`dbWalVerify`, `wal-g wal-verify`)? */
+  dbWalVerify: 'dbWalVerify',
 } as const;
 export type AgentCapability = (typeof AGENT_CAPABILITY)[keyof typeof AGENT_CAPABILITY];
 
@@ -42,6 +44,7 @@ export const AGENT_CAPABILITIES: readonly AgentCapability[] = [
   AGENT_CAPABILITY.edgeCertRenew,
   AGENT_CAPABILITY.restartAgent,
   AGENT_CAPABILITY.probeSmtp,
+  AGENT_CAPABILITY.dbWalVerify,
 ];
 
 /**

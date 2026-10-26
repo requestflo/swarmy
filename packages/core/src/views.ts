@@ -400,6 +400,45 @@ export interface DbPitrWindowView {
   checkedAt: string | null;
 }
 
+/** A stretch of WAL that is missing for good: a point-in-time restore cannot replay through it. */
+export interface DbWalGapView {
+  /** The last archived change before the gap, ISO (null when the archive had no time for it). */
+  from: string | null;
+  /** The first archived change after it, ISO (null when nothing was archived after it yet). */
+  to: string | null;
+  segments: number;
+  startSegment: string;
+  endSegment: string;
+  /**
+   * When the first base backup taken after the gap finished: restore times
+   * from the gap up to then are out of reach (replay from an older base
+   * backup stops at the gap). Null when there is none yet.
+   */
+  reachableAgainAt: string | null;
+}
+
+/** Is a wal-g PITR cluster's WAL archive continuous? (`dbBackups.walCheck`, `wal-g wal-verify`) */
+export interface DbWalCheckView {
+  /**
+   * `agent`: read from the archive by the cluster's agent (this hour).
+   * `unsupported`: the agent predates the check. `none`: not a wal-g PITR
+   * cluster, or not read yet.
+   */
+  source: 'agent' | 'unsupported' | 'none';
+  /** `continuous`: nothing lost. `gaps`: at least one gap. Null without a read. */
+  status: 'continuous' | 'gaps' | null;
+  /** WAL is continuous from here to its newest archived change (after the last gap). */
+  continuousSince: string | null;
+  /** The newest archived change, when the listing had its time. */
+  latestWalAt: string | null;
+  gaps: DbWalGapView[];
+  /** The newest segments not archived yet (Postgres still writing or uploading them): not a gap. */
+  pendingSegments: number;
+  /** The timeline check (a higher timeline in the archive than the cluster's own is a split brain). */
+  timeline: 'ok' | 'warning' | 'failure' | null;
+  checkedAt: string | null;
+}
+
 // ── Managed-DB topology view fragments (shared by the topology selector UI) ──
 export type DbTopologyMode = 'single' | 'primary-replica' | 'failover' | 'geo' | 'active-active';
 
@@ -2304,7 +2343,9 @@ export type ResilienceCheckId =
   | 'controller-store'
   | 'mesh-control'
   /** A swarm-kv document, or swarmy's whole swarm-kv footprint, nearing its size limit. */
-  | 'swarm-kv-size';
+  | 'swarm-kv-size'
+  /** A wal-g PITR cluster's WAL archive has a gap: a restore cannot land inside it. */
+  | 'wal-gap';
 
 /** One posture problem with a severity and a link to the page that fixes it. */
 export interface ResilienceProblemView {

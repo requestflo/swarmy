@@ -7,7 +7,8 @@ import { pickPitrWindow } from './pitr-scrub';
  * the coverage row (schedule summary + the PITR window), the schedule label,
  * the restore points in the catalog, where they go, and the app's drills.
  * For a wal-g PITR cluster the window is the agent's read of the WAL repo
- * (`dbBackups.pitrWindow`, a sidecar run, so read sparingly) when it can.
+ * (`dbBackups.pitrWindow`, a sidecar run, so read sparingly) when it can, and
+ * `dbBackups.walCheck` says whether that archive has a gap.
  */
 export function usePgBackups(stack: string, cluster: string) {
   const trpc = useTRPC();
@@ -24,6 +25,14 @@ export function usePgBackups(stack: string, cluster: string) {
   const walg = schedule.data?.pitr === true && schedule.data.engine === 'wal-g';
   const read = useQuery({
     ...trpc.dbBackups.pitrWindow.queryOptions({ stack, cluster }),
+    enabled: walg,
+    staleTime: 60_000,
+    refetchInterval: 5 * 60_000,
+    retry: false,
+  });
+  // Is the WAL archive continuous? (`wal-g wal-verify`, also a sidecar; the controller reuses a fresh read.)
+  const wal = useQuery({
+    ...trpc.dbBackups.walCheck.queryOptions({ stack, cluster }),
     enabled: walg,
     staleTime: 60_000,
     refetchInterval: 5 * 60_000,
@@ -47,6 +56,8 @@ export function usePgBackups(stack: string, cluster: string) {
     pitrWindow: pitr.window,
     pitrWindowSource: pitr.source,
     pitrReadUnsupported: walg && read.data?.source === 'unsupported',
+    /** The agent's WAL continuity read (wal-g PITR only). */
+    walCheck: walg ? (wal.data ?? null) : null,
     schedule: s,
     target,
     hasTarget,

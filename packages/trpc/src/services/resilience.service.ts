@@ -70,6 +70,7 @@ import { getConfig as getStorageConfig } from './replicatedStore.service';
 import { drillProgressBus, type DrillProgress } from './drill-progress';
 import { meshControlProblems, meshControlSignal, type MeshControlSignal } from './resilience-mesh';
 import { swarmKvSizeProblems, swarmKvSizeSignal, type SwarmKvSizeSignal } from './resilience.swarm-kv';
+import { walGapProblems, walGapSignal, type WalGapSignal } from './resilience.wal-gaps';
 
 // ── Read-only label mirrors (A3/E4 schemes; canonical copies live with owners) ─
 const CACHE_ROLE_LABEL = 'swarmy.cache.role';
@@ -136,6 +137,8 @@ export interface ResilienceSnapshot {
   meshControl?: MeshControlSignal;
   /** swarm-kv documents / footprint near their size limits (absent = the swarm couldn't be read). */
   swarmKvSize?: SwarmKvSizeSignal;
+  /** wal-g PITR clusters with their last WAL check (absent = not gathered). */
+  walGaps?: WalGapSignal;
 }
 
 // ── Pure helpers ───────────────────────────────────────────────────────────────
@@ -384,6 +387,8 @@ export function runChecks(snap: ResilienceSnapshot): ResilienceProblemView[] {
   out.push(...meshControlProblems(snap.meshControl));
   // 9d. swarmy's own config in the swarm (swarm-kv) nearing its size limits.
   out.push(...swarmKvSizeProblems(snap.swarmKvSize));
+  // 9e. A WAL gap in a PITR cluster's archive: a restore can't land inside it.
+  out.push(...walGapProblems(snap.walGaps));
 
   // 10–12. Swarm manager quorum (WS2). The check ids are additive to
   // ResilienceCheckId; the views.ts union is owned by another workstream this
@@ -609,6 +614,7 @@ export async function buildSnapshot(ctx: OrgContext, stack?: string): Promise<Re
   const controllerStore = await getStoreStatus(ctx).then(controllerStoreSignal).catch(() => null);
   const meshControl = await meshControlSignal(ctx).catch(() => undefined);
   const swarmKvSize = await swarmKvSizeSignal(ctx).catch(() => undefined);
+  const walGaps = walGapSignal(ctx, stack);
 
   const lastRestore = drills.find((d) => d.kind === 'restore' && d.status === 'passed');
 
@@ -644,6 +650,7 @@ export async function buildSnapshot(ctx: OrgContext, stack?: string): Promise<Re
     },
     ...(meshControl ? { meshControl } : {}),
     ...(swarmKvSize ? { swarmKvSize } : {}),
+    ...(walGaps ? { walGaps } : {}),
   };
 }
 

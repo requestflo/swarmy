@@ -36,6 +36,7 @@ export type CommandName =
   | 'db.backup' // data-plane: logical/physical DB backup (pg_dump/wal-g/…)
   | 'db.restore'
   | 'db.pitrWindow' // read-only: a PITR cluster's base backups + recoverable window (agent capability `dbPitrWindow`)
+  | 'db.walVerify' // read-only: is a wal-g PITR cluster's WAL archive continuous? (agent capability `dbWalVerify`)
   | 'edge.certs' // read-only: the certificates this node's edge Caddy holds, `.crt` facts only (agent capability `edgeCerts`)
   | 'edge.certRenew' // Renew now: re-issue one certificate on this node's edge Caddy, old one put back if none comes (capability `edgeCertRenew`)
   | 'appdb.backup' // compose MySQL/MariaDB/Mongo/Redis/Valkey logical dump → restic
@@ -106,6 +107,7 @@ export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
   'db.backup': 'dbBackup',
   'db.restore': 'dbRestore',
   'db.pitrWindow': 'dbPitrWindow',
+  'db.walVerify': 'dbWalVerify',
   'edge.certs': 'edgeCerts',
   'edge.certRenew': 'edgeCertRenew',
   'appdb.backup': 'appDbBackup',

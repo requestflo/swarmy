@@ -15,6 +15,7 @@ import { buildGateAllows, BUILDER_ENABLE_HINT, carryContainerLabels, execGateAll
 import { env } from './env';
 import { backupVolume, restoreVolume, listSnapshots, backupDb, restoreDb } from './handlers/backup';
 import { dbPitrWindow } from './handlers/pitr-window';
+import { dbWalVerify } from './handlers/wal-verify';
 import { readEdgeCerts } from './handlers/edge-certs';
 import { renewEdgeCert } from './handlers/edge-cert-renew';
 import { appDbBackup, appDbRestore, appDbVerify } from './handlers/appdb';
@@ -272,6 +273,14 @@ export async function handleCommand(
       // the SWARMY_ALLOW_EXEC veto. Advertised in AGENT_CAPABILITIES.
       const p = envlp.payload;
       return run(conn, p.commandId, () => dbPitrWindow(docker, p));
+    }
+    case 'dbWalVerify': {
+      // Read-only wal-g wal-verify in a sidecar, gated like dbPitrWindow (no
+      // exec into a task, so no SWARMY_ALLOW_EXEC veto); the primary's
+      // password is the sidecar's 0600 PGPASSFILE, as for dbBackup.
+      // Advertised in AGENT_CAPABILITIES.
+      const p = envlp.payload;
+      return run(conn, p.commandId, () => dbWalVerify(docker, p));
     }
     case 'edgeCerts': {
       // Read-only: the `.crt` facts of this node's edge Caddy task (swarmy's

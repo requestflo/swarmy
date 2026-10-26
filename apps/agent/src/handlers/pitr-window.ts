@@ -48,9 +48,29 @@ export function parseWalgBackups(listJson: string): PitrBaseBackup[] {
 }
 
 /** A 24-hex WAL segment name (optionally compressed: `.lz4`, `.br`, …). */
-const SEGMENT_RE = /(?:^|\s|\/)[0-9A-F]{24}(?:\.[A-Za-z0-9]+)?\s*$/;
+const SEGMENT_RE = /(?:^|\s|\/)([0-9A-F]{24})(?:\.[A-Za-z0-9]+)?\s*$/;
 /** Go's `time.Time` text (`2026-10-24 09:15:00.123 +0000 UTC`) or an ISO time. */
 const TIME_RE = /(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(\.\d+)?(?:\s*(Z|[+-]\d{2}:?\d{2}))?/;
+
+/**
+ * PURE: every archived WAL segment in a `wal-g st ls` listing with its
+ * upload time (ms epoch). History files, directories and unreadable lines
+ * are skipped.
+ */
+export function walUploads(listing: string): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const line of listing.split(/\r?\n/)) {
+    const seg = SEGMENT_RE.exec(line)?.[1];
+    if (!seg) continue;
+    const m = TIME_RE.exec(line);
+    if (!m) continue;
+    const frac = m[3] ? m[3].slice(0, 4) : '';
+    const zone = !m[4] || m[4] === 'Z' ? 'Z' : m[4].includes(':') ? m[4] : `${m[4].slice(0, 3)}:${m[4].slice(3)}`;
+    const at = Date.parse(`${m[1]}T${m[2]}${frac}${zone}`);
+    if (Number.isFinite(at)) out.set(seg, at);
+  }
+  return out;
+}
 
 /**
  * PURE: the upload time of the newest archived WAL segment in a
@@ -58,15 +78,7 @@ const TIME_RE = /(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(\.\d+)?(?:\s*(Z|[+-]
  */
 export function latestWalUpload(listing: string): string | undefined {
   let latest = Number.NEGATIVE_INFINITY;
-  for (const line of listing.split(/\r?\n/)) {
-    if (!SEGMENT_RE.test(line)) continue;
-    const m = TIME_RE.exec(line);
-    if (!m) continue;
-    const frac = m[3] ? m[3].slice(0, 4) : '';
-    const zone = !m[4] || m[4] === 'Z' ? 'Z' : m[4].includes(':') ? m[4] : `${m[4].slice(0, 3)}:${m[4].slice(3)}`;
-    const at = Date.parse(`${m[1]}T${m[2]}${frac}${zone}`);
-    if (Number.isFinite(at) && at > latest) latest = at;
-  }
+  for (const at of walUploads(listing).values()) if (at > latest) latest = at;
   return Number.isFinite(latest) ? new Date(latest).toISOString() : undefined;
 }
 

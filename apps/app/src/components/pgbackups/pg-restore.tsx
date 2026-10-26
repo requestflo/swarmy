@@ -10,6 +10,8 @@ import { fmtBytes, isPhysical } from '@/components/stacks/db-backup-format';
 import { clampPit, formatPit, pitSpan, spanDays } from './pitr-scrub';
 import { PgScrubber } from './pg-scrubber';
 import { PgWindowNote } from './pg-window-note';
+import { PgWalLine } from './pg-wal-line';
+import { isBlocked, walBlocked } from './wal-check';
 import { PgRestoreTarget, type RestoreTarget } from './pg-restore-target';
 import { pointTime } from './retention-strip';
 import type { PgBackupsData } from './use-pg-backups';
@@ -41,6 +43,9 @@ export function PgRestore({ stack, cluster, b, selected, primary }: PgRestorePro
   const pitr = span != null && s != null && isPhysical(s.engine);
   const [pit, setPit] = React.useState<number | null>(null);
   const at = span ? clampPit(pit ?? span.toMs, span) : null;
+  // A WAL gap blocks from its start to the next base copy: no restore lands there.
+  const blocked = React.useMemo(() => (span ? walBlocked(b.walCheck, span) : []), [span, b.walCheck]);
+  const unreachable = pitr && at != null && isBlocked(at, blocked);
   // Clone / in-place restores take logical saves only (the agent refuses a physical one).
   const logical = b.points.filter((p) => !p.engine || !isPhysical(p.engine));
   const point = logical.find((p) => p.id === selected) ?? logical[0] ?? null;
@@ -70,7 +75,7 @@ export function PgRestore({ stack, cluster, b, selected, primary }: PgRestorePro
     if (target === 'new') return copy.restore.mutate({ stack, cluster, ...what, name: copy.name });
     restore.mutate({ stack, cluster, ...what, ...(pitr ? { mode: 'pitr' as const, dataVolume: s?.dataVolume ?? undefined } : { mode: 'in-place' as const }) });
   };
-  const ready = (pitr || point != null) && (target === 'in' ? confirm.trim() === ref : copy.ready);
+  const ready = (pitr || point != null) && !unreachable && (target === 'in' ? confirm.trim() === ref : copy.ready);
   const pending = restore.isPending || copy.running != null;
   const when = pitr && at != null ? formatPit(at) : point ? `${pointTime(Date.parse(point.time))} UTC` : null;
   const done = restore.data;
@@ -81,10 +86,11 @@ export function PgRestore({ stack, cluster, b, selected, primary }: PgRestorePro
       title={pitr ? 'Restore to a point in time' : 'Restore a saved copy'}
       count={pitr && span ? `any second in the last ${spanDays(span)} days` : point ? `from the save of ${pointTime(Date.parse(point.time))} UTC` : undefined}
     >
-      {pitr && span && at != null ? <PgScrubber span={span} value={at} onChange={setPit} /> : null}
+      {pitr && span && at != null ? <PgScrubber span={span} value={at} onChange={setPit} blocked={blocked} /> : null}
       {pitr && span ? (
         <PgWindowNote span={span} source={b.pitrWindowSource} checked={s?.engine === 'wal-g' && !b.pitrReadUnsupported} unsupported={b.pitrReadUnsupported} />
       ) : null}
+      {pitr ? <PgWalLine check={b.walCheck} /> : null}
       {!pitr && s?.pitr ? (
         <p className="text-muted-foreground text-[13px]">Restoring to any second opens once the first base copy has saved.</p>
       ) : null}
@@ -104,8 +110,8 @@ export function PgRestore({ stack, cluster, b, selected, primary }: PgRestorePro
             >
               {target === 'in' ? 'Restore in place' : `Restore into ${copy.name}`}
             </Button>
-            <span className="text-muted-foreground font-mono text-[11.5px]">
-              {target === 'in' ? 'typed confirm · audited' : `no downtime for ${cluster}`}
+            <span className={unreachable ? 'text-tone-warn text-[12.5px]' : 'text-muted-foreground font-mono text-[11.5px]'}>
+              {unreachable ? 'That time is inside the WAL gap: pick one outside it.' : target === 'in' ? 'typed confirm · audited' : `no downtime for ${cluster}`}
             </span>
           </div>
         </>

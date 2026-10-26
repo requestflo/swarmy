@@ -111,6 +111,8 @@ export const DEFAULT_COMMAND_TIMEOUTS: Record<string, number> = {
   dbRestore: 4 * 3_600_000,
   // Read-only PITR window check: one `wal-g backup-list` (+ a WAL listing).
   dbPitrWindow: 300_000,
+  // Read-only WAL continuity check: one `wal-g wal-verify` (+ the WAL listing).
+  dbWalVerify: 300_000,
   // Read-only: one in-task shell loop over the edge's `.crt` files.
   edgeCerts: 30_000,
   // Renew now: two reloads + up to `waitMs` (≤ 5 min) for the CA, then a restore.

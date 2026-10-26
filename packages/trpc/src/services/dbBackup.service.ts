@@ -718,6 +718,33 @@ export async function getDbPitrWindow(ctx: OrgContext, input: { stack: string; c
   }
 }
 
+/** Where a read-only wal-g check of a PITR cluster runs: the restore's own node, destination and networks. */
+export interface WalgClusterRead {
+  nodeId: string;
+  repo: ResticRepo;
+  network: string;
+  resticNetwork?: string;
+  /** The live primary's connection; reads the password from its Docker secret, so call it only when needed. */
+  conn: () => Promise<DbConnection>;
+}
+
+/** The read context of a wal-g PITR cluster, or null when the cluster archives no WAL with wal-g. */
+export async function walgClusterRead(ctx: OrgContext, stack: string, cluster: string): Promise<WalgClusterRead | null> {
+  const { primary } = findCluster(ctx, stack, cluster);
+  if (!primary) throw notFound('db cluster primary', cluster);
+  const schedule = parseScheduleLabel(primary.labels[DB_BACKUP_SCHEDULE_LABEL]);
+  if (!schedule?.pitr || schedule.engine !== 'wal-g') return null;
+  const target = await loadTarget(ctx, await resolveTargetId(ctx, undefined, schedule));
+  const node = await physicalNode(ctx, primary.labels);
+  return {
+    nodeId: node.id,
+    repo: toResticRepo(target),
+    network: clusterNetworkName(stack, cluster),
+    resticNetwork: resticNetworkFor(target.endpoint),
+    conn: () => connFrom(ctx, stack, cluster, primary),
+  };
+}
+
 // ── list ────────────────────────────────────────────────────────────────────
 
 export async function listDbBackups(

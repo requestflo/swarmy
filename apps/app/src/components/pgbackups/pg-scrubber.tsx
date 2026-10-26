@@ -16,6 +16,8 @@ interface PgScrubberProps {
   span: PitSpan;
   value: number;
   onChange: (ms: number) => void;
+  /** Stretches no restore can reach (a WAL gap up to the next base copy), shaded. */
+  blocked?: ReadonlyArray<{ fromMs: number; toMs: number }>;
 }
 
 /**
@@ -23,7 +25,7 @@ interface PgScrubberProps {
  * (click a block to jump), the ±10 s stepper, and an exact UTC time at
  * Controls. The value never leaves the window.
  */
-export function PgScrubber({ span, value, onChange }: PgScrubberProps): React.JSX.Element {
+export function PgScrubber({ span, value, onChange, blocked = [] }: PgScrubberProps): React.JSX.Element {
   const { atLeast } = useDepth();
   const segs = React.useMemo(() => pitSegments(span), [span]);
   const axis = React.useMemo(() => pitAxis(span), [span]);
@@ -46,11 +48,13 @@ export function PgScrubber({ span, value, onChange }: PgScrubberProps): React.JS
   return (
     <div className="flex flex-col gap-2">
       <div role="group" aria-label="Jump to a time" className="flex h-9 overflow-hidden rounded-[10px] bg-[var(--code)]">
-        {segs.map((g) => (
+        {segs.map((g) => {
+          const gap = blocked.some((b) => g.startMs < b.toMs && g.endMs > b.fromMs);
+          return (
           <button
             key={g.index}
             type="button"
-            aria-label={`Jump to ${formatPit(g.midMs)} UTC`}
+            aria-label={`Jump to ${formatPit(g.midMs)} UTC${gap ? ' (touches a WAL gap)' : ''}`}
             aria-pressed={g.index === on}
             onClick={() => onChange(g.midMs)}
             // A strip of blocks, not a row of buttons: the touch rule's 44px min-width
@@ -58,10 +62,11 @@ export function PgScrubber({ span, value, onChange }: PgScrubberProps): React.JS
             style={{ minWidth: 0 }}
             className={cn(
               'flex-1 border-r border-[var(--code)] outline-none last:border-r-0 focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-inset',
-              g.index === on ? 'bg-primary' : 'bg-status-progress/25 hover:bg-status-progress/45',
+              g.index === on ? 'bg-primary' : gap ? 'bg-status-warning/45 hover:bg-status-warning/60' : 'bg-status-progress/25 hover:bg-status-progress/45',
             )}
           />
-        ))}
+          );
+        })}
       </div>
       <div aria-hidden className="text-muted-foreground flex justify-between font-mono text-[11px]">
         {axis.map((a) => (

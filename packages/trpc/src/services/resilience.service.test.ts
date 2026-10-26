@@ -455,3 +455,20 @@ describe('storage-offsite check', () => {
     expect(byCheck(runChecks(healthySnapshot()), 'storage-offsite')).toHaveLength(0);
   });
 });
+
+describe('wal-gap check', () => {
+  const gap = { from: '2026-07-01T13:10:00.000Z', to: '2026-07-01T13:25:00.000Z', segments: 2, startSegment: 'S0A', endSegment: 'S0B', reachableAgainAt: null };
+  const check = { source: 'agent' as const, status: 'gaps' as const, continuousSince: gap.to, latestWalAt: NOW, gaps: [gap], pendingSegments: 0, timeline: 'ok' as const, checkedAt: NOW };
+
+  it('an open WAL gap is a problem in the list, sorted with the crits in production', () => {
+    const p = runChecks(healthySnapshot({ walGaps: { clusters: [{ stack: 'shop', cluster: 'main', production: true, check }] } }));
+    expect(byCheck(p, 'wal-gap').map((x) => [x.id, x.severity])).toEqual([['wal-gap/shop/main/0', 'crit']]);
+    expect(p[0]!.check).toBe('wal-gap');
+  });
+
+  it('is quiet without the signal, and for a continuous archive', () => {
+    expect(byCheck(runChecks(healthySnapshot()), 'wal-gap')).toHaveLength(0);
+    const calm = { ...check, status: 'continuous' as const, gaps: [] };
+    expect(byCheck(runChecks(healthySnapshot({ walGaps: { clusters: [{ stack: 'shop', cluster: 'main', production: true, check: calm }] } })), 'wal-gap')).toHaveLength(0);
+  });
+});
