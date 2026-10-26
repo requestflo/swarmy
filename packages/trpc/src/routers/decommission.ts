@@ -10,6 +10,7 @@ import {
   stopDecommission,
 } from '../services/decommission.service';
 import { deleteOldCopy, moveServiceData, planServiceMove } from '../services/volumeMove.service';
+import { checkUndoMove, runUndoMove } from '../services/volumeMove.undo';
 
 /**
  * Volume mobility (plans/epic-volume-mobility.md): retire a server, move one
@@ -69,5 +70,20 @@ export const decommissionRouter = router({
       void moveServiceData(ctx, input).catch(() => undefined); // failures roll back + audit inside
       // `warnings`: e.g. a volume size nobody reported, so the disk fit went unchecked.
       return { started: true, service: input.service, warnings: plan.warnings };
+    }),
+
+  /**
+   * Undo the newest move within 24 hours: back onto the old copy it kept, no
+   * copying. Gated and audited like the move. Both copies are checked against
+   * the move's snapshot point first (awaited, so a refusal such as "Writes
+   * happened on wkr-2 since the move" reaches the person); the stop, the
+   * re-check and the re-pin then run in the background on `swarmy.move.state`.
+   */
+  undoMove: adminProcedure
+    .input(z.object({ service: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const plan = await checkUndoMove(ctx, input);
+      void runUndoMove(ctx, plan).catch(() => undefined); // failures roll back + audit inside
+      return { started: true, service: input.service, from: plan.dest.nodeId, to: plan.source.nodeId };
     }),
 });

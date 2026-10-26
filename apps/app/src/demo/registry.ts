@@ -92,6 +92,7 @@ import { traffic } from './resolvers/traffic';
 import { stackLinks } from './resolvers/stack-links';
 import { scaling } from './resolvers/scaling';
 import { movesDemo } from './resolvers/moves';
+import { movesUndoDemo } from './resolvers/moves-undo';
 import { meshGrants } from './resolvers/mesh-grants';
 import { meshMtu } from './resolvers/mesh-mtu';
 import { meshLinks } from './resolvers/mesh-links';
@@ -208,6 +209,8 @@ const MODULES: DomainResolvers[] = [
   pgPoolerDemo,
   scaling,
   movesDemo,
+  // Overrides gaps' empty decommission.oldCopies with the copies demo moves keep.
+  movesUndoDemo,
   meshGrants,
   meshMtu,
   meshLinks,

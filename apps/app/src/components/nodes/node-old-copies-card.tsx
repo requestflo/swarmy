@@ -19,10 +19,12 @@ import {
   toast,
 } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
+import { OldCopyUndo } from './old-copy-undo';
 
 /**
- * Old copies left on this server by a move. Kept for 7 days, then the owner is
- * asked — swarmy never deletes one on its own. Renders nothing when there are none.
+ * Old copies left on this server by a move. For 24 hours the newest move can
+ * be undone onto its copy; it is kept for 7 days, then the owner is asked —
+ * swarmy never deletes one on its own. Renders nothing when there are none.
  */
 export function NodeOldCopiesCard({ nodeId }: { nodeId: string }): React.JSX.Element | null {
   const trpc = useTRPC();
@@ -59,28 +61,31 @@ export function NodeOldCopiesCard({ nodeId }: { nodeId: string }): React.JSX.Ele
                 {c.due ? '. Its app runs elsewhere and was checked; delete this copy?' : ` · kept until ${new Date(c.promptAt).toLocaleDateString()}`}
               </span>
             </span>
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button size="sm" variant={c.due ? 'destructive' : 'ghost'} disabled={del.isPending}>
-                  Delete old copy
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Delete the old copy of {c.volume}?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    {c.service} already runs on another server with its own verified copy. This removes the copy left
-                    on this server. It can't be undone.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Keep it</AlertDialogCancel>
-                  <AlertDialogAction onClick={() => del.mutate({ service: c.service, nodeId, volume: c.volume })}>
-                    Delete
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+            <span className="flex flex-wrap items-center gap-2">
+              {c.undoUntil ? <OldCopyUndo service={c.service} until={c.undoUntil} /> : null}
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button size="sm" variant={c.due ? 'destructive' : 'ghost'} disabled={del.isPending}>
+                    Delete old copy
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete the old copy of {c.volume}?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {c.service} already runs on another server with its own verified copy. This removes the copy left
+                      on this server. It can't be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Keep it</AlertDialogCancel>
+                    <AlertDialogAction onClick={() => del.mutate({ service: c.service, nodeId, volume: c.volume })}>
+                      Delete
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </span>
           </div>
         ))}
       </CardContent>

@@ -227,6 +227,8 @@ export interface MoveState {
   /** Replicas to restore. */
   replicas: number;
   startedAt: string;
+  /** An Undo putting a moved service back on its old copy (`volume-move-undo.ts`). */
+  undo?: boolean;
 }
 
 export interface OldCopy {
@@ -236,6 +238,12 @@ export interface OldCopy {
   movedAt: string;
   /** When the owner is prompted (never auto-deleted). */
   promptAt: string;
+  /** The move that left it (groups a move's volumes for Undo). */
+  moveId?: string;
+  /** Controller node id the service moved to. */
+  to?: string;
+  /** The move's snapshot point: the manifest both sides matched at the final, stopped copy. */
+  manifest?: VolumeManifest;
 }
 
 function parseJson<T>(raw: string | undefined): T | null {
@@ -267,12 +275,13 @@ export function addOldCopies(raw: string | undefined, add: readonly OldCopy[]): 
   return JSON.stringify([...map.values()]);
 }
 
-export function oldCopy(nodeId: string, volume: string, now: number): OldCopy {
+export function oldCopy(nodeId: string, volume: string, now: number, from: Pick<OldCopy, 'moveId' | 'to' | 'manifest'> = {}): OldCopy {
   return {
     nodeId,
     volume,
     movedAt: new Date(now).toISOString(),
     promptAt: new Date(now + OLD_COPY_KEEP_DAYS * 86_400_000).toISOString(),
+    ...from,
   };
 }
 

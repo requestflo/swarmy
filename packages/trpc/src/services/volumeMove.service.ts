@@ -23,7 +23,8 @@
  * `secret.create/remove`, `container.runOnce`, `volume.remove`, `exec`) — no
  * new privileged agent capability. Invariants:
  *   - the source copy is NEVER deleted: it is recorded in
- *     `swarmy.move.oldCopies` and the owner is prompted after 7 days;
+ *     `swarmy.move.oldCopies` with the verified manifest (the snapshot point
+ *     Undo checks, `volumeMove.undo.ts`) and the owner is prompted after 7 days;
  *   - a destination volume that already holds data is refused, never merged;
  *   - any failure before the app starts on the destination rolls back to the
  *     source (which was not written after the stop) and removes only the
@@ -179,7 +180,7 @@ async function runOnce(
   return { exitCode: res?.exitCode ?? -1, output: res?.output ?? '' };
 }
 
-async function manifestOn(ctx: Ctx, nodeId: string, volume: string, checksum: boolean): Promise<VolumeManifest> {
+export async function manifestOn(ctx: Ctx, nodeId: string, volume: string, checksum: boolean): Promise<VolumeManifest> {
   const out = await runOnce(ctx, nodeId, manifestScript(checksum), {
     binds: [`${volume}:${MOVER_DST}:ro`],
     timeoutMs: MANIFEST_TIMEOUT_MS,
@@ -189,7 +190,7 @@ async function manifestOn(ctx: Ctx, nodeId: string, volume: string, checksum: bo
   return m;
 }
 
-async function waitFor(deps: MoverDeps, timeoutMs: number, cond: () => boolean, what: string): Promise<void> {
+export async function waitFor(deps: MoverDeps, timeoutMs: number, cond: () => boolean, what: string): Promise<void> {
   const deadline = deps.now() + timeoutMs;
   while (!cond()) {
     if (deps.now() > deadline) throw commandRejected(`timed out waiting for ${what}`);
@@ -386,7 +387,11 @@ export async function moveServiceData(
     moved.labels = {
       ...(moved.labels ?? {}),
       [MOVE_STATE_LABEL]: JSON.stringify({ ...state, step: 'start' }),
-      [MOVE_OLD_COPIES_LABEL]: addOldCopies(svc.labels[MOVE_OLD_COPIES_LABEL], volumes.map((v) => oldCopy(fromNodeId, v, now))),
+      // Each copy keeps the manifest both sides matched: the snapshot point Undo checks against.
+      [MOVE_OLD_COPIES_LABEL]: addOldCopies(
+        svc.labels[MOVE_OLD_COPIES_LABEL],
+        manifests.map((m) => oldCopy(fromNodeId, m.name, now, { moveId, to: toNodeId, manifest: m.manifest })),
+      ),
     };
     moved.mode = { replicated: { replicas } };
     await ctx.hub.dispatch(manager.id, 'service.deploy', { spec: moved, pullPolicy: 'missing' });
@@ -397,7 +402,7 @@ export async function moveServiceData(
 
     await ctx.hub.dispatch(manager.id, 'service.updateLabels', { service: svc.name, add: {}, removeKeys: [MOVE_STATE_LABEL] });
     await cleanupServe();
-    say('done', `${svc.name} now runs on ${to.hostname}. The old copy stays on ${from.hostname}; you'll be asked about it in 7 days.`);
+    say('done', `${svc.name} now runs on ${to.hostname}. The old copy stays on ${from.hostname}: Undo uses it for 24 hours, and you'll be asked about it in 7 days.`);
     await writeAudit(ctx, {
       action: 'volume.move',
       targetType: 'service',

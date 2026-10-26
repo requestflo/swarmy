@@ -17,6 +17,8 @@ export interface MoveDraft {
 export interface MoveRun extends MoveDraft {
   toId: string;
   startedAt: number;
+  /** An Undo: back onto the old copy a move kept on `toId`. */
+  undo?: boolean;
 }
 
 interface Placing {

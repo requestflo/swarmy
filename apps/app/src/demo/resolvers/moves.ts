@@ -36,8 +36,19 @@ const STEPS: [MoveStep, number][] = [
 ];
 const DONE_AT_S = 15;
 
-function moves(store: DemoStore): Record<string, MoveState> {
+export function moves(store: DemoStore): Record<string, MoveState> {
   return (store.extra.moves ??= {}) as Record<string, MoveState>;
+}
+
+/** The old copy a finished demo move keeps, per service id (what Undo goes back onto). */
+export interface DemoOldCopy {
+  from: string;
+  to: string;
+  at: number;
+  volumes: string[];
+}
+export function oldCopies(store: DemoStore): Record<string, DemoOldCopy> {
+  return (store.extra.moveOldCopies ??= {}) as Record<string, DemoOldCopy>;
 }
 
 /** The `swarmy.move.state` label for a service while its demo move runs. */
@@ -92,6 +103,7 @@ export const movesDemo: DomainResolvers = {
         sv.nodeId = toNodeId;
         sv.constraints = [`node.id == swarm-${toNodeId}`];
         delete moves(store)[sv.id];
+        oldCopies(store)[sv.id] = { from: state.from, to: toNodeId, at: Date.now(), volumes: state.volumes };
       }, DONE_AT_S * 1000);
       return { started: true, service, warnings: warning ? [warning] : [] };
     },

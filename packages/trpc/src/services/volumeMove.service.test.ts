@@ -126,7 +126,14 @@ describe('moveServiceData', () => {
     const repinned = calls.filter((c) => c.cmd === 'service.deploy')[1]!.payload.spec;
     expect(repinned.placement.constraints).toEqual(['node.id==sw2']);
     expect(repinned.mode).toEqual({ replicated: { replicas: 1 } });
-    expect(JSON.parse(repinned.labels['swarmy.move.oldCopies'])[0]).toMatchObject({ nodeId: 'n1', volume: 'blog_content' });
+    // The old copy keeps the move's snapshot point (what Undo checks against).
+    expect(JSON.parse(repinned.labels['swarmy.move.oldCopies'])[0]).toMatchObject({
+      nodeId: 'n1',
+      volume: 'blog_content',
+      to: 'n2',
+      moveId: res.moveId,
+      manifest: { files: 3, links: 0, dirs: 2, bytes: 1024, digest: 'aaa' },
+    });
     expect(steps).toContain('done');
   });
 

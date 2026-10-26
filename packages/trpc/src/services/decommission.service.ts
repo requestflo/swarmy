@@ -18,7 +18,16 @@
  * server's disk is ever deleted.
  */
 import { backupTargets } from './backups.repo';
-import { MOVER_IMAGE, isValidVolumeName, repinSpec, PINNED_DATA_LABELS, PG_PASSWORD_FROM_MEMBER } from '@swarmy/core';
+import {
+  MOVE_OLD_COPIES_LABEL,
+  MOVER_IMAGE,
+  isValidVolumeName,
+  parseOldCopies,
+  repinSpec,
+  undoUntilFor,
+  PINNED_DATA_LABELS,
+  PG_PASSWORD_FROM_MEMBER,
+} from '@swarmy/core';
 import type { ContainerInfo, ServiceSpec } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import { commandRejected, notFound } from '../errors';
@@ -604,21 +613,18 @@ export async function loop(ctx: Ctx, run: DecomRun, handle: { stop: boolean }, d
   return run;
 }
 
-/** Old copies (kept after moves) that sit on `nodeId`, with whether the 7 days are up. */
+/**
+ * Old copies (kept after moves) that sit on `nodeId`, with whether the 7 days
+ * are up and, for the newest move's copies, until when Undo can use them.
+ */
 export function oldCopiesOnNode(ctx: Ctx, nodeId: string, now = Date.now()) {
-  const out: { service: string; volume: string; movedAt: string; promptAt: string; due: boolean }[] = [];
+  const out: { service: string; volume: string; movedAt: string; promptAt: string; due: boolean; undoUntil: string | null }[] = [];
   for (const s of ctx.hub.liveInventory(ctx.activeOrgId).services) {
-    const raw = s.labels['swarmy.move.oldCopies'];
-    if (!raw) continue;
-    let list: { nodeId: string; volume: string; movedAt: string; promptAt: string }[] = [];
-    try {
-      list = JSON.parse(raw);
-    } catch {
-      continue;
-    }
+    const list = parseOldCopies(s.labels[MOVE_OLD_COPIES_LABEL]);
     for (const c of list) {
       if (c.nodeId !== nodeId || nodesRunning(ctx, s.name).includes(nodeId)) continue;
-      out.push({ service: s.name, volume: c.volume, movedAt: c.movedAt, promptAt: c.promptAt, due: Date.parse(c.promptAt) <= now });
+      const undoUntil = undoUntilFor(list, nodeId, c.volume, now);
+      out.push({ service: s.name, volume: c.volume, movedAt: c.movedAt, promptAt: c.promptAt, due: Date.parse(c.promptAt) <= now, undoUntil });
     }
   }
   return out;
