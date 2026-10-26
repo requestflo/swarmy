@@ -13,6 +13,7 @@ import {
   setStackRetention,
 } from '../services/backups.service';
 import { autoBackupCoverage, setAutoVolumeBackup } from '../services/autoBackup.service';
+import { getCopyLag } from '../services/backupCopyLag.service';
 import { appDbBackupRouter } from './appDbBackup';
 
 const retentionDays = z.number().int().min(1).max(3650);
@@ -21,6 +22,13 @@ const targetKind = z.enum(['s3', 'node']);
 
 export const backupsRouter = router({
   listTargets: orgProcedure.query(({ ctx }) => listTargets(ctx)),
+
+  /**
+   * How far behind each "also copy to" destination is: per volume, the
+   * newest save on its primary destination against the newest copy there
+   * (the catalogue, no agent command), with copies running, failed or never made.
+   */
+  copyLag: orgProcedure.query(({ ctx }) => getCopyLag(ctx)),
 
   addTarget: adminProcedure
     .input(

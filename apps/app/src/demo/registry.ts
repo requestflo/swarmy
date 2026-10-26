@@ -52,6 +52,7 @@ import { dbRestoreCopy } from './resolvers/db-restore-copy';
 import { dbPitrWindow } from './resolvers/db-pitr-window';
 import { dbWalCheck } from './resolvers/db-wal-check';
 import { dbRestoreProgress } from './resolvers/db-restore-progress';
+import { backupCopyLag } from './resolvers/backup-copy-lag';
 import { dbBackupEngines } from './resolvers/db-backup-engines';
 import { controllerstore } from './resolvers/controllerstore';
 import { platform } from './resolvers/platform';
@@ -214,6 +215,8 @@ const MODULES: DomainResolvers[] = [
   herokuImport,
   // Wraps data's dbBackups.restore and dbRestoreCopy's restoreAsCopy, so it comes after both.
   dbRestoreProgress,
+  // Its seed adds a second copy to data's schedules, so it comes after data.
+  backupCopyLag,
 ];
 
 export const HANDLERS: Record<string, DemoHandler> = Object.assign(
