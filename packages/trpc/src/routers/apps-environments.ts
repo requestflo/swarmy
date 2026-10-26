@@ -1,9 +1,11 @@
 /**
  * Environments of a git app (boards Environments · AppVariables): the
- * shared-vs-override layers swarmy.yaml defines (read-only, masked), Clone as
- * a new environment, filling a clone's secret slots (write-only) and removing
- * a clone. Spread into `appsRouter`, so the paths are `apps.envLayers` /
- * `apps.cloneEnvironment` / `apps.setEnvironmentSecret` / `apps.removeEnvironment`.
+ * shared-vs-override layers swarmy.yaml defines (read-only, masked), the
+ * variables it declares per service (Paste .env locks them), Clone as a new
+ * environment, filling a clone's secret slots (write-only) and removing a
+ * clone. Spread into `appsRouter`, so the paths are `apps.envLayers` /
+ * `apps.declaredEnv` / `apps.cloneEnvironment` / `apps.setEnvironmentSecret` /
+ * `apps.removeEnvironment`.
  */
 import { z } from 'zod';
 import { ENV_NAME_RE } from '@swarmy/app-config';
@@ -11,6 +13,7 @@ import { orgProcedure } from '../trpc';
 import { abacProcedure, resolveStackByName } from '../abac';
 import { planCommit } from '../services/apps.service';
 import { cloneEnvironment } from '../services/apps/clone';
+import { readDeclaredEnv } from '../services/apps/declared-env';
 import { readEnvLayers } from '../services/apps/env-layers';
 import { setEnvironmentSecret } from '../services/apps/env-secrets';
 import { removeEnvironment } from '../services/apps/remove-env';
@@ -21,6 +24,13 @@ const stack = z.string().min(1).max(100);
 export const appEnvironmentProcedures = {
   /** Every app-wide variable per environment with its origin; secrets masked. Null = not a git app. */
   envLayers: orgProcedure.input(z.object({ stack })).query(({ ctx, input }) => readEnvLayers(ctx, input)),
+
+  /**
+   * Paste .env: per environment and service, the variables swarmy.yaml
+   * declares and the path that sets each (the dashboard locks those rows).
+   * Names and paths only. Null = not a git app.
+   */
+  declaredEnv: orgProcedure.input(z.object({ stack })).query(({ ctx, input }) => readDeclaredEnv(ctx, input)),
 
   /**
    * Clone the environment `stack` runs as a new long-lived environment from

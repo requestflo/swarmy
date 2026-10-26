@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { diffEnv, parseDotenv, type DotenvParseOptions, type EnvDiff, type DotenvWarning } from '@swarmy/core';
+import { diffEnv, parseDotenv, type DotenvEntry, type DotenvParseOptions, type EnvDiff, type DotenvWarning } from '@swarmy/core';
 
 export interface EnvPasteState {
   text: string;
@@ -8,6 +8,8 @@ export interface EnvPasteState {
   setMode: (m: 'merge' | 'replace') => void;
   diff: EnvDiff;
   warnings: DotenvWarning[];
+  /** The parsed entries (duplicates resolved, last wins). */
+  entries: DotenvEntry[];
   /** Keys the paste names (after parsing). */
   pasted: Set<string>;
   /** Keys shown masked; seeded from `looksSecret`, flippable per row. */
@@ -45,5 +47,5 @@ export function useEnvPaste(
   );
 
   const changed = diff.counts.added + diff.counts.changed + diff.counts.removed > 0;
-  return { text, setText, mode, setMode, diff, warnings: parsed.warnings, pasted, masked, toggleMask, changed };
+  return { text, setText, mode, setMode, diff, warnings: parsed.warnings, entries: parsed.entries, pasted, masked, toggleMask, changed };
 }

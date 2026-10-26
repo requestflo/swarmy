@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { diffEnv, parseDotenv, SERVICE_ENV_KEY } from '@swarmy/core';
 import { changeGroups, changeSummary, lineMarks } from './paste-model';
+import { planPaste } from './paste-target';
 
 const TEXT = [
   '# exported',
@@ -32,5 +33,15 @@ describe('the paste page over the shared parser', () => {
   test('summary', () => {
     const d = diffEnv({ A: '1', B: '2' }, [{ key: 'A', value: '1' }], 'merge');
     expect(changeSummary(d.rows, new Set(['A']), 1, false)).toBe('+0 added · 0 changed · 1 same · 1 not in the paste · 1 note');
+  });
+  test('locked and kept rows get their own groups and counts; Replace all counts only real removals', () => {
+    const [p] = planPaste({
+      entries: [{ key: 'NODE_ENV', value: 'dev' }, { key: 'B', value: '3' }],
+      envs: [{ environment: 'production', stack: 'shop', serviceId: 's', current: { NODE_ENV: 'production', B: '2', C: '1', D: '4' }, declared: { NODE_ENV: 'env.NODE_ENV', D: 'env.D' } }],
+      target: 'production',
+      mode: 'replace',
+    });
+    expect(changeGroups(p!.rows, new Set()).map((g) => `${g.key}:${g.rows.map((r) => r.key).join(',')}`)).toEqual(['changed:B', 'removed:C', 'locked:NODE_ENV']);
+    expect(changeSummary(p!.rows, new Set(['NODE_ENV', 'B']), 0, true)).toBe('+0 added · 1 changed · 0 same · 1 removed · 1 locked · 0 notes');
   });
 });

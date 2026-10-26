@@ -110,6 +110,7 @@ import { appClone } from './resolvers/app-clone';
 import { appCloneRemove } from './resolvers/app-clone-remove';
 import { appsConvert } from './resolvers/apps-convert';
 import { appsPlanDiff } from './resolvers/apps-plan-diff';
+import { appsDeclaredEnv } from './resolvers/apps-declared-env';
 import { herokuImport } from './resolvers/heroku-import';
 
 /**
@@ -233,6 +234,7 @@ const MODULES: DomainResolvers[] = [
   appsConvert,
   // Wraps apps' apps.plan (adds the Graph's topology), so it comes after it.
   appsPlanDiff,
+  appsDeclaredEnv,
   herokuImport,
   // Wraps data's dbBackups.restore and dbRestoreCopy's restoreAsCopy, so it comes after both.
   dbRestoreProgress,

@@ -6,31 +6,53 @@ import { Button, toast } from '@swarmy/ui';
 import { useRestartPlan } from '@/components/app-tabs/variables/use-restart-plan';
 import { useTRPC } from '@/integrations/trpc';
 import type { EnvPasteState } from '../use-env-paste';
+import { envList, type PastePlan } from './paste-target';
 
-/** Apply as one deploy: one `services.update` rolls the whole paste out, with how the service restarts. */
-export function PasteFooter({ st, stack, service }: { st: EnvPasteState; stack: string; service: { id: string; short: string } }): React.JSX.Element {
+/**
+ * Apply as one deploy: one `services.update` per environment the paste
+ * changes (each a rolling deploy of that copy), with how the service
+ * restarts. Locked rows are already out of each plan's env.
+ */
+export function PasteFooter({
+  st,
+  plans,
+  stack,
+  short,
+  blocked,
+}: {
+  st: EnvPasteState;
+  plans: PastePlan[];
+  stack: string;
+  short: string;
+  /** Which rows swarmy.yaml locks is unknown: apply nothing. */
+  blocked: boolean;
+}): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const [done, setDone] = React.useState<string | null>(null);
-  const target = React.useMemo(() => [{ id: service.id, name: service.short }], [service.id, service.short]);
-  const plan = useRestartPlan(target);
-  const line = plan?.lines[0];
-  const moving = st.diff.rows.filter((r) => r.kind !== 'unchanged');
-  const asSecrets = moving.filter((r) => r.kind !== 'removed' && st.masked.has(r.key)).length;
-  const update = useMutation(
-    trpc.services.update.mutationOptions({
-      onSuccess: () => {
-        setDone(`Applied · ${moving.length} ${moving.length === 1 ? 'variable' : 'variables'} changed, ${asSecrets} as secrets · ${service.short} is rolling out · on the audit log`);
-        void qc.invalidateQueries();
-      },
-      onError: (e) => toast.error(e.message),
-    }),
-  );
-  const apply = (): void =>
-    update.mutate({
-      id: service.id,
-      env: Object.entries(st.diff.next).map(([key, value]) => ({ key, value, ...(st.masked.has(key) ? { secret: true } : {}) })),
-    });
+  const going = plans.filter((p) => p.moving > 0);
+  const first = going[0] ?? plans[0];
+  const target = React.useMemo(() => (first ? [{ id: first.serviceId, name: short }] : []), [first?.serviceId, short]);
+  const restart = useRestartPlan(target);
+  const line = restart?.lines[0];
+  const update = useMutation(trpc.services.update.mutationOptions());
+  const apply = async (): Promise<void> => {
+    try {
+      for (const p of going) {
+        await update.mutateAsync({
+          id: p.serviceId,
+          env: Object.entries(p.next).map(([key, value]) => ({ key, value, ...(st.masked.has(key) ? { secret: true } : {}) })),
+        });
+      }
+      const n = going.reduce((a, p) => a + p.moving, 0);
+      setDone(`Applied to ${envList(going.map((p) => p.environment))} · ${n} ${n === 1 ? 'change' : 'changes'} · ${short} is rolling out · on the audit log`);
+      void qc.invalidateQueries();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+      void qc.invalidateQueries();
+    }
+  };
+  const label = going.length > 1 ? `Apply to ${going.length} environments` : 'Apply as one deploy';
 
   return (
     <div className="calm-card flex flex-wrap items-center gap-3 px-5 py-3">
@@ -40,7 +62,7 @@ export function PasteFooter({ st, stack, service }: { st: EnvPasteState; stack: 
         </span>
       ) : (
         <span className="text-muted-foreground text-[12.5px]">
-          Secrets are masked everywhere in swarmy and still reach {service.short} as ordinary environment variables.
+          Secrets are masked everywhere in swarmy and still reach {short} as ordinary environment variables.
         </span>
       )}
       <span className="ml-auto flex flex-wrap items-center gap-2">
@@ -49,12 +71,16 @@ export function PasteFooter({ st, stack, service }: { st: EnvPasteState; stack: 
             {done ? 'Back to Variables' : 'Cancel'}
           </Link>
         </Button>
-        <Button disabled={!st.changed || update.isPending} onClick={apply} className="pointer-coarse:min-h-11">
-          {update.isPending ? 'Applying…' : 'Apply as one deploy'}
+        <Button disabled={blocked || going.length === 0 || update.isPending} onClick={() => void apply()} className="pointer-coarse:min-h-11">
+          {update.isPending ? 'Applying…' : label}
         </Button>
       </span>
       <span className="text-muted-foreground w-full text-right font-mono text-[11px]">
-        {line ? `${service.short} restarts ${line.words.replace(/^\d+ cop(y|ies) · /, '')}${line.seconds ? ` · ~${line.seconds} s` : ''} · ${line.copies} ${line.copies === 1 ? 'copy' : 'copies'}` : ' '}
+        {!line
+          ? ' '
+          : going.length > 1
+            ? `${short} restarts ${line.words.replace(/^\d+ cop(y|ies) · /, '')} in each environment, one environment after another`
+            : `${short} restarts ${line.words.replace(/^\d+ cop(y|ies) · /, '')}${line.seconds ? ` · ~${line.seconds} s` : ''} · ${line.copies} ${line.copies === 1 ? 'copy' : 'copies'}`}
       </span>
     </div>
   );

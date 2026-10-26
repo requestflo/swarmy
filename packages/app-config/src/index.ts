@@ -14,6 +14,7 @@ export * from './hash';
 export * from './environments';
 export * from './env-layers';
 export * from './desired-yaml';
+export * from './declared-env';
 export * from './clone-env';
 export * from './own-secrets';
 export * from './branches';
