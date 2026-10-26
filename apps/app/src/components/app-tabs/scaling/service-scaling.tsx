@@ -7,6 +7,7 @@ import { sizeWords } from './size-model';
 import { SleepBlock } from './sleep-block';
 import { serverCards } from './strip-model';
 import type { ScalingPage } from './use-scaling-page';
+import { useSizeCost } from './use-size-cost';
 
 /**
  * The picked service (board AppScaling): where its copies run, then copies +
@@ -27,6 +28,7 @@ export function ServiceScaling({ stack, page }: { stack: string; page: ScalingPa
         : undefined,
     [picked, nodes, servicesByNode, stack],
   );
+  const cost = useSizeCost(cards?.filter((c) => c.copies !== 0).map((c) => c.node.id));
   if (!picked) return null;
   const { inv, detail } = picked;
   const name = shortName(stack, inv.name);
@@ -45,7 +47,7 @@ export function ServiceScaling({ stack, page }: { stack: string; page: ScalingPa
         <section aria-label={`Copies and size of ${name}`} className="calm-card flex flex-col gap-4 px-5 py-4">
           <CopiesBlock inv={inv} name={name} cards={cards} />
           <hr className="border-border" />
-          <SizeBlock spec={svc.spec} usage={svc.usage} draft={draft} />
+          <SizeBlock spec={svc.spec} usage={svc.usage} draft={draft} cost={cost} copies={inv.replicas.desired} />
         </section>
         <section aria-label={`Sleep when idle for ${name}`} className="calm-card flex flex-col px-5 py-4">
           <SleepBlock key={inv.id} stack={stack} inv={inv} detail={detail} name={name} address={svc.address} />
