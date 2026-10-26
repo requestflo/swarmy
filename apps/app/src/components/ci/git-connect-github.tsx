@@ -79,7 +79,8 @@ export function GitConnectGithub({ host, returnTo }: GitConnectGithubProps): Rea
     <div className="flex flex-col gap-3">
       <p className="text-sm">
         {installs === 0 ? 'Installed nowhere yet. ' : `Installed on ${installs} account${installs === 1 ? '' : 's'}. `}
-        This controller’s GitHub App <span className="font-mono">{app.data.name ?? app.data.slug}</span> is ready on{' '}
+        This controller’s GitHub App <span className="font-mono">{app.data.name ?? app.data.slug}</span>
+        {app.data.appId ? <span className="text-muted-foreground font-mono"> (App #{app.data.appId})</span> : null} is ready on{' '}
         {hostOf(webBase)} — install it on the account or repos you want to deploy.
       </p>
       {host === 'github' ? null : hostField}

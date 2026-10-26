@@ -94,6 +94,8 @@ export type { GitConnectionKind, GitConnectionView } from './git-connection-view
 
 export interface GithubAppView {
   registered: boolean;
+  /** GitHub's numeric App id ("App #41") — public, it is in every installation URL. */
+  appId: number | null;
   slug: string | null;
   name: string | null;
   htmlUrl: string | null;
@@ -153,6 +155,7 @@ export async function getGithubApp(ctx: OrgContext, webBase = GITHUB_WEB): Promi
   const app = await loadGithubApp(ctx.db, webBase);
   return {
     registered: Boolean(app),
+    appId: app?.appId ?? null,
     slug: app?.slug ?? null,
     name: app?.name ?? null,
     htmlUrl: app?.htmlUrl ?? null,

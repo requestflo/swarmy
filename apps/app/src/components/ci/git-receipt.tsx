@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { CheckCircle2Icon, HourglassIcon, TriangleAlertIcon, XIcon } from 'lucide-react';
 import { Button, cn } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
+import { appCreatedHead } from './git-manifest';
 import { hostOf } from './git-providers';
 import type { GitResultSearch } from './git-result-banner';
 import { KIND_LABEL, type GitConnection } from './git-types';
@@ -13,10 +14,10 @@ export interface GitRoundTrip extends GitResultSearch {
 }
 
 /**
- * Back from the provider, inside the wizard: "App swarmy-northwind created on
- * github.northwind.dev · private key stored encrypted · webhook secret set,
- * shown never · installed on northwind" — or plainly connected / requested /
- * what went wrong.
+ * Back from the provider, inside the wizard: "App #41 created on
+ * github.northwind.dev" over "swarmy-northwind · private key stored
+ * encrypted · webhook secret set, shown never · installed on northwind" — or
+ * plainly connected / requested / what went wrong.
  */
 export function GitReceipt({
   trip,
@@ -35,7 +36,10 @@ export function GitReceipt({
     enabled: Boolean(created),
   });
   const who = conn?.account ?? conn?.displayName;
-  const appName = app.data?.registered ? (app.data.name ?? app.data.slug) : null;
+  const registered = app.data?.registered ? app.data : undefined;
+  const appName = registered ? (registered.name ?? registered.slug) : null;
+  // With the number in the headline, the name moves to the facts line.
+  const facts = [registered?.appId ? appName : null, 'private key stored encrypted', 'webhook secret set, shown never', who ? `installed on ${who}` : null];
 
   const [Icon, tone, head, sub] =
     trip.git === 'error'
@@ -46,8 +50,8 @@ export function GitReceipt({
           ? [
               CheckCircle2Icon,
               'text-tone-ok',
-              `${appName ? `App ${appName}` : 'Your GitHub App'} created on ${hostOf(created)}`,
-              ['private key stored encrypted', 'webhook secret set, shown never', who ? `installed on ${who}` : null].filter(Boolean).join(' · '),
+              appCreatedHead(registered ? { appId: registered.appId, name: appName } : undefined, hostOf(created)),
+              facts.filter(Boolean).join(' · '),
             ]
           : [CheckCircle2Icon, 'text-tone-ok', `${trip.kind ? KIND_LABEL[trip.kind] : 'Your git provider'} is connected${who ? ` · ${who}` : ''}.`, 'Pick a repo below.'];
 

@@ -35,3 +35,9 @@ export function parseManifest(json: string): ManifestPreview | null {
     public: m.public === true,
   };
 }
+
+/** The receipt's headline back from GitHub: "App #41 created on github.northwind.dev". */
+export function appCreatedHead(app: { appId?: number | null; name?: string | null } | undefined, host: string): string {
+  if (app?.appId) return `App #${app.appId} created on ${host}`;
+  return `${app?.name ? `App ${app.name}` : 'Your GitHub App'} created on ${host}`;
+}

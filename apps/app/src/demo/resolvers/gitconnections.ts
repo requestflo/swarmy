@@ -298,6 +298,8 @@ export const gitconnections: DomainResolvers = {
       const slug = webBase === GITHUB_WEB ? 'swarmy-northwind' : 'swarmy-corp';
       return {
         registered,
+        // GitHub numbers Apps per host; the one the demo just created is #41.
+        appId: registered ? (state(s).appNames?.[webBase] ? 41 : webBase === GITHUB_WEB ? 12 : 7) : null,
         slug: registered ? slug : null,
         name: registered
           ? (state(s).appNames?.[webBase] ?? `swarmy (${webBase === GITHUB_WEB ? 'northwind' : 'corp'})`)
