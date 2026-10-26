@@ -31,6 +31,7 @@ import { nodeStatsHistory } from './resolvers/node-stats-history';
 import { dataHistory } from './resolvers/data-history';
 import { incidents } from './resolvers/incidents';
 import { incidentHold } from './resolvers/incident-hold';
+import { estateUptimeDemo } from './resolvers/estate-uptime';
 import { statuspages } from './resolvers/statuspages';
 import { releases } from './resolvers/releases';
 import { registrypolicy } from './resolvers/registrypolicy';
@@ -134,6 +135,7 @@ const MODULES: DomainResolvers[] = [
   dataHistory,
   incidents,
   incidentHold,
+  estateUptimeDemo,
   statuspages,
   releases,
   registrypolicy,
