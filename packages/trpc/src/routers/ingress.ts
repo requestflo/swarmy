@@ -43,6 +43,7 @@ import {
   verifyDomainNow,
 } from '../services/domain-verify.service';
 import { previewDomainPlan } from '../services/domain-plan.service';
+import { previewEdgeConfigs } from '../services/ingress-edge-preview.service';
 import { ingressCertProcedures } from './ingress-certs';
 import { resolveDomainHost } from './ingress-host-resolver';
 
@@ -69,6 +70,12 @@ const resolveDomain: ResolveResource = (ctx, input) => {
 
 
 const driverEnum = z.enum(['caddy', 'none', 'cloudflared']);
+
+/**
+ * The gate on rendered-config previews: whoever reads `previewConfig` reads the
+ * per-edge renders too (both are sealed by `redactRenderedSecrets`).
+ */
+const previewGate = orgProcedure;
 
 /** One ingress route as written to the `swarmy.ingress.routes` service label. */
 const routeInput = z.object({
@@ -228,9 +235,12 @@ export const ingressRouter = router({
     )
     .mutation(({ ctx, input }) => setTunnel(ctx, input)),
 
-  previewConfig: orgProcedure
+  previewConfig: previewGate
     .input(z.object({ driver: driverEnum.optional() }))
     .query(({ ctx, input }) => previewConfig(ctx, input.driver)),
+
+  /** The Caddyfile each edge runs (its own region first), sealed like `previewConfig`. */
+  edgeConfigs: previewGate.query(({ ctx }) => previewEdgeConfigs(ctx)),
 
   /**
    * Custom-domain status: waiting_dns → verified → issuing → active | error,

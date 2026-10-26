@@ -54,6 +54,8 @@ interface DomainView {
   check?: DemoCheck;
   /** Demo-only: a fresh deploy's certificate is being issued until this epoch ms. */
   issuingUntil?: number;
+  /** Demo-only: the app has a copy in each of these regions, so each edge dials its own first. */
+  regions?: string[];
 }
 
 type DemoWwwMode = 'redirect-www-to-apex' | 'redirect-apex-to-www' | 'serve-both';
@@ -127,6 +129,12 @@ function withDomainStatus(d: DomainView, edges: DemoEdge[]) {
     status: statusOf(d, d.host, edges),
     companionStatus: companion ? statusOf(d, companion, edges) : null,
   };
+}
+
+/** The Caddyfile one demo edge runs (its region's copies first); null when the front door isn't Caddy. */
+export function demoEdgeRender(s: DemoStore, localRegion?: string): RenderedConfig | null {
+  const st = getState(s);
+  return st.driver === 'caddy' ? renderPreview(st, 'caddy', edgesOf(s), localRegion) : null;
 }
 
 export function edgesOf(s: DemoStore): DemoEdge[] {
@@ -262,7 +270,7 @@ function toConfigView(st: IngressState, s: DemoStore): IngressConfigView {
  * reads `summary` and `files[].path/contents`, but we fill the full protocol shape
  * so the value matches what `previewConfig` actually returns.
  */
-function renderPreview(st: IngressState, driver: IngressDriverId, edges: DemoEdge[]): RenderedConfig {
+function renderPreview(st: IngressState, driver: IngressDriverId, edges: DemoEdge[], localRegion?: string): RenderedConfig {
   const routes = st.domains.map((d) => ({ host: d.host, service: d.serviceName, port: d.targetPort, tls: d.tls }));
   const base: RenderedConfig = {
     driver,
@@ -284,10 +292,12 @@ function renderPreview(st: IngressState, driver: IngressDriverId, edges: DemoEdg
         www: d.www ?? null,
         gated: !!statusOf(d, d.host, edges).gated,
         protection: d.protection as DemoCaddyRoute['protection'],
+        regions: d.regions,
       })),
       onDemand: st.onDemandTls,
       askUrl: st.onDemandAskUrl,
       sharedCerts: st.topology === 'edge-per-node',
+      localRegion,
     });
     return {
       ...base,
@@ -730,6 +740,8 @@ export const ingress: DomainResolvers = {
           ingressDriver: null,
           protection: null,
           canaryPct: null,
+          // A copy in Europe and one in the US: each edge dials its own region's first.
+          regions: ['eu-west', 'us-east'],
         },
         {
           id: 'dom-cdn',

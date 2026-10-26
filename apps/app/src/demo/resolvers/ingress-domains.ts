@@ -23,6 +23,8 @@ export interface DemoCheck {
 }
 
 export interface DemoEdge {
+  /** The server running the edge (ingress-edges.ts names each edge's own Caddyfile by it). */
+  nodeId: string;
   ip: string;
   name: string;
   region: string | null;
@@ -41,8 +43,8 @@ interface DemoNode {
 export function demoEdges(s: DemoStore, topology: string, targetNodes: string[]): DemoEdge[] {
   const nodes = s.nodes as unknown as DemoNode[];
   const pick = topology === 'edge-per-node' ? nodes.filter((n) => n.ingress && n.status === 'online') : nodes.filter((n) => targetNodes.includes(n.id));
-  const edges = pick.filter((n) => n.publicIp).map((n) => ({ ip: n.publicIp!, name: n.name, region: n.region ?? null }));
-  return edges.length ? edges : [{ ip: '203.0.113.10', name: 'mgr-1', region: 'us-east' }];
+  const edges = pick.filter((n) => n.publicIp).map((n) => ({ nodeId: n.id, ip: n.publicIp!, name: n.name, region: n.region ?? null }));
+  return edges.length ? edges : [{ nodeId: 'n-mgr-1', ip: '203.0.113.10', name: 'mgr-1', region: 'us-east' }];
 }
 
 const MIN = 60_000;

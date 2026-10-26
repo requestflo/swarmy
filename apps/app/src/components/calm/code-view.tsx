@@ -25,6 +25,7 @@ export function CodeView({
   tabs,
   source = 'dashboard',
   note,
+  toolbar,
   always,
   className,
 }: {
@@ -33,6 +34,8 @@ export function CodeView({
   source?: CodeSource;
   /** Overrides the default source note. */
   note?: React.ReactNode;
+  /** Pickers that change what the code shows (e.g. which edge's file), under the title. */
+  toolbar?: React.ReactNode;
   always?: boolean;
   className?: string;
 }): React.JSX.Element {
@@ -45,6 +48,7 @@ export function CodeView({
         <span className="text-muted-foreground text-xs">same data, same numbers</span>
         {tab ? <CopyButton value={tab.code} className="ml-auto size-8" /> : null}
       </div>
+      {toolbar}
       {tabs.length > 1 ? (
         <div role="tablist" aria-label="Format" className="border-border bg-background inline-flex w-fit max-w-full flex-wrap gap-0.5 rounded-[10px] border p-0.5">
           {tabs.map((t, k) => (

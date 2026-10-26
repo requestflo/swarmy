@@ -742,6 +742,19 @@ function makeDispatch(ctx: OrgContext, config?: OrgIngressConfig): DriverDispatc
   };
 }
 
+/**
+ * The nodes an apply renders for, each with its `swarmy.region` — the same
+ * set (`resolveTargets`) the Caddy driver renders per node. The per-edge
+ * Caddyfile preview (`ingress-edge-preview.service.ts`) reads it.
+ */
+export async function edgeRenderTargets(
+  ctx: OrgContext,
+  config: OrgIngressConfig,
+): Promise<Array<{ nodeId: string; region?: string }>> {
+  const dispatch = makeDispatch(ctx, config);
+  return dispatch.resolveTargets ? dispatch.resolveTargets(config.orgId, config.targetNodes) : [];
+}
+
 // ───────────────────────────────────────────── runtime truth + convergence ──
 
 /**
