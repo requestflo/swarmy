@@ -312,6 +312,18 @@ number (23); editable preview rules and previews that sleep after 2 h idle
 (68); recent sign-ins, per-path who-can-enter and an SSO-only switch on App
 access (65).
 
+**Eighth pass (2026-10-26, later still):** the error-% trip on the deploy
+safety gate, on by default where the gate is (35); wake time and cost per size
+on Scaling (34); certificates issued per day and the on-demand ask log (31);
+the bucket growth forecast and a typed confirmation to make one public (42 —
+per-key last used stays out: Garage records none); index suggestions and
+honest slow-query spread, never a made-up p95 (63); the queue-depth backtest
+(45); mesh link latency on the map, Add a server and the estate map (14, 12,
+22); Undo a move onto the copy it kept, and ⌥-drag to add a copy (9); the PR
+plan's YAML diff tab and untouched boxes (26); Paste .env's environment target
+and swarmy.yaml-locked rows (58); search Reindex by swapping in a rebuild (41 —
+the engine switch is explained, not built); the PgBouncer pooler (39).
+
 Found, not fixed (worth deciding):
 
 - Board 52 offers "All minor updates" for auto-patching; the upgrades epic
