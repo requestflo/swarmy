@@ -7,6 +7,7 @@ import { useTRPC } from '@/integrations/trpc';
 import type { MapEdge } from '@/components/domains/resolver-map';
 import { ASK_FROM, arcPath, askAnswer, mapPct, mapXY, type AskEndpoint, type AskFrom } from './ask-model';
 import type { DnsZoneView } from './geo-types';
+import { SimulateDown } from './simulate-down';
 
 const ResolverMap = React.lazy(() => import('@/components/domains/resolver-map'));
 
@@ -95,6 +96,7 @@ export function AskAnywhere({ zone, host, endpoints }: { zone: DnsZoneView; host
           </Tech>
         </div>
       )}
+      <SimulateDown zone={zone} host={host} endpoints={endpoints} from={from} />
     </Section>
   );
 }

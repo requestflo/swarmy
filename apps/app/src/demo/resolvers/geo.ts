@@ -204,7 +204,7 @@ function ingressDomains(store: DemoStore): Array<{ host: string; stack: string }
  * under each swarmy-ns zone come from ingress routes plus the zone's apex/www
  * derivation; every host answers with the full eligible endpoint set.
  */
-function deriveRows(store: DemoStore, stack?: string): DnsViewRow[] {
+export function deriveRows(store: DemoStore, stack?: string): DnsViewRow[] {
   const st = getState(store);
   const endpoints = geoEndpoints(store).map(({ region, ip, healthy }) => ({ region, ip, healthy }));
   const healthyCount = endpoints.filter((e) => e.healthy).length;

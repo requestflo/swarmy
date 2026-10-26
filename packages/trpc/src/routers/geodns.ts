@@ -22,6 +22,7 @@ import {
   updateZone,
 } from '../services/dns-zones.service';
 import { listRecords, removeRecord, upsertRecord } from '../services/dns-records.service';
+import { simulateEdgeDown } from '../services/dns-simulate.service';
 import { getClusterZone, setClusterZone } from '../services/cluster-zone.service';
 
 /**
@@ -116,6 +117,21 @@ export const geodnsRouter = router({
   previewResolution: orgProcedure
     .input(z.object({ id: z.string(), host: z.string().min(1), region: z.string().optional() }))
     .query(({ ctx, input }) => previewResolution(ctx, input.id, input)),
+
+  /**
+   * "Simulate an edge down": per visitor region, who would answer `host` if the
+   * front door at `ip` went down. Read-only — nothing is stored or pushed.
+   */
+  simulateDown: orgProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        host: z.string().min(1).max(253),
+        ip: z.string().min(1).max(64),
+        regions: z.array(z.string().min(1).max(32)).min(1).max(12),
+      }),
+    )
+    .query(({ ctx, input: { id, ...rest } }) => simulateEdgeDown(ctx, id, rest)),
 
   // ── manual records (MX/TXT/CNAME/SRV/CAA/NS) ──
   listRecords: orgProcedure

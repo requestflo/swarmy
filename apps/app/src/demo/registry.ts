@@ -15,6 +15,7 @@ import { observability } from './resolvers/observability';
 import { errors } from './resolvers/errors';
 import { geo } from './resolvers/geo';
 import { clusterZone } from './resolvers/cluster-zone';
+import { geoSimulate } from './resolvers/geo-simulate';
 import { data } from './resolvers/data';
 import { backupHistory } from './resolvers/backup-history';
 import { access } from './resolvers/access';
@@ -121,6 +122,7 @@ const MODULES: DomainResolvers[] = [
   errors,
   geo,
   clusterZone,
+  geoSimulate,
   data,
   backupHistory,
   access,

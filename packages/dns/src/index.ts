@@ -15,6 +15,7 @@ export * from './wire';
 export * from './geoip';
 export * from './probe';
 export * from './signature';
+export * from './simulate';
 
 // Protocol re-exports (canonical home: @swarmy/core/protocol/dns).
 export {
