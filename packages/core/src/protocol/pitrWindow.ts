@@ -45,6 +45,11 @@ export const PitrBaseBackup = z.object({
   startTime: z.string().optional(),
   /** ISO-8601 UTC. Recovery cannot stop before a backup's end. */
   finishTime: z.string(),
+  /**
+   * The data directory's size when it was copied (wal-g's `uncompressed_size`):
+   * the database's size at that point. Absent when wal-g did not report it.
+   */
+  sizeBytes: z.number().int().nonnegative().optional(),
 });
 export type PitrBaseBackup = z.infer<typeof PitrBaseBackup>;
 

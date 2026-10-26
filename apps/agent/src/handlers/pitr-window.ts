@@ -42,7 +42,14 @@ export function parseWalgBackups(listJson: string): PitrBaseBackup[] {
     const end = Date.parse(String(r.finish_time ?? r.time ?? ''));
     if (!name || !Number.isFinite(end)) continue;
     const start = Date.parse(String(r.start_time ?? ''));
-    out.push({ name, finishTime: new Date(end).toISOString(), ...(Number.isFinite(start) ? { startTime: new Date(start).toISOString() } : {}), end });
+    const size = Number(r.uncompressed_size);
+    out.push({
+      name,
+      finishTime: new Date(end).toISOString(),
+      ...(Number.isFinite(start) ? { startTime: new Date(start).toISOString() } : {}),
+      ...(Number.isSafeInteger(size) && size > 0 ? { sizeBytes: size } : {}),
+      end,
+    });
   }
   return out.sort((a, b) => a.end - b.end).map(({ end: _end, ...b }) => b);
 }

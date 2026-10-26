@@ -66,6 +66,12 @@ describe('DbPitrWindowResult', () => {
     expect(DbPitrWindowResult.parse({ window: null, checkedAt: 'x' }).backups).toEqual([]);
   });
 
+  it('a base backup may carry its data size, a whole non-negative number', () => {
+    const backup = { name: 'base_1', finishTime: '2026-10-20T03:00:00.000Z', sizeBytes: 268_435_456 };
+    expect(DbPitrWindowResult.parse({ backups: [backup], window: null, checkedAt: 'x' }).backups).toEqual([backup]);
+    expect(DbPitrWindowResult.safeParse({ backups: [{ ...backup, sizeBytes: -1 }], window: null, checkedAt: 'x' }).success).toBe(false);
+  });
+
   it('a window needs both ends, and checkedAt is required', () => {
     expect(DbPitrWindowResult.safeParse({ window: { from: 'a' }, checkedAt: 'x' }).success).toBe(false);
     expect(DbPitrWindowResult.safeParse({ window: null }).success).toBe(false);

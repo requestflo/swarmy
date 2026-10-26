@@ -3,7 +3,7 @@ import { encryptSecret } from '@swarmy/core/crypto';
 import type { DbPitrWindowResult } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import { dbBackupOverview, getDbPitrWindow, restoreDb } from './dbBackup.service';
-import { pitrPreflight } from './dbPitrWindow.service';
+import { pitrPreflight, pitrWindowView } from './dbPitrWindow.service';
 import { seedKvRows } from './swarm-kv.service';
 
 /**
@@ -138,5 +138,13 @@ describe('the dashboard window prefers the agent\'s read', () => {
     const w = world();
     expect((await getDbPitrWindow(w.ctx, { stack: 'shop', cluster: 'main' })).source).toBe('unsupported');
     expect(w.cmds()).toEqual([]);
+  });
+
+  it('carries each base backup’s data size, stringified, when wal-g reported it', () => {
+    const backups = [{ ...READ.backups[0]!, sizeBytes: 268_435_456 }, { name: 'base_000000010000000000000009', finishTime: '2026-10-22T03:00:00.000Z' }];
+    expect(pitrWindowView({ status: 'read', result: { ...READ, backups } }).backups).toEqual([
+      { name: 'base_000000010000000000000002', finishTime: '2026-10-20T03:00:00.000Z', sizeBytes: '268435456' },
+      { name: 'base_000000010000000000000009', finishTime: '2026-10-22T03:00:00.000Z' },
+    ]);
   });
 });

@@ -18,7 +18,7 @@ import {
  */
 
 const LIST = JSON.stringify([
-  { backup_name: 'base_000000010000000000000009', start_time: '2026-10-22T02:58:00Z', finish_time: '2026-10-22T03:00:00Z' },
+  { backup_name: 'base_000000010000000000000009', start_time: '2026-10-22T02:58:00Z', finish_time: '2026-10-22T03:00:00Z', uncompressed_size: 268435456, compressed_size: 67108864 },
   { backup_name: 'base_000000010000000000000002', finish_time: '2026-10-20T03:00:00Z' },
   { backup_name: 'base_broken' },
 ]);
@@ -31,10 +31,10 @@ const WAL = [
 ].join('\n');
 
 describe('parseWalgBackups', () => {
-  it('lists the base backups oldest first, skipping rows with no name or finish', () => {
+  it('lists the base backups oldest first with their data size, skipping rows with no name or finish', () => {
     expect(parseWalgBackups(LIST)).toEqual([
       { name: 'base_000000010000000000000002', finishTime: '2026-10-20T03:00:00.000Z' },
-      { name: 'base_000000010000000000000009', startTime: '2026-10-22T02:58:00.000Z', finishTime: '2026-10-22T03:00:00.000Z' },
+      { name: 'base_000000010000000000000009', startTime: '2026-10-22T02:58:00.000Z', finishTime: '2026-10-22T03:00:00.000Z', sizeBytes: 268435456 },
     ]);
   });
   it('empty output is no backups yet; anything unreadable is an error', () => {

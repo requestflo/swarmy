@@ -88,7 +88,7 @@ export function pitrWindowView(read: PitrWindowRead | null): DbPitrWindowView {
   return {
     source: 'agent',
     window: r.window,
-    backups: r.backups.map((b) => ({ name: b.name, finishTime: b.finishTime })),
+    backups: r.backups.map((b) => ({ name: b.name, finishTime: b.finishTime, ...(b.sizeBytes !== undefined ? { sizeBytes: String(b.sizeBytes) } : {}) })),
     latestWalAt: r.latestWalAt ?? null,
     checkedAt: r.checkedAt,
   };

@@ -10,7 +10,7 @@ import type { DemoStore, DomainResolvers } from '../types';
 
 interface DemoDbState {
   dbClusters: Array<{ stack: string; cluster: string; schedule: { engine: string; pitr: boolean } | null }>;
-  dbSnapshots: Array<{ id: string; stack: string; cluster: string; time: string; engine: string | null }>;
+  dbSnapshots: Array<{ id: string; stack: string; cluster: string; time: string; engine: string | null; sizeBytes: string | null }>;
 }
 
 const NONE: DbPitrWindowView = { source: 'none', window: null, backups: [], latestWalAt: null, checkedAt: null };
@@ -25,7 +25,11 @@ export const dbPitrWindow: DomainResolvers = {
       const backups = st.dbSnapshots
         .filter((x) => x.stack === b.stack && x.cluster === b.cluster && x.engine === 'wal-g')
         .sort((x, y) => x.time.localeCompare(y.time))
-        .map((x) => ({ name: `base_${x.id.padStart(24, '0').slice(-24).toUpperCase()}`, finishTime: x.time }));
+        .map((x) => ({
+          name: `base_${x.id.padStart(24, '0').slice(-24).toUpperCase()}`,
+          finishTime: x.time,
+          ...(x.sizeBytes ? { sizeBytes: x.sizeBytes } : {}),
+        }));
       const now = Date.now();
       const latestWalAt = new Date(now - 60_000).toISOString();
       const oldest = backups[0];

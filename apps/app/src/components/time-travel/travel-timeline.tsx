@@ -5,6 +5,8 @@ import { useMedia, useSize } from '@/components/estate-map/use-media';
 import { dayMarks, eventsAt, WEEK_MS, type TravelEvent } from './time-travel-model';
 import { TravelHeadRow } from './travel-head-row';
 import { LANES, TravelLane } from './travel-lane';
+import { sizeMeasureWords, TravelSizeLane } from './travel-size-lane';
+import type { SizeSeries } from './time-travel-sizes';
 import type { TravelHead } from './use-travel-head';
 
 interface TravelTimelineProps {
@@ -13,6 +15,8 @@ interface TravelTimelineProps {
   now: number;
   /** Some lanes couldn't be read. */
   partial?: boolean;
+  /** The database's size at each save, when its backups recorded one. */
+  size?: SizeSeries | null;
   className?: string;
 }
 
@@ -22,7 +26,7 @@ const LABEL = 'text-muted-foreground flex h-11 items-center gap-2 text-[12.5px] 
  * The week as a bar (board 10): day marks, three lanes (Deploys · Incidents ·
  * Backups) and the head. Everything left of the head is "since then".
  */
-export function TravelTimeline({ events, head, now, partial, className }: TravelTimelineProps): React.JSX.Element {
+export function TravelTimeline({ events, head, now, partial, size, className }: TravelTimelineProps): React.JSX.Element {
   const [trackRef, track] = useSize<HTMLDivElement>();
   const coarse = useMedia('(pointer: coarse)');
   const gap = track.w ? (coarse ? 46 : 26) / track.w : 0.04;
@@ -53,12 +57,24 @@ export function TravelTimeline({ events, head, now, partial, className }: Travel
             <TravelLane kind={l.kind} events={events} current={current} gap={gap} pos={pos} onPick={head.go} />
           </React.Fragment>
         ))}
+        {size ? (
+          <>
+            <span className={LABEL} title={sizeMeasureWords(size)}>
+              <span aria-hidden className="bg-tone-info h-0.5 w-2.5 shrink-0 rounded-full" />
+              Size
+            </span>
+            <TravelSizeLane series={size} at={head.at} pos={pos} live={head.live} />
+          </>
+        ) : null}
         <span className={cn(LABEL, 'font-mono text-[11px] font-normal')}>drag the head</span>
         <TravelHeadRow head={head} now={now} pos={pos} trackRef={trackRef} />
       </div>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1">
         {partial ? <span className="text-tone-warn text-[12px]">Some backups or incidents couldn&rsquo;t be read, so a lane may be missing events.</span> : null}
-        <Tech>releases.list · incidents.list + incidents.get · backups.listSnapshots · dbBackups.list</Tech>
+        <Tech>
+          releases.list · incidents.list + incidents.get · backups.listSnapshots · dbBackups.list
+          {size ? ` · size: ${size.measure === 'data' ? 'wal-g uncompressed_size (dbBackups.pitrWindow)' : 'dump sizeBytes'} of ${size.cluster}` : ''}
+        </Tech>
       </div>
     </section>
   );

@@ -397,8 +397,8 @@ export interface DbPitrWindowView {
   source: 'agent' | 'unsupported' | 'none';
   /** From the oldest base backup's finish to the newest archived change; null with no base backups. */
   window: { from: string; to: string } | null;
-  /** Base backups, oldest first. */
-  backups: Array<{ name: string; finishTime: string }>;
+  /** Base backups, oldest first; `sizeBytes` is the data directory's size then (stringified), when wal-g reported it. */
+  backups: Array<{ name: string; finishTime: string; sizeBytes?: string }>;
   /** Upload time of the newest archived WAL segment, when it could be read. */
   latestWalAt: string | null;
   checkedAt: string | null;

@@ -13,6 +13,7 @@ import { ReplaySection } from './replay-section';
 import { RestorePointCard } from './restore-point-card';
 import { TravelTimeline } from './travel-timeline';
 import { useAppRestore } from './use-app-restore';
+import { useDbSize } from './use-db-size';
 import { useTimeTravel } from './use-time-travel';
 import { useTravelHead } from './use-travel-head';
 
@@ -32,6 +33,7 @@ export function TimeTravelPage({ stack }: { stack: string }): React.JSX.Element 
   const db = d.databases[0];
   const point = db?.saves ? nearestRestorePoint(db.saves, head.at) : null;
   const app = useAppRestore(stack, d, head.at);
+  const size = useDbSize(stack, db, d.now);
 
   const chip = head.live ? (
     <span className="text-tone-ok border-tone-ok/40 inline-flex h-6 items-center gap-1.5 rounded-full border px-2.5 text-[12px] font-semibold">
@@ -67,7 +69,7 @@ export function TimeTravelPage({ stack }: { stack: string }): React.JSX.Element 
           <CardSkeleton lines={4} />
         ) : (
           <>
-            <TravelTimeline events={d.events} head={head} now={d.now} partial={d.partial} className="order-1 lg:sticky lg:bottom-4 lg:z-10 lg:order-3" />
+            <TravelTimeline events={d.events} head={head} now={d.now} partial={d.partial} size={size} className="order-1 lg:sticky lg:bottom-4 lg:z-10 lg:order-3" />
             <div className="order-2 grid gap-5 xl:grid-cols-[minmax(0,1fr)_400px]">
               <div className="flex min-w-0 flex-col gap-5">
                 <ReplaySection stack={stack} at={head.at} live={head.live} replay={replay} head={d.releases[0]} firstAt={firstAt} />
