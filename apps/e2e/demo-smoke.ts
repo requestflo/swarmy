@@ -119,6 +119,7 @@ const routes: Array<[string, RegExp?]> = [
   ['/services/svc-api'],
   ['/services/svc-api/terminal'],
   ['/services/new'],
+  ['/deploy/heroku', /Bring a Heroku app across[\s\S]*With a Heroku token/],
   ['/stacks/new'],
   ['/stacks/storefront', /storefront/i],
   // The app canvas (board 7): data stores, the tool row, connect mode.
@@ -249,6 +250,28 @@ try {
     else console.log('✓ git wizard: a Heroku repo → "Looks like a Heroku app", the import as the draft, untick → generated');
   } catch (e) {
     fail(`heroku scan board: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`);
+  }
+
+  // Import from Heroku: Deploy → the importer; pasted files → the plan in plain words → Deploy → copy the data.
+  try {
+    const before = pageErrors.length;
+    await page.goto(`${BASE}/deploy`, { waitUntil: 'networkidle' });
+    await page.getByRole('link', { name: 'Import from Heroku' }).first().click();
+    await page.waitForURL((u) => u.pathname === '/deploy/heroku', { timeout: 10_000 });
+    await page.getByRole('radio', { name: 'Paste the files' }).click();
+    await page.getByRole('button', { name: 'Use a sample app' }).click();
+    await page.getByRole('button', { name: 'Review the plan' }).click();
+    await page.getByText('shop-classic comes across as 2 services, a Postgres database and a cache.').first().waitFor({ timeout: 10_000 });
+    await page.getByText('Didn’t come across').first().waitFor({ timeout: 5_000 });
+    await page.getByRole('button', { name: 'Deploy', exact: true }).click();
+    await page.getByText('What Deploy did').first().waitFor({ timeout: 10_000 });
+    await page.getByLabel('Type shop-classic/db to copy').fill('shop-classic/db');
+    await page.getByRole('button', { name: 'Copy the data' }).click();
+    await page.getByText('Copied: db now has 38 tables from Heroku.').first().waitFor({ timeout: 10_000 });
+    if (pageErrors.length > before) fail(`heroku import: ${pageErrors.slice(before).join(' | ')}`);
+    else console.log('✓ heroku import: pasted files → plan in plain words → Deploy → typed copy of the data');
+  } catch (e) {
+    fail(`heroku import: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`);
   }
 
   // Convert to swarmy.yaml: Source tab → the generated file, checked, with Connect a repo as the next step.

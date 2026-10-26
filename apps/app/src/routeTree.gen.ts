@@ -52,6 +52,7 @@ import { Route as AuthedNetworkingSettingsRouteImport } from './routes/_authed/n
 import { Route as AuthedNetworkGeoDnsRouteImport } from './routes/_authed/network_.geo-dns'
 import { Route as AuthedNetworkConnectionsRouteImport } from './routes/_authed/network_.connections'
 import { Route as AuthedIncidentsIncidentIdRouteImport } from './routes/_authed/incidents_.$incidentId'
+import { Route as AuthedDeployHerokuRouteImport } from './routes/_authed/deploy_.heroku'
 import { Route as AuthedDeployTemplateRouteImport } from './routes/_authed/deploy_.$template'
 import { Route as AuthedDataBucketsRouteImport } from './routes/_authed/data_.buckets'
 import { Route as AuthedCiBuildIdRouteImport } from './routes/_authed/ci_.$buildId'
@@ -309,6 +310,11 @@ const AuthedIncidentsIncidentIdRoute =
     path: '/incidents/$incidentId',
     getParentRoute: () => AuthedRoute,
   } as any)
+const AuthedDeployHerokuRoute = AuthedDeployHerokuRouteImport.update({
+  id: '/deploy_/heroku',
+  path: '/deploy/heroku',
+  getParentRoute: () => AuthedRoute,
+} as any)
 const AuthedDeployTemplateRoute = AuthedDeployTemplateRouteImport.update({
   id: '/deploy_/$template',
   path: '/deploy/$template',
@@ -558,6 +564,7 @@ export interface FileRoutesByFullPath {
   '/ci/$buildId': typeof AuthedCiBuildIdRoute
   '/data/buckets': typeof AuthedDataBucketsRoute
   '/deploy/$template': typeof AuthedDeployTemplateRoute
+  '/deploy/heroku': typeof AuthedDeployHerokuRoute
   '/incidents/$incidentId': typeof AuthedIncidentsIncidentIdRoute
   '/network/connections': typeof AuthedNetworkConnectionsRoute
   '/network/geo-dns': typeof AuthedNetworkGeoDnsRoute
@@ -640,6 +647,7 @@ export interface FileRoutesByTo {
   '/ci/$buildId': typeof AuthedCiBuildIdRoute
   '/data/buckets': typeof AuthedDataBucketsRoute
   '/deploy/$template': typeof AuthedDeployTemplateRoute
+  '/deploy/heroku': typeof AuthedDeployHerokuRoute
   '/incidents/$incidentId': typeof AuthedIncidentsIncidentIdRoute
   '/network/connections': typeof AuthedNetworkConnectionsRoute
   '/network/geo-dns': typeof AuthedNetworkGeoDnsRoute
@@ -723,6 +731,7 @@ export interface FileRoutesById {
   '/_authed/ci_/$buildId': typeof AuthedCiBuildIdRoute
   '/_authed/data_/buckets': typeof AuthedDataBucketsRoute
   '/_authed/deploy_/$template': typeof AuthedDeployTemplateRoute
+  '/_authed/deploy_/heroku': typeof AuthedDeployHerokuRoute
   '/_authed/incidents_/$incidentId': typeof AuthedIncidentsIncidentIdRoute
   '/_authed/network_/connections': typeof AuthedNetworkConnectionsRoute
   '/_authed/network_/geo-dns': typeof AuthedNetworkGeoDnsRoute
@@ -807,6 +816,7 @@ export interface FileRouteTypes {
     | '/ci/$buildId'
     | '/data/buckets'
     | '/deploy/$template'
+    | '/deploy/heroku'
     | '/incidents/$incidentId'
     | '/network/connections'
     | '/network/geo-dns'
@@ -889,6 +899,7 @@ export interface FileRouteTypes {
     | '/ci/$buildId'
     | '/data/buckets'
     | '/deploy/$template'
+    | '/deploy/heroku'
     | '/incidents/$incidentId'
     | '/network/connections'
     | '/network/geo-dns'
@@ -971,6 +982,7 @@ export interface FileRouteTypes {
     | '/_authed/ci_/$buildId'
     | '/_authed/data_/buckets'
     | '/_authed/deploy_/$template'
+    | '/_authed/deploy_/heroku'
     | '/_authed/incidents_/$incidentId'
     | '/_authed/network_/connections'
     | '/_authed/network_/geo-dns'
@@ -1332,6 +1344,13 @@ declare module '@tanstack/react-router' {
       path: '/incidents/$incidentId'
       fullPath: '/incidents/$incidentId'
       preLoaderRoute: typeof AuthedIncidentsIncidentIdRouteImport
+      parentRoute: typeof AuthedRoute
+    }
+    '/_authed/deploy_/heroku': {
+      id: '/_authed/deploy_/heroku'
+      path: '/deploy/heroku'
+      fullPath: '/deploy/heroku'
+      preLoaderRoute: typeof AuthedDeployHerokuRouteImport
       parentRoute: typeof AuthedRoute
     }
     '/_authed/deploy_/$template': {
@@ -1696,6 +1715,7 @@ interface AuthedRouteChildren {
   AuthedCiBuildIdRoute: typeof AuthedCiBuildIdRoute
   AuthedDataBucketsRoute: typeof AuthedDataBucketsRoute
   AuthedDeployTemplateRoute: typeof AuthedDeployTemplateRoute
+  AuthedDeployHerokuRoute: typeof AuthedDeployHerokuRoute
   AuthedIncidentsIncidentIdRoute: typeof AuthedIncidentsIncidentIdRoute
   AuthedNetworkConnectionsRoute: typeof AuthedNetworkConnectionsRoute
   AuthedNetworkGeoDnsRoute: typeof AuthedNetworkGeoDnsRoute
@@ -1747,6 +1767,7 @@ const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedCiBuildIdRoute: AuthedCiBuildIdRoute,
   AuthedDataBucketsRoute: AuthedDataBucketsRoute,
   AuthedDeployTemplateRoute: AuthedDeployTemplateRoute,
+  AuthedDeployHerokuRoute: AuthedDeployHerokuRoute,
   AuthedIncidentsIncidentIdRoute: AuthedIncidentsIncidentIdRoute,
   AuthedNetworkConnectionsRoute: AuthedNetworkConnectionsRoute,
   AuthedNetworkGeoDnsRoute: AuthedNetworkGeoDnsRoute,

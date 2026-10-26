@@ -10,6 +10,7 @@ import { DeployCode } from './deploy-code';
 import { DeployGit } from './deploy-git';
 import type { DeploySearch } from './deploy-search';
 import { DeployTemplateAside } from './deploy-template-aside';
+import { ImportFrom } from './import-from';
 import { SourceCards } from './source-cards';
 import { TemplateShelf } from './template-shelf';
 import { useServerRoom } from './use-server-room';
@@ -49,6 +50,7 @@ export function DeployPage(): React.JSX.Element {
     <>
       <SayHeader eyebrow="Nothing runs until you press Deploy" title="What are you putting online?" />
       <SourceCards value={source} onPick={setSource} templateCount={list.isPending ? null : all.length} />
+      <ImportFrom />
     </>
   );
   if (source === 'git') {
