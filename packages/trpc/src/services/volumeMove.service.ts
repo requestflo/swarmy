@@ -3,21 +3,15 @@
  * phase 2) — the IO runner. The pure half (scripts, parsers, manifests,
  * re-pin, labels) is `@swarmy/core` `volume-move.ts`.
  *
- * Two strategies:
+ * The strategy:
  *
  *   {@link moveServiceData}  any volume-backed service (compose apps, search,
  *                            vector, caches, the registry…): two-pass rsync
  *                            over the `swarmy` overlay, a short stop for the
  *                            final pass, a manifest compare on both sides,
  *                            re-pin, start on the destination.
- *   {@link switchoverDb}     a managed Postgres primary: make sure a replica
- *                            runs elsewhere (adding one if needed), freeze
- *                            writes, wait until the replica has replayed the
- *                            primary's final position, stop the primary and
- *                            let manageddb-reconcile promote through
- *                            `decideFailover` (the `swarmy.db.switchover`
- *                            label only skips the grace window). The demoted
- *                            member is then un-pinned from the old server.
+ *   a managed Postgres primary is not copied: its writer moves by the
+ *   planned switchover (`dbWriterMove.service.ts` → `runDbSwitchover`).
  *
  * Built on existing commands only (`service.deploy/scale/remove/updateLabels`,
  * `secret.create/remove`, `container.runOnce`, `volume.remove`, `exec`) — no
@@ -34,9 +28,6 @@
  */
 import { randomBytes } from 'node:crypto';
 import {
-  DB_AVOID_NODE_LABEL,
-  DB_PIN_NODE_LABEL,
-  DB_SWITCHOVER_LABEL,
   MOVE_OLD_COPIES_LABEL,
   MOVE_STATE_LABEL,
   MOVER_DST,
@@ -49,7 +40,6 @@ import {
   SYSTEM_STACK,
   SYSTEM_STACK_LABEL,
   addOldCopies,
-  behindWatermarkBytes,
   compareManifests,
   diskFitRefusal,
   diskFitWarning,
@@ -495,167 +485,4 @@ export async function deleteOldCopy(ctx: Ctx, input: { service: string; nodeId: 
     removeKeys: rest.length ? [] : [MOVE_OLD_COPIES_LABEL],
   });
   await writeAudit(ctx, { action: 'volume.oldCopy.delete', targetType: 'service', targetId: svc.name, metadata: input });
-}
-
-// ── managed Postgres: planned switchover ─────────────────────────────────────
-
-export interface SwitchoverDeps extends MoverDeps {
-  /** psql -tAc inside a member's running task (resilience `execInService`). */
-  psql(service: string, sql: string): Promise<string>;
-  /** manageddb.setReplicas / setTopology (labels + scale). */
-  setReplicas(stack: string, cluster: string, replicas: number): Promise<void>;
-  setTopology(stack: string, cluster: string, topology: string): Promise<void>;
-}
-
-const SWITCHOVER_REPLICA_TIMEOUT_MS = 15 * 60_000;
-const SWITCHOVER_PROMOTE_TIMEOUT_MS = 3 * 60_000;
-/** Close enough to start the final freeze (the freeze itself waits for 0). */
-const CATCH_UP_BYTES = 16 * 1024 * 1024;
-
-function clusterMembers(ctx: Ctx, stack: string, cluster: string): SwarmServiceInfo[] {
-  return ctx.hub
-    .liveInventory(ctx.activeOrgId)
-    .services.filter((s) => s.labels[STACK_LABEL] === stack && s.labels['swarmy.db.cluster'] === cluster);
-}
-
-/**
- * Move a managed Postgres cluster's WRITER off `avoidNodeId` with a planned
- * switchover. Pause for writers: from the freeze until the promotion (seconds).
- */
-export async function switchoverDb(
-  ctx: Ctx,
-  input: { stack: string; cluster: string; avoidNodeId: string },
-  deps: SwitchoverDeps,
-  progress: ProgressFn = () => {},
-): Promise<{ promoted: string; demoted: string; addedReplica: boolean }> {
-  const moveId = newMoveId(deps.now());
-  const say = (step: MoveProgress['step'], message: string) => progress({ moveId, step, message });
-  const primaryOf = () =>
-    clusterMembers(ctx, input.stack, input.cluster).find((s) => s.labels['swarmy.db.role'] === 'primary' && !s.labels['swarmy.db.member']);
-  const primary = primaryOf();
-  if (!primary) throw notFound('db cluster', input.cluster);
-  const topology = primary.labels['swarmy.db.topology'] ?? 'primary-replica';
-  if (topology === 'active-active') throw commandRejected('active-active writers are not moved automatically.');
-  const avoidSwarm = ctx.hub.swarmNodeIdFor(input.avoidNodeId);
-  const declared = Number(primary.labels['swarmy.db.replicas'] ?? '0') || 0;
-  const manager = await resolveManagerNode(ctx);
-
-  // 1. A replica running somewhere else.
-  const replicaElsewhere = () =>
-    clusterMembers(ctx, input.stack, input.cluster).find(
-      (s) =>
-        s.labels['swarmy.db.role'] === 'replica' &&
-        (s.runningReplicas ?? 0) > 0 &&
-        nodesRunning(ctx, s.name).some((n) => n !== input.avoidNodeId),
-    );
-  let addedReplica = false;
-  if (!replicaElsewhere()) {
-    say('serve', `Adding a copy of ${input.cluster} on another server first.`);
-    if (topology === 'single') await deps.setTopology(input.stack, input.cluster, 'primary-replica');
-    await deps.setReplicas(input.stack, input.cluster, Math.max(1, declared));
-    addedReplica = true;
-    await waitFor(deps, SWITCHOVER_REPLICA_TIMEOUT_MS, () => Boolean(replicaElsewhere()), 'the new copy to start');
-  }
-  const replica = replicaElsewhere()!;
-
-  const lsnGap = async () => {
-    const p = (await deps.psql(primary.name, 'SELECT pg_current_wal_flush_lsn()')).trim();
-    const r = (await deps.psql(replica.name, 'SELECT pg_last_wal_replay_lsn()')).trim();
-    return behindWatermarkBytes(p, r);
-  };
-
-  // 2. Catch up while writes continue.
-  say('copy-live', `Waiting for the copy on ${hostnameOf(ctx, nodesRunning(ctx, replica.name)[0] ?? '')} to catch up.`);
-  await (async () => {
-    const deadline = deps.now() + SWITCHOVER_REPLICA_TIMEOUT_MS;
-    for (;;) {
-      const gap = await lsnGap().catch(() => null);
-      if (gap !== null && gap <= CATCH_UP_BYTES) return;
-      if (deps.now() > deadline) throw commandRejected('the copy did not catch up in time');
-      await deps.sleep(POLL_MS);
-    }
-  })();
-
-  // 3. Freeze writes, wait for 0 bytes behind.
-  say('stop', 'Pausing writes for a few seconds.');
-  const unfreeze = async () => {
-    await deps.psql(primary.name, 'ALTER SYSTEM RESET default_transaction_read_only').catch(() => '');
-    await deps.psql(primary.name, 'SELECT pg_reload_conf()').catch(() => '');
-  };
-  await deps.psql(primary.name, 'ALTER SYSTEM SET default_transaction_read_only = on');
-  await deps.psql(primary.name, 'SELECT pg_reload_conf()');
-  try {
-    await deps.psql(primary.name, 'CHECKPOINT');
-    const deadline = deps.now() + 60_000;
-    for (;;) {
-      const gap = await lsnGap().catch(() => null);
-      if (gap === 0) break;
-      if (deps.now() > deadline) throw commandRejected(`the copy is still ${gap ?? 'an unknown number of'} bytes behind — switchover cancelled, writes resumed`);
-      await deps.sleep(500);
-    }
-  } catch (e) {
-    await unfreeze();
-    throw e;
-  }
-  // Writes stay frozen through the stop: the setting lives in the old
-  // writer's PGDATA, which the rejoin moves aside before re-cloning. Only a
-  // rollback (the old writer restarts as the writer) resets it.
-
-  // 4. Stop the primary; manageddb-reconcile promotes via decideFailover.
-  say('repin', 'Switching the writer.');
-  await ctx.hub.dispatch(manager.id, 'service.updateLabels', {
-    service: primary.name,
-    add: { [DB_SWITCHOVER_LABEL]: new Date(deps.now()).toISOString() },
-    removeKeys: [],
-  });
-  await ctx.hub.dispatch(manager.id, 'service.scale', { service: primary.name, replicas: 0 });
-  try {
-    await waitFor(
-      deps,
-      SWITCHOVER_PROMOTE_TIMEOUT_MS,
-      () => liveService(ctx, replica.name)?.labels['swarmy.db.role'] === 'primary',
-      `${replica.name} to be promoted`,
-    );
-  } catch (e) {
-    // Not promoted (held or failed): bring the old writer back.
-    await ctx.hub.dispatch(manager.id, 'service.updateLabels', { service: primary.name, add: {}, removeKeys: [DB_SWITCHOVER_LABEL] }).catch(() => undefined);
-    await ctx.hub.dispatch(manager.id, 'service.scale', { service: primary.name, replicas: 1 }).catch(() => undefined);
-    await waitFor(deps, START_TIMEOUT_MS, () => nodesRunning(ctx, primary.name).length > 0, `${primary.name} to restart`).catch(() => undefined);
-    await unfreeze();
-    throw e;
-  }
-
-  // 5. Un-pin the demoted ex-primary from the old server; it re-clones elsewhere.
-  say('start', `${replica.name} is now the writer; moving the old writer's slot off ${hostnameOf(ctx, input.avoidNodeId)}.`);
-  const demoted = liveService(ctx, primary.name);
-  const newWriterSwarm = ctx.hub.swarmNodeIdFor(nodesRunning(ctx, replica.name)[0] ?? '');
-  if (demoted) {
-    const { rebuildDbMemberSpec } = await import('./manageddb.service');
-    const labels = { ...demoted.labels };
-    delete labels[DB_PIN_NODE_LABEL];
-    delete labels[DB_SWITCHOVER_LABEL];
-    if (newWriterSwarm) labels[DB_AVOID_NODE_LABEL] = newWriterSwarm;
-    const keep = addedReplica ? declared : Math.max(1, declared);
-    const spec = rebuildDbMemberSpec(demoted, labels, keep);
-    if (avoidSwarm) {
-      spec.placement = {
-        ...(spec.placement ?? {}),
-        constraints: [...(spec.placement?.constraints ?? []).filter((c) => c !== `node.id!=${avoidSwarm}`), `node.id!=${avoidSwarm}`],
-      };
-    }
-    await ctx.hub.dispatch(manager.id, 'service.deploy', { spec, pullPolicy: 'missing' });
-  }
-  if (addedReplica) {
-    // Restore what was declared: setReplicas scales the (now) replica — the ex-primary.
-    await deps.setReplicas(input.stack, input.cluster, declared);
-    if (topology === 'single') await deps.setTopology(input.stack, input.cluster, 'single');
-  }
-  await writeAudit(ctx, {
-    action: 'db.switchover',
-    targetType: 'dbCluster',
-    targetId: `${input.stack}/${input.cluster}`,
-    metadata: { promoted: replica.name, demoted: primary.name, off: hostnameOf(ctx, input.avoidNodeId), addedReplica },
-  });
-  say('done', `${input.cluster} now writes on ${hostnameOf(ctx, nodesRunning(ctx, replica.name)[0] ?? '')}.`);
-  return { promoted: replica.name, demoted: primary.name, addedReplica };
 }

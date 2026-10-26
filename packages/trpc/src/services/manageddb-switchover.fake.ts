@@ -49,9 +49,9 @@ export function fakeSwitchover(o: FakeOpts = {}) {
   if (o.app) services.push(svc('svc-a', 'shop_api', { 'swarmy.db.inject': 'db', ...(o.app === 'pooler' ? { 'swarmy.db.inject.via': 'pooler' } : {}) }));
   const byName = (n: string) => services.find((s) => s.name === n)!;
   const containers = () => [
-    ...((primary.runningReplicas ?? 0) > 0 ? [{ id: 'aaaaaaaaaaaa0001', serviceId: 'svc-p', node: 'n1' }] : []),
-    { id: '3f2a9c1b7d4e0002', serviceId: 'svc-r', node: 'n2' },
-  ].map((c) => ({ ...c, state: 'running', labels: {} }));
+    ...((primary.runningReplicas ?? 0) > 0 ? [{ id: 'aaaaaaaaaaaa0001', serviceId: 'svc-p', node: 'n1', service: primary.name }] : []),
+    { id: '3f2a9c1b7d4e0002', serviceId: 'svc-r', node: 'n2', service: replica.name },
+  ].map((c) => ({ ...c, state: 'running', labels: { 'com.docker.swarm.service.name': c.service } }));
   const calls: Array<{ cmd: string; payload: Record<string, unknown> }> = [];
   const audit: string[] = [];
   const hub = {
@@ -73,6 +73,11 @@ export function fakeSwitchover(o: FakeOpts = {}) {
         const s = byName(payload.service);
         Object.assign(s.labels, payload.add);
         for (const k of payload.removeKeys as string[]) delete s.labels[k];
+      }
+      if (cmd === 'service.deploy') {
+        const s = services.find((x) => x.name === payload.spec.name);
+        const n = payload.spec.mode?.replicated?.replicas ?? 1;
+        if (s) Object.assign(s, { labels: { ...payload.spec.labels }, desiredReplicas: n, runningReplicas: o.noRejoin ? 0 : n });
       }
       if (cmd === 'service.scale') {
         const s = byName(payload.service);

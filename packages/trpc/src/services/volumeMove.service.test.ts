@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import type { ContainerInfo, SwarmServiceInfo } from '@swarmy/core/protocol';
-import { moveServiceData, planServiceMove, serveSpec, switchoverDb, type MoverDeps, type SwitchoverDeps } from './volumeMove.service';
+import { moveServiceData, planServiceMove, serveSpec, type MoverDeps } from './volumeMove.service';
 
 /**
  * A tiny fake swarm: two servers, one service with a volume. Dispatches are
@@ -203,82 +203,5 @@ describe('serveSpec', () => {
     expect(s.secrets).toEqual([{ source: 'swarmy-move-abc-secret', target: 'swarmy-move-secret' }]);
     expect(s.ports).toBeUndefined();
     expect(s.networks).toEqual(['swarmy']);
-  });
-});
-
-describe('switchoverDb', () => {
-  function pgSwarm(opts: { lagStuck?: boolean } = {}) {
-    const calls: { cmd: string; payload: any }[] = [];
-    const base = { mode: 'replicated' as const, createdAt: 0, updatedAt: 0, networks: [], env: [], ports: [], secrets: [], configs: [], image: 'pgvector/pgvector:pg17' };
-    const primary: SwarmServiceInfo = {
-      ...base, id: 'p', name: 'shop_db-primary', desiredReplicas: 1, runningReplicas: 1,
-      labels: { 'com.docker.stack.namespace': 'shop', 'swarmy.db.cluster': 'db', 'swarmy.db.role': 'primary', 'swarmy.db.replicas': '1', 'swarmy.db.node': 'sw1', 'swarmy.db.dataVolume': 'shop_db-primary-data' },
-    };
-    const replica: SwarmServiceInfo = {
-      ...base, id: 'r', name: 'shop_db-replica', desiredReplicas: 1, runningReplicas: 1,
-      labels: { 'com.docker.stack.namespace': 'shop', 'swarmy.db.cluster': 'db', 'swarmy.db.role': 'replica', 'swarmy.db.replicas': '1' },
-    };
-    const on: Record<string, string> = { 'shop_db-primary': 'n1', 'shop_db-replica': 'n2' };
-    const hub: any = {
-      onlineNodeIds: () => ['n1', 'n2', 'n3'],
-      isOnline: () => true,
-      latestContainers: (n: string) =>
-        Object.entries(on).filter(([, node]) => node === n).map(([name]) => ({ id: name, name, state: 'running', labels: { 'com.docker.swarm.service.name': name } })),
-      liveInventory: () => ({ services: [primary, replica], containers: [] }),
-      nodeInfoFor: (n: string) => ({ hostname: n }),
-      swarmNodeIdFor: (n: string) => `sw${n.slice(1)}`,
-      managerNode: () => 'n1',
-      dispatch: async (_n: string, cmd: string, payload: any) => {
-        calls.push({ cmd, payload });
-        if (cmd === 'service.scale' && payload.service === primary.name && payload.replicas === 0) {
-          delete on[primary.name];
-          // manageddb-reconcile promotes (decideFailover) on its next tick:
-          replica.labels['swarmy.db.role'] = 'primary';
-          primary.labels['swarmy.db.role'] = 'replica';
-        }
-        return {};
-      },
-    };
-    const sql: string[] = [];
-    let frozen = false;
-    const deps: SwitchoverDeps = {
-      ...{ now: (() => { let t = 0; return () => (t += 1000); })(), sleep: async () => {}, secret: () => 'x' },
-      psql: async (service, q) => {
-        sql.push(`${service}: ${q}`);
-        if (q.includes('SET default_transaction_read_only = on')) frozen = true;
-        if (q.includes('RESET')) frozen = false;
-        if (q.includes('pg_current_wal_flush_lsn')) return '0/3000000';
-        if (q.includes('pg_last_wal_replay_lsn')) return opts.lagStuck || !frozen ? '0/2FFFF00' : '0/3000000';
-        return 't';
-      },
-      setReplicas: async () => {},
-      setTopology: async () => {},
-    };
-    const ctx: any = { hub, activeOrgId: 'org', db: { auditLog: { create: async () => ({}) } } };
-    return { ctx, calls, sql, deps, primary, replica, frozen: () => frozen };
-  }
-
-  it('freezes writes, waits for 0 bytes behind, stops the primary with the switchover label, un-pins the demoted member', async () => {
-    const t = pgSwarm();
-    const res = await switchoverDb(t.ctx, { stack: 'shop', cluster: 'db', avoidNodeId: 'n1' }, t.deps);
-    expect(res).toEqual({ promoted: 'shop_db-replica', demoted: 'shop_db-primary', addedReplica: false });
-    const label = t.calls.find((c) => c.cmd === 'service.updateLabels' && c.payload.add['swarmy.db.switchover']);
-    expect(label).toBeDefined();
-    const iFreeze = t.sql.findIndex((q) => q.includes('read_only = on'));
-    expect(iFreeze).toBeGreaterThan(-1);
-    // Still frozen when the primary stops (no write window before the stop).
-    expect(t.frozen()).toBe(true);
-    const redeploy = t.calls.find((c) => c.cmd === 'service.deploy')!.payload.spec;
-    expect(redeploy.name).toBe('shop_db-primary');
-    expect(redeploy.labels['swarmy.db.node']).toBeUndefined();
-    expect(redeploy.labels['swarmy.db.avoidNode']).toBe('sw2');
-    expect(redeploy.placement.constraints).toContain('node.id!=sw1');
-  });
-
-  it('a replica that never catches up cancels before anything stops, and writes resume', async () => {
-    const t = pgSwarm({ lagStuck: true });
-    await expect(switchoverDb(t.ctx, { stack: 'shop', cluster: 'db', avoidNodeId: 'n1' }, t.deps)).rejects.toThrow('bytes behind');
-    expect(t.calls.some((c) => c.cmd === 'service.scale')).toBe(false);
-    expect(t.frozen()).toBe(false);
   });
 });

@@ -26,7 +26,6 @@ import {
   repinSpec,
   undoUntilFor,
   PINNED_DATA_LABELS,
-  PG_PASSWORD_FROM_MEMBER,
 } from '@swarmy/core';
 import type { ContainerInfo, ServiceSpec } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
@@ -50,10 +49,11 @@ import { removeNode, setNodeAvailability, setNodeRole } from './node.service';
 import { readOperationRun, saveOperationRun } from './operation-runs';
 import { dockerCliPayload } from './platform-upgrade.service';
 import { STORAGE_STATS_LABEL, enable as applyStore, status as storeStatus } from './replicatedStore.service';
-import { execInService } from './resilience.service';
 import { liveServiceSpec } from './service-patch';
 import { storageClusterRepo } from './storage-cluster.repo';
-import { moveServiceData, nodesRunning, realDeps, switchoverDb, type MoverDeps } from './volumeMove.service';
+import { moveDbWriterOff } from './dbWriterMove.service';
+import { pgSwitchoverIo } from './manageddb-switchover.start';
+import { moveServiceData, nodesRunning, realDeps, type MoverDeps } from './volumeMove.service';
 
 const SERVICE_NAME_LABEL = 'com.docker.swarm.service.name';
 const KIND = 'node.decommission' as const;
@@ -244,11 +244,6 @@ async function waitUntil(deps: MoverDeps, ms: number, cond: () => boolean | Prom
   }
 }
 
-function psql(ctx: Ctx) {
-  return (service: string, sql: string) =>
-    execInService(ctx, service, `${PG_PASSWORD_FROM_MEMBER} psql -U postgres -h 127.0.0.1 -p 5432 -tAc "${sql}"`);
-}
-
 async function nodeUpdate(ctx: Ctx, nodeId: string, patch: Record<string, unknown>): Promise<void> {
   const swarmNodeId = ctx.hub.swarmNodeIdFor(nodeId);
   if (!swarmNodeId) throw commandRejected('the server has no swarm id yet');
@@ -364,17 +359,19 @@ async function runStep(ctx: Ctx, run: DecomRun, step: DrainStep, deps: RunnerDep
       if (!svc) return { kind: 'done', note: 'Already gone.' };
       const stack = svc.labels['com.docker.stack.namespace'] ?? '';
       const cluster = svc.labels['swarmy.db.cluster'] ?? '';
-      await switchoverDb(
+      // The one planned switchover (db.switchover); a refusal the operator must settle waits.
+      const moved = await moveDbWriterOff(
         ctx,
         { stack, cluster, avoidNodeId: target },
         {
           ...deps,
-          psql: psql(ctx),
+          io: { ...pgSwitchoverIo(ctx), now: deps.now, sleep: deps.sleep },
           setReplicas: async (s, c, n) => void (await setReplicas(ctx, { stack: s, cluster: c, replicas: n })),
           setTopology: async (s, c, t) => void (await setTopology(ctx, { stack: s, cluster: c, topology: t as never })),
         },
-        (p) => say(p.message),
+        say,
       );
+      if (moved.kind === 'refused') return { kind: 'waiting', message: `${cluster}: ${moved.reason} Resume after.` };
       return { kind: 'done' };
     }
     case 'db-failover': {

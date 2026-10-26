@@ -613,7 +613,7 @@ export function planDecommission(input: DecommissionInput): DecommissionPlan {
           subject: m.name,
           title: `Hand ${cluster}'s writes to its copy on another server.`,
           detail:
-            'Planned switchover: wait for the replica to replay the primary\'s current LSN, stop writes on the old primary, SELECT pg_promote() on the replica, repoint members under a new SWARMY_PG_REJOIN epoch, then re-pin the primary label (swarmy.db.node) to the promoted member\'s node.',
+            'Planned switchover (db.switchover): pause writes on the old primary, wait for the replica to replay its final flushed LSN, stop it; the reconcile promotes the replica through decideFailover and repoints the members and the pooler under a new SWARMY_PG_REJOIN epoch; the old primary is rebuilt un-pinned, off this server. Refused while an app connects straight to the primary (send it through the pooler first).',
           downtime: 'seconds',
           verify: 'Promoted member replay LSN ≥ old primary flush LSN before promotion; pg_is_in_recovery() = false after.',
           rollback: 'Before promotion: abort, the old primary keeps writing. After: switch back the same way (the old primary rejoins as a replica).',
@@ -632,7 +632,7 @@ export function planDecommission(input: DecommissionInput): DecommissionPlan {
           bytes,
           title: `Copy ${cluster} to ${d.hostname} while it keeps running, then switch over.`,
           detail:
-            'Adds a temporary streaming replica pinned to the destination (pg_basebackup over the cluster network), waits until it has replayed the primary\'s current LSN, then does a planned switchover and sets the replica count back to what you declared.',
+            'Adds a temporary streaming replica pinned to the destination (pg_basebackup over the cluster network), waits until it is within one WAL segment, then does the planned switchover (db.switchover: writes paused until it has every change) and sets the replica count back to what you declared.',
           downtime: 'seconds',
           verify: 'Standby replay LSN = primary flush LSN with writes paused; row counts of every table match.',
           rollback: 'Before switchover: remove the temporary replica. After: switch back; the old volume on this server is untouched.',
