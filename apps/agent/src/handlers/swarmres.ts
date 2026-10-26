@@ -14,6 +14,7 @@
  * reported through the existing `commandResult` path.
  */
 import { createHash } from 'node:crypto';
+import { SECRET_CONTENT_HASH_LABEL } from '@swarmy/core';
 import type { DockerClient } from '@swarmy/core/docker';
 import type {
   ConfigCreatePayload,
@@ -37,8 +38,8 @@ import { putSecretFiles } from './secret-file';
 
 // ── secrets ──────────────────────────────────────────────────────────────────
 
-/** Label stamped on every secret the agent creates: sha256 of its content. */
-export const SECRET_CONTENT_LABEL = 'swarmy.content.sha256';
+/** Label stamped on every secret the agent creates: sha256 of its content (the controller addresses URL secrets by it). */
+export const SECRET_CONTENT_LABEL = SECRET_CONTENT_HASH_LABEL;
 
 export function secretContentHash(dataB64: string): string {
   return createHash('sha256').update(Buffer.from(dataB64, 'base64')).digest('hex');

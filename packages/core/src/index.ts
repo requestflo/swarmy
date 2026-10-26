@@ -26,6 +26,8 @@ export * from './manageddb-pooler-spec';
 export * from './manageddb-pooler-plan';
 export * from './manageddb-pooler-rotation';
 export * from './manageddb-pooler-view';
+export * from './manageddb-url-secret';
+export * from './manageddb-app-repoint';
 export * from './manageddb-switchover';
 export * from './manageddb-switchover-run';
 export * from './manageddb-switchover-view';

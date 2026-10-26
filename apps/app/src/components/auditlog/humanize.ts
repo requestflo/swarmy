@@ -38,6 +38,7 @@ const EXACT: Record<string, string> = {
   'db.failover.promote': 'failed over database',
   'db.failover.held': 'held a failover that could lose data on',
   'db.failover.confirm': 'confirmed a data-loss failover on',
+  'db.repoint.app': 'moved an app onto the new writer of',
   'controller.backup.run': 'backed up the controller for',
   'apiKey.create': 'created API key',
   'apiKey.revoke': 'revoked API key',

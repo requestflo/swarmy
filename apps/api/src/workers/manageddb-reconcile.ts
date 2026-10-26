@@ -70,6 +70,7 @@ import { restoreWatermark } from './manageddb-watermark.core';
 import { convergePgExtensions } from './manageddb-extensions';
 import { convergePgMemory } from './manageddb-memory';
 import { convergeDbPooler, repointPoolerAfterPromotion } from './manageddb-pooler';
+import { followPromotion, followWriter } from './manageddb-apps';
 import { plannedRequest, promotionRecord, thawStaleSwitchover } from './manageddb-switchover';
 import { createWatermarkStore } from './manageddb-watermark';
 import {
@@ -148,9 +149,12 @@ import {
  *   the promoted task keeps its promoted in-memory state), repoint every other
  *   member's `SWARMY_PG_PRIMARY_HOST` under a fresh `SWARMY_PG_REJOIN` epoch
  *   (redeploy specs; the boot layer re-points standbys and moves a demoted
- *   ex-writer's data ASIDE before re-cloning — never deletes it), then
- *   `recordIncidentEvent` + `fireEvent` + `writeAudit`. The promoted service
- *   keeps its replica-role env at promotion; its boot layer sees writer data
+ *   ex-writer's data ASIDE before re-cloning — never deletes it), points the
+ *   pooler at it (manageddb-pooler.ts) and rolls every app wired straight to
+ *   the cluster onto a URL naming it (manageddb-apps.ts; later ticks finish a
+ *   pass cut short), then `recordIncidentEvent` + `fireEvent` + `writeAudit`.
+ *   The promoted service keeps its replica-role env at promotion; its boot
+ *   layer sees writer data
  *   with no new epoch and keeps starting it as a writer. PITR follows the LIVE
  *   role (QA-068): the next ticks move the `swarmy.db.backup.*` intent off the
  *   demoted ex-primary onto the new writer, and, when PITR is on, redeploy it
@@ -245,7 +249,7 @@ function parseRegionReplicas(labels: Record<string, string>): Map<string, number
   return out;
 }
 
-interface Cluster {
+export interface Cluster {
   stack: string;
   cluster: string;
   /** `<stack>_<cluster>` — sibling service names derive from this. */
@@ -484,7 +488,7 @@ async function loadSeams(): Promise<TrpcSeams | null> {
 }
 
 /** The alert/incident/audit contract, bound to one org's system context. */
-interface Contract {
+export interface Contract {
   seams: TrpcSeams;
   ctx: OrgContext;
 }
@@ -556,7 +560,7 @@ function replicaMembers(c: Cluster): SwarmServiceInfo[] {
   );
 }
 
-interface MemberLag {
+export interface MemberLag {
   lagSeconds: number;
   lsnDiffBytes: number | null;
   /** The replica's replay LSN this tick — the failover caught-up proof. */
@@ -564,7 +568,7 @@ interface MemberLag {
 }
 
 /** One tick's lag picture + the primary's flushed-LSN sample (null = not taken). */
-interface ClusterLag {
+export interface ClusterLag {
   members: Record<string, MemberLag>;
   primaryLsn: string | null;
 }
@@ -1047,7 +1051,7 @@ async function promoteInPlace(orgId: string, svc: SwarmServiceInfo): Promise<boo
  * role labels, repoint the remaining replicas and record the
  * incident/alert/audit trail.
  */
-async function maybePromote(
+export async function maybePromote(
   contract: Contract,
   orgId: string,
   node: string,
@@ -1328,6 +1332,12 @@ async function maybePromote(
     incident: (message, meta) =>
       seams.recordIncidentEvent(ctx, { groupKey, kind: 'db.pooler.drain', message, severity: 'warning', meta }).catch(() => undefined),
   }).catch(() => null);
+  // Apps wired straight to the old writer follow too: a URL secret for the new
+  // one each, a rolling restart, on the timeline ("Repointed shop_api at …").
+  // Whatever this misses, the next ticks finish (followWriter).
+  const apps = await followPromotion({ stack: c.stack, cluster: c.cluster, ...(primary ? { primary } : {}), standbys: replicaMembers(c) }, target.name, {
+    repoint: (o) => seams.repointDbApps(ctx, { stack: c.stack, cluster: c.cluster, ...o }),
+  }).catch(() => null);
   await seams.fireEvent(ctx, {
     signal: 'db-failover',
     severity: record.signal,
@@ -1344,6 +1354,7 @@ async function maybePromote(
       demoted: primary?.name ?? null,
       repointed,
       pooler,
+      apps: apps?.moved.map((m) => m.service) ?? [],
       unhealthyTicks: ticks,
       lagSeconds: lagSecs ?? null,
       behindBytes: decision.behindBytes,
@@ -1369,15 +1380,8 @@ async function runDueBackupsSweep(now: Date): Promise<void> {
 
 // ── Reconcile ─────────────────────────────────────────────────────────────────
 
-async function reconcileOrg(orgId: string): Promise<void> {
-  const node = hub.managerNode(orgId);
-  if (!node) return;
-  // Stored failover watermarks (first tick after boot; cached afterwards).
-  await watermarkStore.load(orgId);
-
-  const { services } = hub.liveInventory(orgId);
-
-  // Index every managed-DB service into its cluster, keyed by (stack, cluster).
+/** Every managed-DB service indexed into its cluster, keyed by `<stack> <cluster>`. */
+export function indexClusters(services: readonly SwarmServiceInfo[]): Map<string, Cluster> {
   const clusters = new Map<string, Cluster>();
   const clusterOf = (s: SwarmServiceInfo, cluster: string): Cluster => {
     const stack = s.labels[STACK_LABEL] ?? '';
@@ -1421,6 +1425,18 @@ async function reconcileOrg(orgId: string): Promise<void> {
       else c.replica = s;
     }
   }
+  return clusters;
+}
+
+async function reconcileOrg(orgId: string): Promise<void> {
+  const node = hub.managerNode(orgId);
+  if (!node) return;
+  // Stored failover watermarks (first tick after boot; cached afterwards).
+  await watermarkStore.load(orgId);
+
+  const { services } = hub.liveInventory(orgId);
+
+  const clusters = indexClusters(services);
 
   // Alert/incident/audit contract (system principal), loaded lazily. Failures
   // leave it null and the tick still converges the base topology without it.
@@ -1705,6 +1721,16 @@ async function reconcileOrg(orgId: string): Promise<void> {
             : Promise.resolve(),
       },
     ).catch(() => undefined);
+
+    // (5c) Apps wired straight to the cluster follow the writer: whatever a
+    //      promotion pass left (a restart mid-pass, a failed redeploy). Gated
+    //      on each app's `swarmy.db.inject.host`: a steady tick sends nothing.
+    if (contract) {
+      const { seams, ctx } = contract;
+      await followWriter(warnKey, { stack: c.stack, cluster: c.cluster, ...(primary ? { primary } : {}), standbys: replicaMembers(c) }, services, {
+        repoint: (o) => seams.repointDbApps(ctx, { stack: c.stack, cluster: c.cluster, ...o }),
+      }).catch(() => undefined);
+    }
 
     // (6) A2 — replication-lag telemetry (`swarmy.db.lag.<member>` stamps).
     const measured = await measureClusterLag(orgId, node, c).catch(

@@ -23,7 +23,7 @@
  *    from the domain's secret-name convention (or the `swarmy.s3.secret`
  *    label), target from the carried `*_FILE` env (`/run/secrets/<target>`).
  */
-import { DB_INJECT_VIA_LABEL, STACK_LABEL } from '@swarmy/core';
+import { DB_INJECT_HOST_LABEL, DB_INJECT_RO_HOST_LABEL, DB_INJECT_VIA_LABEL, STACK_LABEL } from '@swarmy/core';
 import type { ServiceSpec, SwarmServiceInfo } from '@swarmy/core/protocol';
 import { EMAIL_BIND_LABEL } from './email/maddy';
 import { AI_BIND_ENV, AI_BIND_LABEL, AI_ENV_VAR, AI_INJECT_KEY_LABEL, AI_INJECT_LABEL, AI_KEY_FILE_VAR, aiKeySecretName } from './ai.service';
@@ -96,7 +96,8 @@ export function attachedDomains(source: Pick<SwarmServiceInfo, 'name' | 'labels'
     const v = l[DB_INJECT_VAR_LABEL] || 'DATABASE_URL';
     out.push({
       marker: DB_INJECT_LABEL,
-      labels: [DB_INJECT_LABEL, DB_INJECT_VAR_LABEL, DB_INJECT_VIA_LABEL],
+      // The hosts its URLs name ride along: the failover repoint compares them with the writer.
+      labels: [DB_INJECT_LABEL, DB_INJECT_VAR_LABEL, DB_INJECT_VIA_LABEL, DB_INJECT_HOST_LABEL, DB_INJECT_RO_HOST_LABEL],
       env: [v, roVarName(v)],
       ...(stack ? { network: clusterNetworkName(stack, db) } : {}),
     });

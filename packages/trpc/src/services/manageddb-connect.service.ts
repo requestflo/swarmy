@@ -1,4 +1,4 @@
-import { DB_INJECT_VIA_LABEL, buildInventory, connectViaOf, dbSecretFamily, parseDbSecretName, type DbConnectVia, type InvService } from '@swarmy/core';
+import { DB_INJECT_HOST_LABEL, DB_INJECT_RO_HOST_LABEL, DB_INJECT_VIA_LABEL, buildInventory, connectViaOf, dbSecretFamily, parseDbSecretName, type DbConnectVia, type InvService } from '@swarmy/core';
 import type { OrgContext } from '../context';
 import { commandRejected, notFound } from '../errors';
 import { writeAudit } from './audit.service';
@@ -43,7 +43,7 @@ export async function detachConnection(
   await patchLiveService(ctx, app, {
     removeEnv: [envVar, roVar, `${envVar}_FILE`, `${roVar}_FILE`],
     removeNetworks: [clusterNetworkName(input.stack, input.cluster)],
-    removeLabels: [DB_INJECT_LABEL, DB_INJECT_VAR_LABEL, DB_INJECT_VIA_LABEL],
+    removeLabels: [DB_INJECT_LABEL, DB_INJECT_VAR_LABEL, DB_INJECT_VIA_LABEL, DB_INJECT_HOST_LABEL, DB_INJECT_RO_HOST_LABEL],
     transform: (spec) => {
       const out = { ...spec };
       const secrets = (spec.secrets ?? []).filter((r) => {

@@ -88,7 +88,12 @@ state belongs see `skill("docker-native-storage")`.
     (≤ freshness gap + one tick before this process's first unhealthy
     sighting, same primary) — anything else is unknown ⇒ hold, the safe
     default. Never widen that window. Promotion is `SELECT pg_promote()`; the repoint
-    redeploys every other member under a fresh `SWARMY_PG_REJOIN` epoch, and
+    redeploys every other member under a fresh `SWARMY_PG_REJOIN` epoch, points
+    the pooler at the new writer, and rolls every app wired DIRECTLY to the
+    cluster onto a URL secret naming it (`repointDbApps`, pure plan
+    `planAppRepoint`; read-only URLs leave the promoted copy; pooler apps are
+    never touched; the next ticks finish a pass cut short, gated on the app's
+    `swarmy.db.inject.host`), and
     the boot layer moves a demoted ex-writer's PGDATA ASIDE
     (`pgdata.diverged-<utc>`) before re-cloning — never deletes it. The
     Postgres page's "Simulate `<region>` outage" imports the SAME
@@ -198,6 +203,7 @@ state belongs see `skill("docker-native-storage")`.
 |---|---|
 | Postgres: topologies, primary/replica names, injectConnection, region replicas | `packages/trpc/src/services/manageddb.service.ts` (router `routers/manageddb.ts`) |
 | Postgres reconcile (failover/lag/PITR) + pure core | `apps/api/src/workers/manageddb-reconcile.ts`, `…-reconcile.core.ts` |
+| Apps follow the writer (pure plan, URL-secret addressing, re-mint + rolling redeploy, the reconcile step) | `packages/core/src/manageddb-{app-repoint,url-secret}.ts`, `packages/trpc/src/services/manageddb-{app-repoint.service,app-wire,url-secrets}.ts`, `apps/api/src/workers/manageddb-apps.ts` (+ the end-to-end `manageddb-apps.test.ts` on `manageddb-apps.fake.ts`) |
 | Failover safety rule (`decideFailover`) + pending/confirm label codecs | `packages/core/src/manageddb-failover.ts` (+ `.test.ts`); confirm = `manageddb.service.ts#confirmFailover`; UI `components/stacks/db-failover-confirm.tsx` |
 | Planned switchover (`db.switchover` / `db.switchoverRun`: pure plan + refusals, run decisions, `swarmy.db.switchover` request codec, run view; the promotion is the reconcile's own pass, narrowed by `plannedPromotion`) | `packages/core/src/manageddb-switchover{,-run,-view}.ts`, `packages/trpc/src/services/manageddb-switchover{.service,.run,.steps,.runs,.start}.ts` (router `routers/manageddb-switchover.ts`), `apps/api/src/workers/manageddb-switchover.ts` (planned record + stale-pause thaw); the server-retire flow's writer move rides it (`packages/trpc/src/services/dbWriterMove.service.ts`); UI runs the same plan on `db.get` + `db.replication` + `db.pooler`: Postgres page at Controls `components/pgdetail/pg-switchover-{section,confirm,progress,plan,words}.ts(x)` + `use-pg-switchover.ts`, board 15's copies by server `components/data/data-pg-{copies,strip,chip}.tsx` + `pg-copies-model.ts`; demo `demo/resolvers/pg-switchover.ts` |
 | Cache: `swarmy.cache.*`, sentinel, maxmemory+headroom, password secret | `packages/trpc/src/services/cache.service.ts`, `apps/api/src/workers/cache-reconcile.ts` |
@@ -259,7 +265,13 @@ state belongs see `skill("docker-native-storage")`.
   member spec goes through `applyPgMember` → `applyPgCredential` (mounts the
   secret at the family path, strips plaintext env). Apps wired by `db.inject`
   get `DATABASE_URL`/`_RO_URL` as `-pg-url`/`-pg-ro-url` secrets delivered by
-  the secret-env shim. The controller reads the value only via `exec cat` in a
+  the secret-env shim. A URL secret is addressed by its CONTENT
+  (`manageddb-url-secret.ts`): one already holding that exact URL (the agent's
+  `swarmy.content.sha256` label) is reused, else the next free version is
+  minted, so a new host or password never mounts a stale URL and a repoint's
+  version never collides with a rotation's. The app carries the hosts its URLs
+  name (`swarmy.db.inject.host` / `.roHost`); detach and the compose carry
+  treat them like the other inject labels. The controller reads the value only via `exec cat` in a
   running member (`readDbPassword`); backup sidecars/one-shots get a 0600
   PGPASSFILE via `putArchive`, never env. `db.rotatePassword` mints v(n+1),
   ALTERs the roles from the new file over the local socket, then moves

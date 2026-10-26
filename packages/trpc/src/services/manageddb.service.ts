@@ -6,12 +6,9 @@ import {
   PG_ONESHOT_PASSFILE_PATH,
   pgPassfileLine,
   DB_PASSWORD_SECRET_LABEL,
-  DB_SECRET_KIND_LABEL,
-  DB_SECRET_OF_LABEL,
   applyPgBoot,
   applyPgCredential,
   dbPasswordPath,
-  dbSecretFamily,
   dbSecretName,
   parseDbSecretName,
   pgNeedsCredentialMigration,
@@ -58,12 +55,12 @@ import {
   planPoolerRotation,
   isPgMemberService,
   connectViaOf,
-  DB_INJECT_VIA_LABEL,
   DB_POOLER_LABEL,
   POOLER_PORT,
   parsePoolerConfig,
   poolerServiceName,
   type DbConnectVia,
+  clusterDatabase,
 } from '@swarmy/core';
 import {
   DEFAULT_MANAGED_PG_IMAGE,
@@ -83,6 +80,8 @@ import { AUTO_BACKUP_RETENTION_DAYS } from './autoBackup';
 import { resolveManagerNode } from './dispatch.service';
 import { resolveExecTarget } from './live-resolve';
 import { patchLiveService } from './service-patch';
+import { wireAppUrlSecrets } from './manageddb-app-wire';
+import { dbSecretLabels, listDbSecrets, mintDbUrlSecret, retireUrlSecrets } from './manageddb-url-secrets';
 
 /**
  * Managed DB topology (epic #8 — "the magic").
@@ -823,16 +822,6 @@ export async function revealDbPassword(
 
 const SECRET_READ_TIMEOUT_MS = 15_000;
 
-function dbSecretLabels(stack: string, cluster: string, kind: DbSecretKind, version: number): Record<string, string> {
-  return {
-    [MANAGED_LABEL]: 'true',
-    [DB_CLUSTER_LABEL]: cluster,
-    [DB_SECRET_OF_LABEL]: `${stack}/${cluster}`,
-    [DB_SECRET_KIND_LABEL]: kind,
-    'swarmy.secret.version': String(version),
-  };
-}
-
 /**
  * Create one managed-DB secret. The value is base64 on the authenticated WS
  * straight into the Docker API — never logged, never persisted. A secret
@@ -1068,16 +1057,18 @@ export async function rotateDbPassword(
     await patchMemberCredential(ctx, m, next);
     redeployed.push(m.name);
   }
+  const kept = new Set<string>();
   for (const app of plan.apps) {
-    await injectConnection(ctx, { stack, cluster, appService: app.service, envVar: app.envVar, via: app.via }, { password, passwordSecret: next });
+    const wired = await injectConnection(ctx, { stack, cluster, appService: app.service, envVar: app.envVar, via: app.via }, { password, passwordSecret: next });
+    for (const name of wired.secrets) kept.add(name);
     redeployed.push(app.service);
   }
-  // Old versions go once nothing mounts them (Docker refuses while in use).
+  // Old versions go once nothing mounts them (Docker refuses while in use):
+  // the password by version, the URL secrets by what the apps mount now.
   for (let v = 1; v < version; v++) {
-    for (const kind of plan.retire) {
-      await ctx.hub.dispatch(node.id, 'secret.remove', { name: dbSecretName(stack, cluster, kind, v) }).catch(() => undefined);
-    }
+    await ctx.hub.dispatch(node.id, 'secret.remove', { name: dbSecretName(stack, cluster, 'password', v) }).catch(() => undefined);
   }
+  await retireUrlSecrets(ctx, node.id, { stack, cluster, kinds: plan.retire.filter((k) => k !== 'password') as Array<'url' | 'ro-url' | 'pool-url'>, keep: kept });
   await writeAudit(ctx, {
     action: 'db.password.rotate',
     targetType: 'dbCluster',
@@ -1552,7 +1543,7 @@ export async function injectConnection(
   input: InjectConnectionInput,
   /** Rotation: the NEW password + secret, already known (no re-read). */
   known?: { password: string; passwordSecret: string },
-): Promise<{ appService: string; cluster: string; envVar: string; roVar: string; rwUrl: string; roUrl: string; via: DbConnectVia }> {
+): Promise<{ appService: string; cluster: string; envVar: string; roVar: string; rwUrl: string; roUrl: string; via: DbConnectVia; secrets: string[] }> {
   const envVar = (input.envVar ?? 'DATABASE_URL').trim() || 'DATABASE_URL';
   const roVar = roVarName(envVar);
   const via: DbConnectVia = input.via ?? 'direct';
@@ -1564,7 +1555,7 @@ export async function injectConnection(
       await migrateDbCredentials(ctx, { stack: input.stack, cluster: input.cluster }).catch(() => undefined);
     }
   }
-  const { primary, replica } = findCluster(ctx, input.stack, input.cluster);
+  const { primary, replica, members } = findCluster(ctx, input.stack, input.cluster);
   if (!primary) throw notFound('db cluster primary', input.cluster);
 
   const app = liveStackServices(ctx, input.stack).find(
@@ -1575,8 +1566,8 @@ export async function injectConnection(
   if (via === 'pooler' && !parsePoolerConfig(primary.labels[DB_POOLER_LABEL])) {
     throw commandRejected(`${input.cluster} has no pooler: turn it on first, then connect ${app.name} through it`);
   }
-  const primaryEnv = envRecord(primary);
-  const database = primaryEnv[PG_ENV.database] ?? DEFAULT_DATABASE;
+  // A promoted standby has no POSTGRES_DB of its own: ask every member, the writer first.
+  const database = clusterDatabase([primary, ...members], DEFAULT_DATABASE);
   // Through the pooler, the writer URL names the pooler; it follows the writer itself.
   const rwHost = via === 'pooler' ? poolerServiceName(input.stack, input.cluster) : primary.name;
   const rwPort = via === 'pooler' ? POOLER_PORT : PG_PORT;
@@ -1586,53 +1577,20 @@ export async function injectConnection(
 
   // The URLs embed the password, so they are Docker SECRETS delivered as env
   // by the agent's secret-env shim (`secretEnv`): the spec names the secret,
-  // never the value. Versioned with the password secret, so a rotation mints
-  // new ones.
+  // never the value. Addressed by content (manageddb-url-secrets.ts): a URL
+  // for a new host or a new password always gets a new version.
   const passwordSecret = known?.passwordSecret ?? primary.labels[DB_PASSWORD_SECRET_LABEL];
-  const version = passwordSecret ? parseDbSecretName(passwordSecret)?.version ?? 1 : 1;
-  const rwSecret = dbSecretName(input.stack, input.cluster, via === 'pooler' ? 'pool-url' : 'url', version);
-  const roSecret = dbSecretName(input.stack, input.cluster, 'ro-url', version);
+  const floor = passwordSecret ? parseDbSecretName(passwordSecret)?.version ?? 1 : 1;
   const node = await resolveManagerNode(ctx);
   const password = known?.password ?? (await readDbPassword(ctx, input.stack, input.cluster));
-  await createDbSecret(ctx, node.id, input.stack, input.cluster, via === 'pooler' ? 'pool-url' : 'url', rwSecret, url(rwHost, password, rwPort));
-  await createDbSecret(ctx, node.id, input.stack, input.cluster, 'ro-url', roSecret, url(roHost, password));
-  const urlFamilies = new Set([
-    dbSecretFamily(input.stack, input.cluster, 'url'),
-    dbSecretFamily(input.stack, input.cluster, 'ro-url'),
-    dbSecretFamily(input.stack, input.cluster, 'pool-url'),
-  ]);
-
+  const listed = await listDbSecrets(ctx, node.id);
+  const mint = (kind: 'url' | 'ro-url' | 'pool-url', host: string, port: number) =>
+    mintDbUrlSecret(ctx, node.id, { stack: input.stack, cluster: input.cluster, kind, value: url(host, password, port), host, floor }, listed);
+  const rwSecret = await mint(via === 'pooler' ? 'pool-url' : 'url', rwHost, rwPort);
+  const roSecret = await mint('ro-url', roHost, PG_PORT);
   // One-aspect patch over the FULL live spec (service.inspect): mounts,
   // command, placement, resources, … all survive the redeploy.
-  await patchLiveService(ctx, app, {
-    // Any plaintext copy (a pre-secret attach) goes.
-    removeEnv: [envVar, roVar],
-    addNetworks: [network],
-    removeLabels: [DB_INJECT_VIA_LABEL],
-    setLabels: {
-      [MANAGED_LABEL]: 'true',
-      [STACK_LABEL]: input.stack,
-      [DB_INJECT_LABEL]: input.cluster,
-      [DB_INJECT_VAR_LABEL]: envVar,
-      ...(via === 'pooler' ? { [DB_INJECT_VIA_LABEL]: 'pooler' } : {}),
-    },
-    transform: (spec) => ({
-      ...spec,
-      secrets: [
-        ...(spec.secrets ?? []).filter((r) => {
-          const fam = parseDbSecretName(r.source)?.family;
-          const t = r.target ?? r.source;
-          return !(fam && urlFamilies.has(fam)) && t !== envVar && t !== roVar;
-        }),
-        { source: rwSecret, target: envVar },
-        { source: roSecret, target: roVar },
-      ],
-      secretEnv: [...new Set([...(spec.secretEnv ?? []), envVar, roVar])].sort(),
-      // A shell-less image (distroless) can't run the shim: the agent then sets
-      // DATABASE_URL_FILE / _RO_URL_FILE instead — never the plain URL.
-      secretEnvFileFallback: [...new Set([...(spec.secretEnvFileFallback ?? []), envVar, roVar])].sort(),
-    }),
-  });
+  await wireAppUrlSecrets(ctx, app, { stack: input.stack, cluster: input.cluster, envVar, roVar, via, network, rwSecret, roSecret, rwHost, roHost }, node.id);
   return {
     appService: app.name,
     cluster: input.cluster,
@@ -1641,6 +1599,7 @@ export async function injectConnection(
     rwUrl: url(rwHost, '***', rwPort),
     roUrl: url(roHost, '***'),
     via,
+    secrets: [rwSecret, roSecret],
   };
 }
 

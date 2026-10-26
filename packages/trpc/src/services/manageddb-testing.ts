@@ -1,5 +1,6 @@
 import { expect } from 'bun:test';
-import { applySecretEnvFileFallback } from '@swarmy/core';
+import { createHash } from 'node:crypto';
+import { SECRET_CONTENT_HASH_LABEL, applySecretEnvFileFallback } from '@swarmy/core';
 import type { OrgContext } from '../context';
 
 /**
@@ -36,6 +37,8 @@ export const CLUSTER = 'main';
 export function world() {
   const services = new Map<string, Svc>();
   const secrets = new Map<string, string>();
+  /** Each secret's labels, as the agent stamps them (its content hash included). */
+  const secretLabels = new Map<string, Record<string, string>>();
   /** Role passwords the fake Postgres holds (set by ALTER ROLE from the mounted file). */
   const roles: Record<string, string> = {};
   const specsSeen: unknown[] = [];
@@ -114,15 +117,26 @@ export function world() {
         return { serviceId: `id-${payload.spec.name}` };
       case 'service.updateLabels':
         return {};
-      case 'secret.create':
-        if (secrets.has(payload.name)) throw new Error(`secret ${payload.name} already exists`);
-        secrets.set(payload.name, Buffer.from(payload.dataB64, 'base64').toString('utf8'));
+      case 'secret.create': {
+        // The agent's idempotent create: the same content is success, different content fails.
+        const value = Buffer.from(payload.dataB64, 'base64').toString('utf8');
+        const hash = createHash('sha256').update(value, 'utf8').digest('hex');
+        if (secrets.has(payload.name)) {
+          if (secretLabels.get(payload.name)?.[SECRET_CONTENT_HASH_LABEL] === hash) return { id: payload.name, name: payload.name, existed: true };
+          throw new Error(`secret ${payload.name} already exists with different content`);
+        }
+        secrets.set(payload.name, value);
+        secretLabels.set(payload.name, { ...(payload.labels ?? {}), [SECRET_CONTENT_HASH_LABEL]: hash });
         return { id: payload.name, name: payload.name };
+      }
+      case 'secret.list':
+        return { secrets: [...secrets.keys()].map((name) => ({ id: name, name, createdAt: 0, labels: secretLabels.get(name) ?? {} })) };
       case 'secret.remove': {
         if ([...services.values()].some((s) => s.refs.some((r) => r.source === payload.name))) {
           throw new Error(`secret ${payload.name} is in use`);
         }
         secrets.delete(payload.name);
+        secretLabels.delete(payload.name);
         return {};
       }
       case 'exec': {
@@ -173,7 +187,7 @@ export function world() {
     for (const spec of specsSeen) expect(JSON.stringify(spec)).not.toContain(value);
     for (const s of services.values()) expect(JSON.stringify(s)).not.toContain(value);
   };
-  return { ctx, services, secrets, roles, specsSeen, execs, put, assertNowhere };
+  return { ctx, services, secrets, secretLabels, roles, specsSeen, execs, put, assertNowhere, dispatch };
 }
 
 export const APP = 'shop_web';
