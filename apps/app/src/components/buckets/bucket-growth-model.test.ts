@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'bun:test';
 import type { BucketSizeHistoryView } from '@swarmy/core';
-import { bucketGrowth, fillWords, growthWords } from './bucket-growth-model';
+import { bucketGrowth, dayWords, growthUrgent, growthWords } from './bucket-growth-model';
 
 const MB = 1024 * 1024;
 const GB = 1024 * MB;
 const FROM = '2026-10-17T13:00:00.000Z';
+const NOW = Date.parse('2026-10-24T12:30:00.000Z');
 
 /** 168 hourly slots; `fill(i)` is the size at slot i (null = no reading). */
 function view(fill: (i: number) => number | null): BucketSizeHistoryView {
@@ -13,53 +14,70 @@ function view(fill: (i: number) => number | null): BucketSizeHistoryView {
 }
 const perHour = (310 * MB) / 167;
 const steady = view((i) => 18.4 * GB - 310 * MB + i * perHour);
+const words = (h: BucketSizeHistoryView, limit: number | null) => growthWords(bucketGrowth(h, limit, undefined, NOW), NOW);
 
-describe('bucketGrowth', () => {
-  it('a steady week: +310 MB this week, full at the trend', () => {
-    const g = bucketGrowth(steady, 50 * GB);
-    if (g.kind !== 'trend') throw new Error('expected a trend');
-    expect(Math.round(g.weekBytes / MB)).toBe(310);
-    expect(Math.round(g.spanDays * 10) / 10).toBe(7);
+describe('bucketGrowth — a date only when the line means something', () => {
+  it('a steady week: +310 MB, and the day it reaches its limit', () => {
+    const g = bucketGrowth(steady, 50 * GB, undefined, NOW);
+    expect(g.state).toBe('growing');
     expect(Math.round(g.perDayBytes / MB)).toBe(45);
-    expect(Math.round(g.fullInDays! / 30.44)).toBe(24);
-    expect(growthWords(g, true)).toEqual({ change: '+310 MB this week', forecast: 'full in ~24 months' });
+    expect(g.r2).toBeCloseTo(1, 6);
+    expect(words(steady, 50 * GB)).toEqual({ change: '+310 MB this week', forecast: 'At this rate it reaches its 50 GB limit around 19 Oct 2028.' });
+    expect(growthUrgent(g, NOW)).toBe(false);
   });
 
-  it('under 3 days of readings says not enough history yet — no numbers', () => {
+  it('no limit: the next round size a quarter above today', () => {
+    expect(words(steady, null).forecast).toBe('At this rate it reaches 50 GB around 19 Oct 2028.');
+    const big = view((i) => 70 * GB + i * 50 * MB);
+    expect(words(big, null).forecast).toBe('At this rate it reaches 100 GB around 12 Nov.');
+  });
+
+  it('close to the limit is urgent; over it says writes are refused', () => {
+    const fast = view((i) => 38 * GB + (i * GB) / 24);
+    const g = bucketGrowth(fast, 50 * GB, undefined, NOW);
+    expect(growthWords(g, NOW).forecast).toBe('At this rate it reaches its 50 GB limit around 29 Oct.');
+    expect(growthUrgent(g, NOW)).toBe(true);
+    expect(words(steady, 10 * GB).forecast).toBe('It has reached its 10 GB limit: new writes are refused until the limit goes up.');
+  });
+
+  it('a date more than three years out is not given', () => {
+    const slow = view((i) => 100 * GB + (i * 614 * MB) / 168);
+    expect(words(slow, null).forecast).toBe('At this rate it stays under 200 GB for more than three years.');
+  });
+
+  it('under 3 days or 24 readings: not enough history, no numbers', () => {
     const young = view((i) => (i < 168 - 60 ? null : GB + i * MB));
-    const g = bucketGrowth(young, 50 * GB);
-    expect(g.kind).toBe('not-enough');
-    expect(growthWords(g, true)).toEqual({ change: 'not enough history yet', forecast: null });
-    expect(bucketGrowth(view(() => null), 50 * GB).kind).toBe('not-enough');
+    expect(words(young, 50 * GB)).toEqual({ change: null, forecast: 'Not enough history to forecast yet: a forecast needs 3 days of readings.' });
+    const sparse = view((i) => (i % 12 === 0 ? GB + i * MB : null));
+    expect(bucketGrowth(sparse, null, undefined, NOW).state).toBe('not-enough');
+    expect(bucketGrowth(view(() => null), 50 * GB, undefined, NOW).state).toBe('not-enough');
+  });
+
+  it('flat: the same size, or growth under 0.5% a week', () => {
+    expect(words(view(() => 5 * GB), 50 * GB)).toEqual({ change: 'no change this week', forecast: 'Growth is flat: it has stayed about the same size all week.' });
+    expect(bucketGrowth(view((i) => 5 * GB + i * 10 * 1024), 50 * GB, undefined, NOW).state).toBe('flat');
+  });
+
+  it('shrinking says it isn’t filling up', () => {
+    expect(words(view((i) => 10 * GB - i * MB), 50 * GB)).toEqual({ change: '−167 MB this week', forecast: 'It got smaller this week, so it isn’t filling up.' });
+  });
+
+  it('a big upload then a delete is uneven: no date', () => {
+    const lumpy = view((i) => (i >= 70 && i < 150 ? 8 * GB : 5 * GB));
+    const g = bucketGrowth(lumpy, 50 * GB, undefined, NOW);
+    expect(g.state).toBe('uneven');
+    expect(g.forecast).toBeNull();
   });
 
   it('gaps are skipped; 3 days of readings across a gap are enough', () => {
-    const gappy = view((i) => (i >= 96 && i < 120 ? null : i < 90 ? null : GB + i * MB));
-    expect(bucketGrowth(gappy, null).kind).toBe('trend');
-  });
-
-  it('a shrinking or flat bucket gets no fill date, and says why only when there is a limit', () => {
-    const shrinking = bucketGrowth(view((i) => 10 * GB - i * MB), 50 * GB);
-    expect(shrinking.kind === 'trend' && shrinking.fullInDays).toBeNull();
-    expect(growthWords(shrinking, true)).toEqual({ change: '−167 MB this week', forecast: 'not filling up' });
-    const flat = bucketGrowth(view(() => 5 * GB), null);
-    expect(growthWords(flat, false)).toEqual({ change: 'no change this week', forecast: null });
-  });
-
-  it('growing with no limit: the change, no forecast; over the limit: at the limit now', () => {
-    expect(growthWords(bucketGrowth(steady, null), false)).toEqual({ change: '+310 MB this week', forecast: null });
-    expect(growthWords(bucketGrowth(steady, 10 * GB), true).forecast).toBe('at the limit now');
+    const gappy = view((i) => (i >= 96 && i < 120 ? null : i < 90 ? null : GB + i * 10 * MB));
+    expect(bucketGrowth(gappy, null, undefined, NOW).state).toBe('growing');
   });
 });
 
-describe('fillWords', () => {
-  it('days, weeks, months, years', () => {
-    expect([fillWords(0.5), fillWords(5), fillWords(30), fillWords(600), fillWords(2000)]).toEqual([
-      'within a day',
-      '~5 days',
-      '~4 weeks',
-      '~20 months',
-      '~5 years',
-    ]);
+describe('dayWords', () => {
+  it('day and month this year, the year otherwise (UTC)', () => {
+    expect(dayWords(Date.parse('2026-03-14T23:00:00Z'), NOW)).toBe('14 Mar');
+    expect(dayWords(Date.parse('2027-03-14T01:00:00Z'), NOW)).toBe('14 Mar 2027');
   });
 });
