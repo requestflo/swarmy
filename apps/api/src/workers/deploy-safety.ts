@@ -20,6 +20,7 @@ import { authRegistry } from '@swarmy/auth';
 import {
   deployFromCompose,
   fireEvent,
+  markRollback,
   recordIncidentEvent,
   summarizeStack,
   systemContext,
@@ -171,6 +172,8 @@ async function judgeRelease(
 
   // Auto-rollback: abandon the failed release, redeploy the previous healthy
   // compose (a NEW release, gated again — the loop guard above stops cascades).
+  // Its start (before dispatch) and healthy instant go on the new release.
+  const startedAt = new Date();
   await prisma.release.update({
     where: { id: release.id },
     data: { status: 'ROLLED_BACK', notes: `Health gate failed: ${reasons}` },
@@ -181,9 +184,11 @@ async function judgeRelease(
     override: true, // system remediation is never wedged by warn-level policy
   });
   if (deployed.releaseId) {
-    await prisma.release.update({
-      where: { id: deployed.releaseId },
-      data: { notes: `Automatic rollback to release ${previousHealthy.id} (failed gate on ${release.id})` },
+    await markRollback(ctx, {
+      releaseId: deployed.releaseId,
+      rollbackOf: previousHealthy.id,
+      startedAt,
+      notes: `Automatic rollback to release ${previousHealthy.id} (failed gate on ${release.id})`,
     });
   }
   await writeAudit(ctx, {

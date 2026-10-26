@@ -1,4 +1,4 @@
-import type { AlertEventView, IncidentEventView, TrafficNowView } from '@swarmy/core';
+import { rollbackSpanWords, type AlertEventView, type IncidentEventView, type TrafficNowView } from '@swarmy/core';
 import type { Tone } from '@/components/calm';
 import { plural } from '@/components/apps/app-words';
 import type { AppItem } from '@/components/apps/use-apps';
@@ -30,10 +30,14 @@ export function metricLine(metric: IncidentMetric | null, points: ChartPoint[], 
     : `${formatValue('errors', now.v)} of requests fail instead of ${formatValue('errors', typical)}.`;
 }
 
-/** swarmy's best guess as the glance says it, then the put-back when one is offered. */
-export function causeLines(guess: Guess, putBackLabel: string | null): string[] {
+/**
+ * swarmy's best guess as the glance says it, then the put-back when one is
+ * offered, with how long the last one took when it was measured.
+ */
+export function causeLines(guess: Guess, putBackLabel: string | null, lastTookSec: number | null = null): string[] {
   const lines = [guess.cause === 'unknown' ? 'swarmy isn’t sure what started it yet.' : guess.headline];
   if (putBackLabel) lines.push(`Putting back ${putBackLabel} goes one copy at a time, and your data isn’t touched.`);
+  if (putBackLabel && lastTookSec !== null) lines.push(`Last rollback took ${rollbackSpanWords(lastTookSec)}.`);
   return lines;
 }
 

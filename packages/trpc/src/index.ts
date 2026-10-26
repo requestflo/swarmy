@@ -431,6 +431,7 @@ export { runNodeHygieneAllOrgs } from './services/node-hygiene.service';
 export { runDiskReconcileFor, unmountedDefaultDiskNodes, type DiskReconcileOutcome } from './services/disks.service';
 export type { FireEventInput } from './services/alerts-fire';
 export { recordIncidentEvent } from './services/incidents-record';
+export { markRollback } from './services/rollback-watch';
 export { garageMajorOf, toGarageRequest, LEGACY_GARAGE_IMAGE, type GarageMajor } from './services/garage-admin';
 export { resumeEngineUpgrade, readEngineUpgradeRun } from './services/engine-upgrade.service';
 export { resumePlatformUpgrades, startPlatformUpgrade } from './services/platform-upgrade.service';

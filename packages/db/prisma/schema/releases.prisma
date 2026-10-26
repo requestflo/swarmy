@@ -21,6 +21,14 @@ model Release {
   healthGateJson Json?
   notes          String?
   createdAt      DateTime      @default(now())
+  /// A rollback's record (by hand or the health gate's): the release it put
+  /// back, when it started (the click or the gate's call, before dispatch)
+  /// and when every part ran the put-back version with all its copies. Null
+  /// for a normal deploy; healthyAt stays null while rolling or if it never
+  /// settled (watched in memory, so a controller restart leaves it unknown).
+  rollbackOf     String?
+  startedAt      DateTime?
+  healthyAt      DateTime?
 
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 

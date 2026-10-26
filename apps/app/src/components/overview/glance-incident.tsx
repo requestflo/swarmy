@@ -17,12 +17,13 @@ import { GlanceHold } from './glance-hold';
 import { alsoFiring, causeLines, incidentAlerts, metricLine } from './glance-words';
 import { OverviewNext, pickNext } from './overview-next';
 import type { GlanceActions } from './use-glance-actions';
+import { useLastRollback } from './use-last-rollback';
 
 /**
  * The open incident on a phone: what's wrong and since when, the incident
- * room's best guess as a sentence (with the metric before vs now), the chart
- * as a sparkline, who has it (Take it for 30 min), Put back / Ack inline, and
- * what else is firing.
+ * room's best guess as a sentence (with the metric before vs now, and how
+ * long the last rollback took), the chart as a sparkline, who has it (Take it
+ * for 30 min), Put back / Ack inline, and what else is firing.
  */
 export function GlanceIncident({ incident, firing, actions }: { incident: IncidentView; firing: AlertEventView[]; actions: GlanceActions }): React.JSX.Element {
   const trpc = useTRPC();
@@ -54,8 +55,9 @@ function IncidentBody({ d, firing, actions }: { d: IncidentDetailView; firing: A
   const { linked, others } = incidentAlerts(d.events, firing);
   const putBack = guess?.cause === 'deploy' ? guess.putBack : null;
   const label = putBack ? releaseLabel(putBack) : null;
+  const last = useLastRollback(putBack ? putBack.stackName : null);
   const tone: Tone = d.severity === 'critical' ? 'bad' : 'warn';
-  const lines = guess && series ? [metricLine(metric, series, d.openedAt), ...causeLines(guess, label)].filter(Boolean) : null;
+  const lines = guess && series && last !== undefined ? [metricLine(metric, series, d.openedAt), ...causeLines(guess, label, last?.tookSec ?? null)].filter(Boolean) : null;
   const also = alsoFiring(others);
   const room = { to: '/activity', search: { incident: d.id } } as const;
 
@@ -91,6 +93,7 @@ function IncidentBody({ d, firing, actions }: { d: IncidentDetailView; firing: A
       <Tech>
         {d.id} · {d.severity} · incidents.{d.owner?.mine ? 'release' : 'take'}
         {putBack ? ` · releases.rollback ${putBack.id}` : ''}
+        {last ? ` · last ${last.releaseId} ${last.tookSec} s` : ''}
         {linked.length ? ` · alerts.ack ${linked.map((a) => a.id).join(', ')}` : ''}
       </Tech>
     </section>

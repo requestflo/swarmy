@@ -34,6 +34,7 @@ import { incidentHold } from './resolvers/incident-hold';
 import { estateUptimeDemo } from './resolvers/estate-uptime';
 import { statuspages } from './resolvers/statuspages';
 import { releases } from './resolvers/releases';
+import { rollbackTiming } from './resolvers/rollback-timing';
 import { registrypolicy } from './resolvers/registrypolicy';
 import { registrycreds } from './resolvers/registrycreds';
 import { secretsmgr } from './resolvers/secretsmgr';
@@ -138,6 +139,7 @@ const MODULES: DomainResolvers[] = [
   estateUptimeDemo,
   statuspages,
   releases,
+  rollbackTiming,
   registrypolicy,
   registrycreds,
   secretsmgr,

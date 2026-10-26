@@ -4,6 +4,7 @@ import {
   CanaryRefInput,
   CanaryStatusInput,
   GetDeploySafetyInput,
+  LastRollbackInput,
   ReleaseListInput,
   RollbackReleaseInput,
   SetDeploySafetyInput,
@@ -23,6 +24,7 @@ import {
   setSafety,
   startCanary,
 } from '../services/releases.service';
+import { lastRollback } from '../services/rollback-watch';
 
 /**
  * A rollback redeploys a past release's compose onto its stack: gate it as a
@@ -62,6 +64,12 @@ export const releasesRouter = router({
   rollback: abacProcedure('stack.deploy', resolveReleaseStack)
     .input(RollbackReleaseInput)
     .mutation(({ ctx, input }) => rollbackTo(ctx, input)),
+
+  /**
+   * The latest rollback with a measured duration (start to every part
+   * healthy), of one app or the estate; null when none was measured yet.
+   */
+  lastRollback: orgProcedure.input(LastRollbackInput).query(({ ctx, input }) => lastRollback(ctx, input)),
 
   /** Health-gate + strategy settings read from the stack's Docker labels. */
   getSafety: orgProcedure

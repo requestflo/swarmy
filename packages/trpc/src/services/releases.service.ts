@@ -16,6 +16,7 @@ import type { OrgContext } from '../context';
 import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
+import { markRollback } from './rollback-watch';
 import { liveServiceSpec, specFromInspect } from './service-patch';
 import { deployFromCompose } from './stack.service';
 
@@ -295,6 +296,8 @@ export async function rollbackTo(
   ctx: OrgContext,
   input: { releaseId: string; override: boolean },
 ): Promise<{ releaseId: string; deploymentId: string }> {
+  // The rollback's start, before admission and dispatch (its duration's first instant).
+  const startedAt = new Date();
   const target = await ctx.db.release.findFirst({
     where: { id: input.releaseId, orgId: ctx.activeOrgId },
   });
@@ -321,9 +324,12 @@ export async function rollbackTo(
     await ctx.db.release.update({ where: { id: head.id }, data: { status: 'ROLLED_BACK' } });
   }
   if (deployed.releaseId) {
-    await ctx.db.release.update({
-      where: { id: deployed.releaseId },
-      data: { notes: `Rollback to release ${target.id}` },
+    // Records the start and watches it to healthy (`rollback-watch.ts`).
+    await markRollback(ctx, {
+      releaseId: deployed.releaseId,
+      rollbackOf: target.id,
+      startedAt,
+      notes: `Rollback to release ${target.id}`,
     });
   }
 

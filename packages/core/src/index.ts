@@ -67,6 +67,7 @@ export * from './search-synonyms';
 export * from './heroku-import';
 export * from './incident-owner';
 export * from './estate-uptime';
+export * from './rollback-timing';
 // NOTE: './crypto' (node:crypto credential vault) is server-only and is NOT
 // re-exported here — import it via '@swarmy/core/crypto' so it never reaches the
 // browser bundle.

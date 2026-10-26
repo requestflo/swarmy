@@ -2,15 +2,21 @@ import * as React from 'react';
 import { Link } from '@tanstack/react-router';
 import { CheckIcon } from 'lucide-react';
 import { Button } from '@swarmy/ui';
+import { rollbackSpanWords, type RollbackTimingView } from '@swarmy/core';
 import { releaseLabel } from '@/components/app-tabs/releases/release-label';
 import type { GlanceDone } from './use-glance-actions';
+import { useLastRollback } from './use-last-rollback';
 
-function words(done: GlanceDone): { title: string; body: string } {
+function words(done: GlanceDone, last: RollbackTimingView | null | undefined): { title: string; body: string } {
   if (done.kind === 'put-back') {
     const kept = done.suspect ? ` ${releaseLabel(done.suspect)} stays in its history for later.` : '';
+    if (last?.releaseId === done.releaseId) {
+      return { title: `${done.app} is back on ${done.label}`, body: `Every copy is healthy. It took ${rollbackSpanWords(last.tookSec)}.${kept}` };
+    }
+    const before = last ? ` Last rollback took ${rollbackSpanWords(last.tookSec)}.` : '';
     return {
       title: `Putting back ${done.label}`,
-      body: `${done.app} goes back to ${done.label} one copy at a time, and your data isn’t touched.${kept}`,
+      body: `${done.app} goes back to ${done.label} one copy at a time, and your data isn’t touched.${before}${kept}`,
     };
   }
   const n = done.count;
@@ -20,9 +26,13 @@ function words(done: GlanceDone): { title: string; body: string } {
   };
 }
 
-/** What the glance just did, in place of the incident card; a put-back can be undone from here too. */
+/**
+ * What the glance just did, in place of the incident card; a put-back can be
+ * undone from here too, and says how long it took once it's healthy.
+ */
 export function GlanceDoneCard({ done, busy, onUndo }: { done: GlanceDone; busy: boolean; onUndo: () => void }): React.JSX.Element {
-  const { title, body } = words(done);
+  const last = useLastRollback(done.kind === 'put-back' ? done.app : null, 3_000);
+  const { title, body } = words(done, last);
   const undo = done.kind === 'put-back' && done.suspect !== null;
   return (
     <section aria-live="polite" aria-label={title} className="calm-card flex flex-col gap-2.5 p-4">

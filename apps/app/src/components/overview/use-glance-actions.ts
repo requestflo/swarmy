@@ -6,7 +6,7 @@ import { releaseLabel } from '@/components/app-tabs/releases/release-label';
 
 /** What the glance just did, shown in place of the incident card. */
 export type GlanceDone =
-  | { kind: 'put-back'; incidentId: string; app: string; label: string; suspect: ReleaseView | null }
+  | { kind: 'put-back'; incidentId: string; app: string; label: string; suspect: ReleaseView | null; releaseId: string }
   | { kind: 'ack'; incidentId: string; count: number };
 
 export interface GlanceActions {
@@ -51,8 +51,8 @@ export function useGlanceActions(setDone: (d: GlanceDone | null) => void): Glanc
     rollback.mutate(
       { releaseId: to.id },
       {
-        onSuccess: () => {
-          setDone({ kind: 'put-back', incidentId, app: to.stackName, label, suspect });
+        onSuccess: (r) => {
+          setDone({ kind: 'put-back', incidentId, app: to.stackName, label, suspect, releaseId: r.releaseId });
           toast.success(
             `Putting back ${label} of ${to.stackName}, one copy at a time.`,
             suspect ? { id: PUT_BACK_TOAST, duration: 10_000, action: { label: 'Undo', onClick: () => undo(suspect) } } : undefined,
