@@ -2,6 +2,7 @@
   "title": "Guides",
   "pages": [
     "deploy-from-git",
+    "import-from-heroku",
     "templates",
     "backups",
     "observability",
