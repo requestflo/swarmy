@@ -506,6 +506,8 @@ export { flushTrafficRollups, pruneTrafficRollups } from './services/traffic.ser
 export { appTrafficMinutes } from './services/traffic-app-minutes';
 // Cold-start time: the activator records each wake it timed.
 export { recordWakeTime } from './services/wake-times';
+// The on-demand TLS ask endpoint records each answer for Edge settings' log.
+export { recordAskDecision, type AskWhy } from './services/ingress-ask-log';
 // ── studio slow queries (24 h): the pg-slow-queries worker's snapshot + prune ──
 export { prunePgQuerySamples, slowQueryTargets, snapshotSlowQueries } from './services/studio-slow.service';
 

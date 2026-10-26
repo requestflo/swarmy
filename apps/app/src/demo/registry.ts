@@ -5,6 +5,7 @@ import { ingress } from './resolvers/ingress';
 import { ingressCerts } from './resolvers/ingress-certs';
 import { ingressCaa } from './resolvers/ingress-caa';
 import { ingressEdges } from './resolvers/ingress-edges';
+import { ingressAsks } from './resolvers/ingress-asks';
 import { cicd } from './resolvers/cicd';
 import { cicdRegistryUsage } from './resolvers/cicd-registry-usage';
 import { gitconnections } from './resolvers/gitconnections';
@@ -117,6 +118,7 @@ const MODULES: DomainResolvers[] = [
   ingressCerts,
   ingressCaa,
   ingressEdges,
+  ingressAsks,
   cicd,
   cicdRegistryUsage,
   gitconnections,

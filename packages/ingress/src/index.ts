@@ -37,6 +37,7 @@ export {
 export type { CloudflaredRenderInput } from './render/cloudflared';
 export * from './wildcard-scope';
 export * from './edge-certs';
+export * from './cert-issuance';
 export * from './cert-renewal';
 export * from './cert-renew';
 export * from './caa';

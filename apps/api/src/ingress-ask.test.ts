@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from 'bun:test';
-import { checkOnDemand, normalizeHost, _resetAskCache, type OnDemandDeps } from './ingress-ask';
+import { checkOnDemand, normalizeHost, _resetAskCache, type AskResult, type OnDemandDeps } from './ingress-ask';
 
 /** Deps stub: routes live on the swarmy.ingress.routes label of a live service. */
 function depsWith(hosts: string[]): OnDemandDeps {
@@ -85,7 +85,7 @@ describe('checkOnDemand — custom-domain DNS gate + www companions', () => {
 
   it('403 for a routed host still waiting for DNS verification', async () => {
     const res = await checkOnDemand(deps([{ host: 'shop.acme.com', port: 80 }], ['shop.acme.com']), 'shop.acme.com');
-    expect(res).toEqual({ status: 403, body: 'domain awaiting DNS verification' });
+    expect(res).toEqual({ status: 403, body: 'domain awaiting DNS verification', host: 'shop.acme.com', why: 'dns-pending', orgId: 'org_1', app: null });
   });
 
   it('200 once verified', async () => {
@@ -97,5 +97,36 @@ describe('checkOnDemand — custom-domain DNS gate + www companions', () => {
     expect((await checkOnDemand(d, 'www.acme.com')).status).toBe(200);
     _resetAskCache();
     expect((await checkOnDemand(deps([{ host: 'acme.com', port: 80 }]), 'www.acme.com')).status).toBe(403);
+  });
+});
+
+describe('checkOnDemand — why, for the ask log', () => {
+  beforeEach(() => _resetAskCache());
+
+  const routed = (orgIds: string[]): OnDemandDeps => ({
+    listOrgIds: async () => orgIds,
+    liveInventory: (orgId) => ({
+      services:
+        orgId === 'org_1'
+          ? [{ id: 'svc_1', name: 'shop_web', labels: { 'com.docker.stack.namespace': 'shop', 'swarmy.ingress.routes': JSON.stringify([{ host: 'shop.acme.com', port: 80 }]) } } as never]
+          : [],
+      containers: [],
+    }),
+  });
+
+  it('an allowed host names its org and app, cached or not', async () => {
+    const want: AskResult = { status: 200, body: 'ok', host: 'shop.acme.com', why: 'routed', orgId: 'org_1', app: 'shop' };
+    expect(await checkOnDemand(routed(['org_1']), 'Shop.acme.com')).toEqual(want);
+    expect(await checkOnDemand(routed(['org_1']), 'shop.acme.com')).toEqual(want);
+  });
+
+  it('a host nobody routes is the only org’s refusal, else nobody’s', async () => {
+    expect(await checkOnDemand(routed(['org_1']), 'typo.acme.com')).toMatchObject({ status: 403, why: 'unknown', orgId: 'org_1' });
+    expect(await checkOnDemand(routed(['org_1', 'org_2']), 'typo.acme.com')).toMatchObject({ status: 403, why: 'unknown', orgId: null });
+  });
+
+  it('a malformed name is refused as invalid; no name at all is not logged', async () => {
+    expect(await checkOnDemand(routed(['org_1']), 'a b')).toMatchObject({ status: 400, why: 'invalid', host: 'a b' });
+    expect((await checkOnDemand(routed(['org_1']), undefined)).why).toBeUndefined();
   });
 });

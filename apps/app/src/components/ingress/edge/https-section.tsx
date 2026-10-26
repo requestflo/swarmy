@@ -1,6 +1,10 @@
 import * as React from 'react';
-import { Section, Tech } from '@/components/calm';
+import { Depth, Section, Tech } from '@/components/calm';
+import { AskLog } from './ask-log';
+import { issuanceWords, issuedCount } from './edge-certs-model';
+import { IssuanceBars } from './issuance-bars';
 import { OnDemandRow } from './on-demand-row';
+import { useEdgeCerts } from './use-edge-certs';
 
 /** The status bits the HTTPS section counts (from `ingress.listDomains`). */
 interface CertDomain {
@@ -30,7 +34,7 @@ function Line({ label, children, right }: { label: string; children: React.React
   );
 }
 
-/** Board 31's HTTPS card: who issues, how many are live, the no-domain address, on-demand. */
+/** Board 31's HTTPS card: who issues, how many were issued and are live, the no-domain address, on-demand and its ask log. */
 export function HttpsSection({
   serving,
   shared,
@@ -52,13 +56,28 @@ export function HttpsSection({
 }): React.JSX.Element {
   const count = liveCertificates(domains);
   const auto = domains.find((d) => d.auto)?.host;
+  const { issuance, askLog } = useEdgeCerts();
+  const issued = issuance?.source === 'edges' && issuance.held > 0 ? issuedCount(issuance) : null;
+  const right = [issued, count > 0 ? `${count} live` : null].filter(Boolean).join(' · ');
   return (
     <Section title="HTTPS" hint={serving ? 'already on' : undefined}>
       <dl className="flex flex-col">
-        <Line label="Certificates" right={count > 0 ? `${count} live` : undefined}>
+        <Line label="Certificates" right={right || undefined}>
           {shared ? 'Let’s Encrypt, one account shared by every edge' : 'Let’s Encrypt, kept on the edge’s own server'}
           <Tech className="block">{shared ? `storage swarmy · replica s3 bucket ${bucket ?? 'swarmy-edge-certs'} · live = a TLS handshake per host` : 'Caddy data volume · live = a TLS handshake per host'}</Tech>
         </Line>
+        {issuance ? (
+          <Line label="Issued">
+            {issuanceWords(issuance)}
+            {issuance.source === 'edges' && issuance.held > 0 ? (
+              <Depth at="controls">
+                <div className="mt-2">
+                  <IssuanceBars issuance={issuance} />
+                </div>
+              </Depth>
+            ) : null}
+          </Line>
+        ) : null}
         {auto ? (
           <Line label="No domain yet?">
             Apps get <span className="font-mono text-[12.5px] break-all">{auto}</span>{' '}
@@ -67,6 +86,7 @@ export function HttpsSection({
         ) : null}
       </dl>
       {onDemand ? <OnDemandRow key={String(onDemand.on)} on={onDemand.on} ask={onDemand.ask} admin={admin} pending={pending} onSet={onSetOnDemand} /> : null}
+      {askLog && (onDemand?.on || askLog.length > 0) ? <AskLog log={askLog} /> : null}
     </Section>
   );
 }

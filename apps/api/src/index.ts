@@ -21,7 +21,7 @@ import {
   resolveDbPaths,
   TELEMETRY_MIGRATIONS_DIR,
 } from '@swarmy/db';
-import { resolveOrgContextFromApiKey, agentRelease, agentBinaryPath, submitRecoveryClaim, pollRecoveryClaim, writeAudit, grantInviteApp, acmeDnsRequest, ingressConfigRepo } from '@swarmy/trpc';
+import { resolveOrgContextFromApiKey, agentRelease, agentBinaryPath, submitRecoveryClaim, pollRecoveryClaim, writeAudit, grantInviteApp, acmeDnsRequest, ingressConfigRepo, recordAskDecision } from '@swarmy/trpc';
 import { createRestApp } from '@swarmy/api-rest';
 import { createApiTokenVerifier, ensureMcpOidcClient } from '@swarmy/auth';
 import { resolveOrgContextFromBearer } from '@swarmy/trpc/devx';
@@ -79,7 +79,7 @@ app.get('/version', (c) => c.json({ ...versionInfo(), enterprise: licenseStatus(
 app.get('/ingress/ask', async (c) => {
   // Routes live on swarmy.ingress.routes service labels now (no Domain model) —
   // scan every org's live inventory for the host.
-  const { status, body } = await checkOnDemand(
+  const { status, body, host, why, orgId, app: routedApp } = await checkOnDemand(
     {
       listOrgIds: () => prisma.organization.findMany({ select: { id: true } }).then((rows) => rows.map((r) => r.id)),
       liveInventory: (orgId) => hub.liveInventory(orgId),
@@ -88,6 +88,8 @@ app.get('/ingress/ask', async (c) => {
     },
     c.req.query('domain'),
   );
+  // Edge settings' ask log: "why didn't my domain get a certificate" (memory, bounded).
+  if (host && why) recordAskDecision({ host, why, orgId: orgId ?? null, app: routedApp ?? null });
   return c.text(body, status as 200 | 400 | 403);
 });
 

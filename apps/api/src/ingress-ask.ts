@@ -19,8 +19,14 @@
  * verified to point at a swarmy edge is DENIED too (`isGated`), so a freshly
  * added domain never triggers an ACME order that cannot validate. A www
  * companion added by a route's apex↔www toggle counts as a route host.
+ *
+ * Every answer with a host also says why and for which org (`why`, `orgId`,
+ * `app`), which the route records in the bounded in-memory ask log
+ * (`@swarmy/trpc` `recordAskDecision`) that Edge settings shows. A host
+ * nobody routes is attributed to the controller's only org, else to none.
  */
 import type { ContainerInfo, SwarmServiceInfo } from '@swarmy/core/protocol';
+import type { AskWhy } from '@swarmy/trpc';
 import { domainChecksOf, hostsWithCompanions, isHostGated, WWW_MODES, type WwwMode } from '@swarmy/ingress';
 
 /** The single Docker service label carrying a service's ingress routes (JSON array). */
@@ -28,7 +34,7 @@ const INGRESS_ROUTES_LABEL = 'swarmy.ingress.routes';
 
 /** Short positive cache so repeated handshakes for a live host don't rescan. */
 const POSITIVE_TTL_MS = 30_000;
-const cache = new Map<string, number>();
+const cache = new Map<string, { until: number; orgId: string; app: string | null }>();
 
 /** Normalize a hostname for matching (lowercase, strip trailing dot/port). */
 export function normalizeHost(raw: string): string {
@@ -42,6 +48,13 @@ export function normalizeHost(raw: string): string {
 export interface AskResult {
   status: 200 | 400 | 403;
   body: string;
+  /** The host asked about, normalised (absent when none was sent). */
+  host?: string;
+  why?: AskWhy;
+  /** The org it was answered for; null = no org's. */
+  orgId?: string | null;
+  /** The app (stack) routing it, when allowed or waiting on DNS. */
+  app?: string | null;
 }
 
 /**
@@ -93,28 +106,31 @@ export async function checkOnDemand(
 ): Promise<AskResult> {
   if (!rawDomain) return { status: 400, body: 'missing domain' };
   const host = normalizeHost(rawDomain);
-  if (!host || host.includes('/') || host.includes(' ')) {
-    return { status: 400, body: 'invalid domain' };
-  }
+  const valid = !!host && !host.includes('/') && !host.includes(' ');
 
   const now = Date.now();
-  const cached = cache.get(host);
-  if (cached && cached > now) return { status: 200, body: 'ok' };
+  const cached = valid ? cache.get(host) : undefined;
+  if (cached && cached.until > now) return { status: 200, body: 'ok', host, why: 'routed', orgId: cached.orgId, app: cached.app };
 
   const orgIds = await deps.listOrgIds();
+  // A host nobody routes can only be attributed when the controller serves one org.
+  const onlyOrg = orgIds.length === 1 ? orgIds[0]! : null;
+  if (!valid) return { status: 400, body: 'invalid domain', host: host.slice(0, 253), why: 'invalid', orgId: onlyOrg };
+
   for (const orgId of orgIds) {
     const { services } = deps.liveInventory(orgId);
     for (const svc of services) {
       if (routeHostsOf(svc.labels).includes(host)) {
+        const app = svc.labels['com.docker.stack.namespace'] ?? null;
         if (deps.isGated && (await deps.isGated(orgId, host).catch(() => true))) {
-          return { status: 403, body: 'domain awaiting DNS verification' };
+          return { status: 403, body: 'domain awaiting DNS verification', host, why: 'dns-pending', orgId, app };
         }
-        cache.set(host, now + POSITIVE_TTL_MS);
-        return { status: 200, body: 'ok' };
+        cache.set(host, { until: now + POSITIVE_TTL_MS, orgId, app });
+        return { status: 200, body: 'ok', host, why: 'routed', orgId, app };
       }
     }
   }
-  return { status: 403, body: 'unknown domain' };
+  return { status: 403, body: 'unknown domain', host, why: 'unknown', orgId: onlyOrg };
 }
 
 /**

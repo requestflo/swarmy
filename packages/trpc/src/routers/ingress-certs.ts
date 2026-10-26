@@ -4,6 +4,8 @@ import { abacProcedure } from '../abac';
 import { getCertFacts } from '../services/ingress-certs.service';
 import { renewCertNow } from '../services/ingress-cert-renew.service';
 import { getCaa } from '../services/ingress-caa.service';
+import { getCertIssuance } from '../services/ingress-cert-issuance.service';
+import { askDecisions } from '../services/ingress-ask-log';
 import { resolveDomainHost } from './ingress-host-resolver';
 
 /**
@@ -37,4 +39,18 @@ export const ingressCertProcedures = {
   renewCert: abacProcedure('ingress.write', resolveDomainHost)
     .input(HostInput)
     .mutation(({ ctx, input }) => renewCertNow(ctx, input.host)),
+
+  /**
+   * Edge settings (board 31): the certificates every edge holds, counted
+   * once each, and how many were issued per day over 30 days (notBefore,
+   * from each edge's own storage; kept a minute).
+   */
+  certIssuance: orgProcedure.query(({ ctx }) => getCertIssuance(ctx)),
+
+  /**
+   * The latest on-demand TLS `ask` answers for the org's hosts — allowed or
+   * refused, and why — in controller memory, bounded: "why didn't my domain
+   * get a certificate".
+   */
+  askLog: orgProcedure.query(({ ctx }) => askDecisions(ctx.activeOrgId)),
 };
