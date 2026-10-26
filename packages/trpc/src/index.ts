@@ -504,6 +504,8 @@ export { observabilityStore, orgErrorRates, type ServiceErrorRate } from './serv
 export { flushTrafficRollups, pruneTrafficRollups } from './services/traffic.service';
 // The deploy safety gate's error trip reads one app's minutes off the ring.
 export { appTrafficMinutes } from './services/traffic-app-minutes';
+// Cold-start time: the activator records each wake it timed.
+export { recordWakeTime } from './services/wake-times';
 // ── studio slow queries (24 h): the pg-slow-queries worker's snapshot + prune ──
 export { prunePgQuerySamples, slowQueryTargets, snapshotSlowQueries } from './services/studio-slow.service';
 

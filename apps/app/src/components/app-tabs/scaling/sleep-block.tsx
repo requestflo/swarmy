@@ -11,6 +11,7 @@ import { SleepChart } from './sleep-chart';
 import { IDLE_PRESETS, idleWords, simulateSleep } from './sleep-sim';
 import { sleepDayWords, sleepNowWords } from './sleep-words';
 import { useSleepSeries } from './use-sleep-series';
+import { WakeLine } from './wake-line';
 
 /**
  * Sleep when idle (`services.setScaleToZero`, a label, applied at once), and
@@ -84,6 +85,7 @@ export function SleepBlock({
           />
         </div>
       </Depth>
+      {enabled ? <WakeLine id={inv.id} address={addr} /> : null}
       <span className="text-muted-foreground mt-1 font-mono text-[11px] tracking-[0.08em] uppercase">Yesterday, if it had slept</span>
       {series.status === 'pending' ? (
         <div aria-hidden className="shimmer-line h-16 rounded-md" />

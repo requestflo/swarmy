@@ -75,6 +75,7 @@ export * from './incident-owner';
 export * from './estate-uptime';
 export * from './rollback-timing';
 export * from './deploy-error-trip';
+export * from './wake-time';
 export * from './app-access-paths';
 export * from './app-access-sign-in';
 // NOTE: './crypto' (node:crypto credential vault) is server-only and is NOT

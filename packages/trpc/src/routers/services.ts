@@ -35,6 +35,7 @@ import {
 import { resolveServiceLogTarget } from '../services/live-resolve';
 import { serviceUsage } from '../services/service-usage';
 import { serviceHealthProbes, testServiceHealthcheck } from '../services/service-health.service';
+import { serviceWakeTimes } from '../services/wake-times';
 
 export const servicesRouter = router({
   list: orgProcedure
@@ -139,6 +140,9 @@ export const servicesRouter = router({
   wake: orgProcedure
     .input(z.object({ id: z.string() }))
     .mutation(({ ctx, input }) => wakeService(ctx, input.id)),
+
+  /** Cold-start time: the last wakes the activator timed (request in → visitor sent back), in controller memory. */
+  wakeTimes: orgProcedure.input(z.object({ id: z.string() })).query(({ ctx, input }) => serviceWakeTimes(ctx, input.id)),
 
   setCanvasPos: orgProcedure
     .input(z.object({ id: z.string(), x: z.number(), y: z.number() }))
