@@ -201,7 +201,12 @@ function walled(deps: AppAccessDeps, words: string): AppAuthResponse {
 /** A signed-in person refused: audited (throttled), then the wall's words or the plain 403. */
 async function refused(deps: AppAccessDeps, route: ProtectedRoute, uid: string, d: Decision): Promise<AppAuthResponse> {
   await auditDenied(deps, route, uid, d);
-  return d.wall ? walled(deps, d.wall) : denied(route);
+  if (d.wall) return walled(deps, d.wall);
+  return d.reason === 'rules' ? unreadableRules() : denied(route);
+}
+
+function unreadableRules(): AppAuthResponse {
+  return page(403, "This app's access rules couldn't be read", "<p>Nobody is let in until an admin fixes them on the app's <em>Access</em> tab.</p>");
 }
 
 /**
@@ -213,9 +218,7 @@ async function pathGate(deps: AppAccessDeps, route: ProtectedRoute, uri: string,
   if (!r) return null;
   if (r.reason === 'unreadable') return page(400, 'Bad request', '<p>swarmy could not read this address safely, so it did not let it through.</p>');
   await auditDenied(deps, route, uid, { policyId: null, reason: r.reason, path: r.path });
-  if (r.reason === 'rules') {
-    return page(403, "This app's access rules couldn't be read", "<p>Nobody is let in until an admin fixes them on the app's <em>Access</em> tab.</p>");
-  }
+  if (r.reason === 'rules') return unreadableRules();
   return page(
     403,
     "You don't have access to this part of the app",
@@ -253,7 +256,8 @@ export async function verifyAppRequest(
   const cookie = openToken<AppCookie>('cookie', raw, now);
   if (!cookie || cookie.host !== req.host || cookie.org !== orgId) return unauthenticated(deps, req, Boolean(raw));
 
-  const cacheKey = `${raw}|${req.host}|${route.stack || route.serviceName}`;
+  // Per route: two addresses of one app on a host may differ in sign-in method.
+  const cacheKey = `${raw}|${req.host}|${route.stack || route.serviceName}|${route.path}`;
   const hit = decisions.get(cacheKey);
   if (hit && now - hit.at < DECISION_CACHE_MS && !sessionsRevokedSince(cookie.uid, hit.at)) {
     return (await pathGate(deps, route, req.uri, cookie.uid, hit.who)) ?? hit.res;

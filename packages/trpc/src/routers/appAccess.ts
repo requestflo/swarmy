@@ -10,6 +10,7 @@ import {
 } from '../services/app-access-admin.service';
 import { recentAppSignIns, SIGN_INS_MAX } from '../services/app-access-sign-ins';
 import { setAppPathRules } from '../services/app-access-paths.service';
+import { setAppSignIn } from '../services/app-access-signin.service';
 
 const stack = z.string().min(1).max(120);
 const names = z.array(z.string().min(1).max(200)).max(200).optional();
@@ -62,6 +63,14 @@ export const appAccessRouter = router({
   setPathRules: abacProcedure('policy.write', resolveStackByName)
     .input(z.object({ stack, routeId: z.string().min(1).max(600), rules: z.array(pathRule).max(50) }))
     .mutation(({ ctx, input }) => setAppPathRules(ctx, input)),
+
+  /**
+   * Which swarmy sign-ins the app accepts: any, or only the org's own SSO.
+   * Who may enter changes, so it is an access-rule write.
+   */
+  setSignIn: abacProcedure('policy.write', resolveStackByName)
+    .input(z.object({ stack, mode: z.enum(['any', 'sso']) }))
+    .mutation(({ ctx, input }) => setAppSignIn(ctx, input)),
 
   /** The app's own users (auth: in swarmy.yaml) — its customers, not org members. */
   users: abacProcedure('service.configure', resolveStackByName)

@@ -6,6 +6,7 @@ import { CardSkeleton, EmptyState, ErrorState } from '@/components/states';
 import { RequireLoginCard } from './require-login-card';
 import { WhoCanEnterCard } from './who-can-enter-card';
 import { PathRulesCard } from './path-rules-card';
+import { SignInMethodCard } from './sign-in-method-card';
 import { EndUsersCard } from './end-users-card';
 import { SignInPreview } from './sign-in-preview';
 import type { AppAccessViewData } from './types';
@@ -40,6 +41,7 @@ export function AppAccessSection({ stack }: { stack: string }): React.JSX.Elemen
       ) : (
         <>
           <RequireLoginCard stack={stack} routes={appRoutes} />
+          <SignInMethodCard stack={stack} view={view} />
           <WhoCanEnterCard stack={stack} view={view} />
           <PathRulesCard stack={stack} view={view} />
         </>

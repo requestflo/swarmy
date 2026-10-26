@@ -22,6 +22,8 @@ interface AppAccessState {
   rules: Record<string, AppAccessRules>;
   /** Per-path who-can-enter, by route id. */
   paths: Record<string, AppPathRule[]>;
+  /** Apps that accept only the org's SSO. */
+  sso: Record<string, boolean>;
   users: EndUserRow[];
 }
 
@@ -37,6 +39,7 @@ function state(s: DemoStore): AppAccessState {
     login: { 'storefront|shop.northwind.dev': true },
     rules: { storefront: { everyone: true, groups: [], people: [] } },
     paths: { 'storefront|shop.northwind.dev': [{ path: '/admin/*', roles: ['owner', 'admin'], groups: ['sre'] }] },
+    sso: {},
     users: [
       { id: 'eu1', email: 'jo@shopper.dev', name: 'Jo', createdAt: new Date(Date.now() - 86_400_000 * 9).toISOString(), emailVerified: true, disabled: false },
       { id: 'eu2', email: 'sam@shopper.dev', name: 'Sam', createdAt: new Date(Date.now() - 86_400_000 * 2).toISOString(), emailVerified: true, disabled: false },
@@ -59,6 +62,7 @@ function view(s: DemoStore, stack: string): AppAccessViewData {
     endUserAuth: false,
     pathRules: (st.login[`${stack}|${host}`] && st.paths[`${stack}|${host}`]) || [],
     pathRulesError: false,
+    signIn: st.sso[stack] ? ('sso' as const) : ('any' as const),
   }));
   const people = PEOPLE.map((p) => ({
     ...p,
@@ -70,6 +74,7 @@ function view(s: DemoStore, stack: string): AppAccessViewData {
     rules,
     people,
     knownGroups: [...new Set(PEOPLE.flatMap((p) => p.groups))].sort(),
+    ssoProviders: ['Okta'],
     endUserAuth:
       stack === 'storefront'
         ? {
@@ -100,6 +105,11 @@ export const appaccess: DomainResolvers = {
     'appAccess.setPathRules': (i, s) => {
       const { stack, routeId, rules } = i as { stack: string; routeId: string; rules: AppPathRule[] };
       state(s).paths[routeId] = rules;
+      return view(s, stack);
+    },
+    'appAccess.setSignIn': (i, s) => {
+      const { stack, mode } = i as { stack: string; mode: 'any' | 'sso' };
+      state(s).sso[stack] = mode === 'sso';
       return view(s, stack);
     },
     'appAccess.setRules': (i, s) => {

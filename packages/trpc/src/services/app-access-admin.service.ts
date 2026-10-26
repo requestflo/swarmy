@@ -14,7 +14,7 @@
  */
 import { TRPCError } from '@trpc/server';
 import { parsePolicyDoc } from '@swarmy/abac';
-import { parseAppPathRules, type AppPathRule } from '@swarmy/core';
+import { appSignInMode, parseAppPathRules, type AppPathRule } from '@swarmy/core';
 import { isBroadWildcard } from '@swarmy/ingress';
 import type { OrgContext } from '../context';
 import { notFound } from '../errors';
@@ -25,6 +25,7 @@ import { setServiceRoutes } from './ingress-routes-api';
 import { deletePolicy, listPolicies, setPolicy } from './policies.service';
 import { appResource } from './app-access.service';
 import { signAdminJwt } from './app-access-tokens';
+import { readySsoProviders } from './sso-only-gate';
 
 export const APP_RULE_PREFIX = 'App access · ';
 const RULE_KINDS = ['everyone', 'groups', 'people'] as const;
@@ -43,6 +44,8 @@ export interface AppAccessRouteView {
   pathRules: AppPathRule[];
   /** The label's path rules can't be read: the edge refuses everyone until they are fixed. */
   pathRulesError: boolean;
+  /** Which swarmy sign-ins it accepts (`access.signIn`); `unreadable` = the edge lets nobody in. */
+  signIn: 'any' | 'sso' | 'unreadable';
 }
 
 export interface AppAccessRules {
@@ -79,6 +82,8 @@ export interface AppAccessView {
   people: AppAccessPerson[];
   knownGroups: string[];
   endUserAuth: EndUserAuthView | null;
+  /** The org's SSO providers that can sign people in now (names): what "SSO only" would accept. */
+  ssoProviders: string[];
 }
 
 const AUTH_UNIT = 'swarmy-auth';
@@ -161,6 +166,7 @@ export async function getAppAccess(ctx: OrgContext, stack: string): Promise<AppA
     endUserAuth: serviceName.endsWith(`_${AUTH_UNIT}`),
     pathRules: parseAppPathRules(route.access?.paths) ?? [],
     pathRulesError: parseAppPathRules(route.access?.paths) === null,
+    signIn: appSignInMode(route.access?.signIn) ?? 'unreadable',
   }));
   const { rules } = await readRules(ctx, stack);
   const first = routes.find((r) => !r.serviceName.endsWith(`_${AUTH_UNIT}`)) ?? routes[0];
@@ -184,6 +190,7 @@ export async function getAppAccess(ctx: OrgContext, stack: string): Promise<AppA
     people,
     knownGroups,
     endUserAuth: endUserAuthFor(ctx, stack, first?.route.host ?? null),
+    ssoProviders: (await readySsoProviders(ctx.db, ctx.activeOrgId)).map((p) => p.displayName),
   };
 }
 
@@ -205,6 +212,8 @@ export async function setRequireLogin(
       message: `${broad.route.host} covers every site under a public suffix; sign-in can only protect a wildcard inside your own domain (like *.apps.example.com)`,
     });
   }
+  // An app set to "SSO only" stays that way on the addresses it newly protects.
+  const ssoApp = routes.some(({ route }) => route.access?.login === true && route.access.signIn === 'sso');
   const byService = new Map<string, { serviceId: string; routes: Route[]; changed: boolean }>();
   for (const { serviceId, serviceName, route } of routes) {
     const entry = byService.get(serviceId) ?? { serviceId, routes: [], changed: false };
@@ -212,7 +221,8 @@ export async function setRequireLogin(
     const target = !serviceName.endsWith(`_${AUTH_UNIT}`) && (!wanted || wanted.has(routeId(serviceId, route.host, route.path)));
     const { access: _drop, ...rest } = route;
     // Turning on keeps the route's path rules; turning off clears them with the gate.
-    const next: Route = target ? (input.on ? { ...rest, access: { ...route.access, login: true } } : { ...rest, access: undefined }) : route;
+    const on = { ...(route.access ?? (ssoApp ? { signIn: 'sso' } : {})), login: true as const };
+    const next: Route = target ? (input.on ? { ...rest, access: on } : { ...rest, access: undefined }) : route;
     if (target && (route.access?.login === true) !== input.on) entry.changed = true;
     entry.routes.push(next);
     byService.set(serviceId, entry);

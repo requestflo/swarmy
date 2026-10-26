@@ -80,7 +80,7 @@ export function AccessTabPage({ stack }: { stack: string }): React.JSX.Element {
             <RowList label="Addresses">
               {routes.map((r) => (
                 <CalmRow key={r.id} tone={r.requireLogin ? 'mesh' : 'idle'} name={`${r.host}${r.path !== '/' ? r.path : ''}`} sub={r.serviceName.replace(`${stack}_`, '')}
-                  say={r.requireLogin ? `Signs in first. ${who[0]?.toUpperCase()}${who.slice(1)}.${pathRulesLine(r, v.people)}` : 'Anyone, no sign-in.'} word={r.requireLogin ? 'Sign-in' : 'Public'} wordTone={r.requireLogin ? 'mesh' : 'idle'} />
+                  say={r.requireLogin ? `Signs in first${r.signIn === 'sso' ? ' with single sign-on' : ''}. ${who[0]?.toUpperCase()}${who.slice(1)}.${pathRulesLine(r, v.people)}` : 'Anyone, no sign-in.'} word={r.requireLogin ? 'Sign-in' : 'Public'} wordTone={r.requireLogin ? 'mesh' : 'idle'} />
               ))}
             </RowList>
           </Section>

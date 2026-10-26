@@ -72,6 +72,11 @@ export interface RouteAccess {
    * a rule it could not read. Judged at decision time; unparseable fails closed.
    */
   paths?: unknown;
+  /**
+   * Which swarmy sign-ins the app accepts: absent or `'any'` = any, `'sso'` =
+   * only the org's own SSO. Kept verbatim like `paths`; any other value fails closed.
+   */
+  signIn?: unknown;
 }
 
 /** A route together with the live Docker service carrying it. */
@@ -124,7 +129,7 @@ export function coerceAccess(value: unknown): RouteAccess | undefined {
   if (typeof value !== 'object' || value === null) return undefined;
   const v = value as Record<string, unknown>;
   if (v.login !== true) return undefined;
-  return { login: true, ...(v.paths !== undefined ? { paths: v.paths } : {}) };
+  return { login: true, ...(v.paths !== undefined ? { paths: v.paths } : {}), ...(v.signIn !== undefined ? { signIn: v.signIn } : {}) };
 }
 
 /**

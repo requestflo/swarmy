@@ -3,7 +3,7 @@ import { simulateRequest } from './simulate';
 import type { AppAccessPerson, AppAccessRoute } from './types';
 
 const route = (requireLogin: boolean, path = '/admin'): AppAccessRoute => ({
-  id: 'r', serviceId: 's', serviceName: 'storefront_web', host: 'shop.example.com', path, requireLogin, endUserAuth: false, pathRules: [], pathRulesError: false,
+  id: 'r', serviceId: 's', serviceName: 'storefront_web', host: 'shop.example.com', path, requireLogin, endUserAuth: false, pathRules: [], pathRulesError: false, signIn: 'any',
 });
 const priya = (canEnter: boolean): AppAccessPerson => ({
   memberId: 'm1', name: 'Priya', email: 'priya@example.com', role: 'member', groups: ['ops'], canEnter,

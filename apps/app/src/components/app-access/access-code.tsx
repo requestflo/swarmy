@@ -11,7 +11,7 @@ import { IDENTITY_HEADERS, type AppAccessViewData } from './types';
 export function AccessCode({ view }: { view: AppAccessViewData }): React.JSX.Element {
   const routes = view.routes
     .filter((r) => !r.endUserAuth)
-    .map((r) => JSON.stringify({ host: r.host, path: r.path, ...(r.requireLogin ? { access: { login: true, ...(r.pathRules.length ? { paths: r.pathRules } : {}) } } : {}) }))
+    .map((r) => JSON.stringify({ host: r.host, path: r.path, ...(r.requireLogin ? { access: { login: true, ...(r.signIn === 'sso' ? { signIn: 'sso' } : {}), ...(r.pathRules.length ? { paths: r.pathRules } : {}) } } : {}) }))
     .join('\n');
   const who = view.rules.everyone ? 'everyone in the organisation' : [...view.rules.groups.map((g) => `group ${g}`), ...view.rules.people.map((p) => `person ${p}`)].join(', ') || 'nobody yet';
   const edge = [

@@ -9,11 +9,11 @@
  * a sign-in writes, that is the Access tab's Recent sign-ins.
  */
 import { displayEmail } from '@swarmy/auth';
-import { decideAppPath, type AppPathPrincipal } from '@swarmy/core';
+import { appSignInMode, decideAppPath, type AppPathPrincipal } from '@swarmy/core';
 import type { DB } from '@swarmy/db';
 import type { AgentHub } from '../hub/types';
 import { decide, principalFromMember } from '../abac';
-import { appAccessWall } from './app-access-walls';
+import { appAccessWall, appSignInWall } from './app-access-walls';
 import { appResource, appTarget, pathOf, type ProtectedRoute } from './app-access-route';
 import { writeAudit } from './audit.service';
 
@@ -40,7 +40,7 @@ export async function liveSession(db: DB, sid: string, uid: string, now: number)
 }
 
 /** Why a signed-in person was refused, as the audit row and Recent sign-ins name it. */
-export type DenyReason = 'not-member' | 'wall' | 'policy' | 'path' | 'rules';
+export type DenyReason = 'not-member' | 'wall' | 'sso' | 'policy' | 'path' | 'rules';
 
 export interface Decision {
   permit: boolean;
@@ -68,6 +68,11 @@ export async function decideAccess(deps: DecideDeps, route: ProtectedRoute, uid:
   const role = m.role as 'owner' | 'admin' | 'member';
   const wall = await appAccessWall(deps.db, { uid, sid, orgId: route.orgId, role, memberSince: m.createdAt });
   if (wall) return { permit: false, groups: [], policyId: null, member: true, wall, reason: 'wall' };
+  // The app's own sign-in toggle; an unreadable value lets nobody in.
+  const mode = appSignInMode(route.access?.signIn);
+  if (mode === null) return { permit: false, groups: [], policyId: null, member: true, reason: 'rules' };
+  const sso = mode === 'sso' ? await appSignInWall(deps.db, { sid, orgId: route.orgId }) : null;
+  if (sso) return { permit: false, groups: [], policyId: null, member: true, wall: sso, reason: 'sso' };
   const principal = principalFromMember(route.orgId, m);
   const d = await decide({
     db: deps.db,

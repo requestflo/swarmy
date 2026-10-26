@@ -17,6 +17,8 @@ export interface AppAccessRoute {
   pathRules: AppPathRule[];
   /** The label's path rules can't be read: the edge lets nobody in. */
   pathRulesError: boolean;
+  /** Which swarmy sign-ins it accepts (`access.signIn`); `unreadable` lets nobody in. */
+  signIn: 'any' | 'sso' | 'unreadable';
 }
 
 export interface AppAccessRules {
@@ -51,6 +53,8 @@ export interface AppAccessViewData {
   people: AppAccessPerson[];
   knownGroups: string[];
   endUserAuth: EndUserAuth | null;
+  /** The org's SSO providers that can sign people in now (names). */
+  ssoProviders: string[];
 }
 
 /** One row of Recent sign-ins (mirrors app-access-sign-ins.ts `AppSignIn`). */

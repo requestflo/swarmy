@@ -13,6 +13,7 @@ const route: AppAccessRoute = {
   endUserAuth: false,
   pathRules: [{ path: '/admin/*', groups: ['sre'] }],
   pathRulesError: false,
+  signIn: 'any',
 };
 const person = (memberId: string, groups: string[], canEnter = true): AppAccessPerson => ({
   memberId, name: memberId, email: `${memberId}@example.com`, role: 'member', groups, canEnter,
