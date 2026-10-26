@@ -291,6 +291,17 @@ each worker process, so it stays out); disk fit on Move and volume sizes on
 Placement (9, 36); a per-address front-door picker (31); drift rows with Re-pin
 on Platform (52); SAML setup with the SP URLs and a test sign-in (56).
 
+**Sixth pass (2026-10-26):** certificate facts on Domain detail — issued,
+Covers, Served by, renewals, Renew now (rate-limited from the audit log; not on
+the edge-per-node shared store) and CAA (30); Restart agent with "back in 6 s"
+(11); the per-server port-25 test (66); stage filtering and a release version
+on build logs (27); last test receipt and "gets N of M rules" on channels (55);
+mesh access rules, editable for NetBird (43); remove a cloned environment
+keeping or deleting all its data, and domains per lane (57); per-standby lag,
+the memory setter and disk per copy (39); "Members sign in with SSO only" and
+SSO invites (48, 56); take an incident for 30 min, estate uptime and how long
+the last put-back took on the phone (21).
+
 Found, not fixed (worth deciding):
 
 - Board 52 offers "All minor updates" for auto-patching; the upgrades epic

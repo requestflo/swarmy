@@ -74,10 +74,14 @@ paste. So did most of the next tier: the pre-deploy `release` command, DNS-01
 wildcards via swarmy-dns, named environments, previews with data, the CLI + MCP
 server and the BuildKit registry cache. What is left (none launch-blocking):
 
-- A Heroku importer. M.
+- ~~A Heroku importer~~ — shipped 2026-10-26 (`/deploy/heroku`: a read-only
+  API token or pasted app.json/Procfile/config; Deploy creates the data stores
+  and secrets, the committed swarmy.yaml deploys the services; an optional
+  Postgres copy). Heroku Scheduler jobs aren't in the Platform API, so they
+  stay a to-do.
 - ~~Environments~~ (clone as a new environment, shared-vs-override variables)
-  and ~~Gitea / Forgejo~~ — shipped 2026-10-24. A cloned environment can't be
-  removed from the dashboard yet.
+  and ~~Gitea / Forgejo~~ — shipped 2026-10-24; removing a cloned environment
+  (keep or delete all its data) and per-environment domains 2026-10-26.
 - ~~Route basic-auth~~ — shipped 2026-10-24 ("Require a password" on a route;
   bcrypt hashes sealed in the ingress swarm-kv document, never on a label).
 
@@ -104,7 +108,11 @@ server and the BuildKit registry cache. What is left (none launch-blocking):
   signed assertions, swarmy correlates InResponseTo itself because the plugin's
   check reads a key samlify never sets). Owed: a pass against a real IdP
   (Okta, Entra ID, Keycloak, ADFS) — IdPs that sign only the Response, Entra's
-  claim URIs; encrypted assertions are not supported.
+  claim URIs; encrypted assertions are not supported. "Members sign in with
+  SSO only" (owner break-glass: password + 2FA, audited) and SSO-only invites
+  shipped 2026-10-26; protected apps run the same 2FA / SSO-only walls as the
+  dashboard. Gap: a new SAML user with a link-only SSO invite and
+  auto-provisioning off can't sign up (the IdP's POST drops the invite cookie).
 - Open question: a second, agent-side factor for privileged capabilities (node
   shell, mesh, builds), so a compromised controller alone can't use them.
 - Viewer / Developer roles (board 48 shows them) — an owner decision; today's
@@ -138,8 +146,10 @@ server and the BuildKit registry cache. What is left (none launch-blocking):
   partition drills are scripted in the cluster e2e, unrun. Decide: the fence is
   52 s (QA-022 doubled the lease) vs the plan's 30 s; and whether enabling
   Garage also turns on replication (today a separate click).
-- A server retirement's planner picks destinations without checking disk
-  (each volume copy now refuses when it won't fit, 2026-10-25).
+- pgBackRest is offered only with an operator-supplied image
+  (`SWARMY_PGBACKREST_IMAGE`; no upstream image exists). Even then it needs its
+  own WAL pipeline (swarmy archives WAL for wal-g) and its S3 key env names.
+- PgBouncer for managed Postgres: in progress 2026-10-26.
 - Done 2026-10-24: database-role placement, cache eviction/persistence
   settings, bucket CORS + lifecycle, the public S3 endpoint for presigned
   links, registry-side GC (keep-last-N mode), restore-as-a-copy creating its
@@ -175,8 +185,11 @@ server and the BuildKit registry cache. What is left (none launch-blocking):
   fields `swarmy.Nullable[T]`) — a breaking change for Go callers (`Replicas`
   is `*int`). `swarmy_ingress` covers every edge setting through one
   `updateIngressSettings`.
-- `DELETE /stacks/{id}` answers 404 for a label-only stack (a managed
-  database) that `GET /stacks` lists.
+- Done 2026-10-26: alert rules, notification channels, guardrails, policies
+  and incidents over REST + SDKs, with `swarmy_alert_rule`,
+  `swarmy_notification_channel`, `swarmy_guardrails` and `swarmy_policy`
+  (113 routes, all in every SDK); a malformed JSON body is a 400, not a 500;
+  `DELETE /stacks/{id}` finds label-only stacks.
 - Done 2026-10-24 (later): `PATCH /services/{id}` (Terraform image changes
   apply), join tokens over REST + `swarmy_join_token`, Go/Python SDK methods.
 - Done 2026-10-24: deprecation signalling, connections over REST, the
@@ -199,13 +212,15 @@ server and the BuildKit registry cache. What is left (none launch-blocking):
   Ready nodes, unreachable gossip/VXLAN), dind nodes refused to restart (a
   daemon flag also in daemon.json), and the upgrade started before agents
   redialled. Passes locally (arm64) through reschedule; controller-move and
-  upgrade still need a run on GitHub's amd64 runner. The upgrade preflight's
-  image mirror was seen running two copies at once.
+  upgrade still need a run on GitHub's amd64 runner. (The upgrade preflight's
+  duplicate image copies are deduped in-process; a controller restart
+  mid-preflight can still leave a stray copy running.)
 - Air-gapped installs: `install-swarmy.sh --bundle <tar>` (2026-10-25) checks
   the signature, loads every image and installs with no pulls; the controller
   seeds the built-in registry from it. Needs Docker's containerd image store,
-  and a run on a real box with no route out. Managed-data images (Postgres,
-  Redis, helpers) aren't in the BOM yet, so the bundle can't create databases.
+  and a run on a real box with no route out. Managed-data images are in the
+  BOM since 2026-10-26 (+~1.9 GB; `--without data-images` leaves them out).
+  Agent-side backup sidecars still pull by tag.
 
 - The Release workflow is manual until launch; restore `push: branches: [main]`
   afterwards.
