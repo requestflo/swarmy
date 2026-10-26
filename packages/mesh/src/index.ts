@@ -23,3 +23,4 @@ export * from './control-plane/access-rules';
 export * from './control-plane/access-rule-words';
 export * from './images';
 export * from './client-downloads';
+export * from './link-facts';
