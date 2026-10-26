@@ -25,6 +25,7 @@ import {
   setRequireApproval,
 } from '../services/apps.service';
 import { readAppConfigFile } from '../services/apps/config-file';
+import { readPlanDiff } from '../services/apps/plan-diff';
 import { appEnvironmentProcedures } from './apps-environments';
 import { appPreviewProcedures } from './apps-previews';
 import { convertToConfig } from '../services/apps/convert';
@@ -71,6 +72,15 @@ export const appsRouter = router({
   plan: orgProcedure
     .input(z.object({ planId: id }))
     .query(({ ctx, input }) => getPlan(ctx, input.planId)),
+
+  /**
+   * The plan drawer's YAML diff: swarmy.yaml and the rendered spec at the
+   * live release and at this plan's commit (the dashboard draws the diff).
+   * Read-only; the file is read like the Source tab's.
+   */
+  planDiff: orgProcedure
+    .input(z.object({ planId: id }))
+    .query(({ ctx, input }) => readPlanDiff(ctx, input.planId)),
 
   /** Confirm held steps (each is ABAC-checked by what it destroys). */
   confirm: orgProcedure

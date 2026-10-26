@@ -25,6 +25,8 @@ export interface PlanActionView {
   resource?: { type?: string };
   /** service.deploy: the image it rolls out (or the build it comes from). */
   image?: { image?: string; fromBuild?: string };
+  /** route.add / route.update: the desired route (the service it reaches). */
+  route?: { service?: string };
 }
 
 export interface PlanView {
@@ -65,6 +67,15 @@ export interface AppPlan {
   markdown: string;
   createdAt: string;
   appliedAt: string | null;
+  /** The app the plan leaves behind (Graph boxes and lines); only on `apps.plan`. */
+  topology?: PlanTopology | null;
+}
+
+/** Mirrors PlanTopology (services/apps/plan-topology.ts). */
+export interface PlanTopology {
+  routes: Array<{ host: string; path: string; service: string }>;
+  services: Array<{ name: string; uses: string[] }>;
+  resources: Array<{ name: string; type: string }>;
 }
 
 export interface AppEnvironment {

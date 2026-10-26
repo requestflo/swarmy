@@ -1,10 +1,11 @@
 /**
  * Pure: a plan's actions laid over the app's graph — front door (routes),
  * services and jobs, data (resources and linked apps) — each box marked
- * add / change / remove, and the live services the plan doesn't touch kept
- * as ghosts so the change reads against what's there.
+ * add / change / remove, and the parts the plan doesn't touch kept as ghosts
+ * (the live services, and every address, service and store the plan's own
+ * desired state still has) so the change reads against what's there.
  */
-import type { Gate, PlanActionView } from './gitops-types';
+import type { Gate, PlanActionView, PlanTopology } from './gitops-types';
 
 export type Diff = 'add' | 'change' | 'remove' | 'same';
 
@@ -16,6 +17,8 @@ export interface PlanNode {
   note?: string;
   diff: Diff;
   gate?: Gate;
+  /** The id lines are drawn between (`route:<host><path>` · `svc:<name>` · `res:<name>`). */
+  flow?: string;
 }
 
 export interface PlanGraph {
@@ -44,14 +47,20 @@ export function shortName(stack: string, name: string): string {
   return name.startsWith(`${stack}_`) ? name.slice(stack.length + 1) : name;
 }
 
+export const routeFlow = (host: string, path: string): string => `route:${host}${path && path !== '/' ? path : ''}`;
+export const svcFlow = (name: string): string => `svc:${name}`;
+export const resFlow = (name: string): string => `res:${name}`;
+
 function imageMeta(a: PlanActionView, built: Set<string>): string | undefined {
   if (a.image?.image) return a.image.image;
   if (a.image?.fromBuild || (a.name && built.has(a.name))) return 'built from source';
   return undefined;
 }
 
-/** The graph for `actions` over the stack's live services (short names). */
-export function planGraph(actions: PlanActionView[], liveServices: string[]): PlanGraph {
+const routeLabel = (host: string, path: string): string => `${host}${path && path !== '/' ? path : ''}`;
+
+/** The graph for `actions` over the stack's live services (short names) and the plan's desired app. */
+export function planGraph(actions: PlanActionView[], liveServices: string[], topology?: PlanTopology | null): PlanGraph {
   const g: PlanGraph = { front: [], services: [], data: [] };
   const built = new Set(actions.filter((a) => a.kind === 'build').flatMap((a) => a.services ?? [a.id.replace(/^build:/, '')]));
   const touched = new Set<string>();
@@ -60,27 +69,38 @@ export function planGraph(actions: PlanActionView[], liveServices: string[]): Pl
     if (a.kind === 'build') continue;
     if (a.kind === 'service.deploy') {
       const name = a.name ?? a.id;
-      touched.add(name);
-      g.services.push({ key: a.id, label: name, meta: imageMeta(a, built), diff: a.op === 'create' ? 'add' : 'change', gate });
+      touched.add(svcFlow(name));
+      g.services.push({ key: a.id, label: name, meta: imageMeta(a, built), diff: a.op === 'create' ? 'add' : 'change', gate, flow: svcFlow(name) });
       continue;
     }
     const diff = DIFF_OF[a.kind];
     if (!diff) continue;
     if (a.kind.startsWith('route.')) {
-      const path = a.path && a.path !== '/' ? a.path : '';
-      g.front.push({ key: a.id, label: `${a.host ?? '?'}${path}`, meta: 'address', diff, gate });
+      const flow = routeFlow(a.host ?? '?', a.path ?? '/');
+      touched.add(flow);
+      g.front.push({ key: a.id, label: routeLabel(a.host ?? '?', a.path ?? '/'), meta: 'address', diff, gate, flow });
     } else if (a.kind.startsWith('resource.')) {
-      g.data.push({ key: a.id, label: a.name ?? a.id, meta: a.resource?.type ?? a.resourceType, diff, gate });
+      const name = a.name ?? a.id;
+      touched.add(resFlow(name));
+      g.data.push({ key: a.id, label: name, meta: a.resource?.type ?? a.resourceType, diff, gate, flow: resFlow(name) });
     } else if (a.kind.startsWith('link.')) {
       g.data.push({ key: a.id, label: a.peer ?? a.id, meta: 'connected app', diff, gate });
     } else {
-      if (a.name) touched.add(a.name);
-      g.services.push({ key: a.id, label: a.name ?? a.id, meta: a.kind.startsWith('job.') ? 'job' : undefined, diff, gate });
+      const job = a.kind.startsWith('job.');
+      // A job runs as a service of its own name: keep it out of the ghosts too.
+      if (a.name) touched.add(svcFlow(a.name));
+      g.services.push({ key: a.id, label: a.name ?? a.id, meta: job ? 'job' : undefined, diff, gate, ...(a.name && !job ? { flow: svcFlow(a.name) } : {}) });
     }
   }
-  for (const s of liveServices) {
-    if (!touched.has(s)) g.services.push({ key: `live:${s}`, label: s, diff: 'same' });
-  }
+  const ghost = (list: PlanNode[], flow: string, n: Omit<PlanNode, 'diff' | 'flow'>): void => {
+    if (touched.has(flow)) return;
+    touched.add(flow);
+    list.push({ ...n, diff: 'same', flow });
+  };
+  for (const r of topology?.routes ?? []) ghost(g.front, routeFlow(r.host, r.path), { key: `live:${routeFlow(r.host, r.path)}`, label: routeLabel(r.host, r.path), meta: 'address' });
+  for (const s of liveServices) ghost(g.services, svcFlow(s), { key: `live:${s}`, label: s });
+  for (const s of topology?.services ?? []) ghost(g.services, svcFlow(s.name), { key: `live:${s.name}`, label: s.name });
+  for (const r of topology?.resources ?? []) ghost(g.data, resFlow(r.name), { key: `live:res:${r.name}`, label: r.name, meta: r.type });
   return g;
 }
 

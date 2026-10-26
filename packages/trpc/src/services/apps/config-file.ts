@@ -63,6 +63,29 @@ function legacyPreviewDomain(json: unknown): string | null {
   return typeof v === 'string' && v.trim() ? v.trim().toLowerCase() : null;
 }
 
+/**
+ * The file's text at one commit: the cache, else one inspect on a Builder
+ * (throws when none is online). `null` text = no file at that commit.
+ */
+export async function configTextAt(
+  ctx: OrgContext,
+  repo: { id: string; branch: string; configPath: string },
+  sha: string,
+  environment: string,
+): Promise<{ text: string | null; fetchedAt: string }> {
+  const hit = cachedConfigText(repo.id, sha, repo.configPath);
+  if (hit) return hit;
+  const inspected = await inspectCommit(ctx, {
+    repoId: repo.id,
+    ref: sha,
+    paths: [repo.configPath],
+    // A host that refuses a bare-sha fetch: find the sha in the branch's recent history.
+    ...(environment === 'production' ? { fallbackBranch: repo.branch } : {}),
+  });
+  rememberConfigText(repo.id, sha, repo.configPath, inspected.files[repo.configPath] ?? null);
+  return cachedConfigText(repo.id, sha, repo.configPath) ?? { text: null, fetchedAt: new Date().toISOString() };
+}
+
 /** The swarmy.yaml at the stack's last planned commit; null when the stack isn't a git app. */
 export async function readAppConfigFile(ctx: OrgContext, input: { stack: string }): Promise<AppConfigFileView | null> {
   const plan = await ctx.db.appPlan.findFirst({
@@ -77,18 +100,7 @@ export async function readAppConfigFile(ctx: OrgContext, input: { stack: string 
   });
   if (!repo) return null;
 
-  let file = cachedConfigText(repo.id, plan.sha, repo.configPath);
-  if (!file) {
-    const inspected = await inspectCommit(ctx, {
-      repoId: repo.id,
-      ref: plan.sha,
-      paths: [repo.configPath],
-      // A host that refuses a bare-sha fetch: find the sha in the branch's recent history.
-      ...(plan.environment === 'production' ? { fallbackBranch: repo.branch } : {}),
-    });
-    rememberConfigText(repo.id, plan.sha, repo.configPath, inspected.files[repo.configPath] ?? null);
-    file = cachedConfigText(repo.id, plan.sha, repo.configPath) ?? { text: null, fetchedAt: new Date().toISOString() };
-  }
+  const file = await configTextAt(ctx, repo, plan.sha, plan.environment);
 
   const latest = (trigger: string[]) =>
     ctx.db.appPlan.findFirst({

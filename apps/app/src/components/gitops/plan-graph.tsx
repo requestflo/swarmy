@@ -1,8 +1,11 @@
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { cn } from '@swarmy/ui';
+import { FlowSvg } from '@/components/flow/flow-svg';
+import { useFlowPaths } from '@/components/flow/use-flow-paths';
 import { useTRPC } from '@/integrations/trpc';
-import type { PlanActionView } from './gitops-types';
+import type { PlanActionView, PlanTopology } from './gitops-types';
+import { planLinks } from './plan-graph-links';
 import { diffCounts, planGraph, shortName, type Diff, type PlanNode } from './plan-graph-model';
 
 const BOX: Record<Diff, string> = {
@@ -21,7 +24,7 @@ const TAG: Record<Exclude<Diff, 'same'>, { text: string; tone: string }> = {
 function Box({ n }: { n: PlanNode }): React.JSX.Element {
   const tag = n.diff === 'same' ? null : TAG[n.diff];
   return (
-    <li className={cn('relative min-w-0 rounded-lg px-2.5 py-1.5', BOX[n.diff])}>
+    <li data-flow={n.flow} className={cn('relative min-w-0 rounded-lg px-2.5 py-1.5', BOX[n.diff])}>
       {tag ? (
         <span className={cn('bg-card absolute -top-2 right-2 rounded px-1 font-mono text-[9.5px] font-semibold whitespace-nowrap', tag.tone)}>
           {tag.text}
@@ -54,20 +57,29 @@ export function PlanColumn({ title, nodes }: { title: string; nodes: PlanNode[] 
 
 /**
  * The plan as a ghosted diff of the app: dashed green boxes are added, solid
- * amber ones change, struck-through red ones go; the app's other live
- * services stay as faint ghosts. Same actions as the list, drawn in place.
+ * amber ones change, struck-through red ones go; what it leaves alone (live
+ * services, and every address, service and store the plan keeps) stays as
+ * faint ghosts joined by faint lines. Same actions as the list, drawn in place.
  */
-export function PlanGraph({ stack, actions }: { stack: string; actions: PlanActionView[] }): React.JSX.Element {
+export function PlanGraph({ stack, actions, topology }: { stack: string; actions: PlanActionView[]; topology?: PlanTopology | null }): React.JSX.Element {
   const trpc = useTRPC();
   const live = useQuery({ ...trpc.services.list.queryOptions({ stackId: stack }), staleTime: 30_000 });
   const g = React.useMemo(
-    () => planGraph(actions, (live.data ?? []).map((s) => shortName(stack, s.name))),
-    [actions, live.data, stack],
+    () => planGraph(actions, (live.data ?? []).map((s) => shortName(stack, s.name)), topology),
+    [actions, live.data, stack, topology],
   );
+  const links = React.useMemo(() => planLinks(g, actions, topology), [g, actions, topology]);
+  const flow = useFlowPaths(links);
   const counts = diffCounts(g);
   return (
     <figure className="flex flex-col gap-2" aria-label={`Plan graph: ${counts || 'no changes'}`}>
-      <div className="flex flex-col gap-4 rounded-xl border bg-[radial-gradient(var(--border)_1px,transparent_1px)] [background-size:16px_16px] p-4 sm:flex-row">
+      <div
+        ref={flow.ref}
+        className="relative flex flex-col gap-4 rounded-xl border bg-[radial-gradient(var(--border)_1px,transparent_1px)] [background-size:16px_16px] p-4 sm:flex-row sm:gap-x-8"
+      >
+        <div className="pointer-events-none absolute inset-0 hidden sm:block">
+          <FlowSvg paths={flow.paths} size={flow.size} />
+        </div>
         <PlanColumn title="Front door" nodes={g.front} />
         <PlanColumn title="Services" nodes={g.services} />
         <PlanColumn title="Data" nodes={g.data} />
@@ -76,7 +88,7 @@ export function PlanGraph({ stack, actions }: { stack: string; actions: PlanActi
         <span className="text-tone-ok">╌ add</span>
         <span className="text-tone-warn">━ change</span>
         <span className="text-tone-bad">╌ remove</span>
-        <span>{live.data ? 'faint = running, untouched' : 'everything else untouched'}</span>
+        <span>{live.data || topology ? 'faint = untouched, stays as it is' : 'everything else untouched'}</span>
         {counts ? <span className="ml-auto">{counts}</span> : null}
       </figcaption>
     </figure>

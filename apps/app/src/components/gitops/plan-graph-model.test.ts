@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { PlanActionView } from './gitops-types';
+import { planLinks } from './plan-graph-links';
 import { diffCounts, planGraph, shortName } from './plan-graph-model';
 
 const a = (o: Partial<PlanActionView> & Pick<PlanActionView, 'id' | 'kind'>): PlanActionView => ({
@@ -23,7 +24,7 @@ describe('planGraph', () => {
       ],
       ['web', 'api'],
     );
-    expect(g.front).toEqual([{ key: 'route.add:docs', label: 'docs.example.com', meta: 'address', diff: 'add', gate: undefined }]);
+    expect(g.front).toEqual([{ key: 'route.add:docs', label: 'docs.example.com', meta: 'address', diff: 'add', gate: undefined, flow: 'route:docs.example.com' }]);
     expect(g.services.map((n) => [n.label, n.diff, n.meta])).toEqual([
       ['web', 'change', 'built from source'],
       ['worker', 'add', 'w:1'],
@@ -35,6 +36,44 @@ describe('planGraph', () => {
       ['billing', 'add', 'connected app', undefined],
     ]);
     expect(diffCounts(g)).toBe('4 to add · 1 to change · 1 to remove');
+  });
+
+  test('the plan’s own app ghosts the addresses, services and stores it leaves alone', () => {
+    const topology = {
+      routes: [
+        { host: 'shop.example.com', path: '/', service: 'web' },
+        { host: 'docs.example.com', path: '/', service: 'docs' },
+      ],
+      services: [{ name: 'web', uses: ['db'] }, { name: 'docs', uses: [] }],
+      resources: [{ name: 'db', type: 'postgres' }],
+    };
+    const g = planGraph([a({ id: 'route.add:docs', kind: 'route.add', host: 'docs.example.com', path: '/', route: { service: 'docs' } })], ['web'], topology);
+    expect(g.front.map((n) => [n.label, n.diff, n.flow])).toEqual([
+      ['docs.example.com', 'add', 'route:docs.example.com'],
+      ['shop.example.com', 'same', 'route:shop.example.com'],
+    ]);
+    expect(g.services.map((n) => [n.label, n.diff])).toEqual([['web', 'same'], ['docs', 'same']]);
+    expect(g.data).toEqual([{ key: 'live:res:db', label: 'db', meta: 'postgres', diff: 'same', flow: 'res:db' }]);
+    expect(diffCounts(g)).toBe('1 to add');
+
+    expect(planLinks(g, [a({ id: 'route.add:docs', kind: 'route.add', host: 'docs.example.com', path: '/', route: { service: 'docs' } })], topology)).toEqual([
+      { from: 'route:shop.example.com', to: 'svc:web', tone: 'dim' },
+      { from: 'route:docs.example.com', to: 'svc:docs', tone: 'base', dashed: true },
+      { from: 'svc:web', to: 'res:db', tone: 'dim' },
+    ]);
+  });
+
+  test('lines only join boxes that are drawn; a changed end is quiet coral, solid', () => {
+    const g = planGraph([a({ id: 'service.deploy:web', kind: 'service.deploy', name: 'web', op: 'update' })], [], {
+      routes: [{ host: 'x.example.com', path: '/v1', service: 'web' }],
+      services: [{ name: 'web', uses: ['cache', 'gone'] }],
+      resources: [{ name: 'cache', type: 'cache' }],
+    });
+    expect(g.front[0]!.label).toBe('x.example.com/v1');
+    expect(planLinks(g, [], { routes: [{ host: 'x.example.com', path: '/v1', service: 'web' }], services: [{ name: 'web', uses: ['cache', 'gone'] }], resources: [{ name: 'cache', type: 'cache' }] })).toEqual([
+      { from: 'route:x.example.com/v1', to: 'svc:web', tone: 'base' },
+      { from: 'svc:web', to: 'res:cache', tone: 'base' },
+    ]);
   });
 
   test('a rollout without op reads as a change; Docker names are shortened', () => {

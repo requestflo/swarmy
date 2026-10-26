@@ -67,6 +67,7 @@ import { rollOutBuilds } from './build-rollout.service';
 import { resolveManagerNode } from './dispatch.service';
 import { inspectCommit, listProviderBranches } from './git-connections.service';
 import { rememberConfigText } from './apps/config-file';
+import { planTopology, type PlanTopology } from './apps/plan-topology';
 import {
   asClone,
   dashboardDesired,
@@ -162,6 +163,8 @@ export interface AppPlanView {
   markdown: string;
   createdAt: string;
   appliedAt: string | null;
+  /** The app the plan leaves behind (Graph boxes and lines); only on `apps.plan`. */
+  topology?: PlanTopology | null;
 }
 
 export interface AppView {
@@ -1650,7 +1653,7 @@ export async function listPlans(
 export async function getPlan(ctx: OrgContext, planId: string): Promise<AppPlanView> {
   const row = await ctx.db.appPlan.findFirst({ where: { id: planId, orgId: ctx.activeOrgId } });
   if (!row) throw notFound('plan', planId);
-  return toPlanView(row);
+  return { ...toPlanView(row), topology: planTopology(row.desiredJson) };
 }
 
 export async function setRequireApproval(
