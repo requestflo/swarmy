@@ -1,5 +1,6 @@
 import {
   DB_POOLER_LABEL,
+  STACK_LABEL,
   POOLER_DEFAULT,
   POOLER_POOL_MAX,
   POOLER_POOL_MIN,
@@ -12,9 +13,10 @@ import {
   type PoolerMode,
 } from '@swarmy/core';
 import type { OrgContext } from '../context';
-import { badRequest, mapDispatchError } from '../errors';
+import { badRequest, commandRejected, mapDispatchError } from '../errors';
 import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
+import { appsThroughPooler } from './manageddb-connect.service';
 import { liveCluster } from './manageddb-extensions.service';
 
 /**
@@ -59,6 +61,14 @@ export async function setDbPooler(ctx: OrgContext, input: SetDbPoolerInput): Pro
   }
   const result = { stack: input.stack, cluster: input.cluster, pooler: next, service: poolerServiceName(input.stack, input.cluster) };
   if (samePoolerConfig(current, next)) return { ...result, changed: false };
+  if (!next) {
+    // Never leave an app with a DATABASE_URL naming a pooler that is gone.
+    const mine = ctx.hub.liveInventory(ctx.activeOrgId).services.filter((s) => (s.labels[STACK_LABEL] ?? '') === input.stack);
+    const through = appsThroughPooler(mine, input.cluster);
+    if (through.length > 0) {
+      throw commandRejected(`${through.join(', ')} ${through.length === 1 ? 'connects' : 'connect'} through the pooler: connect ${through.length === 1 ? 'it' : 'them'} directly first`);
+    }
+  }
 
   try {
     const node = await resolveManagerNode(ctx);

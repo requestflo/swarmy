@@ -74,7 +74,9 @@ function resourceOf(s: InvService): Omit<ResourceEndpoint, 'attached' | 'host'> 
   const l = s.labels;
   if (l['swarmy.db.cluster']) {
     if (l['swarmy.db.role'] === 'etcd') return null;
-    return { kind: 'postgres', name: l['swarmy.db.cluster'], port: 5432, role: l['swarmy.db.role'] };
+    // The PgBouncer pooler (`<stack>_<cluster>-pooler`) answers on 6432.
+    const port = l['swarmy.db.role'] === 'pooler' ? 6432 : 5432;
+    return { kind: 'postgres', name: l['swarmy.db.cluster'], port, role: l['swarmy.db.role'] };
   }
   if (l['swarmy.cache.cluster']) {
     const role = l['swarmy.cache.role'];

@@ -57,6 +57,13 @@ import {
   type DbPlacementNode,
   planPoolerRotation,
   isPgMemberService,
+  connectViaOf,
+  DB_INJECT_VIA_LABEL,
+  DB_POOLER_LABEL,
+  POOLER_PORT,
+  parsePoolerConfig,
+  poolerServiceName,
+  type DbConnectVia,
 } from '@swarmy/core';
 import {
   DEFAULT_MANAGED_PG_IMAGE,
@@ -965,7 +972,7 @@ export async function migrateDbCredentials(
   const consumers: string[] = [];
   for (const app of liveStackServices(ctx, stack)) {
     if (!consumerNeedsMigration(app, cluster)) continue;
-    await injectConnection(ctx, { stack, cluster, appService: app.name, envVar: app.labels[DB_INJECT_VAR_LABEL] || 'DATABASE_URL' });
+    await injectConnection(ctx, { stack, cluster, appService: app.name, envVar: app.labels[DB_INJECT_VAR_LABEL] || 'DATABASE_URL', via: connectViaOf(app.labels) });
     consumers.push(app.name);
   }
   if (moved.length || consumers.length) {
@@ -1062,7 +1069,7 @@ export async function rotateDbPassword(
     redeployed.push(m.name);
   }
   for (const app of plan.apps) {
-    await injectConnection(ctx, { stack, cluster, appService: app.service, envVar: app.envVar }, { password, passwordSecret: next });
+    await injectConnection(ctx, { stack, cluster, appService: app.service, envVar: app.envVar, via: app.via }, { password, passwordSecret: next });
     redeployed.push(app.service);
   }
   // Old versions go once nothing mounts them (Docker refuses while in use).
@@ -1522,6 +1529,12 @@ export interface InjectConnectionInput {
   cluster: string;
   /** Writer env var name (default DATABASE_URL); RO var derived from it. */
   envVar?: string;
+  /**
+   * `pooler`: the writer URL goes through the cluster's PgBouncer
+   * (`<stack>_<cluster>-pooler:6432`, needs `swarmy.db.pooler` on); the RO
+   * URL stays direct to the standbys. Default `direct`.
+   */
+  via?: DbConnectVia;
 }
 
 /**
@@ -1539,9 +1552,10 @@ export async function injectConnection(
   input: InjectConnectionInput,
   /** Rotation: the NEW password + secret, already known (no re-read). */
   known?: { password: string; passwordSecret: string },
-): Promise<{ appService: string; cluster: string; envVar: string; roVar: string; rwUrl: string; roUrl: string }> {
+): Promise<{ appService: string; cluster: string; envVar: string; roVar: string; rwUrl: string; roUrl: string; via: DbConnectVia }> {
   const envVar = (input.envVar ?? 'DATABASE_URL').trim() || 'DATABASE_URL';
   const roVar = roVarName(envVar);
+  const via: DbConnectVia = input.via ?? 'direct';
 
   if (!known) {
     // A legacy (plain-env) cluster moves onto its password secret first.
@@ -1558,11 +1572,16 @@ export async function injectConnection(
   );
   if (!app) throw notFound('service', input.appService);
 
+  if (via === 'pooler' && !parsePoolerConfig(primary.labels[DB_POOLER_LABEL])) {
+    throw commandRejected(`${input.cluster} has no pooler: turn it on first, then connect ${app.name} through it`);
+  }
   const primaryEnv = envRecord(primary);
   const database = primaryEnv[PG_ENV.database] ?? DEFAULT_DATABASE;
-  const rwHost = primary.name;
+  // Through the pooler, the writer URL names the pooler; it follows the writer itself.
+  const rwHost = via === 'pooler' ? poolerServiceName(input.stack, input.cluster) : primary.name;
+  const rwPort = via === 'pooler' ? POOLER_PORT : PG_PORT;
   const roHost = replica?.name ?? primary.name; // fall back to primary if no replica yet
-  const url = (host: string, pw: string) => `postgres://postgres:${pw}@${host}:${PG_PORT}/${database}`;
+  const url = (host: string, pw: string, port = PG_PORT) => `postgres://postgres:${pw}@${host}:${port}/${database}`;
   const network = clusterNetworkName(input.stack, input.cluster);
 
   // The URLs embed the password, so they are Docker SECRETS delivered as env
@@ -1571,15 +1590,16 @@ export async function injectConnection(
   // new ones.
   const passwordSecret = known?.passwordSecret ?? primary.labels[DB_PASSWORD_SECRET_LABEL];
   const version = passwordSecret ? parseDbSecretName(passwordSecret)?.version ?? 1 : 1;
-  const rwSecret = dbSecretName(input.stack, input.cluster, 'url', version);
+  const rwSecret = dbSecretName(input.stack, input.cluster, via === 'pooler' ? 'pool-url' : 'url', version);
   const roSecret = dbSecretName(input.stack, input.cluster, 'ro-url', version);
   const node = await resolveManagerNode(ctx);
   const password = known?.password ?? (await readDbPassword(ctx, input.stack, input.cluster));
-  await createDbSecret(ctx, node.id, input.stack, input.cluster, 'url', rwSecret, url(rwHost, password));
+  await createDbSecret(ctx, node.id, input.stack, input.cluster, via === 'pooler' ? 'pool-url' : 'url', rwSecret, url(rwHost, password, rwPort));
   await createDbSecret(ctx, node.id, input.stack, input.cluster, 'ro-url', roSecret, url(roHost, password));
   const urlFamilies = new Set([
     dbSecretFamily(input.stack, input.cluster, 'url'),
     dbSecretFamily(input.stack, input.cluster, 'ro-url'),
+    dbSecretFamily(input.stack, input.cluster, 'pool-url'),
   ]);
 
   // One-aspect patch over the FULL live spec (service.inspect): mounts,
@@ -1588,11 +1608,13 @@ export async function injectConnection(
     // Any plaintext copy (a pre-secret attach) goes.
     removeEnv: [envVar, roVar],
     addNetworks: [network],
+    removeLabels: [DB_INJECT_VIA_LABEL],
     setLabels: {
       [MANAGED_LABEL]: 'true',
       [STACK_LABEL]: input.stack,
       [DB_INJECT_LABEL]: input.cluster,
       [DB_INJECT_VAR_LABEL]: envVar,
+      ...(via === 'pooler' ? { [DB_INJECT_VIA_LABEL]: 'pooler' } : {}),
     },
     transform: (spec) => ({
       ...spec,
@@ -1616,8 +1638,9 @@ export async function injectConnection(
     cluster: input.cluster,
     envVar,
     roVar,
-    rwUrl: url(rwHost, '***'),
+    rwUrl: url(rwHost, '***', rwPort),
     roUrl: url(roHost, '***'),
+    via,
   };
 }
 

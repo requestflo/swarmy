@@ -272,7 +272,7 @@ export const managedDbRouter = router({
     )
     .mutation(({ ctx, input }) => removeDb(ctx, input)),
 
-  /** Inject DATABASE_URL (+ *_RO_URL) env onto an app service in the stack. */
+  /** Inject DATABASE_URL (+ *_RO_URL) env onto an app service in the stack, direct or through the pooler. */
   inject: abacProcedure('service.configure', resolveStackService)
     .input(
       z.object({
@@ -285,6 +285,8 @@ export const managedDbRouter = router({
           .max(64)
           .regex(/^[A-Za-z_][A-Za-z0-9_]*$/, 'invalid env var name')
           .optional(),
+        /** `pooler`: DATABASE_URL goes through the cluster's PgBouncer (`db.setPooler` on first). */
+        via: z.enum(['direct', 'pooler']).optional(),
       }),
     )
     // The connection URLs embed the password — the response masks it (the app

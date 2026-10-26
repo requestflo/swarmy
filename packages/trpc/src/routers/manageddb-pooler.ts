@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { POOLER_MODES, POOLER_POOL_MAX, POOLER_POOL_MIN } from '@swarmy/core';
-import { abacProcedure, resolveStackByName } from '../abac';
+import { abacProcedure, resolveStackByName, resolveStackService } from '../abac';
+import { detachConnection } from '../services/manageddb-connect.service';
 import { setDbPooler } from '../services/manageddb-pooler.service';
 
 const stackName = z
@@ -16,8 +17,9 @@ const clusterName = z
   .regex(/^[A-Za-z0-9][A-Za-z0-9-]*$/, 'invalid cluster name');
 
 /**
- * The managed Postgres pooler's procedures, spread into `db.*`
- * (routers/manageddb.ts): declare it, read it, wire an app through it.
+ * The managed Postgres pooler's procedures and the connection detach, spread
+ * into `db.*` (routers/manageddb.ts). Wiring an app (direct or through the
+ * pooler) is `db.inject`.
  */
 export const poolerProcedures = {
   /**
@@ -37,4 +39,13 @@ export const poolerProcedures = {
       }),
     )
     .mutation(({ ctx, input }) => setDbPooler(ctx, input)),
+
+  /**
+   * Disconnect an app from a cluster: the reverse of `db.inject`, direct or
+   * through the pooler (URL secret refs, network, inject labels; one
+   * redeploy). Same gate as inject (`service.configure`); audited `db.detach`.
+   */
+  detach: abacProcedure('service.configure', resolveStackService)
+    .input(z.object({ stack: stackName, cluster: clusterName, appService: z.string().min(1) }))
+    .mutation(({ ctx, input }) => detachConnection(ctx, input)),
 };
