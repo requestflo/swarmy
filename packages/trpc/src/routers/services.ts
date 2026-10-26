@@ -36,6 +36,7 @@ import { resolveServiceLogTarget } from '../services/live-resolve';
 import { serviceUsage } from '../services/service-usage';
 import { serviceHealthProbes, testServiceHealthcheck } from '../services/service-health.service';
 import { serviceWakeTimes } from '../services/wake-times';
+import { addCopy, copyPlan } from '../services/add-copy.service';
 
 export const servicesRouter = router({
   list: orgProcedure
@@ -117,6 +118,16 @@ export const servicesRouter = router({
   scale: abacProcedure('service.scale', resolveService)
     .input(z.object({ id: z.string(), replicas: z.number().int().min(0).max(1000) }))
     .mutation(({ ctx, input }) => scaleService(ctx, input)),
+
+  /** ⌥-drag preview (board 9): would one more copy start on that server? Read-only. */
+  copyPlan: orgProcedure
+    .input(z.object({ id: z.string(), toNodeId: z.string() }))
+    .query(({ ctx, input }) => copyPlan(ctx, input)),
+
+  /** ⌥-drag (board 9): one more copy, only when Swarm's own rule starts it on that server. Stateless only. */
+  addCopy: abacProcedure('service.scale', resolveService)
+    .input(z.object({ id: z.string(), toNodeId: z.string() }))
+    .mutation(({ ctx, input }) => addCopy(ctx, input)),
 
   restart: abacProcedure('service.restart', resolveService)
     .input(z.object({ id: z.string() }))

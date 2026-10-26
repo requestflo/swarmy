@@ -8,8 +8,9 @@ import type { ServiceChip as Chip } from './fleet-model';
 
 /**
  * One service on a server: status dot, name, its app — and, for admins, a
- * drag handle (board 9: drag it onto another server). swarmy's own parts
- * don't drag. The keyboard path is the inspector's "Move…".
+ * drag handle (board 9: drag it onto another server; ⌥-drag adds a copy
+ * there). swarmy's own parts don't drag. The keyboard path is the
+ * inspector's "Move…".
  */
 export function ServiceChip({
   chip,
@@ -33,11 +34,11 @@ export function ServiceChip({
       onDragStart={(e) => {
         e.dataTransfer.setData(DRAG_TYPE, chip.id);
         e.dataTransfer.setData(dragFromType(fromId), fromId);
-        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.effectAllowed = 'copyMove';
         m.startDrag({ chip, fromId });
       }}
       onDragEnd={() => m.endDrag()}
-      title={canDrag ? `Drag ${chip.short} onto another server to move it` : undefined}
+      title={canDrag ? `Drag ${chip.short} onto another server to move it · hold ⌥ to add a copy there` : undefined}
       className={cn(
         'bg-foreground/[0.04] flex h-[28px] min-w-0 items-center gap-2 rounded-lg px-2 text-[13px] pointer-coarse:h-11',
         canDrag && 'hover:bg-foreground/[0.08] cursor-grab active:cursor-grabbing',

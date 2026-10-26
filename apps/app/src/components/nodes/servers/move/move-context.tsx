@@ -26,25 +26,27 @@ interface Placing {
   draft: MoveDraft | null;
   /** The hovered server while dragging; the chosen one at confirm. */
   target: string | null;
+  /** ⌥ held: add a copy on the target instead of moving it there. */
+  copy: boolean;
 }
 
 type Action =
   | { t: 'drag' | 'pick'; d: MoveDraft }
-  | { t: 'hover' | 'choose'; id: string | null }
+  | { t: 'hover' | 'choose'; id: string | null; copy: boolean }
   | { t: 'end' }
   | { t: 'cancel' };
 
-const IDLE: Placing = { stage: 'idle', draft: null, target: null };
+const IDLE: Placing = { stage: 'idle', draft: null, target: null, copy: false };
 
 function reduce(s: Placing, a: Action): Placing {
   switch (a.t) {
     case 'drag':
     case 'pick':
-      return { stage: a.t, draft: a.d, target: null };
+      return { stage: a.t, draft: a.d, target: null, copy: false };
     case 'hover':
-      return s.stage === 'drag' && s.target !== a.id ? { ...s, target: a.id } : s;
+      return s.stage === 'drag' && (s.target !== a.id || s.copy !== a.copy) ? { ...s, target: a.id, copy: a.copy } : s;
     case 'choose':
-      return s.draft && a.id ? { ...s, stage: 'confirm', target: a.id } : s;
+      return s.draft && a.id ? { ...s, stage: 'confirm', target: a.id, copy: a.copy } : s;
     case 'end':
       // dragend fires after drop: only a drag that landed nowhere backs out.
       return s.stage === 'drag' ? IDLE : s;
@@ -57,9 +59,10 @@ export interface MoveState extends Placing {
   admin: boolean;
   run: MoveRun | null;
   startDrag: (d: MoveDraft) => void;
-  hover: (nodeId: string | null) => void;
+  /** `copy`: ⌥ is held (board 9's "⌥ drag: add a copy there instead"). */
+  hover: (nodeId: string | null, copy?: boolean) => void;
   /** Dropped on a server, or (from the picker) chose one. */
-  choose: (nodeId: string) => void;
+  choose: (nodeId: string, copy?: boolean) => void;
   endDrag: () => void;
   /** The keyboard path: "Move…" opens the server picker. */
   pick: (d: MoveDraft) => void;
@@ -90,8 +93,8 @@ export function MoveProvider({ admin, children }: { admin: boolean; children: Re
       admin,
       run,
       startDrag: (d) => dispatch({ t: 'drag', d }),
-      hover: (id) => dispatch({ t: 'hover', id }),
-      choose: (id) => dispatch({ t: 'choose', id }),
+      hover: (id, copy = false) => dispatch({ t: 'hover', id, copy }),
+      choose: (id, copy = false) => dispatch({ t: 'choose', id, copy }),
       endDrag: () => dispatch({ t: 'end' }),
       pick: (d) => dispatch({ t: 'pick', d }),
       cancel: () => dispatch({ t: 'cancel' }),

@@ -32,6 +32,8 @@ export * from './disk-forecast';
 export * from './disk-inventory';
 export * from './volume-move';
 export * from './volume-move-undo';
+export * from './placement-match';
+export * from './add-copy';
 export * from './volume-sizes';
 export * from './disk-fit';
 export * from './dotenv';

@@ -3,6 +3,7 @@ import { CheckIcon } from 'lucide-react';
 import type { Inventory } from '@swarmy/core';
 import { Button } from '@swarmy/ui';
 import type { FleetView } from '../fleet/fleet-model';
+import { CopyPreview } from './copy-preview';
 import { useMove } from './move-context';
 import { MovePicker } from './move-picker';
 import { MovePreview } from './move-preview';
@@ -15,6 +16,7 @@ const CHECKS = ['Enough memory on the new server', 'Room on its disk for the dat
 /**
  * Board 9 in the aside: while a service is dragged, picked or moving, the
  * card that says where it can go, asks once, and then follows the move.
+ * With ⌥ held it offers one more copy on that server instead.
  * Renders nothing when there's nothing to say.
  */
 export function MovePanel({ servers, inventory }: { servers: FleetView[]; inventory: Inventory | undefined }): React.JSX.Element | null {
@@ -40,6 +42,8 @@ export function MovePanel({ servers, inventory }: { servers: FleetView[]; invent
           </Button>
         </>
       );
+    } else if (target && m.copy) {
+      body = <CopyPreview key={target.id} draft={m.draft} toId={target.id} plan={plan} servers={servers} />;
     } else if (target) {
       const draft = m.draft;
       body = (
@@ -64,7 +68,7 @@ export function MovePanel({ servers, inventory }: { servers: FleetView[]; invent
       body = (
         <>
           <h3 className="font-display text-[18px] font-bold tracking-[-0.01em]">Drop {m.draft.chip.short} on a server</h3>
-          <p className="text-muted-foreground text-[13px]">swarmy checks it fits before anything moves. Checked before every move:</p>
+          <p className="text-muted-foreground text-[13px]">Hold ⌥ as you drop to add a copy there instead. swarmy checks it fits before anything moves. Checked before every move:</p>
           <ul className="flex flex-col gap-1.5 text-[13px]">
             {CHECKS.map((c) => (
               <li key={c} className="flex items-center gap-2">

@@ -72,7 +72,7 @@ export function FleetSection({ map, selectedId, onInspect }: { map: FleetMapData
         ) : (
           <p className="text-muted-foreground font-mono text-[12px]">
             Click a server to inspect · <Kbd>x</Kbd> to select several
-            {m.admin ? (lg ? ' · drag a service onto a server to move it' : ' · Move… in the inspector moves a service') : ''}
+            {m.admin ? (lg ? ' · drag a service onto a server to move it · ⌥ drag adds a copy there' : ' · Move… in the inspector moves a service') : ''}
           </p>
         )}
       </div>

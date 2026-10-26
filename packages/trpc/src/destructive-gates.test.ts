@@ -79,6 +79,7 @@ function ctxFor(role: Role, audit: string[]) {
 /** [procedure path, a valid-enough input, the governed action]. */
 const GATES: Array<[string, unknown, string]> = [
   ['services.scale', { id: 'svc', replicas: 0 }, 'service.scale'],
+  ['services.addCopy', { id: 'svc', toNodeId: 'n1' }, 'service.scale'],
   ['services.restart', { id: 'svc' }, 'service.restart'],
   ['services.remove', { id: 'svc' }, 'service.remove'],
   ['nodes.drain', { id: 'n1' }, 'node.drain'],

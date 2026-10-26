@@ -23,7 +23,8 @@ const VERDICT_RING: Record<Tone, string> = {
 const pctOr = (v: number | null): string => (v === null ? '—' : `${v}%`);
 
 /** Memory now, or before → after while a service hovers here (board 9's "RAM 35% → 52%"). */
-function MemoryLine({ v, plan }: { v: FleetView; plan: TargetPlan | null }): React.JSX.Element {
+function MemoryLine({ v, plan, copy }: { v: FleetView; plan: TargetPlan | null; copy: boolean }): React.JSX.Element {
+  if (copy) return <span className="text-tone-info">add a copy here</span>;
   if (plan?.block) return <span className="text-tone-bad">can’t take it</span>;
   if (plan?.disk?.verdict === 'wont-fit') return <span className="text-tone-bad">not enough disk</span>;
   if (plan && plan.fit.afterPct !== null) {
@@ -79,20 +80,21 @@ export function FleetTile({
         // Claimed here; the map clears the hover when the drag is over anything else.
         e.preventDefault();
         e.stopPropagation();
-        e.dataTransfer.dropEffect = 'move';
-        m.hover(n.id);
+        // ⌥ held: add a copy here instead of moving it (board 9).
+        e.dataTransfer.dropEffect = e.altKey ? 'copy' : 'move';
+        m.hover(n.id, e.altKey);
       }}
       onDrop={(e) => {
         if (!accepts(e)) return;
         e.preventDefault();
-        m.choose(n.id);
+        m.choose(n.id, e.altKey);
       }}
       className={cn(
         'bg-card border-border flex flex-col gap-2.5 overflow-hidden rounded-xl border p-3 shadow-sm transition-shadow',
         selected && !picking && 'ring-foreground/35 ring-2',
         picked && 'ring-status-progress ring-2',
         droppable && !hovered && 'border-dashed',
-        hovered && cn('ring-2', VERDICT_RING[plan?.block || plan?.disk?.verdict === 'wont-fit' ? 'bad' : VERDICT_TONE[plan?.fit.verdict ?? 'unknown']!]),
+        hovered && cn('ring-2', VERDICT_RING[m.copy ? 'info' : plan?.block || plan?.disk?.verdict === 'wont-fit' ? 'bad' : VERDICT_TONE[plan?.fit.verdict ?? 'unknown']!]),
         className,
       )}
     >
@@ -115,7 +117,7 @@ export function FleetTile({
             {st.tone !== 'ok' ? <span className={cn('truncate', TONE_TEXT[st.tone])}>{st.word.toLowerCase()}</span> : null}
           </span>
           <span className="truncate">
-            <MemoryLine v={v} plan={hovered ? plan : null} />
+            <MemoryLine v={v} plan={hovered ? plan : null} copy={hovered && m.copy} />
           </span>
           <span className="text-muted-foreground truncate">disk {pctOr(v.rings.disk)}</span>
         </span>
