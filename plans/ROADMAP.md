@@ -149,11 +149,13 @@ server and the BuildKit registry cache. What is left (none launch-blocking):
 - pgBackRest is offered only with an operator-supplied image
   (`SWARMY_PGBACKREST_IMAGE`; no upstream image exists). Even then it needs its
   own WAL pipeline (swarmy archives WAL for wal-g) and its S3 key env names.
-- Failover left directly-connected apps on the old writer: their
-  `DATABASE_URL` names the writer member's service, and the promotion pass
-  repointed replicas and the pooler but never apps. Being fixed 2026-10-26
-  (re-mint each app's writer URL in the promotion pass); until then the new
-  planned switchover (`db.switchover`) refuses clusters with such apps.
+- Fixed 2026-10-26: failover left directly-connected apps on the old writer
+  (their `DATABASE_URL` names the writer member's service; the promotion pass
+  repointed replicas and the pooler, never apps). The promotion pass now
+  re-mints each direct app's URL for the new writer and rolls it on, resuming
+  on the next tick if cut short. A planned zero-data-loss switchover
+  (`db.switchover`) shipped the same day. Owed: a real failover drill (secret
+  delivery, the roll's downtime, removing a secret a draining task mounts).
 - PgBouncer for managed Postgres shipped 2026-10-26 (`swarmy.db.pooler`,
   `auth_query` through its own role so a rotation needs no restart, repointed
   in the promotion pass, apps connect `via: 'pooler'`). Owed: a pass on a real
