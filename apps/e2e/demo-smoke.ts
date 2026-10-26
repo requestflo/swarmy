@@ -274,6 +274,23 @@ try {
     fail(`heroku import: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`);
   }
 
+  // Board 10: step the head back → calls on the replay, rows since the save, then put the whole app back (typed).
+  try {
+    const before = pageErrors.length;
+    await page.goto(`${BASE}/stacks/storefront/time-travel`, { waitUntil: 'networkidle' });
+    for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowLeft');
+    await page.getByText(/^Put all of storefront back to /).first().waitFor({ timeout: 10_000 });
+    await page.getByText(/^Lines are calls the traces saw/).first().waitFor({ timeout: 10_000 });
+    await page.getByText(/rows changed since this save\.$/).first().waitFor({ timeout: 10_000 });
+    await page.getByLabel('Type storefront to confirm').last().fill('storefront');
+    await page.getByRole('button', { name: 'Put the whole app back' }).click();
+    await page.getByText(/^storefront is back as it was at /).first().waitFor({ timeout: 15_000 });
+    if (pageErrors.length > before) fail(`time travel: ${pageErrors.slice(before).join(' | ')}`);
+    else console.log('✓ time travel: calls on the replay, rows changed since the save, whole app put back (typed)');
+  } catch (e) {
+    fail(`time travel: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`);
+  }
+
   // Convert to swarmy.yaml: Source tab → the generated file, checked, with Connect a repo as the next step.
   try {
     const before = pageErrors.length;
