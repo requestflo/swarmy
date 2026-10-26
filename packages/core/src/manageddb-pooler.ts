@@ -22,6 +22,12 @@
  */
 
 export const DB_POOLER_LABEL = 'swarmy.db.pooler';
+/**
+ * On an APP wired by `db.inject`: how its DATABASE_URL reaches the cluster.
+ * `pooler` = through `<stack>_<cluster>-pooler:6432`; absent = direct.
+ */
+export const DB_INJECT_VIA_LABEL = 'swarmy.db.inject.via';
+export type DbConnectVia = 'direct' | 'pooler';
 
 export const POOLER_MODES = ['transaction', 'session'] as const;
 export type PoolerMode = (typeof POOLER_MODES)[number];

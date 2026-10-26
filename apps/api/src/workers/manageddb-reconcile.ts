@@ -69,7 +69,7 @@ import {
 import { restoreWatermark } from './manageddb-watermark.core';
 import { convergePgExtensions } from './manageddb-extensions';
 import { convergePgMemory } from './manageddb-memory';
-import { convergeDbPooler } from './manageddb-pooler';
+import { convergeDbPooler, repointPoolerAfterPromotion } from './manageddb-pooler';
 import { createWatermarkStore } from './manageddb-watermark';
 import {
   DB_PITR_ARCHIVE_CMD_LABEL,
@@ -1311,6 +1311,12 @@ async function maybePromote(
       meta: { promoted: target.name, repointed },
     }).catch(() => undefined);
   }
+  // The pooler follows the writer in this same pass; its drain goes on the timeline.
+  const pooler = await repointPoolerAfterPromotion(c, target.name, {
+    deploy: (spec) => hub.dispatch(node, 'service.deploy', { spec, pullPolicy: 'missing' }).catch(() => undefined),
+    incident: (message, meta) =>
+      seams.recordIncidentEvent(ctx, { groupKey, kind: 'db.pooler.drain', message, severity: 'warning', meta }).catch(() => undefined),
+  }).catch(() => null);
   await seams.fireEvent(ctx, {
     signal: 'db-failover',
     severity: 'critical',
@@ -1326,6 +1332,7 @@ async function maybePromote(
       promoted: target.name,
       demoted: primary?.name ?? null,
       repointed,
+      pooler,
       unhealthyTicks: ticks,
       lagSeconds: lagSecs ?? null,
       behindBytes: decision.behindBytes,

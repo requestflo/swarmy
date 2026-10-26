@@ -12,9 +12,18 @@
  *   on, pooler, same inputs   → steady (the stamped signature matches)
  *   on, pooler, changed input → deploy (mode, pool size, writer, image rev)
  */
+import type { ServiceSpec } from './protocol/commands';
 import { parseDbSecretName } from './manageddb-pg';
 import type { PoolerConfig } from './manageddb-pooler';
-import { DB_POOLER_AUTH_LABEL, DB_POOLER_SIG_LABEL, DB_POOLER_TARGET_LABEL, poolerImageOf, poolerSignature } from './manageddb-pooler-spec';
+import {
+  DB_POOLER_AUTH_LABEL,
+  DB_POOLER_SIG_LABEL,
+  DB_POOLER_TARGET_LABEL,
+  POOLER_DRAIN_SECONDS,
+  poolerImageOf,
+  poolerSignature,
+  poolerSpec,
+} from './manageddb-pooler-spec';
 
 interface LiveLike {
   name: string;
@@ -73,4 +82,40 @@ export function nextAuthSecret(family: string, existing: readonly string[]): { n
   const mine = existing.filter((n) => parseDbSecretName(n)?.family === family);
   const top = mine.reduce((v, n) => Math.max(v, parseDbSecretName(n)!.version), 0);
   return { name: `${family}__v${top + 1}`, stale: mine.sort() };
+}
+
+export interface PoolerRepoint {
+  service: string;
+  /** The writer it pointed at (the demoted ex-primary). */
+  from: string | null;
+  to: string;
+  spec: ServiceSpec;
+  /** The incident-timeline line for the drain. */
+  message: string;
+}
+
+/**
+ * After a promotion, in the same pass that repoints the other members: the
+ * pooler rebuilt at the new writer with its existing login. The new task
+ * answers first (start-first); the old one drains, finishing in-flight
+ * transactions for up to {@link POOLER_DRAIN_SECONDS}. Built by the same
+ * `poolerSpec` the next tick checks, so that tick is steady. Null when there
+ * is no pooler, it has no login yet (the converge creates it at the new
+ * writer), or it already points there.
+ */
+export function planPoolerRepoint(i: { declared: PoolerConfig | null; pooler?: LiveLike; promoted: string; stack: string; cluster: string }): PoolerRepoint | null {
+  const authSecret = i.pooler?.labels[DB_POOLER_AUTH_LABEL];
+  if (!i.declared || !i.pooler || !authSecret) return null;
+  const from = i.pooler.labels[DB_POOLER_TARGET_LABEL] ?? null;
+  if (from === i.promoted) return null;
+  const spec = poolerSpec({ stack: i.stack, cluster: i.cluster, config: i.declared, target: i.promoted, authSecret, image: poolerImageOf(i.pooler.image) });
+  return {
+    service: spec.name,
+    from,
+    to: i.promoted,
+    spec,
+    message:
+      `Drained ${spec.name} off ${from ?? 'the old writer'}: a new pooler task sends apps to ${i.promoted}, ` +
+      `the old one finishes in-flight transactions (up to ${POOLER_DRAIN_SECONDS} s) and stops`,
+  };
 }

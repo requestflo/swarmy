@@ -24,6 +24,7 @@ export * from './manageddb-pooler';
 export * from './manageddb-pooler-boot';
 export * from './manageddb-pooler-spec';
 export * from './manageddb-pooler-plan';
+export * from './manageddb-pooler-rotation';
 export * from './data-pin';
 export * from './db-restore-copy';
 export * from './disk-forecast';

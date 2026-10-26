@@ -55,6 +55,8 @@ import {
   dbFloatingPlacement,
   dbRolePlacementLabels,
   type DbPlacementNode,
+  planPoolerRotation,
+  isPgMemberService,
 } from '@swarmy/core';
 import {
   DEFAULT_MANAGED_PG_IMAGE,
@@ -947,7 +949,8 @@ export async function migrateDbCredentials(
       }
     }
     if (secret) {
-      for (const m of membersInOrder(members, primary)) {
+      // Postgres members only: the pooler and the WAL shipper run no Postgres boot layer.
+      for (const m of membersInOrder(members.filter((x) => isPgMemberService(x.labels)), primary)) {
         if (m.labels[DB_PASSWORD_SECRET_LABEL] === secret && !pgNeedsCredentialMigration(envRecord(m), {})) continue;
         await patchMemberCredential(ctx, m, secret);
         moved.push(m.name);
@@ -1005,8 +1008,11 @@ export async function rotateDbPassword(
 ): Promise<{ cluster: string; secret: string; version: number; redeployed: string[] }> {
   const { stack, cluster } = input;
   await migrateDbCredentials(ctx, input);
-  const { primary, members } = findCluster(ctx, stack, cluster);
+  const { primary, members: all } = findCluster(ctx, stack, cluster);
   if (!primary) throw notFound('db cluster primary', cluster);
+  // The Postgres members move; the pooler is left alone (its own role, auth_query).
+  const plan = planPoolerRotation(cluster, liveStackServices(ctx, stack));
+  const members = all.filter((m) => plan.members.includes(m.name));
   const current = primary.labels[DB_PASSWORD_SECRET_LABEL];
   const parsed = current ? parseDbSecretName(current) : null;
   if (!current || !parsed) throw commandRejected(`cluster "${cluster}" has no password secret to rotate`);
@@ -1055,18 +1061,13 @@ export async function rotateDbPassword(
     await patchMemberCredential(ctx, m, next);
     redeployed.push(m.name);
   }
-  for (const app of liveStackServices(ctx, stack)) {
-    if (app.labels[DB_INJECT_LABEL] !== cluster) continue;
-    await injectConnection(
-      ctx,
-      { stack, cluster, appService: app.name, envVar: app.labels[DB_INJECT_VAR_LABEL] || 'DATABASE_URL' },
-      { password, passwordSecret: next },
-    );
-    redeployed.push(app.name);
+  for (const app of plan.apps) {
+    await injectConnection(ctx, { stack, cluster, appService: app.service, envVar: app.envVar }, { password, passwordSecret: next });
+    redeployed.push(app.service);
   }
   // Old versions go once nothing mounts them (Docker refuses while in use).
   for (let v = 1; v < version; v++) {
-    for (const kind of ['password', 'url', 'ro-url'] as const) {
+    for (const kind of plan.retire) {
       await ctx.hub.dispatch(node.id, 'secret.remove', { name: dbSecretName(stack, cluster, kind, v) }).catch(() => undefined);
     }
   }

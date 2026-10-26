@@ -17,6 +17,7 @@
  */
 import { DB_EXTENSIONS_APPLIED_LABEL, DB_EXTENSIONS_LABEL } from './manageddb-extensions';
 import { PG_ENV } from './manageddb-pg';
+import { DB_POOLER_LABEL } from './manageddb-pooler';
 
 export const DB_MEMORY_LABEL = 'swarmy.db.memoryMb';
 export const DB_MEMORY_APPLIED_LABEL = 'swarmy.db.memoryMb.applied';
@@ -59,9 +60,10 @@ export function parseMemoryMb(raw: string | undefined): number | null {
 /**
  * Cluster declarations that live on the primary and must follow the writer
  * when a standby is promoted (the ex-primary is relabelled a replica), or the
- * reconcile would read "no limit" / "no extensions" and roll every copy back.
+ * reconcile would read "no limit" / "no extensions" / "no pooler" and roll
+ * every copy back (or remove the pooler it just repointed).
  */
-export const PRIMARY_DECLARATION_LABELS = [DB_MEMORY_LABEL, DB_EXTENSIONS_LABEL, DB_EXTENSIONS_APPLIED_LABEL] as const;
+export const PRIMARY_DECLARATION_LABELS = [DB_MEMORY_LABEL, DB_EXTENSIONS_LABEL, DB_EXTENSIONS_APPLIED_LABEL, DB_POOLER_LABEL] as const;
 
 export function primaryDeclarations(labels: Record<string, string> | undefined): Record<string, string> {
   const out: Record<string, string> = {};

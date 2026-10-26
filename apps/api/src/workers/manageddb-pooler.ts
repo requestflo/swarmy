@@ -7,6 +7,8 @@ import {
   parseDbSecretName,
   parsePoolerConfig,
   planPooler,
+  planPoolerRepoint,
+  POOLER_DRAIN_SECONDS,
   poolerRoleScript,
   poolerSpec,
   type PoolerPlan,
@@ -108,4 +110,27 @@ export async function convergeDbPooler(c: PoolerCluster, seams: PoolerSeams): Pr
     auth: authSecret,
   });
   return 'deploy';
+}
+
+/**
+ * After a promotion, in the same pass that repoints the other members: point
+ * the pooler at the new writer (it drains the old one) and put the drain on
+ * the incident timeline. Returns the pooler's name when it moved.
+ */
+export async function repointPoolerAfterPromotion(
+  c: PoolerCluster,
+  promoted: string,
+  seams: { deploy(spec: ServiceSpec): Promise<unknown>; incident(message: string, meta: Record<string, unknown>): Promise<unknown> },
+): Promise<string | null> {
+  const r = planPoolerRepoint({
+    stack: c.stack,
+    cluster: c.cluster,
+    declared: parsePoolerConfig(c.primary?.labels[DB_POOLER_LABEL]),
+    ...(c.pooler ? { pooler: c.pooler } : {}),
+    promoted,
+  });
+  if (!r) return null;
+  await seams.deploy(r.spec);
+  await seams.incident(r.message, { pooler: r.service, from: r.from, to: r.to, drainSeconds: POOLER_DRAIN_SECONDS });
+  return r.service;
 }

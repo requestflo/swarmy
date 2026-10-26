@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { poolerSpec } from '@swarmy/core';
 import type { ServiceSpec, SwarmServiceInfo } from '@swarmy/core/protocol';
-import { convergeDbPooler, type PoolerSeams } from './manageddb-pooler';
+import { convergeDbPooler, repointPoolerAfterPromotion, type PoolerSeams } from './manageddb-pooler';
 
 /**
  * The pooler step of the manageddb reconcile against fake seams: create mints
@@ -82,5 +82,16 @@ describe('convergeDbPooler', () => {
     const g = fake();
     expect(await convergeDbPooler(cluster(primary(undefined, { runningReplicas: 0 })), g.seams)).toBe('wait');
     expect(g.calls).toEqual([]);
+  });
+
+  it('after a promotion: repointed at the new writer with the drain on the timeline, once', async () => {
+    const deployed: ServiceSpec[] = [];
+    const incidents: Array<[string, Record<string, unknown>]> = [];
+    const seams = { deploy: async (s: ServiceSpec) => deployed.push(s), incident: async (m: string, meta: Record<string, unknown>) => incidents.push([m, meta]) };
+    expect(await repointPoolerAfterPromotion(cluster(primary(), livePooler()), 'shop_main-replica', seams)).toBe('shop_main-pooler');
+    expect(deployed.map((s) => s.env?.SWARMY_POOLER_HOST)).toEqual(['shop_main-replica']);
+    expect(incidents[0]![1]).toEqual({ pooler: 'shop_main-pooler', from: 'shop_main-primary', to: 'shop_main-replica', drainSeconds: 20 });
+    expect(await repointPoolerAfterPromotion(cluster(primary(), livePooler('shop_main-replica')), 'shop_main-replica', seams)).toBeNull();
+    expect(deployed).toHaveLength(1);
   });
 });

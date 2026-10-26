@@ -132,7 +132,7 @@ export type PgBootRole = 'primary' | 'replica';
 export const DB_PASSWORD_SECRET_LABEL = 'swarmy.db.passwordSecret';
 /** Secret label: which cluster (`<stack>/<cluster>`) a managed-DB secret belongs to. */
 export const DB_SECRET_OF_LABEL = 'swarmy.db.secretOf';
-/** Secret label: what it holds — `password` | `url` | `ro-url` | `pooler` (the pooler's own login). */
+/** Secret label: what it holds — `password` | `url` | `ro-url` | `pool-url` | `pooler` (the pooler's own login). */
 export const DB_SECRET_KIND_LABEL = 'swarmy.db.secretKind';
 
 const DOCKER_NAME_MAX = 64;
@@ -155,11 +155,13 @@ function familyName(stack: string, cluster: string, suffix: string): string {
   return `${full.slice(0, room)}-${shortHash(full)}${suffix}`;
 }
 
-export type DbSecretKind = 'password' | 'url' | 'ro-url' | 'pooler';
+export type DbSecretKind = 'password' | 'url' | 'ro-url' | 'pool-url' | 'pooler';
 const KIND_SUFFIX: Record<DbSecretKind, string> = {
   password: '-pg-password',
   url: '-pg-url',
   'ro-url': '-pg-ro-url',
+  /** An app's DATABASE_URL through the pooler (`db.inject` with `via: pooler`). */
+  'pool-url': '-pg-pool-url',
   /** The pooler's auth_user password (manageddb-pooler-boot.ts), never the cluster's. */
   pooler: '-pg-pooler',
 };
