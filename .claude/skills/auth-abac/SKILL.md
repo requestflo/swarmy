@@ -210,7 +210,14 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
   that mark (`sessionsRevokedSince`), never matches a wildcard over a public
   suffix (`isBroadWildcard`, `@swarmy/ingress` `wildcard-scope.ts`; fails
   closed), and turning on login for such a route is refused
-  (`app-access-admin.service.ts`).
+  (`app-access-admin.service.ts`). After walls and `app.access`, a route's
+  `access.signIn: 'sso'` admits only the org's own enabled SSO
+  (`appSignInWall`) and `access.paths` narrows by path (pure
+  `@swarmy/core` `app-access-paths.ts`: the closest rule must admit under
+  every reading of the path; unparseable rules or values fail closed and
+  ride the label verbatim). Sign-ins (`app.access.login`, one per
+  completed login) and throttled refusals (`authz.deny:app.access` +
+  `reason`) are the Access tab's Recent sign-ins (`app-access-sign-ins.ts`).
   2FA is opt-in everywhere: social/SSO sessions are exempt, terminal step-up
   defaults off. swarmy is also an OIDC provider (`oidc-provider.ts`,
   `oidc-clients.ts` → `ensureNetbirdOidcClient`).
