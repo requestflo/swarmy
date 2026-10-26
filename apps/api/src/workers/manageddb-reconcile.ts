@@ -46,6 +46,7 @@ import {
   envPreload,
   pgMemoryCarry,
   primaryDeclarations,
+  POOLER_ROLE,
 } from '@swarmy/core';
 import { decryptSecret } from '@swarmy/core/crypto';
 import { pitrExtraConf } from '@swarmy/core/protocol';
@@ -68,6 +69,7 @@ import {
 import { restoreWatermark } from './manageddb-watermark.core';
 import { convergePgExtensions } from './manageddb-extensions';
 import { convergePgMemory } from './manageddb-memory';
+import { convergeDbPooler } from './manageddb-pooler';
 import { createWatermarkStore } from './manageddb-watermark';
 import {
   DB_PITR_ARCHIVE_CMD_LABEL,
@@ -254,6 +256,8 @@ interface Cluster {
   dcs?: SwarmServiceInfo;
   /** PITR wal-shipper sidecar (A2). */
   shipper?: SwarmServiceInfo;
+  /** The PgBouncer pooler (`swarmy.db.role=pooler`, manageddb-pooler.ts). */
+  pooler?: SwarmServiceInfo;
   /** active-active: index (>=2) → extra primary service. */
   extraPrimaries: Map<number, SwarmServiceInfo>;
   /** geo: region → region-pinned replica sibling. */
@@ -521,6 +525,8 @@ async function execIn(
   service: SwarmServiceInfo,
   script: string,
   timeoutMs = EXEC_TIMEOUT_MS,
+  /** Positional `$1…` for the script (data, never spliced into it). */
+  args: string[] = [],
 ): Promise<{ exitCode: number; output: string } | null> {
   const target = execTarget(orgId, service);
   if (!target) return null;
@@ -530,7 +536,7 @@ async function execIn(
       'exec',
       {
         target: { containerId: target.containerId },
-        cmd: ['sh', '-c', script],
+        cmd: ['sh', '-c', script, ...(args.length > 0 ? ['swarmy', ...args] : [])],
         tty: false,
         stream: false,
       },
@@ -1377,6 +1383,10 @@ async function reconcileOrg(orgId: string): Promise<void> {
       clusterOf(s, cluster).shipper = s;
       continue;
     }
+    if (s.labels[DB_ROLE_LABEL] === POOLER_ROLE) {
+      clusterOf(s, cluster).pooler = s;
+      continue;
+    }
     if (s.labels[DB_ENGINE_LABEL] !== 'postgres') continue;
     const c = clusterOf(s, cluster);
     const role = s.labels[DB_ROLE_LABEL];
@@ -1434,9 +1444,10 @@ async function reconcileOrg(orgId: string): Promise<void> {
     const primary = c.primary;
     const topology = topologyOf(primary?.labels ?? c.replica?.labels);
 
-    // An orphaned wal-shipper (its Postgres members are gone) gets removed.
+    // An orphaned wal-shipper or pooler (its Postgres members are gone) gets removed.
     if (!primary && !c.replica && c.extraPrimaries.size === 0 && c.regionReplicas.size === 0) {
       if (c.shipper) await remove(c.shipper.name);
+      if (c.pooler) await remove(c.pooler.name);
       continue;
     }
 
@@ -1649,6 +1660,32 @@ async function reconcileOrg(orgId: string): Promise<void> {
     //     the schedule/pitr labels still sit on the demoted ex-primary.
     if (primary) await carryBackupIntent(node, c, primary);
     if (contract) await ensurePitr(contract, orgId, node, c).catch(() => undefined);
+
+    // (5b) The PgBouncer pooler (`swarmy.db.pooler`): create / update / remove
+    //      `<base>-pooler`, pointed at the writer. Before the failover step, so
+    //      a promotion's repoint (in maybePromote) is the last word this tick.
+    await convergeDbPooler(
+      { stack: c.stack, cluster: c.cluster, ...(primary ? { primary } : {}), ...(c.pooler ? { pooler: c.pooler } : {}) },
+      {
+        deploy: (spec) => hub.dispatch(node, 'service.deploy', { spec, pullPolicy: 'missing' }).catch(() => undefined),
+        remove,
+        ensureNet: () => ensureNet(c),
+        listSecrets: () =>
+          hub
+            .dispatch<{ secrets?: Array<{ name: string }> }>(node, 'secret.list', {})
+            .then((r) => (r.secrets ?? []).map((x) => x.name), () => null),
+        createSecret: (name, value, labels) =>
+          hub
+            .dispatch(node, 'secret.create', { name, dataB64: Buffer.from(value, 'utf8').toString('base64'), labels })
+            .then(() => true, () => false),
+        removeSecret: (name) => hub.dispatch(node, 'secret.remove', { name }).catch(() => undefined),
+        execOnWriter: (script, args) => (primary ? execIn(orgId, primary, script, PROMOTE_TIMEOUT_MS, args) : Promise.resolve(null)),
+        audit: (action, metadata) =>
+          contract
+            ? contract.seams.writeAudit(contract.ctx, { action, actorType: 'system', targetType: 'dbCluster', targetId: `${c.stack}/${c.cluster}`, metadata }).catch(() => undefined)
+            : Promise.resolve(),
+      },
+    ).catch(() => undefined);
 
     // (6) A2 — replication-lag telemetry (`swarmy.db.lag.<member>` stamps).
     const measured = await measureClusterLag(orgId, node, c).catch(
