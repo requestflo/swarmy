@@ -1,7 +1,9 @@
 import type { CostOverviewView, NodeSummary, ServiceSummary } from '@swarmy/core';
 import type { AppItem } from '@/components/apps/use-apps';
+import { pairKey, type MeshLinkLike } from '@/components/networking/mesh-link-words';
 import { cardHeight, groupByRegion, type GroupInput } from './map-layout';
 import { busiest, reachNote, roleWords, serverApps, sizeWords, type Busy, type ServerAppRow } from './server-words';
+import type { EstateMeshLink } from './mesh-link-place';
 
 export interface MeshPeerLike {
   nodeId: string;
@@ -84,13 +86,17 @@ export function layoutInput(groups: RegionGroup[], o: { tech: boolean; coarse: b
   }));
 }
 
-/** Pairs of servers on the private network, for the faint links under the Mesh lens. */
-export function meshLinks(groups: RegionGroup[]): { a: string; b: string; ok: boolean }[] {
+/** Pairs of servers on the private network, for the faint links under the Mesh lens, with what their ends reported. */
+export function meshLinks(groups: RegionGroup[], reported: readonly MeshLinkLike[] = []): EstateMeshLink[] {
   const on = groups.flatMap((g) => g.servers).filter((s) => s.mesh.state !== 'off');
-  const out: { a: string; b: string; ok: boolean }[] = [];
+  const facts = new Map(reported.map((l) => [pairKey(l.a, l.b), l]));
+  const out: EstateMeshLink[] = [];
   for (let i = 0; i < on.length; i++) {
     for (let j = i + 1; j < on.length; j++) {
-      out.push({ a: on[i]!.node.id, b: on[j]!.node.id, ok: on[i]!.mesh.state === 'connected' && on[j]!.mesh.state === 'connected' });
+      const [a, b] = [on[i]!.node.id, on[j]!.node.id];
+      const ok = on[i]!.mesh.state === 'connected' && on[j]!.mesh.state === 'connected';
+      const f = ok ? facts.get(pairKey(a, b)) : undefined;
+      out.push({ a, b, ok, ...(f ? { facts: f } : {}) });
     }
   }
   return out;

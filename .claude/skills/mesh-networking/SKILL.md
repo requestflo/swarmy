@@ -94,12 +94,25 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
   reaches some peer through a relay; still end-to-end encrypted) rides into
   `LiveMeshPeer.relayed` and `MeshPeerView.relayed`. It is `null` until an
   agent reports it, and a report without the field (an old agent) keeps what
-  was known: never read a missing value as "direct". It is per SERVER, not per
-  link, so the map draws every link of a relayed server through the relay.
-  Headscale's is read from `tailscale status --json` per ACTIVE peer
+  was known: never read a missing value as "direct". It is per SERVER; the
+  per-LINK truth is the link facts below, and the map falls back to the server
+  flag (every link of a relayed server through the relay) only for a pair no
+  end reported. NetBird's is read from `connectionType` (`P2P`/`Relayed`) of
+  each connected peer (`handlers/mesh-netbird.ts`; a peer's address is
+  `netbirdIp`); Headscale's from `tailscale status --json` per ACTIVE peer
   (`handlers/mesh-tailscale.ts`): a direct endpoint (`CurAddr`) is
-  peer-to-peer, `Relay`/`PeerRelay` without one is relayed, and with no active
-  peer the field is left out (unknown) — never a blanket `true`.
+  peer-to-peer, `Relay`/`PeerRelay` without one is relayed. With no
+  connected/active peer the field is left out (unknown), never a guess.
+- **Link facts are per peer, additive, and never zeros.** Each
+  `meshState.peers[]` may carry `link` (`MeshLinkFacts`, protocol
+  `mesh-link.ts`): `latencyMs`, `relayed`, `rxBytes`/`txBytes`, parsed by
+  `netbirdPeerLinks`/`tailscalePeerLinks` (`@swarmy/mesh` `link-facts.ts`)
+  from the clients' real JSON (NetBird `latency` is a Go duration in ns;
+  Tailscale's status has NO latency, so Headscale links leave it out). The
+  gateway folds each report into `meshLinksLive` (in memory, latest per node,
+  2 min fresh) and `mesh.links` pairs them by server through the org's live
+  peers, keeping BOTH directions (`ab`/`ba`, each end measures its own round
+  trip). An old agent sends no `link`: the UI says "not reported".
 - **A node that skips the mesh-first join says why.** `meshSkipReason`
   (`apps/agent/src/mesh-startup.ts`) is the one line the daemon logs when
   `SWARMY_ALLOW_MESH=false` or no setup key is configured; `doctor`'s mesh rung
@@ -127,6 +140,7 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
 | Agent: executor cases + `SWARMY_ALLOW_MESH` gate + mesh-first join | `apps/agent/src/{executor,env,daemon,mesh-startup}.ts` |
 | Overlay MTU (option + check) and "Networks are too big for the mesh" | `packages/core/src/overlay-mtu{,-check}.ts`, `packages/trpc/src/services/mesh-mtu.service.ts` (`mesh.mtu`) |
 | Live peer map (no table) + `reconcileMeshPeer` | `packages/trpc/src/services/mesh-peers.ts` |
+| Link latency/path/bytes: pure parsers, wire schema, live store + `mesh.links`, agent NetBird parse | `packages/mesh/src/link-facts.ts`, `packages/core/src/protocol/mesh-link.ts`, `packages/trpc/src/services/mesh-links.service.ts`, `apps/agent/src/handlers/mesh-netbird.ts`; UI words/placement `components/networking/{mesh-link-words,curve-labels,mesh-graph-links,mesh-links-section}.ts(x)`, estate `components/estate-map/mesh-link-{place,labels}`, demo `demo/resolvers/mesh-links.ts` |
 | Gateway `meshState` → live peer map | `apps/api/src/gateway/protocol-handlers.ts` |
 | DB models | `packages/db/prisma/schema/mesh.prisma` (MeshRoute: `kind=person` grants) |
 | Self-hosted control plane: config render, Litestream render, pinned images | `packages/mesh/src/control-plane/{server-config,litestream}.ts`, `packages/mesh/src/images.ts` |

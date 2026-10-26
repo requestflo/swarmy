@@ -5,6 +5,8 @@ import { CheckIcon } from 'lucide-react';
 import { Button, cn } from '@swarmy/ui';
 import { Tech } from '@/components/calm';
 import { useTRPC } from '@/integrations/trpc';
+import { nearestLink } from '@/components/networking/mesh-link-words';
+import { useMeshLinks } from '@/components/networking/use-mesh-links';
 import type { NodeRoleChoice } from './node-role-picker';
 import type { AwaitedNode } from './use-await-node';
 
@@ -22,17 +24,27 @@ function Line({ ok = true, children, value }: { ok?: boolean; children: React.Re
   );
 }
 
-/** How it sits on the private network, from its live peer; null when the network is off. */
-function useMeshLine(nodeId: string): { ok: boolean; text: string } | null {
+/**
+ * How it sits on the private network, from its live peer and its nearest
+ * reported link ("· direct to home-lab", 0.4 ms); null when the network is off.
+ */
+function useMeshLine(nodeId: string): { ok: boolean; text: string; value?: string } | null {
   const trpc = useTRPC();
   const config = useQuery(trpc.mesh.getConfig.queryOptions());
+  const on = !!config.data?.enabled && config.data.driver !== 'none';
   const peers = useQuery({ ...trpc.mesh.listPeers.queryOptions(), refetchInterval: 5_000 });
-  if (!config.data?.enabled || config.data.driver === 'none') return null;
+  const nodes = useQuery(trpc.nodes.list.queryOptions());
+  const links = useMeshLinks(on, 5_000);
+  if (!on) return null;
   const p = peers.data?.find((x) => x.nodeId === nodeId);
-  if (p?.status === 'CONNECTED') {
-    return { ok: true, text: `Joined the private network${p.relayed === false ? ' · direct' : p.relayed ? ' · through a relay' : ''}` };
+  if (p?.status !== 'CONNECTED') return { ok: false, text: p ? 'Joining the private network…' : 'Not on the private network yet' };
+  const near = nearestLink(links ?? [], nodeId);
+  if (near?.path) {
+    const other = nodes.data?.find((x) => x.id === near.other)?.name ?? near.other;
+    const how = near.path === 'direct' ? 'direct to' : 'through the relay to';
+    return { ok: true, text: `Joined the private network · ${how} ${other}`, value: near.latency ?? undefined };
   }
-  return { ok: false, text: p ? 'Joining the private network…' : 'Not on the private network yet' };
+  return { ok: true, text: `Joined the private network${p.relayed === false ? ' · direct' : p.relayed ? ' · through a relay' : ''}` };
 }
 
 /** The arrival receipt: when it phoned home, how it's on the private network, its role and size, then where to go. */
@@ -47,7 +59,7 @@ export function ArrivalReceipt({ arrived, role, onAnother }: { arrived: AwaitedN
       <h2 className="font-display text-[1.6rem] font-bold tracking-[-0.02em]">{n.name} is in.</h2>
       <ul className="flex flex-col">
         <Line value={arrived.at.toLocaleTimeString()}>Phoned home</Line>
-        {mesh ? <Line ok={mesh.ok}>{mesh.text}</Line> : null}
+        {mesh ? <Line ok={mesh.ok} value={mesh.value}>{mesh.text}</Line> : null}
         <Line value={size || undefined}>
           {role === 'auto' ? 'Automatic role' : 'Role'}: <b className="font-semibold">{n.role}</b>
         </Line>

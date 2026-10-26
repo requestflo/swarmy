@@ -4,6 +4,8 @@ import { ArrowLeftRightIcon, HouseIcon, ServerIcon } from 'lucide-react';
 import { cn } from '@swarmy/ui';
 import { useSize } from '@/components/estate-map/use-media';
 import { layoutMeshGraph, type GraphNode, type LinkKind, type MeshPeerLike } from './mesh-graph-model';
+import { LinkLabels, pairNames } from './mesh-graph-labels';
+import type { MeshLinkLike } from './mesh-link-words';
 
 const STROKE: Record<LinkKind, { stroke: string; width: number; dash?: string; opacity: number }> = {
   direct: { stroke: 'var(--color-tone-mesh)', width: 1.8, opacity: 0.75 },
@@ -24,12 +26,22 @@ const SAY: Record<GraphNode['state'], string> = {
 /**
  * Board 14's map: every server on the private network with its address, the
  * NAT'd ones in their zone behind the router, solid direct links, dashed
- * links through the relay, and a joining server reaching in. Each server
- * opens its page.
+ * links through the relay, each link's reported latency on it, and a joining
+ * server reaching in. Each server opens its page.
  */
-export function MeshGraph({ peers, names, nat }: { peers: MeshPeerLike[]; names: Map<string, string>; nat: Set<string> }): React.JSX.Element {
+export function MeshGraph({
+  peers,
+  names,
+  nat,
+  links,
+}: {
+  peers: MeshPeerLike[];
+  names: Map<string, string>;
+  nat: Set<string>;
+  links?: MeshLinkLike[];
+}): React.JSX.Element {
   const [ref, size] = useSize<HTMLDivElement>();
-  const g = React.useMemo(() => layoutMeshGraph({ peers, names, nat, width: size.w }), [peers, names, nat, size.w]);
+  const g = React.useMemo(() => layoutMeshGraph({ peers, names, nat, width: size.w, links }), [peers, names, nat, size.w, links]);
   return (
     <figure
       ref={ref}
@@ -83,6 +95,7 @@ export function MeshGraph({ peers, names, nat }: { peers: MeshPeerLike[]; names:
               <span className="text-muted-foreground bg-card/85 rounded px-1 font-mono text-[10.5px]">used when direct fails</span>
             </div>
           ) : null}
+          <LinkLabels g={g} />
           {g.nodes.map((n) => (
             <Orb key={n.id} n={n} />
           ))}
@@ -90,6 +103,7 @@ export function MeshGraph({ peers, names, nat }: { peers: MeshPeerLike[]; names:
       ) : null}
       <figcaption className="sr-only">
         {g.nodes.map((n) => `${n.name} ${SAY[n.state]}${n.nat ? ', behind NAT' : ''}`).join('; ')}
+        {g.labels.length ? `. Links: ${g.labels.map((l) => `${pairNames(l.id, names)} ${l.text}`).join('; ')}` : ''}
       </figcaption>
     </figure>
   );

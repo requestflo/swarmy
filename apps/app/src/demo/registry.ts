@@ -94,6 +94,7 @@ import { scaling } from './resolvers/scaling';
 import { movesDemo } from './resolvers/moves';
 import { meshGrants } from './resolvers/mesh-grants';
 import { meshMtu } from './resolvers/mesh-mtu';
+import { meshLinks } from './resolvers/mesh-links';
 import { meshRules } from './resolvers/mesh-rules';
 import { phoneHome } from './resolvers/phone-home';
 import { placementDemo } from './resolvers/placement-demo';
@@ -209,6 +210,7 @@ const MODULES: DomainResolvers[] = [
   movesDemo,
   meshGrants,
   meshMtu,
+  meshLinks,
   meshRules,
   // Wraps core's nodes.list and infraextra's generateJoinToken, so it comes after both.
   phoneHome,

@@ -11,6 +11,8 @@ import { MeshGraph } from './mesh-graph';
 import { JOINING_STATUSES } from './mesh-graph-model';
 import { MeshJoiningCard } from './mesh-joining-card';
 import { MeshFacts } from './mesh-facts';
+import { MeshLinksSection } from './mesh-links-section';
+import { useMeshLinks } from './use-mesh-links';
 import { useNatNodes } from './use-nat-nodes';
 import { usePrivateNetwork } from './use-private-network';
 
@@ -20,6 +22,7 @@ const plural = (k: number, w: string): string => `${k} ${w}${k === 1 ? '' : 's'}
 export function PrivateNetworkPage(): React.JSX.Element {
   const n = usePrivateNetwork();
   const nat = useNatNodes(n.peers.map((p) => p.nodeId));
+  const links = useMeshLinks(n.live);
   const wide = useMedia('(min-width: 640px)');
   const names = React.useMemo(() => new Map(n.nodes.map((x) => [x.id, x.name])), [n.nodes]);
   if (n.error && !n.ready) return <Pad><PageError error={n.error} retry={n.retry} /></Pad>;
@@ -81,15 +84,16 @@ export function PrivateNetworkPage(): React.JSX.Element {
           ) : null}
           {showMap ? (
             <Section title="Who talks to whom" count={plural(n.peers.length, 'server')} hint="each opens its server">
-              <MeshGraph peers={n.peers} names={names} nat={nat} />
+              <MeshGraph peers={n.peers} names={names} nat={nat} links={links} />
             </Section>
           ) : null}
+          {n.live ? <Depth at="controls"><MeshLinksSection peers={n.peers} names={names} links={links} /></Depth> : null}
           {n.live ? showMap ? <Depth at="controls"><ServerRows n={n} /></Depth> : <ServerRows n={n} /> : null}
         </div>
         <aside className="flex min-w-0 flex-col gap-4">
-          <PrivateNetworkCode n={n} />
+          <PrivateNetworkCode n={n} links={links} />
           {n.live ? <MeshJoiningCard peers={n.peers} nodes={n.nodes} /> : null}
-          {n.live ? <MeshFacts peers={n.peers} config={n.config} /> : null}
+          {n.live ? <MeshFacts peers={n.peers} config={n.config} links={links} /> : null}
           {n.live ? (
             <AlreadyOn
               items={[

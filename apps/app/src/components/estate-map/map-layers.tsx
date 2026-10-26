@@ -1,7 +1,9 @@
 import * as React from 'react';
+import { quadPath } from '@/components/networking/curve-labels';
 import { blobPath } from './blob-path';
 import type { Flow } from './map-flows';
 import type { MapLayout, PlacedCard } from './map-layout';
+import { estateCurve, isRelayed, type EstateMeshLink } from './mesh-link-place';
 
 /** The soft region blobs (decorative; the labels and cards carry the meaning). */
 export function BlobLayer({ layout }: { layout: MapLayout }): React.JSX.Element {
@@ -45,26 +47,24 @@ function endOf(d: string): [number, number] {
   return [Number(nums.at(-2)), Number(nums.at(-1))];
 }
 
-/** Faint dashed private-network links between servers (the Mesh lens). */
-export function MeshLayer({ links, cards }: { links: { a: string; b: string; ok: boolean }[]; cards: Map<string, PlacedCard> }): React.JSX.Element {
+/** Faint dashed private-network links between servers (the Mesh lens); a reported relayed link in amber. */
+export function MeshLayer({ links, cards }: { links: EstateMeshLink[]; cards: Map<string, PlacedCard> }): React.JSX.Element {
   return (
     <g>
       {links.flatMap((l) => {
         const a = cards.get(l.a);
         const b = cards.get(l.b);
         if (!a || !b) return [];
-        const [ax, ay, bx, by] = [a.x + a.w / 2, a.y + a.h / 2, b.x + b.w / 2, b.y + b.h / 2];
-        const mx = (ax + bx) / 2;
-        const my = (ay + by) / 2 - Math.min(80, Math.abs(bx - ax) / 6);
+        const relayed = isRelayed(l);
         return [
           <path
             key={`${l.a}-${l.b}`}
-            d={`M${ax} ${ay} Q ${mx} ${my} ${bx} ${by}`}
+            d={quadPath(estateCurve(a, b))}
             fill="none"
-            stroke={l.ok ? 'var(--color-tone-mesh)' : 'var(--color-tone-idle)'}
+            stroke={!l.ok ? 'var(--color-tone-idle)' : relayed ? 'var(--color-tone-warn)' : 'var(--color-tone-mesh)'}
             strokeOpacity={l.ok ? 0.7 : 0.5}
             strokeWidth={1.5}
-            strokeDasharray="4 6"
+            strokeDasharray={relayed ? '6 5' : '4 6'}
           />,
         ];
       })}

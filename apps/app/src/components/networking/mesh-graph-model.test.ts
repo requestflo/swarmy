@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { layoutMeshGraph, stateOf, type MeshPeerLike } from './mesh-graph-model';
+import type { LinkEndLike } from './mesh-link-words';
 
 const peer = (nodeId: string, status: string, relayed: boolean | null = false): MeshPeerLike => ({
   nodeId,
@@ -44,13 +45,15 @@ describe('layoutMeshGraph', () => {
     const c = g.nodes.find((n) => n.id === 'c')!;
     expect(c.x).toBeGreaterThan(g.zone!.x);
     expect(c.y).toBeGreaterThan(g.zone!.y);
+    // Nobody reported per-link facts: every link of the relayed server runs through the relay.
     expect(g.links.map((l) => [l.id, l.kind])).toEqual([
       ['a~b', 'direct'],
-      ['c~relay', 'relayed'],
       ['relay~a', 'relayed'],
+      ['relay~c', 'relayed'],
       ['relay~b', 'relayed'],
       ['d~join', 'joining'],
     ]);
+    expect(g.labels).toEqual([]);
     expect(g.height).toBe(g.zone!.y + g.zone!.h + 20);
   });
 
@@ -77,5 +80,46 @@ describe('layoutMeshGraph', () => {
     const narrow = layoutMeshGraph({ peers, names, nat: new Set(), width: 360 });
     expect(new Set(wide.nodes.map((n) => Math.round(n.y / 100))).size).toBe(1);
     expect(narrow.height).toBeGreaterThan(wide.height);
+  });
+
+  test('reported links: a relayed server\'s direct link stays direct, and latency reads on the links', () => {
+    const end = (latencyMs: number, relayed: boolean): LinkEndLike => ({ latencyMs, relayed, rxBytes: 1, txBytes: 2 });
+    const g = layoutMeshGraph({
+      peers: [peer('a', 'CONNECTED'), peer('b', 'CONNECTED'), peer('c', 'CONNECTED', true)],
+      names,
+      nat: new Set(['c']),
+      width: 800,
+      links: [
+        { a: 'a', b: 'b', ab: end(0.6, false), ba: end(0.7, false) },
+        { a: 'a', b: 'c', ab: null, ba: end(11, false) },
+        { a: 'b', b: 'c', ab: end(19, true), ba: null },
+      ],
+    });
+    expect(g.links.map((l) => [l.id, l.kind])).toEqual([
+      ['a~b', 'direct'],
+      ['a~c', 'direct'],
+      ['relay~b', 'relayed'],
+      ['relay~c', 'relayed'],
+    ]);
+    expect(g.labels.map((l) => [l.id, l.text, l.relayed])).toEqual([
+      ['a~b', '0.6–0.7 ms', false],
+      ['a~c', '11 ms', false],
+      ['b~c', 'through the relay · 19 ms', true],
+    ]);
+    // No label sits on a server.
+    for (const l of g.labels) for (const n of g.nodes) expect(l.x + l.w <= n.x - 44 || l.x >= n.x + 44 || l.y + l.h <= n.y - 28 || l.y >= n.y + 70).toBe(true);
+  });
+
+  test('a link reported relayed between two servers that look direct still gets the relay', () => {
+    const g = layoutMeshGraph({
+      peers: [peer('a', 'CONNECTED'), peer('b', 'CONNECTED', null)],
+      names,
+      nat: new Set(),
+      width: 700,
+      links: [{ a: 'a', b: 'b', ab: { latencyMs: null, relayed: true, rxBytes: null, txBytes: null }, ba: null }],
+    });
+    expect(g.relay).not.toBeNull();
+    expect(g.links.map((l) => l.kind)).toEqual(['relayed', 'relayed']);
+    expect(g.labels.map((l) => l.text)).toEqual(['through the relay']);
   });
 });

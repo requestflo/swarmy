@@ -6,6 +6,8 @@ import type { Lens } from './lens-control';
 import { flowLabel, flowsFor, regionArea, regionLabel, type RegionTraffic } from './map-flows';
 import { BlobLayer, FlowLayer, MeshLayer } from './map-layers';
 import { layoutMap } from './map-layout';
+import { MeshLinkLabels } from './mesh-link-labels';
+import type { EstateMeshLink } from './mesh-link-place';
 import { ServerCard } from './server-card';
 import { useMedia, useSize } from './use-media';
 
@@ -13,7 +15,7 @@ interface Props {
   groups: RegionGroup[];
   lens: Lens;
   traffic: Map<string | null, RegionTraffic>;
-  links: { a: string; b: string; ok: boolean }[];
+  links: EstateMeshLink[];
   /** A top-right area to keep clear (the floating Right-now card), 0 × 0 for none. */
   clear: { w: number; h: number };
   /** The focused server (its card is ringed) and how a click focuses one. */
@@ -24,7 +26,8 @@ interface Props {
 /**
  * The geographic estate at real size: region blobs placed by rough geography,
  * server cards inside them, visitor flows (Traffic) or private-network links
- * (Mesh) drawn under the cards. Text is never scaled; the canvas grows instead.
+ * (Mesh, with each reported link's latency) drawn under the cards. Text is
+ * never scaled; the canvas grows instead.
  */
 export function MapCanvas({ groups, lens, traffic, links, clear, focus, onFocus }: Props): React.JSX.Element {
   const [ref, size] = useSize<HTMLDivElement>();
@@ -78,6 +81,9 @@ export function MapCanvas({ groups, lens, traffic, links, clear, focus, onFocus 
               </div>
             );
           })}
+          {lens === 'mesh' ? (
+            <MeshLinkLabels links={links} cards={cards} width={layout.width} keepClear={keepClear} nameOf={(id) => byId.get(id)?.node.name ?? id} />
+          ) : null}
           {[...cards.values()].map((c) => {
             const s = byId.get(c.id);
             return s ? (

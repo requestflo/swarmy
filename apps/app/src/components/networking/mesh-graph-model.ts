@@ -1,4 +1,7 @@
-/** The private-network map (board 14) as a pure layout: who sits where, and how each link is drawn. */
+/** The private-network map (board 14) as a pure layout: who sits where, how each link is drawn, and its words. */
+import type { PlacedLabel } from './curve-labels';
+import { pairKey, type MeshLinkLike } from './mesh-link-words';
+import { anyRelayedLink, drawLinks, ON_MAP } from './mesh-graph-links';
 
 /** The fields of `MeshPeerView` (mesh.service.ts) the map reads. */
 export interface MeshPeerLike {
@@ -28,6 +31,8 @@ export interface GraphNode {
 export interface MeshGraph {
   nodes: GraphNode[];
   links: { id: string; kind: LinkKind; d: string }[];
+  /** Latency on the links that reported it ("0.4 ms", "through the relay · 19 ms"), placed clear of the servers. */
+  labels: (PlacedLabel & { relayed: boolean })[];
   /** Where the relay sits; only when some server goes through one. */
   relay: { x: number; y: number } | null;
   /** The "behind NAT" zone around NAT'd servers. */
@@ -52,26 +57,28 @@ const TOP = 70;
 const ZONE_H = 180;
 const ZONE_GAP = 56;
 
-/** A gentle bow so links across a row never run through the servers between. */
-function curve(a: { x: number; y: number }, b: { x: number; y: number }): string {
-  const mx = (a.x + b.x) / 2;
-  const my = (a.y + b.y) / 2 - Math.min(60, Math.abs(b.x - a.x) / 6);
-  return `M${a.x} ${a.y} Q ${mx} ${my} ${b.x} ${b.y}`;
-}
-
 /**
  * Lay the map out for a canvas `width` px wide (text never scales; the canvas
  * grows instead). Public servers fill rows across the top, NAT'd servers sit
  * in their zone below with the relay beside it (or in the first row's last
- * slot when the zone leaves no room). A link
- * touching a relayed server goes through the relay (`relayed` is per server,
- * not per link); the others are drawn direct between each pair. A joining
- * server reaches toward the nearest connected one.
+ * slot when the zone leaves no room). Each pair's path is what its ends
+ * reported (`links`, from `mesh.links`); a pair nobody reported falls back to
+ * the servers' own flags, so every link of a relayed server goes through the
+ * relay. Relayed links are drawn through the relay, the rest direct. A
+ * joining server reaches toward the nearest connected one.
  */
-export function layoutMeshGraph(input: { peers: MeshPeerLike[]; names: Map<string, string>; nat: Set<string>; width: number }): MeshGraph {
+export function layoutMeshGraph(input: {
+  peers: MeshPeerLike[];
+  names: Map<string, string>;
+  nat: Set<string>;
+  width: number;
+  links?: readonly MeshLinkLike[];
+}): MeshGraph {
   const W = Math.max(input.width, 320);
   const all = input.peers.map((p) => ({ p, nat: input.nat.has(p.nodeId), state: stateOf(p) }));
-  const hasRelay = all.some((a) => a.state === 'relayed');
+  const facts = new Map((input.links ?? []).map((l) => [pairKey(l.a, l.b), l]));
+  const onIds = new Set(all.filter((a) => ON_MAP.has(a.state)).map((a) => a.p.nodeId));
+  const hasRelay = all.some((a) => a.state === 'relayed') || anyRelayedLink(facts, onIds);
   const pub = all.filter((a) => !a.nat);
   const home = all.filter((a) => a.nat);
 
@@ -109,22 +116,6 @@ export function layoutMeshGraph(input: { peers: MeshPeerLike[]; names: Map<strin
   }
   const relay = relayInRow ? at(relayIdx) : zone && relayBesideZone ? { x: zone.x - SLOT / 2 - 10, y: zone.y + 56 } : null;
 
-  const links: MeshGraph['links'] = [];
-  const on = nodes.filter((n) => n.state === 'direct' || n.state === 'unknown');
-  on.forEach((a, i) =>
-    on.slice(i + 1).forEach((b) => {
-      links.push({ id: `${a.id}~${b.id}`, kind: a.state === 'unknown' || b.state === 'unknown' ? 'unknown' : 'direct', d: curve(a, b) });
-    }),
-  );
-  if (relay) {
-    for (const r of nodes.filter((n) => n.state === 'relayed')) links.push({ id: `${r.id}~relay`, kind: 'relayed', d: curve(relay, r) });
-    for (const o of on) links.push({ id: `relay~${o.id}`, kind: 'relayed', d: curve(relay, o) });
-  }
-  const connected = nodes.filter((n) => n.state === 'direct' || n.state === 'unknown' || n.state === 'relayed');
-  for (const j of nodes.filter((n) => n.state === 'joining')) {
-    const near = connected.reduce<GraphNode | null>((best, c) => (!best || Math.hypot(c.x - j.x, c.y - j.y) < Math.hypot(best.x - j.x, best.y - j.y) ? c : best), null);
-    if (near) links.push({ id: `${j.id}~join`, kind: 'joining', d: curve(near, j) });
-  }
-
-  return { nodes, links, relay, zone, width: W, height: (zone ? zone.y + zone.h : topH) + 20 };
+  const { links, labels } = drawLinks(nodes, relay, facts, W);
+  return { nodes, links, labels, relay, zone, width: W, height: (zone ? zone.y + zone.h : topH) + 20 };
 }
