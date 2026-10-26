@@ -6,7 +6,10 @@ import type {
   SearchQueryView,
   SearchSettingsResult,
   SetIndexSettingsInput,
+  SearchSwapResult,
+  SwapSearchIndexInput,
 } from '@swarmy/core';
+import { swapProblem } from '@swarmy/core';
 import type { DemoStore, DomainResolvers } from '../types';
 import { seedIndexes, type DemoIndex } from './searchsvc-indexes-seed';
 import { demoQuery } from './searchsvc-query';
@@ -107,6 +110,20 @@ export const searchsvcIndexes: DomainResolvers = {
       ix.updatedAt = new Date().toISOString();
       // A big index is still re-indexing when swarmy stops waiting, as in life.
       return { index: ix.uid, taskUid: 8800 + changed.length, status: ix.docs > 10_000 ? 'processing' : 'succeeded', error: null, changed };
+    },
+
+    // Reindex by swap: the same refusals as the controller (swapProblem), then the two trade names.
+    'search.swapIndex': (i, s): SearchSwapResult => {
+      const b = i as SwapSearchIndexInput;
+      if (b.confirm !== b.index) throw new Error(`type ${b.index} to swap it`);
+      const live = indexOf(s, i);
+      const next = indexOf(s, { ...b, index: b.with });
+      const problem = swapProblem(view(live), view(next));
+      if (problem) throw new Error(problem);
+      [live.uid, next.uid] = [next.uid, live.uid];
+      live.updatedAt = new Date(Date.now() - 1_000).toISOString();
+      next.updatedAt = new Date().toISOString();
+      return { index: b.index, with: b.with, taskUid: 8900, status: 'succeeded', error: null };
     },
   },
 };

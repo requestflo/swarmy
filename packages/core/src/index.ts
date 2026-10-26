@@ -72,6 +72,7 @@ export * from './bucket-lifecycle';
 export * from './admission-record';
 export * from './admission-tally';
 export * from './search-indexes';
+export * from './search-swap';
 export * from './search-synonyms';
 export * from './heroku-import';
 export * from './incident-owner';

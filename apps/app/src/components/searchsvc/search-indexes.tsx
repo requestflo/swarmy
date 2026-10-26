@@ -2,11 +2,12 @@ import * as React from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { SearchInstanceView } from '@swarmy/core';
 import { Button, cn } from '@swarmy/ui';
-import { Tech } from '@/components/calm';
+import { Depth, Tech } from '@/components/calm';
 import { useTRPC } from '@/integrations/trpc';
 import { Kv } from './search-kv';
 import { SearchIndexDetail } from './search-index-detail';
-import { indexLine } from './search-words';
+import { SearchReindexDialog } from './search-reindex-dialog';
+import { indexLine, reindexLine } from './search-words';
 
 /**
  * The instance's indexes (board 41): each one's documents, size and last
@@ -95,7 +96,18 @@ export function SearchIndexes({ v }: { v: SearchInstanceView }): React.JSX.Eleme
         <span className="text-[13px] font-semibold">{indexLine(current)}</span>
       </Kv>
       <SearchIndexDetail key={current.uid} v={v} uid={current.uid} />
-      {current.primaryKey ? <Tech className="pt-1">primary key {current.primaryKey}</Tech> : null}
+      {current.primaryKey ? <Tech className="pt-1 pb-2">primary key {current.primaryKey}</Tech> : null}
+      <Kv
+        k="Reindex"
+        tech="POST /swap-indexes · the engine swaps both at once; the old documents keep the other name"
+        action={
+          <Depth at="controls">
+            <SearchReindexDialog key={current.uid} v={v} live={current} indexes={list} onSwapped={setPicked} />
+          </Depth>
+        }
+      >
+        <span className="text-[13px]">{reindexLine(v, current.uid)}</span>
+      </Kv>
     </div>
   );
 }

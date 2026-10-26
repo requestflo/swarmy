@@ -1,4 +1,4 @@
-import { synonymLines, formatSynonymLine, type SearchIndexView, type SearchQueryView } from '@swarmy/core';
+import { synonymLines, formatSynonymLine, type SearchIndexView, type SearchInstanceView, type SearchQueryView } from '@swarmy/core';
 import { relativeTime } from '@/components/resilience/format';
 import { bytes } from '@/lib/format';
 
@@ -36,6 +36,12 @@ export function queryMeta(r: SearchQueryView): string {
 /** A score as people read it: `0.97`. */
 export function scoreWord(score: number | null): string {
   return score === null ? '' : score.toFixed(2);
+}
+
+/** The Reindex row: swarmy can't rebuild from the app's database, so the app rebuilds and swarmy swaps. */
+export function reindexLine(v: Pick<SearchInstanceView, 'attachments'>, uid: string): string {
+  const app = v.attachments[0]?.service.replace(/^[^_]*_/, '') ?? 'your app';
+  return `${app} keeps ${uid} in sync. To rebuild it, ${app} writes a fresh copy into a second index and swarmy swaps it in.`;
 }
 
 /** Comma-separated text → a clean field list (trimmed, no blanks, no repeats). */

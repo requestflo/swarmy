@@ -93,9 +93,9 @@ export const searchsvc: DomainResolvers = {
     // storefront web app.
     const main = makeInstance({ stack: 'storefront', name: 'main', engine: 'meilisearch' });
     main.stats = {
-      docs: 48_211,
-      indexes: 3,
-      dbSizeBytes: 412 * MB,
+      docs: 89_401,
+      indexes: 4,
+      dbSizeBytes: 724 * MB,
       memoryBytes: null,
       at: nowIso(),
     };

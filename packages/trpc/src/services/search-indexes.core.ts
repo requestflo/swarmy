@@ -57,11 +57,21 @@ export function meiliScript(requests: MeiliRequest[], marker: string): string {
  * the last task state as a second response.
  */
 export function meiliSettingsScript(uid: string, marker: string): string {
-  const patch = curl({ method: 'PATCH', path: indexPath(uid, '/settings'), body: true }, marker);
+  return meiliTaskScript({ method: 'PATCH', path: indexPath(uid, '/settings'), body: true }, marker);
+}
+
+/** Swap two indexes (`$1` = `[{"indexes":[a,b]}]`), then poll its task like a settings write. */
+export function meiliSwapScript(marker: string): string {
+  return meiliTaskScript({ method: 'POST', path: '/swap-indexes', body: true }, marker);
+}
+
+/** Send one request that enqueues a task, then poll that task (bounded); two responses. */
+function meiliTaskScript(request: MeiliRequest, marker: string): string {
+  const send = curl(request, marker);
   const task = curl({ method: 'GET', path: '/tasks/$T' }, marker);
   return (
     prelude(marker) +
-    `OUT="$(${patch})"; printf '%s\\n' "$OUT"; ` +
+    `OUT="$(${send})"; printf '%s\\n' "$OUT"; ` +
     `T="$(printf '%s' "$OUT" | sed -n 's/.*"taskUid":\\([0-9]*\\).*/\\1/p' | head -n 1)"; ` +
     `[ -n "$T" ] || exit 0; i=0; S=''; ` +
     `while [ "$i" -lt ${SETTINGS_TASK_WAIT_S} ]; do S="$(${task})"; ` +

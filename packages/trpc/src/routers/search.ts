@@ -6,6 +6,7 @@ import {
   SearchInstanceRef,
   SearchQueryInput,
   SetIndexSettingsInput,
+  SwapSearchIndexInput,
 } from '@swarmy/core';
 import { orgProcedure, router } from '../trpc';
 import { abacProcedure, resolveStackByName, resolveStackService } from '../abac';
@@ -24,6 +25,7 @@ import {
 import { searchIndex, searchIndexes, searchQuery } from '../services/search-indexes.service';
 import { setSearchIndexSettings } from '../services/search-index-settings.service';
 import { rotateSearchKey } from '../services/search-key.service';
+import { swapSearchIndex } from '../services/search-swap.service';
 
 const stackName = z
   .string()
@@ -112,6 +114,17 @@ export const managedSearchRouter = router({
   setIndexSettings: abacProcedure('stack.deploy', resolveStackByName)
     .input(SetIndexSettingsInput)
     .mutation(({ ctx, input }) => setSearchIndexSettings(ctx, input)),
+
+  /**
+   * Reindex by swap: swap a rebuilt index (the app wrote every document into
+   * it) in for the live one, atomically. swarmy holds no app data, so this is
+   * the reindex it can do. Refused when the rebuild is empty, still filling or
+   * keyed differently. Typed confirmation; gated like a settings edit
+   * (`stack.deploy`); audited `search.index.swap`.
+   */
+  swapIndex: abacProcedure('stack.deploy', resolveStackByName)
+    .input(SwapSearchIndexInput)
+    .mutation(({ ctx, input }) => swapSearchIndex(ctx, input)),
 
   /**
    * Rotate the master key: a new `…-key__v<n>` secret, the engine restarted

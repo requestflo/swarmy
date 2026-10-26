@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { SearchIndexView } from '@swarmy/core';
-import { fieldsWords, indexLine, parseFields, queryMeta, synonymsLine } from './search-words';
+import { fieldsWords, indexLine, parseFields, queryMeta, reindexLine, synonymsLine } from './search-words';
 
 const ix = (over: Partial<SearchIndexView> = {}): SearchIndexView => ({
   uid: 'products',
@@ -38,5 +38,12 @@ describe('search words (board 41)', () => {
 
   test('a comma list of fields is trimmed and de-duplicated', () => {
     expect(parseFields(' title, brand ,, title')).toEqual(['title', 'brand']);
+  });
+
+  test('the Reindex row names the app that keeps the index in sync', () => {
+    expect(reindexLine({ attachments: [{ service: 'storefront_web', envVar: 'MEILI_HOST' }] }, 'products')).toBe(
+      'web keeps products in sync. To rebuild it, web writes a fresh copy into a second index and swarmy swaps it in.',
+    );
+    expect(reindexLine({ attachments: [] }, 'products')).toMatch(/^your app keeps products/);
   });
 });

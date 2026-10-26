@@ -1,8 +1,10 @@
 /**
- * storefront's `main` search (Meilisearch) as board 41 shows it: three
- * indexes whose documents add up to the instance's 48,211, products with its
+ * storefront's `main` search (Meilisearch) as board 41 shows it: four
+ * indexes whose documents add up to the instance's 89,401, products with its
  * searchable fields, filters and 18 synonym sets, and a dozen real-looking
- * products so "Try it" has something to find.
+ * products so "Try it" has something to find. `products_next` is the
+ * rebuild storefront's nightly `reindex-search` job writes, ready for
+ * Reindex to swap in.
  */
 const MIN = 60_000;
 const MB = 1024 * 1024;
@@ -42,63 +44,65 @@ const P = (sku: string, title: string, brand: string, category: string, price: n
 });
 
 export function seedIndexes(): Record<string, DemoIndex[]> {
-  return {
-    'storefront/main': [
-      {
-        uid: 'products',
-        primaryKey: 'sku',
-        docs: 41_208,
-        sizeBytes: 312 * MB,
-        updatedAt: ago(4 * MIN),
-        searchable: ['title', 'description', 'brand', 'sku'],
-        filterable: ['category', 'price', 'in_stock'],
-        sortable: ['price'],
-        synonyms: mutual(SETS),
-        sample: [
-          P('MUG-0142', 'Enamel camp mug, 350 ml', 'Northwind', 'kitchen', 18, true, 'Speckled enamel mug for coffee at the campsite'),
-          P('MUG-0188', 'Stoneware mug, sage glaze', 'Hearth & Co', 'kitchen', 24, true, 'Hand-thrown mug, dishwasher safe'),
-          P('CUP-0007', 'Espresso cup set of two', 'Northwind', 'kitchen', 29, false, 'Double-walled glass cups'),
-          P('TEE-1203', 'Organic cotton tee, navy', 'Fieldday', 'apparel', 32, true, 'Heavyweight t-shirt, relaxed fit'),
-          P('TEE-1290', 'Pocket tee, heather grey', 'Fieldday', 'apparel', 28, true, 'Classic t-shirt with a chest pocket'),
-          P('HOD-0410', 'Loopback hoodie, coral', 'Fieldday', 'apparel', 74, true, 'Brushed-back sweatshirt with a hood'),
-          P('BTL-0031', 'Insulated bottle, 750 ml', 'Trailhead', 'outdoor', 36, true, 'Keeps drinks cold for 24 hours; a flask for the trail'),
-          P('BAG-0920', 'Canvas tote bag', 'Northwind', 'accessories', 22, true, 'Waxed canvas tote with leather handles'),
-          P('JRN-0077', 'Dot-grid notebook, A5', 'Paperline', 'stationery', 16, true, 'Lay-flat journal, 160 pages'),
-          P('SNK-0555', 'Court sneakers, white', 'Stride', 'footwear', 110, false, 'Leather trainers with a gum sole'),
-          P('JKT-0301', 'Waxed field jacket', 'Trailhead', 'outdoor', 189, true, 'Water-resistant coat with a corduroy collar'),
-          P('SCK-0012', 'Merino hiking socks, 3 pairs', 'Trailhead', 'outdoor', 27, true, 'Cushioned socks for long walks'),
-        ],
-      },
-      {
-        uid: 'pages',
-        primaryKey: 'slug',
-        docs: 6_591,
-        sizeBytes: 58 * MB,
-        updatedAt: ago(2 * 24 * 60 * MIN),
-        searchable: ['title', 'body'],
-        filterable: ['locale'],
-        sortable: [],
-        synonyms: {},
-        sample: [
-          { slug: 'returns', title: 'Returns and refunds', locale: 'en', body: 'You have 30 days to send a mug, tee or anything else back.' },
-          { slug: 'shipping', title: 'Shipping times', locale: 'en', body: 'Orders leave the warehouse within one working day.' },
-        ],
-      },
-      {
-        uid: 'categories',
-        primaryKey: 'id',
-        docs: 412,
-        sizeBytes: 6 * MB,
-        updatedAt: ago(3 * 60 * MIN),
-        searchable: ['*'],
-        filterable: [],
-        sortable: [],
-        synonyms: {},
-        sample: [
-          { id: 'kitchen', name: 'Kitchen', products: 3_204 },
-          { id: 'apparel', name: 'Apparel', products: 12_880 },
-        ],
-      },
-    ],
-  };
+  const main: DemoIndex[] = [
+    {
+      uid: 'products',
+      primaryKey: 'sku',
+      docs: 41_208,
+      sizeBytes: 312 * MB,
+      updatedAt: ago(4 * MIN),
+      searchable: ['title', 'description', 'brand', 'sku'],
+      filterable: ['category', 'price', 'in_stock'],
+      sortable: ['price'],
+      synonyms: mutual(SETS),
+      sample: [
+        P('MUG-0142', 'Enamel camp mug, 350 ml', 'Northwind', 'kitchen', 18, true, 'Speckled enamel mug for coffee at the campsite'),
+        P('MUG-0188', 'Stoneware mug, sage glaze', 'Hearth & Co', 'kitchen', 24, true, 'Hand-thrown mug, dishwasher safe'),
+        P('CUP-0007', 'Espresso cup set of two', 'Northwind', 'kitchen', 29, false, 'Double-walled glass cups'),
+        P('TEE-1203', 'Organic cotton tee, navy', 'Fieldday', 'apparel', 32, true, 'Heavyweight t-shirt, relaxed fit'),
+        P('TEE-1290', 'Pocket tee, heather grey', 'Fieldday', 'apparel', 28, true, 'Classic t-shirt with a chest pocket'),
+        P('HOD-0410', 'Loopback hoodie, coral', 'Fieldday', 'apparel', 74, true, 'Brushed-back sweatshirt with a hood'),
+        P('BTL-0031', 'Insulated bottle, 750 ml', 'Trailhead', 'outdoor', 36, true, 'Keeps drinks cold for 24 hours; a flask for the trail'),
+        P('BAG-0920', 'Canvas tote bag', 'Northwind', 'accessories', 22, true, 'Waxed canvas tote with leather handles'),
+        P('JRN-0077', 'Dot-grid notebook, A5', 'Paperline', 'stationery', 16, true, 'Lay-flat journal, 160 pages'),
+        P('SNK-0555', 'Court sneakers, white', 'Stride', 'footwear', 110, false, 'Leather trainers with a gum sole'),
+        P('JKT-0301', 'Waxed field jacket', 'Trailhead', 'outdoor', 189, true, 'Water-resistant coat with a corduroy collar'),
+        P('SCK-0012', 'Merino hiking socks, 3 pairs', 'Trailhead', 'outdoor', 27, true, 'Cushioned socks for long walks'),
+      ],
+    },
+    {
+      uid: 'pages',
+      primaryKey: 'slug',
+      docs: 6_591,
+      sizeBytes: 58 * MB,
+      updatedAt: ago(2 * 24 * 60 * MIN),
+      searchable: ['title', 'body'],
+      filterable: ['locale'],
+      sortable: [],
+      synonyms: {},
+      sample: [
+        { slug: 'returns', title: 'Returns and refunds', locale: 'en', body: 'You have 30 days to send a mug, tee or anything else back.' },
+        { slug: 'shipping', title: 'Shipping times', locale: 'en', body: 'Orders leave the warehouse within one working day.' },
+      ],
+    },
+    {
+      uid: 'categories',
+      primaryKey: 'id',
+      docs: 412,
+      sizeBytes: 6 * MB,
+      updatedAt: ago(3 * 60 * MIN),
+      searchable: ['*'],
+      filterable: [],
+      sortable: [],
+      synonyms: {},
+      sample: [
+        { id: 'kitchen', name: 'Kitchen', products: 3_204 },
+        { id: 'apparel', name: 'Apparel', products: 12_880 },
+      ],
+    },
+  ];
+  // Last night's rebuild: the same settings (a swap moves them with the documents), a few fewer products.
+  const products = main[0]!;
+  main.push({ ...structuredClone(products), uid: 'products_next', docs: 41_190, sizeBytes: 309 * MB, updatedAt: ago(5 * 60 * MIN) });
+  return { 'storefront/main': main };
 }
