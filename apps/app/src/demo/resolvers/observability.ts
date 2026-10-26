@@ -805,11 +805,18 @@ const HEALTH_TOP_REASONS = [
   'checkout: p95 latency 1.8s (target <1.5s)',
 ];
 
+/** The demo's traces reach back 3 days; a map ending before that is empty (Time travel). */
+const DEMO_TRACES_KEPT_MS = 3 * 24 * 60 * 60 * 1000;
+
 observability.handlers!['observability.map'] = (i, s): ServiceMapView => {
-  const q = (i as { windowMinutes?: number } | undefined) ?? {};
+  const q = (i as { windowMinutes?: number; until?: string } | undefined) ?? {};
   const windowMinutes = q.windowMinutes ?? 15;
   const st = state(s);
   if (!st.config.enabled) return { status: 'disabled', windowMinutes, nodes: [], edges: [] };
+  if (q.until) {
+    const aged = Date.now() - Date.parse(q.until) > DEMO_TRACES_KEPT_MS;
+    return { status: 'ok', windowMinutes, until: q.until, nodes: aged ? [] : MAP_NODES, edges: aged ? [] : MAP_EDGES };
+  }
   return { status: 'ok', windowMinutes, nodes: MAP_NODES, edges: MAP_EDGES };
 };
 

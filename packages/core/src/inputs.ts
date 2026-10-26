@@ -658,6 +658,8 @@ export type ObservabilityLogsInput = z.infer<typeof ObservabilityLogsInput>;
 export const ObservabilityMapInput = z.object({
   /** Lookback window (default 15 minutes). */
   windowMinutes: z.number().int().min(1).max(1440).optional(),
+  /** End the window at this moment (ISO) instead of now: the calls as they were then (Time travel). */
+  until: z.string().datetime().optional(),
 });
 export type ObservabilityMapInput = z.infer<typeof ObservabilityMapInput>;
 

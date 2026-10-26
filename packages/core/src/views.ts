@@ -1174,6 +1174,8 @@ export interface ServiceMapEdgeView {
 export interface ServiceMapView {
   status: 'ok' | 'disabled' | 'unreachable';
   windowMinutes: number;
+  /** The window ended here (ISO) rather than now. */
+  until?: string;
   nodes: ServiceMapNodeView[];
   edges: ServiceMapEdgeView[];
 }

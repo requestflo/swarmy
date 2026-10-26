@@ -837,14 +837,15 @@ export async function serviceMap(ctx: OrgContext, q: ObservabilityMapInput): Pro
   const windowMinutes = q.windowMinutes ?? MAP_DEFAULT_WINDOW_MINUTES;
   const dsn = await activeDsn(ctx);
   if (!dsn) return { status: 'disabled', windowMinutes, nodes: [], edges: [] };
+  const until = q.until ? { until: q.until } : {};
   const [nodeRows, edgeRows] = await Promise.all([
-    clickhouseJson<ServiceMapNodeRow>(dsn, buildServiceMapNodesQuery(ctx.activeOrgId, { windowMinutes })),
-    clickhouseJson<ServiceMapEdgeRow>(dsn, buildServiceMapQuery(ctx.activeOrgId, { windowMinutes })),
+    clickhouseJson<ServiceMapNodeRow>(dsn, buildServiceMapNodesQuery(ctx.activeOrgId, { windowMinutes, ...until })),
+    clickhouseJson<ServiceMapEdgeRow>(dsn, buildServiceMapQuery(ctx.activeOrgId, { windowMinutes, ...until })),
   ]);
   if (nodeRows === null || edgeRows === null) {
-    return { status: 'unreachable', windowMinutes, nodes: [], edges: [] };
+    return { status: 'unreachable', windowMinutes, ...until, nodes: [], edges: [] };
   }
-  return { status: 'ok', windowMinutes, ...composeServiceMap(nodeRows, edgeRows, windowMinutes) };
+  return { status: 'ok', windowMinutes, ...until, ...composeServiceMap(nodeRows, edgeRows, windowMinutes) };
 }
 
 /**

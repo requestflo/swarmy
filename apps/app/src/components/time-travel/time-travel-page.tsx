@@ -14,6 +14,8 @@ import { RestorePointCard } from './restore-point-card';
 import { TravelTimeline } from './travel-timeline';
 import { useAppRestore } from './use-app-restore';
 import { useDbSize } from './use-db-size';
+import { useReplayCalls } from './use-replay-calls';
+import { replayCalls } from './replay-graph-model';
 import { useTimeTravel } from './use-time-travel';
 import { useTravelHead } from './use-travel-head';
 
@@ -34,6 +36,8 @@ export function TimeTravelPage({ stack }: { stack: string }): React.JSX.Element 
   const point = db?.saves ? nearestRestorePoint(db.saves, head.at) : null;
   const app = useAppRestore(stack, d, head.at);
   const size = useDbSize(stack, db, d.now);
+  const traced = useReplayCalls(head.at, head.live);
+  const calls = traced.until === null ? null : { calls: replayCalls(stack, replay.parts.map((p) => p.name), traced.edges), until: traced.until };
 
   const chip = head.live ? (
     <span className="text-tone-ok border-tone-ok/40 inline-flex h-6 items-center gap-1.5 rounded-full border px-2.5 text-[12px] font-semibold">
@@ -72,7 +76,7 @@ export function TimeTravelPage({ stack }: { stack: string }): React.JSX.Element 
             <TravelTimeline events={d.events} head={head} now={d.now} partial={d.partial} size={size} className="order-1 lg:sticky lg:bottom-4 lg:z-10 lg:order-3" />
             <div className="order-2 grid gap-5 xl:grid-cols-[minmax(0,1fr)_400px]">
               <div className="flex min-w-0 flex-col gap-5">
-                <ReplaySection stack={stack} at={head.at} live={head.live} replay={replay} head={d.releases[0]} firstAt={firstAt} />
+                <ReplaySection stack={stack} at={head.at} live={head.live} replay={replay} head={d.releases[0]} firstAt={firstAt} calls={calls} />
                 {head.live ? null : <AppRestoreCard stack={stack} at={head.at} now={d.now} app={app} onGo={head.go} />}
               </div>
               <aside className="flex min-w-0 flex-col gap-4" aria-label="This moment">

@@ -4,6 +4,7 @@ import {
   buildServiceMapQuery,
   composeServiceMap,
   redDegraded,
+  windowEnd,
 } from './observability-map';
 
 const ORG = 'org_abc123';
@@ -34,6 +35,23 @@ describe('buildServiceMapQuery (edges)', () => {
   it('escapes a hostile org id', () => {
     const sql = buildServiceMapQuery("o'; DROP TABLE otel_traces; --", {});
     expect(sql).toContain("= 'o\\'; DROP TABLE otel_traces; --'");
+  });
+
+  it('can end the window at a past moment, bounded on both sides (Time travel)', () => {
+    const end = "parseDateTime64BestEffort('2026-10-22T14:00:00.000Z', 3)";
+    const sql = buildServiceMapQuery(ORG, { until: '2026-10-22T14:00:00Z' });
+    expect(sql).toContain(`s.Timestamp >= ${end} - INTERVAL 15 MINUTE`);
+    expect(sql).toContain(`s.Timestamp <= ${end}`);
+    expect(sql).toContain(`c.Timestamp >= ${end} - INTERVAL 20 MINUTE`);
+    expect(sql).not.toContain('now()');
+    expect(buildServiceMapNodesQuery(ORG, { until: '2026-10-22T14:00:00Z' })).toContain(`Timestamp <= ${end}`);
+  });
+
+  it('only a real time reaches the SQL: anything else is now', () => {
+    const sql = buildServiceMapQuery(ORG, { until: "x'); DROP TABLE otel_traces; --" });
+    expect(sql).toContain('s.Timestamp >= now() - INTERVAL 15 MINUTE');
+    expect(sql).not.toContain('DROP');
+    expect(windowEnd(undefined).end).toBe('now()');
   });
 });
 

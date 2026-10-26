@@ -1,30 +1,15 @@
 import * as React from 'react';
 import { Undo2Icon } from 'lucide-react';
 import type { ReleaseView } from '@swarmy/core';
-import { Button, cn } from '@swarmy/ui';
+import { Button } from '@swarmy/ui';
 import { Section, Tech } from '@/components/calm';
 import { releaseLabel } from '@/components/app-tabs/releases/release-label';
 import { RollbackConfirm } from '@/components/releases/rollback-confirm';
 import { momentLabel } from './time-travel-model';
-import type { Replay, ReplayPart } from './time-travel-replay';
-
-/** "ghcr.io/northwind/storefront-web:1.8.2" → "storefront-web:1.8.2". */
-const shortImage = (image: string): string => image.slice(image.lastIndexOf('/') + 1);
-
-function PartCard({ p, live }: { p: ReplayPart; live: boolean }): React.JSX.Element {
-  const note = live || !p.changed ? 'unchanged' : p.nowTag ? `${p.tag} → ${p.nowTag} since` : 'removed since';
-  return (
-    <li className={cn('border-border flex min-w-0 flex-col gap-1 rounded-xl border px-3.5 py-3', !live && p.changed && 'border-tone-info/50')}>
-      <span className="flex items-center gap-2">
-        <span aria-hidden className="bg-status-online size-2 shrink-0 rounded-full" />
-        <span className="truncate text-[14px] font-semibold">{p.name}</span>
-      </span>
-      <span className="truncate font-mono text-[12px]">{shortImage(p.image)}</span>
-      <span className={cn('font-mono text-[11px]', !live && p.changed ? 'text-tone-info' : 'text-muted-foreground')}>{note}</span>
-      <Tech className="truncate">{p.image}</Tech>
-    </li>
-  );
-}
+import type { Replay } from './time-travel-replay';
+import type { ReplayCall } from './replay-graph-model';
+import { ReplayGraph } from './replay-graph';
+import { PartCard } from './replay-part-card';
 
 interface ReplaySectionProps {
   stack: string;
@@ -34,6 +19,8 @@ interface ReplaySectionProps {
   /** Today's release, to tell whether putting the one at T back would change anything. */
   head: ReleaseView | undefined;
   firstAt: number | null;
+  /** Calls between the parts the traces saw before T, and that window's end (ms). */
+  calls?: { calls: ReplayCall[]; until: number } | null;
 }
 
 /**
@@ -41,8 +28,9 @@ interface ReplaySectionProps {
  * When that version differs from today's, Put back vN redeploys it (code
  * only; the data is not touched) through the existing confirm.
  */
-export function ReplaySection({ stack, at, live, replay, head, firstAt }: ReplaySectionProps): React.JSX.Element {
+export function ReplaySection({ stack, at, live, replay, head, firstAt, calls }: ReplaySectionProps): React.JSX.Element {
   const { release, parts, later } = replay;
+  const graph = calls?.calls.length ? calls : null;
   const label = releaseLabel(release ?? undefined);
   const differs = Boolean(release && head && release.id !== head.id && parts.some((p) => p.changed));
   return (
@@ -68,10 +56,14 @@ export function ReplaySection({ stack, at, live, replay, head, firstAt }: Replay
           <p className="text-muted-foreground text-[13.5px]">
             {live ? `Running ${label}.` : `Running ${label}${differs ? '. Putting it back redeploys these images; your data is not touched.' : ', the same as now.'}`}
           </p>
+          {graph ? <ReplayGraph parts={parts} live={live} calls={graph.calls} until={graph.until} /> : null}
+          {graph && later.length === 0 ? null : (
           <ul className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 2xl:grid-cols-3">
-            {parts.map((p) => (
-              <PartCard key={p.name} p={p} live={live} />
-            ))}
+            {graph
+              ? null
+              : parts.map((p) => (
+                  <PartCard key={p.name} p={p} live={live} />
+                ))}
             {later.map((p) => (
               <li key={p.name} className="border-border flex flex-col gap-1 rounded-xl border border-dashed px-3.5 py-3 opacity-70">
                 <span className="truncate text-[14px] font-semibold">{p.name}</span>
@@ -81,6 +73,7 @@ export function ReplaySection({ stack, at, live, replay, head, firstAt }: Replay
               </li>
             ))}
           </ul>
+          )}
           <Tech>releases.list · release {release.id} · {release.images.length} images</Tech>
         </>
       ) : (

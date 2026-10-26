@@ -20,6 +20,8 @@ import type { ServiceMapEdgeView, ServiceMapNodeView } from '@swarmy/core';
 export interface ServiceMapQueryInput {
   /** Lookback window in minutes (default 15). */
   windowMinutes?: number;
+  /** End the window at this ISO moment instead of now: the map as it was then (Time travel). */
+  until?: string;
 }
 
 /** One aggregated call edge (JSONEachRow shape). */
@@ -53,6 +55,18 @@ function lit(value: string): string {
   return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
 }
 
+/**
+ * The window's end: `now()`, or a past moment re-rendered from a parsed date
+ * (so nothing but a normalised ISO time ever reaches the SQL), plus the upper
+ * bound that a past window needs.
+ */
+export function windowEnd(until: string | undefined): { end: string; upTo: (col: string) => string[] } {
+  const t = until ? Date.parse(until) : NaN;
+  if (!Number.isFinite(t)) return { end: 'now()', upTo: () => [] };
+  const end = `parseDateTime64BestEffort(${lit(new Date(t).toISOString())}, 3)`;
+  return { end, upTo: (col) => [`  AND ${col} <= ${end}`] };
+}
+
 function clampInt(n: number | undefined, def: number, min: number, max: number): number {
   const v = Number.isFinite(n) ? Math.floor(n as number) : def;
   return Math.min(max, Math.max(min, v));
@@ -66,6 +80,7 @@ function clampInt(n: number | undefined, def: number, min: number, max: number):
  */
 export function buildServiceMapQuery(orgId: string, q: ServiceMapQueryInput): string {
   const windowMinutes = clampInt(q.windowMinutes, MAP_DEFAULT_WINDOW_MINUTES, 1, 1440);
+  const w = windowEnd(q.until);
   return [
     'SELECT',
     '  c.ServiceName AS from_service,',
@@ -77,8 +92,9 @@ export function buildServiceMapQuery(orgId: string, q: ServiceMapQueryInput): st
     'INNER JOIN otel_traces AS c ON c.TraceId = s.TraceId AND c.SpanId = s.ParentSpanId',
     `WHERE s.ResourceAttributes['swarmy.org_id'] = ${lit(orgId)}`,
     `  AND c.ResourceAttributes['swarmy.org_id'] = ${lit(orgId)}`,
-    `  AND s.Timestamp >= now() - INTERVAL ${windowMinutes} MINUTE`,
-    `  AND c.Timestamp >= now() - INTERVAL ${windowMinutes + 5} MINUTE`,
+    `  AND s.Timestamp >= ${w.end} - INTERVAL ${windowMinutes} MINUTE`,
+    ...w.upTo('s.Timestamp'),
+    `  AND c.Timestamp >= ${w.end} - INTERVAL ${windowMinutes + 5} MINUTE`,
     `  AND s.SpanKind IN ${ENTRY_KINDS}`,
     `  AND c.SpanKind IN ${CALLER_KINDS}`,
     '  AND c.ServiceName != s.ServiceName',
@@ -95,6 +111,7 @@ export function buildServiceMapQuery(orgId: string, q: ServiceMapQueryInput): st
  */
 export function buildServiceMapNodesQuery(orgId: string, q: ServiceMapQueryInput): string {
   const windowMinutes = clampInt(q.windowMinutes, MAP_DEFAULT_WINDOW_MINUTES, 1, 1440);
+  const w = windowEnd(q.until);
   return [
     'SELECT',
     '  ServiceName AS service_name,',
@@ -103,7 +120,8 @@ export function buildServiceMapNodesQuery(orgId: string, q: ServiceMapQueryInput
     '  round(quantile(0.95)(Duration) / 1000000, 2) AS p95_ms',
     'FROM otel_traces',
     `WHERE ResourceAttributes['swarmy.org_id'] = ${lit(orgId)}`,
-    `  AND Timestamp >= now() - INTERVAL ${windowMinutes} MINUTE`,
+    `  AND Timestamp >= ${w.end} - INTERVAL ${windowMinutes} MINUTE`,
+    ...w.upTo('Timestamp'),
     `  AND (SpanKind IN ${ENTRY_KINDS} OR ParentSpanId = '')`,
     'GROUP BY service_name',
     'ORDER BY calls DESC',

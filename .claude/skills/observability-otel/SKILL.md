@@ -174,7 +174,7 @@ db→protocol→service→router→UI shape see `skill("add-feature-slice")`.
 | Managed store + collector `ServiceSpec`s | `packages/trpc/src/services/observability-stack.ts` |
 | Collector config + ClickHouse init render (`create_schema`, TTL) | `packages/trpc/src/services/observability-render.ts` |
 | Org-scoped ClickHouse SQL: traces/metrics/logs | `packages/trpc/src/services/observability-query.ts` (logs: `observability-logs-query.ts`) |
-| Org-scoped ClickHouse SQL: service map (RED per edge) | `packages/trpc/src/services/observability-map.ts` |
+| Org-scoped ClickHouse SQL: service map (RED per edge; `until` ends the window at a past moment, parsed and re-rendered as ISO, for Time travel's call lines) | `packages/trpc/src/services/observability-map.ts` |
 | One query for many parts' request series (the canvas sparklines, `observability.requestSeriesMany`, ≤ 60 names, one app) | `packages/trpc/src/services/observability-request-many.ts` |
 | Sampling + redaction processors (pure, shared with the dashboard) | `packages/core/src/telemetry.ts` |
 | Enable/read layer (deploy suite, query, status) | `packages/trpc/src/services/observability.service.ts` |
