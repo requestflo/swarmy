@@ -1,5 +1,6 @@
 import type { DemoStore, DomainResolvers } from '../types';
 import { demoLogSource, STREAM_T0, STREAM_TRACES, STREAM_WINDOW_MS, streamSeedRows, tickStream } from './observability-stream';
+import { replayRequestLogRows } from './observability-replay-logs';
 
 /**
  * Demo resolvers for the Observability / Mission Control surface (router
@@ -709,8 +710,11 @@ observability.handlers!['observability.logs'] = (i, s): ObservabilityLogsPage =>
 
   const fromNano = Math.max(0, Math.floor(q.from)) * 1_000_000;
   const toNano = Math.max(0, Math.floor(q.to)) * 1_000_000;
+  // A demo replay's failed requests log their request id (observability-replay-logs.ts).
+  const extra = replayRequestLogRows();
+  const merged = extra.length ? [...all, ...extra].sort((a, b) => Number(b.ts_nano) - Number(a.ts_nano)) : all;
   let rows = bySource(
-    all.filter((r) => {
+    merged.filter((r) => {
       const ts = Number(r.ts_nano);
       return ts >= fromNano && ts <= toNano;
     }),
@@ -721,7 +725,8 @@ observability.handlers!['observability.logs'] = (i, s): ObservabilityLogsPage =>
   if (q.severityMin !== undefined) rows = rows.filter((r) => r.severity_number >= (q.severityMin as number));
   if (q.search) {
     const term = q.search.toLowerCase();
-    rows = rows.filter((r) => r.body.toLowerCase().includes(term));
+    // As the real query: the body, or an attribute equal to the term (a logged request id).
+    rows = rows.filter((r) => r.body.toLowerCase().includes(term) || Object.values(r.attributes ?? {}).includes(q.search!));
   }
   if (q.traceId) rows = rows.filter((r) => r.trace_id === q.traceId);
   if (q.cursor && /^\d+$/.test(q.cursor)) {

@@ -637,7 +637,7 @@ export const ObservabilityLogsInput = z.object({
   serviceName: z.string().min(1).max(255).optional(),
   /** OTel severity-number floor (TRACE=1 … FATAL=21+); rows below are dropped. */
   severityMin: z.number().int().min(1).max(24).optional(),
-  /** Case-insensitive substring match on the log body. */
+  /** Case-insensitive substring match on the log body, or an attribute value equal to it (a request id). */
   search: z.string().min(1).max(512).optional(),
   /** Only lines correlated to this trace. */
   traceId: z.string().min(1).max(64).optional(),

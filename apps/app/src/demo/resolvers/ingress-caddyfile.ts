@@ -51,6 +51,8 @@ function site(host: string, routes: DemoCaddyRoute[], onDemand: boolean): string
   const tls = routes[0]!.tls;
   const out = [`${tls === 'off' ? `http://${host}` : host} {`];
   if (onDemand && tls === 'auto') out.push('  tls {', '    on_demand', '  }');
+  // Every app site mints a request id (packages/ingress request-id.ts).
+  out.push('  # swarmy request id: one per request, sent upstream and back to the browser', '  request_header X-Request-Id {http.request.uuid}', '  header ?X-Request-Id {http.request.uuid}');
   const bare = routes.length === 1 && !routes[0]!.pathPrefix;
   for (const r of [...routes].sort((a, b) => (b.pathPrefix ?? '').length - (a.pathPrefix ?? '').length)) {
     if (bare) out.push(...proxy(r, '  '));

@@ -70,6 +70,11 @@ describe('buildLogsQuery', () => {
     expect(sql).toContain("Body ILIKE '%100\\\\%\\\\_done%'");
   });
 
+  it('search also matches an attribute whose value is exactly the term (a logged request id)', () => {
+    const sql = buildLogsQuery(ORG, { from: FROM, to: TO, search: '4f2a9c1e-7b3d' });
+    expect(sql).toContain("(Body ILIKE '%4f2a9c1e-7b3d%' OR has(mapValues(LogAttributes), '4f2a9c1e-7b3d'))");
+  });
+
   it('escapes single quotes in every string filter (no injection)', () => {
     const sql = buildLogsQuery(ORG, {
       from: FROM,

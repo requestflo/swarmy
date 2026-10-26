@@ -10,6 +10,7 @@ export * from './auto-address-base';
 export * from './dns-challenge';
 export * from './app-auth';
 export * from './rum';
+export * from './request-id';
 export * from './route-channel';
 export * from './edge-geoip';
 export * from './basic-auth';

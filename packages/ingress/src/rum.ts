@@ -128,13 +128,9 @@ export function caddyRumDirective(
   return out;
 }
 
-/** Span attribute lines for the edge `tracing` block (identified mode only). */
-export function caddyRumSpanAttributes(): string[] {
-  return [
-    '    span_attributes {',
-    `      ${RUM_SESSION_SPAN_ATTRIBUTE} {http.request.header.${RUM_SESSION_HEADER}}`,
-    '    }',
-  ];
+/** The edge span's session-id attribute line, inside `span_attributes` (identified mode only). */
+export function caddyRumSpanAttribute(): string {
+  return `      ${RUM_SESSION_SPAN_ATTRIBUTE} {http.request.header.${RUM_SESSION_HEADER}}`;
 }
 
 /** Stable, short decimal for a 0..1 rate (no float noise in goldens). */

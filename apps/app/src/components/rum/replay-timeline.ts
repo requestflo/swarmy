@@ -24,6 +24,8 @@ export interface TimelineRow {
   meta: string;
   traceId?: string;
   fingerprint?: string;
+  /** The edge's X-Request-Id on a failed request (rum.js keeps only those, and only the id). */
+  requestId?: string;
 }
 
 export interface Timeline {
@@ -50,6 +52,8 @@ const RR_CUSTOM = 5;
 const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v));
 const num = (v: unknown): number => (typeof v === 'number' ? v : Number(v ?? NaN));
 const isErrStatus = (s: string): boolean => /error/i.test(s);
+/** Mirrors rum.js's REQUEST_ID_RE: anything else in a recording is dropped, never shown. */
+const REQUEST_ID = /^[A-Za-z0-9._:-]{6,64}$/;
 
 function pathOf(url: string): string {
   try {
@@ -122,6 +126,7 @@ export function buildTimeline(d: Pick<ReplayDetail, 'events' | 'requests' | 'log
           main: `${str(p.method) || 'GET'} ${path}`,
           meta: span ? `${ms(span.durationMs)} · ${span.service}` : Number.isFinite(num(p.dur)) ? ms(num(p.dur)) : '',
           traceId: traceId || undefined,
+          requestId: REQUEST_ID.test(str(p.requestId)) ? str(p.requestId) : undefined,
         });
       } else if (data.tag === 'swarmy.error') {
         const msg = str(p.message) || 'Error';

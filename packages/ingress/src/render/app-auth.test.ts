@@ -17,6 +17,9 @@ function cfg(driver: string, domains: Record<string, unknown>[]): IngressConfig 
 }
 
 const CADDY_GOLDEN = `app.example.com {
+  # swarmy request id: one per request, sent upstream and back to the browser
+  request_header X-Request-Id {http.request.uuid}
+  header ?X-Request-Id {http.request.uuid}
   request_header -X-Swarmy-*
   # swarmy app login callback (sets the first-party session cookie)
   handle_path /.swarmy/auth/* {
@@ -39,6 +42,9 @@ const CADDY_GOLDEN = `app.example.com {
 }
 
 mixed.example.com {
+  # swarmy request id: one per request, sent upstream and back to the browser
+  request_header X-Request-Id {http.request.uuid}
+  header ?X-Request-Id {http.request.uuid}
   request_header -X-Swarmy-*
   # swarmy app login callback (sets the first-party session cookie)
   handle_path /.swarmy/auth/* {
@@ -118,7 +124,17 @@ describe('caddy — protected routes (golden)', () => {
   it('an unprotected host renders exactly as before (no gate, no callback, no strip)', () => {
     const out = buildCaddyfile(cfg('caddy', [{ domain: 'open.example.com', service: 'web', port: 3000 }]));
     expect(out).toBe(
-      ['open.example.com {', '  reverse_proxy web:3000 {', '    stream_close_delay 5m', '  }', '}', ''].join('\n'),
+      [
+        'open.example.com {',
+        '  # swarmy request id: one per request, sent upstream and back to the browser',
+        '  request_header X-Request-Id {http.request.uuid}',
+        '  header ?X-Request-Id {http.request.uuid}',
+        '  reverse_proxy web:3000 {',
+        '    stream_close_delay 5m',
+        '  }',
+        '}',
+        '',
+      ].join('\n'),
     );
   });
 });

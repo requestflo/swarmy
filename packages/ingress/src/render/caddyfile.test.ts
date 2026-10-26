@@ -20,6 +20,13 @@ function siteBlock(caddyfile: string, address: string): string[] {
   return body;
 }
 
+/** The edge's request-id lines, which open every app site (request-id.ts). */
+const REQUEST_ID = [
+  '  # swarmy request id: one per request, sent upstream and back to the browser',
+  '  request_header X-Request-Id {http.request.uuid}',
+  '  header ?X-Request-Id {http.request.uuid}',
+];
+
 describe('caddy host grouping — path routing across services', () => {
   it('two services on ONE host, different paths → a single site block, longest prefix first', () => {
     const out = buildCaddyfile(
@@ -167,6 +174,9 @@ describe('caddy canary — weighted upstreams (D2)', () => {
     expect(out).toBe(
       [
         'app.xyz.com {',
+        '  # swarmy request id: one per request, sent upstream and back to the browser',
+        '  request_header X-Request-Id {http.request.uuid}',
+        '  header ?X-Request-Id {http.request.uuid}',
         '  reverse_proxy web:3000 web--canary:3000 {',
         '    lb_policy weighted_round_robin 90 10',
         '    stream_close_delay 5m',
@@ -194,6 +204,9 @@ describe('caddy canary — weighted upstreams (D2)', () => {
     expect(out).toBe(
       [
         'xyz.com {',
+        '  # swarmy request id: one per request, sent upstream and back to the browser',
+        '  request_header X-Request-Id {http.request.uuid}',
+        '  header ?X-Request-Id {http.request.uuid}',
         '  handle /api* {',
         '    reverse_proxy api:8080 api--canary:8080 {',
         '      lb_policy weighted_round_robin 75 25',
@@ -309,6 +322,9 @@ describe('caddy route protections — rate limit, IP rules, body cap, bots, head
     expect(out).toBe(
       [
         'api.xyz.com {',
+        '  # swarmy request id: one per request, sent upstream and back to the browser',
+        '  request_header X-Request-Id {http.request.uuid}',
+        '  header ?X-Request-Id {http.request.uuid}',
         '  @deny_api_xyz_com remote_ip 203.0.113.7',
         '  abort @deny_api_xyz_com',
         '  @notallowed_api_xyz_com {',
@@ -413,7 +429,7 @@ describe('caddy route protections — rate limit, IP rules, body cap, bots, head
     const out = buildCaddyfile(
       cfg([{ domain: 'solo.xyz.com', service: 'web', port: 3000, pathPrefix: '/', tls: 'auto' }]),
     );
-    expect(out).toBe(['solo.xyz.com {', '  reverse_proxy web:3000 {', '    stream_close_delay 5m', '  }', '}', ''].join('\n'));
+    expect(out).toBe(['solo.xyz.com {', ...REQUEST_ID, '  reverse_proxy web:3000 {', '    stream_close_delay 5m', '  }', '}', ''].join('\n'));
   });
 });
 
@@ -445,6 +461,9 @@ describe('caddy response caching — cache-handler directive', () => {
         '}',
         '',
         'assets.xyz.com {',
+        '  # swarmy request id: one per request, sent upstream and back to the browser',
+        '  request_header X-Request-Id {http.request.uuid}',
+        '  header ?X-Request-Id {http.request.uuid}',
         '  cache {',
         '    ttl 300s',
         '    stale 60s',
@@ -484,7 +503,7 @@ describe('caddy response caching — cache-handler directive', () => {
     const out = buildCaddyfile(
       cfg([{ domain: 'solo.xyz.com', service: 'web', port: 3000, pathPrefix: '/', tls: 'auto' }]),
     );
-    expect(out).toBe(['solo.xyz.com {', '  reverse_proxy web:3000 {', '    stream_close_delay 5m', '  }', '}', ''].join('\n'));
+    expect(out).toBe(['solo.xyz.com {', ...REQUEST_ID, '  reverse_proxy web:3000 {', '    stream_close_delay 5m', '  }', '}', ''].join('\n'));
   });
 
   it('a COLD route never caches: the wake redirect must not stick in a cache', () => {
@@ -555,6 +574,9 @@ describe('caddy country rules — maxmind_geolocation matcher', () => {
     expect(out).toBe(
       [
         'uk.xyz.com {',
+        '  # swarmy request id: one per request, sent upstream and back to the browser',
+        '  request_header X-Request-Id {http.request.uuid}',
+        '  header ?X-Request-Id {http.request.uuid}',
         '  @geonotallowed_uk_xyz_com {',
         '    not maxmind_geolocation {',
         '      db_path /geoip/country.mmdb',
@@ -590,6 +612,9 @@ describe('caddy country rules — maxmind_geolocation matcher', () => {
     expect(out).toBe(
       [
         'xyz.com {',
+        '  # swarmy request id: one per request, sent upstream and back to the browser',
+        '  request_header X-Request-Id {http.request.uuid}',
+        '  header ?X-Request-Id {http.request.uuid}',
         '  @geodeny_xyz_com {',
         '    maxmind_geolocation {',
         '      db_path /geoip/country.mmdb',
@@ -699,6 +724,9 @@ describe('caddy WAF-lite — scanner paths, methods, query patterns (no plugin)'
     expect(out).toBe(
       [
         'xyz.com {',
+        '  # swarmy request id: one per request, sent upstream and back to the browser',
+        '  request_header X-Request-Id {http.request.uuid}',
+        '  header ?X-Request-Id {http.request.uuid}',
         `  @wafscan_xyz_com path ${WAF_SCANNER_PATHS.join(' ')}`,
         '  respond @wafscan_xyz_com 403',
         '  reverse_proxy web:3000 {',
@@ -1096,6 +1124,9 @@ describe('per-host request metrics (Q4 per-edge request counting)', () => {
         '}',
         '',
         'http://shop.local {',
+        '  # swarmy request id: one per request, sent upstream and back to the browser',
+        '  request_header X-Request-Id {http.request.uuid}',
+        '  header ?X-Request-Id {http.request.uuid}',
         '  reverse_proxy web:80 {',
         '    stream_close_delay 5m',
         '  }',
@@ -1151,7 +1182,7 @@ describe('caddy region-aware upstreams (geo-edge)', () => {
       localRegion: 'za-johannesburg',
     });
     const body = siteBlock(out, 'app.example.com').map((l) => l.trim());
-    expect(body[0]).toBe(
+    expect(body.find((l) => l.startsWith('reverse_proxy'))).toBe(
       'reverse_proxy web-za-johannesburg:3000 web-uk-scotland:3000 {',
     );
     expect(body).toContain('lb_policy first');
@@ -1166,7 +1197,7 @@ describe('caddy region-aware upstreams (geo-edge)', () => {
       localRegion: 'uk-scotland',
     });
     const body = siteBlock(out, 'app.example.com').map((l) => l.trim());
-    expect(body[0]).toBe(
+    expect(body.find((l) => l.startsWith('reverse_proxy'))).toBe(
       'reverse_proxy web-uk-scotland:3000 web-za-johannesburg:3000 {',
     );
   });
@@ -1176,7 +1207,7 @@ describe('caddy region-aware upstreams (geo-edge)', () => {
       cfg([{ domain: 'app.example.com', service: 'web', port: 3000, regionUpstreams }]),
     );
     const body = siteBlock(out, 'app.example.com').map((l) => l.trim());
-    expect(body[0]).toBe(
+    expect(body.find((l) => l.startsWith('reverse_proxy'))).toBe(
       'reverse_proxy web-uk-scotland:3000 web-za-johannesburg:3000 {',
     );
   });
@@ -1207,7 +1238,7 @@ describe('caddy region-aware upstreams (geo-edge)', () => {
       localRegion: 'za-johannesburg',
     });
     const body = siteBlock(out, 'app.example.com').map((l) => l.trim());
-    expect(body[0]).toBe('reverse_proxy web:3000 web--canary:3000 {');
+    expect(body.find((l) => l.startsWith('reverse_proxy'))).toBe('reverse_proxy web:3000 web--canary:3000 {');
     expect(body).toContain('lb_policy weighted_round_robin 90 10');
     expect(out).not.toContain('lb_policy first');
   });
@@ -1369,6 +1400,9 @@ describe('caddy basic auth — "Require a password" (basic_auth)', () => {
     expect(out).toBe(
       [
         'admin.xyz.com {',
+        '  # swarmy request id: one per request, sent upstream and back to the browser',
+        '  request_header X-Request-Id {http.request.uuid}',
+        '  header ?X-Request-Id {http.request.uuid}',
         '  route {',
         '    basic_auth {',
         `      alice ${H1}`,
@@ -1406,6 +1440,9 @@ describe('caddy basic auth — "Require a password" (basic_auth)', () => {
     );
     expect(out).not.toContain('order cache');
     expect(siteBlock(out, 'xyz.com')).toEqual([
+      '  # swarmy request id: one per request, sent upstream and back to the browser',
+      '  request_header X-Request-Id {http.request.uuid}',
+      '  header ?X-Request-Id {http.request.uuid}',
       '  handle /admin* {',
       '    route {',
       '      @deny_xyz_com_admin remote_ip 203.0.113.7',

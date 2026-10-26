@@ -12,7 +12,8 @@ import {
   APP_AUTH_PATH_PREFIX,
   type RouteAuth,
 } from '../app-auth';
-import { CADDY_RUM_ORDER, caddyRumDirective, caddyRumHandle, caddyRumSpanAttributes, rumIdentified } from '../rum';
+import { CADDY_RUM_ORDER, caddyRumDirective, caddyRumHandle, caddyRumSpanAttribute, rumIdentified } from '../rum';
+import { caddyRequestIdLines, caddyRequestIdSpanAttribute } from '../request-id';
 import { caddyBasicAuthLines, type RouteBasicAuth } from '../basic-auth';
 import type { HostRedirect } from '../www';
 import { caddyDnsTlsLines } from '../dns-challenge';
@@ -447,11 +448,13 @@ function buildSite(host: string, routes: DomainRoute[], config: IngressConfig): 
   const ordered = [...routes].sort(bySpecificity);
   const rum = ordered.find((r) => r.rum && !r.cold)?.rum;
   if (config.globalOptions.tracing) {
-    // Identified RUM: the edge span carries the browser session id, so a
-    // replay can list the requests (and their traces) it made.
-    const attrs = ordered.some((r) => !r.cold && rumIdentified(r.rum)) ? caddyRumSpanAttributes() : [];
-    out.push('  tracing {', '    span swarmy-edge', ...attrs, '  }');
+    // The edge span carries the request id; with identified RUM, the browser
+    // session id too, so a replay can list the requests (and traces) it made.
+    const session = ordered.some((r) => !r.cold && rumIdentified(r.rum)) ? [caddyRumSpanAttribute()] : [];
+    out.push('  tracing {', '    span swarmy-edge', '    span_attributes {', ...session, caddyRequestIdSpanAttribute(), '    }', '  }');
   }
+  // Every request gets an id: upstream (app logs, traces) and on the response (RUM, support).
+  out.push(...caddyRequestIdLines());
 
   // "Protect my app": the login callback lives on THIS host (first-party cookie),
   // so a host with any protected route carries the controller callback handle —

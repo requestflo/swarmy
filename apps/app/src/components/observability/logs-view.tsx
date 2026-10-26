@@ -20,12 +20,21 @@ import { useStreamKeys } from './use-stream-keys';
  * grouped-errors aside. `children` (the health block) renders under the
  * stream from Controls.
  */
-export function LogsView({ stack, retentionDays, children }: { stack: string; retentionDays: number | undefined; children: React.ReactNode }): React.JSX.Element {
+interface LogsViewProps {
+  stack: string;
+  retentionDays: number | undefined;
+  /** Open on this search and window (a replay's "Find in logs"). */
+  initialSearch?: string;
+  initialRange?: LogRangePreset;
+  children: React.ReactNode;
+}
+
+export function LogsView({ stack, retentionDays, initialSearch, initialRange, children }: LogsViewProps): React.JSX.Element {
   const [level, setLevel] = React.useState<LevelFilter>('all');
   const [part, setPart] = React.useState('');
   const [source, setSource] = React.useState<LogSourceFilter>('auto');
-  const [range, setRange] = React.useState<LogRangePreset>('15m');
-  const [search, setSearch] = React.useState('');
+  const [range, setRange] = React.useState<LogRangePreset>(initialRange ?? '15m');
+  const [search, setSearch] = React.useState(initialSearch ?? '');
   const [group, setGroup] = React.useState<string | null>(null);
   const [nav, dispatch] = React.useReducer(navReducer, INITIAL_NAV);
   const searchRef = React.useRef<HTMLInputElement>(null);

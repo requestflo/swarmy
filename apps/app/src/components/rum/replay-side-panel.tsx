@@ -1,5 +1,8 @@
 import * as React from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { cn } from '@swarmy/ui';
+import { useTRPC } from '@/integrations/trpc';
+import { requestIdLink } from './replay-request-id-model';
 import { lastAt, type Timeline, type TimelineRow } from './replay-timeline';
 import { ReplayEventRow } from './replay-event-row';
 
@@ -30,6 +33,11 @@ export function ReplaySidePanel({ stack, timeline, time, onSeek }: ReplaySidePan
   const [tab, setTab] = React.useState<PanelTab>(timeline.errors.length ? 'errors' : 'requests');
   const rows: TimelineRow[] = timeline[tab];
   const now = lastAt(rows, time);
+  // "Find in logs" for a failed request's id: only where the app's logs are (suite on + this app sending).
+  const trpc = useTRPC();
+  const suite = useQuery({ ...trpc.observability.status.queryOptions(), staleTime: 60_000 });
+  const app = useQuery({ ...trpc.observability.stackTelemetry.queryOptions({ stack }), staleTime: 60_000 });
+  const telemetryOn = !!suite.data?.enabled && !!app.data?.enabled;
 
   return (
     <aside className="calm-card shadow-none flex min-h-0 flex-col gap-2 p-4" aria-label="This visit">
@@ -63,6 +71,7 @@ export function ReplaySidePanel({ stack, timeline, time, onSeek }: ReplaySidePan
               row={r}
               state={r === now ? 'now' : r.t <= time ? 'past' : 'future'}
               onSeek={onSeek}
+              requestLink={r.requestId ? requestIdLink(r.requestId, timeline.start + r.t, Date.now(), telemetryOn) : null}
             />
           ))}
         </ul>

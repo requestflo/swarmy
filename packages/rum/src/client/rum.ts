@@ -12,12 +12,16 @@
  * consent is set to none), a session id in sessionStorage, the same-origin
  * request headers that link server traces (Swarmy-Session + a traceparent the
  * page did not set itself), and — for a sampled share of sessions — the
- * rrweb recorder (/_swarmy/replay.js) with every input masked.
+ * rrweb recorder (/_swarmy/replay.js) with every input masked. A failed
+ * request in a replay keeps the edge's X-Request-Id (the id only, never a
+ * body: ./request-id.ts).
  *
  * Consent (data-consent): "hook" waits for `window.swarmyConsent(true)` (or
  * `{ replay: true }`); "cmp" additionally listens to an IAB TCF v2 CMP
  * (purposes 1 + 8); "none" starts straight away (internal tools only).
  */
+
+import { failedRequestId } from './request-id';
 
 interface SwarmyRecordOptions {
   emit: (e: unknown) => void;
@@ -154,7 +158,7 @@ interface TcfData {
       return url.slice(0, 200);
     }
   }
-  function recordRequest(p: { method: string; url: string; status: number; start: number; dur: number; traceId: string }): void {
+  function recordRequest(p: { method: string; url: string; status: number; start: number; dur: number; traceId: string; requestId?: string }): void {
     recorder?.addCustom('swarmy.request', { ...p, url: pathOf(p.url) });
   }
 
@@ -178,7 +182,7 @@ interface TcfData {
       const p = req ? origFetch.call(this, req) : origFetch.call(this, input, { ...init, headers });
       return p.then(
         (res) => {
-          recordRequest({ method, url, status: res.status, start, dur: Date.now() - start, traceId });
+          recordRequest({ method, url, status: res.status, start, dur: Date.now() - start, traceId, requestId: failedRequestId(res.status, (h) => res.headers.get(h)) });
           return res;
         },
         (err: unknown) => {
@@ -212,7 +216,15 @@ interface TcfData {
         }
         const start = Date.now();
         this.addEventListener('loadend', () =>
-          recordRequest({ method: m.method, url: m.url, status: this.status, start, dur: Date.now() - start, traceId }),
+          recordRequest({
+            method: m.method,
+            url: m.url,
+            status: this.status,
+            start,
+            dur: Date.now() - start,
+            traceId,
+            requestId: failedRequestId(this.status, (h) => this.getResponseHeader(h)),
+          }),
         );
       }
       return XS.call(this, body);

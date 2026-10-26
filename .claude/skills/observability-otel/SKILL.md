@@ -100,6 +100,17 @@ db→protocol→service→router→UI shape see `skill("add-feature-slice")`.
     (visits in privacy mode, signed-in people only in identified mode). RUM
     rows carry no release tag, so a visit's release is the stack `Release`
     live when it began; "since vN" needs a significant fall (`funnel-math.ts`).
+    Request ids: every Caddy app site mints `{http.request.uuid}`, sends it
+    upstream as `X-Request-Id` (a client-sent copy is replaced), returns it
+    unless the app set its own (`?`), and tags the edge span
+    `swarmy.request_id` (`packages/ingress/src/request-id.ts`, goldens in
+    `render/request-id.test.ts`). rum.js keeps it on a FAILED fetch/XHR in a
+    recorded session only, id-shaped values only, never a body
+    (`client/request-id.ts`; the built bundle is exercised by
+    `client/rum-capture.test.ts`); the replay's Requests list shows it with
+    "Find in logs" (`/stacks/$name/observability?q=&range=`) while the app
+    sends telemetry. The logs search matches the body or an attribute value
+    equal to the term.
 
 ## Contracts between the layers
 

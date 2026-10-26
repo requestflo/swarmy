@@ -8,14 +8,16 @@ import { ObsCode } from './obs-code';
 import { ObsHealthBlock } from './obs-health-block';
 import { ObsNextAction, obsOffHeadline, type ObsState } from './obs-summary';
 import type { CollectorStatus } from './observability-shared';
+import type { LogRangePreset } from './logs-shared';
 
 /**
  * The app's Observability › Logs & traces tab (Logs board). It opens on the
  * live log stream; the health dashboard (what swarmy watches, collector
  * switches, service map, traces, metrics) sits under it from Controls.
  * While telemetry is off: the sentence, the one switch, and the same block.
+ * `search` / `range` open the stream on a search (a replay's request id).
  */
-export function StackObservabilityTab({ stack }: { stack: string }): React.JSX.Element {
+export function StackObservabilityTab({ stack, search, range }: { stack: string; search?: string; range?: LogRangePreset }): React.JSX.Element {
   const trpc = useTRPC();
   const status = useQuery({ ...trpc.observability.status.queryOptions(), refetchInterval: 5_000 });
   const telemetry = useQuery(trpc.observability.stackTelemetry.queryOptions({ stack }));
@@ -37,7 +39,7 @@ export function StackObservabilityTab({ stack }: { stack: string }): React.JSX.E
     />
   );
 
-  if (state === 'on') return <LogsView stack={stack} retentionDays={retention}>{health}</LogsView>;
+  if (state === 'on') return <LogsView stack={stack} retentionDays={retention} initialSearch={search} initialRange={range}>{health}</LogsView>;
 
   const head = obsOffHeadline(stack, state);
   return (

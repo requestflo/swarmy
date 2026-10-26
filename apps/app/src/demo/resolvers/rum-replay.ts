@@ -6,6 +6,8 @@
  * swarmy.request / swarmy.error / swarmy.navigation custom events rum.js adds.
  */
 
+import { registerFailedRequest } from './observability-replay-logs';
+
 type SNode = Record<string, unknown> & { id: number };
 interface RrEvent {
   type: number;
@@ -168,9 +170,15 @@ export function buildRecording(startMs: number, seed: number, full: boolean): De
     clicks++;
   };
   let n = 0;
+  // rum.js keeps the edge's X-Request-Id on a failed request only (packages/rum client/request-id.ts).
+  let lastRequestId = '';
   const request = (s: number, method: string, path: string, status: number, dur: number, services: string[]): string => {
     const traceId = hex(seed * 131 + ++n, 32);
-    push(s, 5, { tag: 'swarmy.request', payload: { method, url: `https://shop.northwind.dev${path}`, status, start: s * 1000, dur, traceId } });
+    const r = hex(seed * 7919 + n, 32);
+    lastRequestId = status >= 400 ? `${r.slice(0, 8)}-${r.slice(8, 12)}-4${r.slice(13, 16)}-a${r.slice(17, 20)}-${r.slice(20, 32)}` : '';
+    const payload = { method, url: `https://shop.northwind.dev${path}`, status, start: s * 1000, dur, traceId };
+    if (lastRequestId) registerFailedRequest(lastRequestId, { tsMs: at(s) + dur, service: services[1] ?? services[0] ?? 'web', body: `${method} ${path} failed with ${status}`, traceId });
+    push(s, 5, { tag: 'swarmy.request', payload: lastRequestId ? { ...payload, requestId: lastRequestId } : payload });
     let t = at(s);
     services.forEach((svc, i) => {
       const d = Math.max(3, Math.round(dur * (1 - i * 0.3)));
@@ -220,7 +228,7 @@ export function buildRecording(startMs: number, seed: number, full: boolean): De
   click(66, 'pay', 240, 330);
   const payTrace = request(68, 'POST', '/api/checkout', 500, 1800, ['web', 'checkout', 'stripe']);
   logs.push({ tsMs: at(68.3), severity: 'INFO', service: 'checkout', body: 'creating payment intent', traceId: payTrace });
-  logs.push({ tsMs: at(70), severity: 'ERROR', service: 'checkout', body: 'apple pay merchant validation failed: certificate expired', traceId: payTrace });
+  logs.push({ tsMs: at(70), severity: 'ERROR', service: 'checkout', body: `apple pay merchant validation failed: certificate expired request_id=${lastRequestId}`, traceId: payTrace });
   push(71, 5, { tag: 'swarmy.error', payload: { message: 'TypeError: applePaySession is undefined', source: 'pay.ts:88' } });
   errorCount++;
   const slot = page.refs.slot ?? 1;

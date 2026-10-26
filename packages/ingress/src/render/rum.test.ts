@@ -27,6 +27,9 @@ describe('caddy RUM render', () => {
 }
 
 app.example.com {
+  # swarmy request id: one per request, sent upstream and back to the browser
+  request_header X-Request-Id {http.request.uuid}
+  header ?X-Request-Id {http.request.uuid}
   # swarmy RUM (analytics / replay): first-party script + ingest
   handle_path /_swarmy/* {
     rewrite * /_rum{uri}
@@ -76,8 +79,12 @@ shop.example.com {
     span swarmy-edge
     span_attributes {
       swarmy.session_id {http.request.header.Swarmy-Session}
+      swarmy.request_id {http.request.uuid}
     }
   }
+  # swarmy request id: one per request, sent upstream and back to the browser
+  request_header X-Request-Id {http.request.uuid}
+  header ?X-Request-Id {http.request.uuid}
   # swarmy RUM (analytics / replay): first-party script + ingest
   handle_path /_swarmy/* {
     rewrite * /_rum{uri}
@@ -142,13 +149,14 @@ shop.example.com {
     expect(out).not.toContain('data-uid');
   });
 
-  it('analytics mode never carries session plumbing (no span attribute, no replay attrs)', () => {
+  it('analytics mode never carries session plumbing (no session span attribute, no replay attrs)', () => {
     const out = buildCaddyfile(
       cfg([{ domain: 'a.example.com', service: 'web', port: 3000, rum: { ...analytics, replaySampleRate: 1, consent: 'cmp' } }], {
         tracing: true,
       }),
     );
-    expect(out).not.toContain('span_attributes');
+    expect(out).not.toContain('swarmy.session_id');
+    expect(out).not.toContain('Swarmy-Session');
     expect(out).not.toContain('data-replay');
     expect(out).not.toContain('data-consent');
   });
@@ -181,6 +189,9 @@ shop.example.com {
   it('without rum, output is byte-identical to the legacy render', () => {
     const out = buildCaddyfile(cfg([{ domain: 'a.example.com', service: 'web', port: 3000 }]));
     expect(out).toBe(`a.example.com {
+  # swarmy request id: one per request, sent upstream and back to the browser
+  request_header X-Request-Id {http.request.uuid}
+  header ?X-Request-Id {http.request.uuid}
   reverse_proxy web:3000 {
     stream_close_delay 5m
   }

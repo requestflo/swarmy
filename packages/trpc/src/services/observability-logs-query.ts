@@ -6,8 +6,10 @@
  *  - Always `swarmy.org_id`-scoped (first predicate, non-negotiable) — and
  *    the dedupe subquery carries the same wall.
  *  - Closed `[from, to]` window in unix **milliseconds**, inlined as integers.
- *  - Optional filters: exact stack, exact service, severity floor, body
- *    ILIKE, exact trace id — every string routed through `lit()`.
+ *  - Optional filters: exact stack, exact service, severity floor, search
+ *    (body ILIKE, or an attribute whose value is exactly the term — a
+ *    request id an app logs as a field), exact trace id — every string
+ *    routed through `lit()`.
  *  - Source: container output carries `swarmy.log.source=stdout` (the node
  *    agent stamps it); every other row was sent over OTLP. `auto` (default)
  *    prefers OTLP: a service's stdout lines show only when that service sent
@@ -61,7 +63,7 @@ export function buildLogsQuery(orgId: string, q: ObservabilityLogsInput): string
   if (q.severityMin !== undefined) {
     where.push(`SeverityNumber >= ${clampInt(q.severityMin, 9, 1, 24)}`);
   }
-  if (q.search) where.push(`Body ILIKE ${lit(`%${likeTerm(q.search)}%`)}`);
+  if (q.search) where.push(`(Body ILIKE ${lit(`%${likeTerm(q.search)}%`)} OR has(mapValues(LogAttributes), ${lit(q.search)}))`);
   if (q.traceId) where.push(`TraceId = ${lit(q.traceId)}`);
   const source = q.source ?? 'auto';
   if (source === 'stdout') where.push(IS_STDOUT);
