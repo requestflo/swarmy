@@ -37,6 +37,7 @@ import {
   resolveManagedPgImage,
 } from './manageddb.service';
 import { waitForPostgres } from './resilience.service';
+import { restoreProgress } from './restore-progress';
 
 export const RESTORE_COPY_AUDIT_ACTION = 'db.restore.copy';
 
@@ -108,6 +109,9 @@ export async function restoreDbAsCopy(
       metadata: { source: `${stack}/${cluster}`, engine, mode, snapshotId: snapshotId ?? null, targetTime: input.targetTime ?? null, ...metadata },
     });
   const pinNode = copyPinNode(ctx, source.labels);
+  // The source's restore card shows the copy being made, then the restore into it.
+  const run = restoreProgress.begin(ctx.activeOrgId, `${stack}/${cluster}`, { into: ref, mode, engine, targetTime: input.targetTime });
+  run.stage('create');
   try {
     // The password comes back because this is the server-side provision; it is dropped here.
     const { primaryService, rwHost } = await provisionDbWithPassword(
@@ -133,10 +137,12 @@ export async function restoreDbAsCopy(
       targetTime: input.targetTime,
       targetStack: stack,
       targetCluster: name,
-    });
+    }, run);
+    run.finish(true);
     await audit({ status: 'succeeded' });
     return { ...restored, copy: { stack, cluster: name, primaryService, rwHost } };
   } catch (e) {
+    run.finish(false, e instanceof Error ? e.message : String(e));
     const removed = await removeCopyServices(ctx, stack, name);
     await audit({ status: 'failed', error: e instanceof Error ? e.message : String(e), removed });
     throw e;

@@ -32,6 +32,7 @@ import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
 import { resolveExecTarget } from './live-resolve';
 import { rotateRolesScript } from './manageddb.service';
+import type { RestoreRun } from './restore-progress';
 
 const HOUR_MS = 3_600_000;
 
@@ -61,6 +62,8 @@ export interface PitrRestorePlan {
   safety?: { safetySnapshotId: string | null; safetySkipped: boolean };
   /** The operator's engine image (pgbackrest has no default; `dbBackupEngines.ts`). */
   engineImage?: string;
+  /** The restore card's run: each step, the agent's fetch progress, the replay position. */
+  progress?: RestoreRun;
 }
 
 export interface PitrRestoreTiming {
@@ -113,8 +116,22 @@ export function pitrCleanupScript(): string {
 /** PURE: the server answers on TCP with the target's own password (its secret). */
 export const PITR_VERIFY_SCRIPT = `${PG_PASSWORD_FROM_MEMBER} psql -U postgres -h 127.0.0.1 -p 5432 -d postgres -tAc "SELECT 1"`;
 
-/** PURE: is the restored server still in recovery? (`t`/`f`). The local socket works mid-recovery. */
-export const IN_RECOVERY_SCRIPT = 'psql -U postgres -d postgres -tAc "SELECT pg_is_in_recovery()"';
+/**
+ * PURE: is the restored server still in recovery (`t`/`f`), and the newest
+ * change it has replayed (`t|2026-10-24 13:05:22.123+00`). The local socket
+ * works mid-recovery.
+ */
+export const IN_RECOVERY_SCRIPT = 'psql -U postgres -d postgres -tAc "SELECT pg_is_in_recovery(), pg_last_xact_replay_timestamp()"';
+
+/** PURE: the replay position in {@link IN_RECOVERY_SCRIPT}'s output as ISO UTC, or null. */
+export function replayedTo(output: string): string | null {
+  const m = /\|\s*(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(\.\d+)?\s*(Z|[+-]\d{2}(?::?\d{2})?)?/.exec(output);
+  if (!m) return null;
+  const frac = m[3] ? m[3].slice(0, 4) : '';
+  const z = !m[4] || m[4] === 'Z' ? 'Z' : m[4].length === 3 ? `${m[4]}:00` : m[4].includes(':') ? m[4] : `${m[4].slice(0, 3)}:${m[4].slice(3)}`;
+  const ms = Date.parse(`${m[1]}T${m[2]}${frac}${z}`);
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
+}
 
 /** A UTC stamp for the aside copy: `20260926T101500Z`. */
 export function pitrStamp(now: number): string {
@@ -162,6 +179,7 @@ async function waitPromoted(
   service: string,
   t: Required<Pick<PitrRestoreTiming, 'sleep' | 'now' | 'pollMs'>>,
   waitMs: number,
+  onReplay?: (at: string) => void,
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
   const deadline = t.now() + waitMs;
   const seen = new Set<string>();
@@ -170,6 +188,8 @@ async function waitPromoted(
     const res = await execIn(ctx, service, IN_RECOVERY_SCRIPT);
     if (res) {
       seen.add(res.containerId);
+      const at = res.exitCode === 0 ? replayedTo(res.output) : null;
+      if (at) onReplay?.(at);
       if (res.exitCode === 0 && res.output.startsWith('f')) return { ok: true };
       last = res.exitCode === 0 ? 'still replaying WAL' : res.output || `psql exited ${res.exitCode}`;
       if (seen.size >= 3) return { ok: false, reason: `the server keeps restarting during recovery (last: ${errorTail(last, 300)})` };
@@ -203,8 +223,11 @@ export async function runPitrRestore(ctx: OrgContext, plan: PitrRestorePlan, tim
     dataVolume: plan.dataVolume,
     pitrStamp: stamp,
     pitrAction: action,
+    // An older agent ignores it and reports only the result.
+    ...(action === 'restore' && plan.progress ? { reportProgress: true } : {}),
     ...(plan.engineImage ? { engineImage: plan.engineImage } : {}),
   });
+  const step = (stage: Parameters<RestoreRun['stage']>[0]) => plan.progress?.stage(stage);
   const audit = (status: 'succeeded' | 'failed', extra: Record<string, unknown>) =>
     writeAudit(ctx, {
       action: 'db.restore',
@@ -219,6 +242,7 @@ export async function runPitrRestore(ctx: OrgContext, plan: PitrRestorePlan, tim
   };
 
   // (2) stop the target.
+  step('stop');
   await scale(0);
   if (!(await waitForNoTask(ctx, plan.service, t, timing.stopWaitMs ?? 120_000))) {
     await scale(replicas).catch(() => undefined);
@@ -228,15 +252,21 @@ export async function runPitrRestore(ctx: OrgContext, plan: PitrRestorePlan, tim
   // (3) aside + fetch + WAL + recovery, on the node holding the volume.
   let result: DbRestoreResult;
   try {
-    result = await ctx.hub.dispatch<DbRestoreResult>(plan.nodeId, 'db.restore', restoreCmd('restore'), { timeoutMs: 4 * HOUR_MS });
+    step('base');
+    result = await ctx.hub.dispatch<DbRestoreResult>(plan.nodeId, 'db.restore', restoreCmd('restore'), {
+      timeoutMs: 4 * HOUR_MS,
+      onProgress: (p) => plan.progress?.agent(p),
+    });
   } catch (e) {
     await scale(replicas).catch(() => undefined);
     return fail(`PITR restore failed and ${plan.service} was started again on its previous data: ${errorTail(e)}`);
   }
 
   // (4) start it, wait for recovery to end and the server to promote.
+  step('start');
   await scale(replicas);
-  const promoted = await waitPromoted(ctx, plan.service, t, timing.promoteWaitMs ?? 30 * 60_000);
+  step('replay');
+  const promoted = await waitPromoted(ctx, plan.service, t, timing.promoteWaitMs ?? 30 * 60_000, (at) => plan.progress?.replay(at));
   if (!promoted.ok) {
     let rolledBack = false;
     let rollbackError = '';
@@ -261,6 +291,7 @@ export async function runPitrRestore(ctx: OrgContext, plan: PitrRestorePlan, tim
   }
 
   // Tidy the recovery settings, then give the roles the TARGET's password.
+  step('check');
   const notes: string[] = [];
   const cleanup = await execIn(ctx, plan.service, pitrCleanupScript());
   if (!cleanup || cleanup.exitCode !== 0) notes.push(`recovery settings not removed: ${errorTail(cleanup?.output ?? 'no running task', 200)}`);

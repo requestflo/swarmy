@@ -231,6 +231,13 @@ export const DbRestorePayload = z.object({
    * that did not recover. The target must be stopped for both.
    */
   pitrAction: z.enum(['restore', 'rollback']).optional(),
+  /**
+   * Additive: send `running` progress frames (`CommandProgress.restore`:
+   * download / base / wal / load, bytes, segments) while the restore runs.
+   * An older agent ignores it (zod strips unknown keys) and reports only the
+   * result, so the controller shows its own steps alone.
+   */
+  reportProgress: z.boolean().optional(),
   ...engineEnv,
 });
 export const DbRestoreMsg = z.object({

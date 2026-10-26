@@ -22,6 +22,7 @@
  */
 import { DEFAULT_WALG_IMAGE } from '@swarmy/core/protocol';
 import type { DbRestorePayload, DbRestoreResult } from '@swarmy/core/protocol';
+import type { RestoreReporter } from './restore-progress';
 import type { DockerClient } from '@swarmy/core/docker';
 import {
   S3_PREFLIGHT,
@@ -61,13 +62,15 @@ export function walgPitrRestoreScript(): string {
   'ROOT="$(dirname "$PGDATA")"',
   'ASIDE="$PGDATA.pre-pitr-$SWARMY_PITR_STAMP"',
   `WALDIR="$ROOT/${PITR_WAL_DIR}"`,
-  'MOVED=0; STARTED=0',
+  'MOVED=0; STARTED=0; PROG=""',
+  // SWARMY_PROGRESS=1: PGDATA's size every 5 s while the base backup lands, then WAL counts.
+  'stop_progress() { if [ -n "$PROG" ]; then kill "$PROG" 2>/dev/null || true; PROG=""; fi; }',
   'rollback() {',
   '  echo "swarmy: PITR restore failed - putting the original PGDATA back" >&2',
   '  if [ "$STARTED" = 1 ]; then rm -rf "$PGDATA" "$WALDIR"; fi',
   '  if [ "$MOVED" = 1 ]; then mv "$ASIDE" "$PGDATA"; fi',
   '}',
-  'trap \'rc=$?; if [ "$rc" != 0 ]; then rollback; fi; exit "$rc"\' EXIT',
+  'trap \'rc=$?; stop_progress; if [ "$rc" != 0 ]; then rollback; fi; exit "$rc"\' EXIT',
   'if [ -e "$ASIDE" ]; then echo "swarmy: $ASIDE already exists - refusing to overwrite a kept copy" >&2; exit 4; fi',
   'OWNER="$(stat -c %u:%g "$PGDATA" 2>/dev/null || echo 999:999)"',
   // 1) keep the original: moved aside, never deleted.
@@ -76,7 +79,13 @@ export function walgPitrRestoreScript(): string {
   'rm -rf "$WALDIR"',
   'mkdir -p "$PGDATA" "$WALDIR"; chmod 700 "$PGDATA"',
   // 2) the base backup.
+  'if [ "${SWARMY_PROGRESS:-}" = 1 ]; then',
+  '  ( while :; do sleep 5 </dev/null >/dev/null 2>&1; echo "swarmy: progress base $(du -sb "$PGDATA" 2>/dev/null | cut -f1)"; done ) &',
+  '  PROG=$!',
+  'fi',
   'wal-g backup-fetch "$PGDATA" "$SWARMY_BACKUP_NAME"',
+  'stop_progress',
+  'if [ "${SWARMY_PROGRESS:-}" = 1 ]; then echo "swarmy: progress base $(du -sb "$PGDATA" 2>/dev/null | cut -f1)"; echo "swarmy: progress wal 0"; fi',
   // 3) the archived WAL from the backup's start on, following timeline switches.
   'START="$(sed -n \'s/^START WAL LOCATION: .*(file \\([0-9A-F]\\{24\\}\\)).*$/\\1/p\' "$PGDATA/backup_label" | head -n 1)"',
   'if [ -z "$START" ]; then echo "swarmy: the base backup has no backup_label START WAL LOCATION" >&2; exit 5; fi',
@@ -92,7 +101,11 @@ export function walgPitrRestoreScript(): string {
   'N=0; LAST=none',
   'while :; do',
   '  S="$(seg "$TLI" "$NO")"',
-  '  if fetch "$S"; then N=$((N + 1)); LAST="$S"; NO=$((NO + 1)); continue; fi',
+  '  if fetch "$S"; then',
+  '    N=$((N + 1)); LAST="$S"; NO=$((NO + 1))',
+  '    if [ "${SWARMY_PROGRESS:-}" = 1 ] && [ $((N % 16)) = 0 ]; then echo "swarmy: progress wal $N"; fi',
+  '    continue',
+  '  fi',
   '  NEXT=$((TLI + 1)); H="$(printf "%08X" "$NEXT").history"',
   '  if fetch "$H"; then',
   // The new timeline branches at the LAST switch point its history file lists.
@@ -173,6 +186,27 @@ export function pickBaseBackup(listJson: string, snapshotId: string | undefined,
   return assertSnapshotRef(eligible[0]!.name);
 }
 
+/**
+ * PURE: a base backup's size on disk (`uncompressed_size` in
+ * `wal-g backup-list --json --detail`); `LATEST` is the newest one.
+ * Undefined when the list does not say.
+ */
+export function baseBackupSize(listJson: string, name: string): number | undefined {
+  let rows: Array<WalgBackupRow & { uncompressed_size?: unknown }>;
+  try {
+    const v = JSON.parse(listJson) as unknown;
+    rows = Array.isArray(v) ? (v as typeof rows) : [];
+  } catch {
+    return undefined;
+  }
+  const row =
+    name === 'LATEST'
+      ? [...rows].sort((a, b) => Date.parse(b.finish_time ?? b.time ?? '') - Date.parse(a.finish_time ?? a.time ?? ''))[0]
+      : rows.find((r) => r.backup_name === name);
+  const n = Number(row?.uncompressed_size);
+  return Number.isFinite(n) && n > 0 ? Math.round(n) : undefined;
+}
+
 /** Wait until no RUNNING container on this node mounts `volume`. */
 export async function waitVolumeIdle(
   docker: DockerClient,
@@ -198,7 +232,7 @@ export async function restoreWalgPitr(
   p: DbRestorePayload,
   started: number,
   onLine: (line: string) => void,
-  opts: { idleTimeoutMs?: number; sleep?: (ms: number) => Promise<void> } = {},
+  opts: { idleTimeoutMs?: number; sleep?: (ms: number) => Promise<void>; progress?: RestoreReporter | null } = {},
 ): Promise<DbRestoreResult> {
   if (!p.dataVolume) throw new Error('pitr restore requires the target PGDATA volume (dataVolume) to be set');
   if (!p.pitrStamp) throw new Error('pitr restore requires a pitrStamp (the controller names the kept copy)');
@@ -223,8 +257,11 @@ export async function restoreWalgPitr(
   }
 
   const target = p.targetTime ? assertIsoTime(p.targetTime) : undefined;
+  const progress = opts.progress ?? null;
   let backupName = pickBaseBackup('[]', p.snapshotId, undefined);
-  if (target && (!p.snapshotId || p.snapshotId.toLowerCase() === 'latest')) {
+  let bytesTotal: number | undefined;
+  // The list picks the base backup for a target time, and gives its size for progress.
+  if ((target && (!p.snapshotId || p.snapshotId.toLowerCase() === 'latest')) || progress) {
     const list = await runSidecar(
       docker,
       {
@@ -238,14 +275,22 @@ export async function restoreWalgPitr(
     );
     if (list.exitCode !== 0) throw new Error(stderrTail(list.stderr, `wal-g backup-list exited ${list.exitCode}`));
     backupName = pickBaseBackup(list.stdout, p.snapshotId, target);
+    bytesTotal = baseBackupSize(list.stdout, backupName);
   }
+  progress?.stage('base', bytesTotal != null ? { bytesTotal } : {});
 
   const res = await runSidecar(
     docker,
     {
       ...base,
       args: [walgPitrRestoreScript()],
-      env: [...env, ...stampEnv, `SWARMY_BACKUP_NAME=${backupName}`, ...(target ? [`SWARMY_TARGET_TIME=${target}`] : [])],
+      env: [
+        ...env,
+        ...stampEnv,
+        `SWARMY_BACKUP_NAME=${backupName}`,
+        ...(target ? [`SWARMY_TARGET_TIME=${target}`] : []),
+        ...(progress ? ['SWARMY_PROGRESS=1'] : []),
+      ],
       timeout: { ms: physicalSidecarTimeoutMs(p.timeoutMs, 'dbRestore'), what: 'wal-g PITR restore' },
     },
     onLine,

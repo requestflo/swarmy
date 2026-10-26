@@ -41,6 +41,8 @@ interface Pending {
   dispatchedAt: number;
   /** deployService only: where its progress shows on the service's deploy status. */
   deploy?: { orgId: string; service: string };
+  /** The dispatcher's own listener for this command's progress frames (e.g. a restore's stages). */
+  onProgress?: (progress: CommandProgress) => void;
 }
 
 /** Key for {@link GatewayStore.deployProgress}. */
@@ -108,7 +110,14 @@ export class AgentHubImpl implements AgentHub {
       () => this.expire(commandId),
       progressDeadlineMs(p.timeoutMs, p.dispatchedAt, now),
     );
-    if (p.deploy) {
+    if (p.onProgress) {
+      try {
+        p.onProgress(progress);
+      } catch {
+        // a listener's bug never fails the command
+      }
+    }
+    if (p.deploy && progress.phase === 'pulling') {
       this.store.deployProgress.set(deployProgressKey(p.deploy.orgId, p.deploy.service), {
         phase: progress.phase,
         message: progress.message ?? null,
@@ -122,7 +131,7 @@ export class AgentHubImpl implements AgentHub {
   deployProgress(
     orgId: string,
     service: string,
-  ): { phase: CommandProgress['phase']; message: string | null; startedAt: number; at: number } | undefined {
+  ): { phase: 'pulling'; message: string | null; startedAt: number; at: number } | undefined {
     return this.store.deployProgress.get(deployProgressKey(orgId, service));
   }
 
@@ -158,7 +167,7 @@ export class AgentHubImpl implements AgentHub {
     nodeId: string,
     cmd: CommandName,
     payload: unknown,
-    opts?: { timeoutMs?: number },
+    opts?: { timeoutMs?: number; onProgress?: (progress: CommandProgress) => void },
   ): Promise<R> {
     if (!this.registry.isOnline(nodeId)) throw new Error(`node ${nodeId} is offline`);
     const orgId = this.store.nodeOrg.get(nodeId);
@@ -192,6 +201,7 @@ export class AgentHubImpl implements AgentHub {
         timeoutMs,
         dispatchedAt: Date.now(),
         deploy: orgId && typeof deployName === 'string' ? { orgId, service: deployName } : undefined,
+        onProgress: opts?.onProgress,
       });
     });
     this.registry.send(nodeId, frame(type, body));

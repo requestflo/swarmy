@@ -7,9 +7,11 @@ import {
   errorTail,
   pitrCleanupScript,
   pitrStamp,
+  replayedTo,
   runPitrRestore,
   type PitrRestorePlan,
 } from './dbPitrRestore.service';
+import { RestoreProgressRelay } from './restore-progress';
 
 /**
  * QA-087: the PITR restore sequence against an in-memory hub. The target is
@@ -248,5 +250,36 @@ describe('pure helpers', () => {
     expect(t.endsWith('REAL REASON')).toBe(true);
     expect(t.startsWith('…')).toBe(true);
     expect(errorTail('short')).toBe('short');
+  });
+});
+
+describe('runPitrRestore reports its steps (the restore card)', () => {
+  it('stop → base (the agent asked for progress) → start → replay → check, then the caller finishes', async () => {
+    const w = world({ recoveryTicks: 1 });
+    const relay = new RestoreProgressRelay();
+    const progress = relay.begin('org1', 'qa-data/pitrcopy', { into: 'qa-data/pitrcopy', mode: 'pitr', engine: 'wal-g' });
+    await runPitrRestore(w.ctx, { ...plan, progress }, fast);
+    progress.finish(true);
+    const v = relay.latest('org1', 'qa-data/pitrcopy')!;
+    expect(v.done.map((d) => d.stage)).toEqual(['stop', 'base', 'start', 'replay', 'check']);
+    expect(w.dispatched.find((d) => d.cmd === 'db.restore')!.payload.reportProgress).toBe(true);
+  });
+
+  it('without a run nothing asks the agent for progress (and a rollback never does)', async () => {
+    const w = world({ recoveryTicks: 1 });
+    await runPitrRestore(w.ctx, plan, fast);
+    expect(w.dispatched.find((d) => d.cmd === 'db.restore')!.payload.reportProgress).toBeUndefined();
+  });
+});
+
+describe('replayedTo', () => {
+  it('reads the replay position from the in-recovery query', () => {
+    expect(replayedTo('t|2026-10-24 13:05:22.123456+00')).toBe('2026-10-24T13:05:22.123Z');
+    expect(replayedTo('t|2026-10-24 15:05:22+02')).toBe('2026-10-24T13:05:22.000Z');
+    expect(replayedTo('f|2026-10-24 13:05:22+00:00')).toBe('2026-10-24T13:05:22.000Z');
+  });
+  it('nothing replayed yet, or the bare older answer, is no position', () => {
+    expect(replayedTo('t|')).toBeNull();
+    expect(replayedTo('t')).toBeNull();
   });
 });

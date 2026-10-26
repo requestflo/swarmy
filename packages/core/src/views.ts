@@ -400,6 +400,40 @@ export interface DbPitrWindowView {
   checkedAt: string | null;
 }
 
+/**
+ * A database restore's steps: `create` (a restore-as-copy's new database),
+ * `safety` (the pre-restore save), `stop`, then `download` + `load` for a
+ * saved dump, or `base` + `wal` (fetched by the agent) and `start`,
+ * `replay`, `check` (the server's own recovery) for a point in time.
+ */
+export type DbRestoreStage = 'create' | 'safety' | 'stop' | 'download' | 'base' | 'wal' | 'load' | 'start' | 'replay' | 'check';
+
+/** A restore in flight, or just finished (`dbBackups.restoreProgress`; process memory, never stored). */
+export interface DbRestoreProgressView {
+  /** The cluster restored FROM, `<stack>/<cluster>`. */
+  ref: string;
+  /** Where the data lands (the source, or a copy). */
+  into: string;
+  mode: 'clone-to-new-cluster' | 'in-place' | 'pitr' | 'single-database';
+  engine: string;
+  targetTime: string | null;
+  startedAt: number;
+  endedAt: number | null;
+  status: 'running' | 'succeeded' | 'failed';
+  error: string | null;
+  /** Finished steps, in order. */
+  done: Array<{ stage: DbRestoreStage; startedAt: number; endedAt: number }>;
+  /** The step running now (the one that failed, on a failure). */
+  current: { stage: DbRestoreStage; startedAt: number } | null;
+  /** The latest numbers for the current step, when the agent reports them. */
+  bytesDone: number | null;
+  bytesTotal: number | null;
+  percent: number | null;
+  segments: number | null;
+  /** Point in time: the newest change the server has replayed so far. */
+  replayedTo: string | null;
+}
+
 /** A stretch of WAL that is missing for good: a point-in-time restore cannot replay through it. */
 export interface DbWalGapView {
   /** The last archived change before the gap, ISO (null when the archive had no time for it). */

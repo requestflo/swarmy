@@ -15,6 +15,7 @@ import {
 import { dbBackupEngineOffers } from '../services/dbBackupEngines';
 import { restoreDbAsCopy } from '../services/dbRestoreCopy.service';
 import { getDbWalCheck } from '../services/dbWalCheck.service';
+import { restoreProgress } from '../services/restore-progress';
 
 const copyName = z
   .string()
@@ -107,6 +108,15 @@ export const dbBackupRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => restoreDb(ctx, input)),
+
+  /**
+   * The restore of this cluster in flight (or finished within the minute):
+   * each step, the agent's bytes / WAL segments, and how far a point-in-time
+   * replay has got. Process memory; null when there is none.
+   */
+  restoreProgress: orgProcedure
+    .input(z.object({ stack: z.string().min(1), cluster: z.string().min(1) }))
+    .query(({ ctx, input }) => restoreProgress.latest(ctx.activeOrgId, `${input.stack}/${input.cluster}`)),
 
   /**
    * Restore as a copy: create `<cluster>-restore-<mmdd>` beside the source (one

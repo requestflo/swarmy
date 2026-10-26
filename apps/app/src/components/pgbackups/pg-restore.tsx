@@ -1,6 +1,5 @@
 import * as React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { LoaderCircleIcon } from 'lucide-react';
 import { Button, toast } from '@swarmy/ui';
 import { Section } from '@/components/calm';
 import { RestoreCopyStatus } from '@/components/backups/restore-copy-status';
@@ -11,6 +10,7 @@ import { clampPit, formatPit, pitSpan, spanDays } from './pitr-scrub';
 import { PgScrubber } from './pg-scrubber';
 import { PgWindowNote } from './pg-window-note';
 import { PgWalLine } from './pg-wal-line';
+import { PgRestoreProgress } from './pg-restore-progress';
 import { isBlocked, walBlocked } from './wal-check';
 import { PgRestoreTarget, type RestoreTarget } from './pg-restore-target';
 import { pointTime } from './retention-strip';
@@ -117,12 +117,14 @@ export function PgRestore({ stack, cluster, b, selected, primary }: PgRestorePro
         </>
       )}
       <RestoreCopyStatus stack={stack} cluster={cluster} copy={copy} what={when ? `${cluster} as of ${when}` : undefined} />
-      {restore.isPending ? (
-        <p role="status" className="text-muted-foreground flex items-center gap-2 text-[13px]">
-          <LoaderCircleIcon aria-hidden className="size-3.5 animate-spin motion-reduce:animate-none" />
-          Restoring {cluster} to {when}… Backing up {cluster} first, then replacing it.
-        </p>
-      ) : done ? (
+      <PgRestoreProgress
+        stack={stack}
+        cluster={cluster}
+        active={pending}
+        hideDone={done != null || copy.done != null}
+        fallback={restore.isPending ? `Restoring ${cluster} to ${when}… Backing up ${cluster} first, then replacing it.` : null}
+      />
+      {done && !restore.isPending ? (
         <p role="status" className="text-tone-ok text-[13px]">
           Restored {fmtBytes(done.bytesRestored)} into {cluster}{done.recoveredTo ? `, up to ${done.recoveredTo}` : ''}.
           {done.safetySnapshotId ? ` What was there before is backed up as ${done.safetySnapshotId.slice(0, 8)}: restore that to put it back.` : ''}

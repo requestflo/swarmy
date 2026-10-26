@@ -14,9 +14,28 @@ export const CommandStatus = z.enum([
 ]);
 export type CommandStatus = z.infer<typeof CommandStatus>;
 
+/**
+ * Where a database restore is (`phase: 'restoring'`): downloading a saved
+ * dump, fetching a base backup, fetching archived WAL, or loading the dump.
+ * Sent only when the controller asked (`DbRestorePayload.reportProgress`): an
+ * older controller would refuse the frame (and close the socket), and it
+ * never asks.
+ */
+export const RestoreProgress = z.object({
+  stage: z.enum(['download', 'base', 'wal', 'load']),
+  bytesDone: z.number().int().nonnegative().optional(),
+  bytesTotal: z.number().int().nonnegative().optional(),
+  /** 0–100, when the tool says. */
+  percent: z.number().min(0).max(100).optional(),
+  /** WAL segments fetched so far. */
+  segments: z.number().int().nonnegative().optional(),
+});
+export type RestoreProgress = z.infer<typeof RestoreProgress>;
+
 export const CommandProgress = z.object({
-  phase: z.enum(['pulling']),
+  phase: z.enum(['pulling', 'restoring']),
   message: z.string().max(500).optional(),
+  restore: RestoreProgress.optional(),
 });
 export type CommandProgress = z.infer<typeof CommandProgress>;
 

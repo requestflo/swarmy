@@ -48,3 +48,31 @@ describe('deploy progress on the hub', () => {
     ).rejects.toThrow('command timeout');
   });
 });
+
+describe('a dispatcher hears its own command\'s progress', () => {
+  it('onProgress gets each restore frame, and none after the command settled', async () => {
+    const { hub, sent } = hubWithNode();
+    const heard: unknown[] = [];
+    const p = hub.dispatch('n1', 'db.restore', { mode: 'pitr' }, { onProgress: (x) => heard.push(x) });
+    const id = sent[0]!.payload.commandId;
+    hub.commandProgress(id, { phase: 'restoring', restore: { stage: 'base', bytesDone: 10, bytesTotal: 40 } });
+    hub.commandProgress(id, { phase: 'restoring', restore: { stage: 'wal', segments: 16 } });
+    expect(heard).toEqual([
+      { phase: 'restoring', restore: { stage: 'base', bytesDone: 10, bytesTotal: 40 } },
+      { phase: 'restoring', restore: { stage: 'wal', segments: 16 } },
+    ]);
+    hub.settleCommand(id, true, { mode: 'pitr' });
+    await p;
+    hub.commandProgress(id, { phase: 'restoring', restore: { stage: 'wal', segments: 32 } });
+    expect(heard).toHaveLength(2);
+  });
+
+  it('a listener that throws never fails the command', async () => {
+    const { hub, sent } = hubWithNode();
+    const p = hub.dispatch('n1', 'db.restore', {}, { onProgress: () => { throw new Error('boom'); } });
+    const id = sent[0]!.payload.commandId;
+    hub.commandProgress(id, { phase: 'restoring', restore: { stage: 'download' } });
+    hub.settleCommand(id, true, { ok: 1 });
+    expect(await p).toEqual({ ok: 1 });
+  });
+});

@@ -160,6 +160,31 @@ describe('walgPitrRestoreScript (real shell)', () => {
     expect(readFileSync(join(w.root, 'pgdata', 'ORIGINAL'), 'utf8')).toBe('live data');
     w.cleanup();
   }, 30_000);
+
+  it('SWARMY_PROGRESS=1 adds progress lines, and the same restore happens', () => {
+    const w = world();
+    const t0 = Date.now();
+    const r = w.run(walgPitrRestoreScript(), { SWARMY_PROGRESS: '1' });
+    expect(r.exitCode).toBe(0);
+    expect(r.stderr.toString()).toBe('');
+    const out = r.stdout.toString();
+    expect(out).toContain('swarmy: progress wal 0');
+    expect(out).toMatch(/swarmy: progress base \d*\n/);
+    expect(out).toContain('fetched 4 WAL segments (last 000000020000000000000005)');
+    expect(existsSync(join(w.root, 'pgdata', 'recovery.signal'))).toBe(true);
+    // the size loop is stopped once the base backup is in, not left to run on
+    expect(Date.now() - t0).toBeLessThan(4_000);
+    w.cleanup();
+  }, 30_000);
+
+  it('a failed fetch with progress on still rolls back and leaves no loop behind', () => {
+    const w = world();
+    const r = w.run(walgPitrRestoreScript(), { SWARMY_PROGRESS: '1', STUB_FAIL: 'fetch' });
+    expect(r.exitCode).not.toBe(0);
+    expect(readFileSync(join(w.root, 'pgdata', 'ORIGINAL'), 'utf8')).toBe('live data');
+    expect(readdirSync(w.root).sort()).toEqual(['pgdata']);
+    w.cleanup();
+  }, 30_000);
 });
 
 // ── base-backup choice ───────────────────────────────────────────────────────
@@ -311,6 +336,20 @@ describe('restoreWalgPitr', () => {
   it('needs a stamp (so the kept copy can be found again)', async () => {
     const { docker } = fakeDocker();
     await expect(restoreWalgPitr(docker, payload({ pitrStamp: undefined }), Date.now(), () => undefined)).rejects.toThrow(/pitrStamp/);
+  });
+
+  it('with progress: lists even a named backup for its size, starts the base stage, and turns the script\'s progress on', async () => {
+    const sized = JSON.stringify([{ backup_name: 'base_000000010000000000000002', finish_time: '2026-09-26T08:00:00Z', uncompressed_size: 4096 }]);
+    const { docker, created } = fakeDocker({ list: sized });
+    const stages: Array<{ stage: string; bytesTotal?: number }> = [];
+    const progress = { stage: (stage: 'base', d: { bytesTotal?: number } = {}) => void stages.push({ stage, ...d }), line: () => undefined };
+    await restoreWalgPitr(docker, payload({ snapshotId: 'base_000000010000000000000002', targetTime: undefined }), Date.now(), () => undefined, {
+      sleep: noSleep,
+      progress,
+    });
+    expect(created).toHaveLength(2);
+    expect(stages).toEqual([{ stage: 'base', bytesTotal: 4096 }]);
+    expect(created[1]!.Env).toContain('SWARMY_PROGRESS=1');
   });
 });
 

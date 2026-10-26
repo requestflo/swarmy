@@ -40,6 +40,7 @@ import {
 import type { AgentConnection } from '../connection';
 import { putSecretFiles } from './secret-file';
 import { restoreWalgPitr, waitVolumeIdle } from './pitr-restore';
+import { RESTIC_PROGRESS_ENV, progressSender, resticRestoreArgs, restoreReporter, withProgress, type RestoreReporter } from './restore-progress';
 
 /** Where the volume is mounted inside the restic container. */
 const MOUNT = '/data';
@@ -1071,11 +1072,13 @@ export async function restoreDb(
   p: DbRestorePayload,
 ): Promise<DbRestoreResult> {
   const started = Date.now();
-  const onLine = streamer(conn, p.commandId);
+  // Progress frames only when the controller asked: an older one refuses them.
+  const progress = p.reportProgress ? restoreReporter(progressSender(conn, p.commandId)) : null;
+  const onLine = withProgress(streamer(conn, p.commandId), progress);
   if (p.mode === 'pitr') {
-    return restoreDbPitr(docker, p, started, onLine);
+    return restoreDbPitr(docker, p, started, onLine, progress);
   }
-  return restoreDbLogical(docker, p, started, onLine);
+  return restoreDbLogical(docker, p, started, onLine, progress);
 }
 
 async function restoreDbLogical(
@@ -1083,6 +1086,7 @@ async function restoreDbLogical(
   p: DbRestorePayload,
   started: number,
   onLine: (line: string) => void,
+  progress: RestoreReporter | null = null,
 ): Promise<DbRestoreResult> {
   if (isPhysicalEngine(p.engine)) {
     throw new Error(`engine "${p.engine}" supports only pitr restore, not "${p.mode}"`);
@@ -1098,12 +1102,13 @@ async function restoreDbLogical(
   await docker.docker.createVolume({ Name: scratch });
   try {
     // 1) Fetch the dump out of restic onto the scratch volume.
+    progress?.stage('download');
     const fetch = await runSidecar(
       docker,
       {
         image: resticImage,
-        args: ['restore', p.snapshotId, '--target', '/', '--json'],
-        env: repoEnv(p.repo),
+        args: resticRestoreArgs(resticImage, p.snapshotId, progress != null),
+        env: [...repoEnv(p.repo), ...(progress ? [RESTIC_PROGRESS_ENV] : [])],
         binds: [`${scratch}:${DUMP_MOUNT}`, ...repoBinds(p.repo)],
         networkMode: p.resticNetwork,
       },
@@ -1120,6 +1125,7 @@ async function restoreDbLogical(
     });
 
     // 2) Load it back into the target database.
+    progress?.stage('load', { bytesTotal: bytesRestored });
     const targetDb = assertDbName(p.database ?? p.conn.database);
     const script = logicalRestoreScript(dumpAll);
     const load = await runSidecar(
@@ -1155,6 +1161,7 @@ async function restoreDbPitr(
   p: DbRestorePayload,
   started: number,
   onLine: (line: string) => void,
+  progress: RestoreReporter | null = null,
 ): Promise<DbRestoreResult> {
   if (!isPhysicalEngine(p.engine)) {
     throw new Error(`pitr restore requires a physical engine (wal-g/pgbackrest), got "${p.engine}"`);
@@ -1163,7 +1170,7 @@ async function restoreDbPitr(
     throw new Error('pitr restore requires the target PGDATA volume (dataVolume) to be set');
   }
   // wal-g: the full stop-aware sequence (aside, fetch, WAL, recovery, rollback), QA-087.
-  if (p.engine === 'wal-g') return restoreWalgPitr(docker, p, started, onLine);
+  if (p.engine === 'wal-g') return restoreWalgPitr(docker, p, started, onLine, { progress });
   if (p.pitrAction === 'rollback') throw new Error('pitr rollback is only supported for wal-g');
   const image = pgBackRestImage(p);
   const { env, bucket, endpoint, prefix } = physicalEnv(p.repo);

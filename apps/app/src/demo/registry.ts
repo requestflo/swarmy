@@ -51,6 +51,7 @@ import { resilienceLive } from './resolvers/resilience-live';
 import { dbRestoreCopy } from './resolvers/db-restore-copy';
 import { dbPitrWindow } from './resolvers/db-pitr-window';
 import { dbWalCheck } from './resolvers/db-wal-check';
+import { dbRestoreProgress } from './resolvers/db-restore-progress';
 import { dbBackupEngines } from './resolvers/db-backup-engines';
 import { controllerstore } from './resolvers/controllerstore';
 import { platform } from './resolvers/platform';
@@ -211,6 +212,8 @@ const MODULES: DomainResolvers[] = [
   appCloneRemove,
   appsConvert,
   herokuImport,
+  // Wraps data's dbBackups.restore and dbRestoreCopy's restoreAsCopy, so it comes after both.
+  dbRestoreProgress,
 ];
 
 export const HANDLERS: Record<string, DemoHandler> = Object.assign(

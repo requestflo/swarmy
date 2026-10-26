@@ -56,6 +56,7 @@ import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { writeAudit } from './audit.service';
 import { assertEngineOffered, engineImageFor } from './dbBackupEngines';
 import { runPitrRestore } from './dbPitrRestore.service';
+import { restoreProgress, type RestoreRun } from './restore-progress';
 import { knownPitrWindow, pitrPreflight, pitrWindowView, readPitrWindow, rememberPitrWindow } from './dbPitrWindow.service';
 import { PRE_RESTORE_REASON, ensureSafetyCopy, latestRestorable, overwritesSource } from './dbRestoreSafety.service';
 import { auditRetentionOutcome, resticNetworkFor } from './backups.service';
@@ -841,7 +842,11 @@ export async function preflightPitrFromSource(
   });
 }
 
-export async function restoreDb(ctx: OrgContext, input: RestoreDbInput): Promise<DbRestoreRunView> {
+/**
+ * `progress`: a run the caller already shows (restore as a copy: its own
+ * `create` step first) and finishes itself; else this restore begins one.
+ */
+export async function restoreDb(ctx: OrgContext, input: RestoreDbInput, progress?: RestoreRun): Promise<DbRestoreRunView> {
   assertEngineOffered(input.engine);
   const destStack = input.targetStack ?? input.stack;
   const destCluster = input.targetCluster ?? input.cluster;
@@ -889,7 +894,42 @@ export async function restoreDb(ctx: OrgContext, input: RestoreDbInput): Promise
     });
   }
 
+  // From here on the restore card shows each step (`dbBackups.restoreProgress`).
+  const run =
+    progress ??
+    restoreProgress.begin(ctx.activeOrgId, `${input.stack}/${input.cluster}`, {
+      into: `${destStack}/${destCluster}`,
+      mode: input.mode,
+      engine: input.engine,
+      targetTime: input.targetTime,
+    });
+  try {
+    const view = await restoreAfterChecks(ctx, input, { destStack, destCluster, primary, dataVolume, schedule, target, snapshotId, pitrNode, run });
+    if (!progress) run.finish(true);
+    return view;
+  } catch (e) {
+    if (!progress) run.finish(false, e instanceof Error ? e.message : String(e));
+    throw e;
+  }
+}
+
+interface RestoreSteps {
+  destStack: string;
+  destCluster: string;
+  primary: InvService;
+  dataVolume: string | undefined;
+  schedule: DbBackupSchedule | null;
+  target: TargetRow;
+  snapshotId: string;
+  pitrNode: { id: string } | null;
+  run: RestoreRun;
+}
+
+/** restoreDb once its checks passed: the safety copy, then the restore itself, each a step on `run`. */
+async function restoreAfterChecks(ctx: OrgContext, input: RestoreDbInput, s: RestoreSteps): Promise<DbRestoreRunView> {
+  const { destStack, destCluster, primary, dataVolume, schedule, target, snapshotId, pitrNode, run } = s;
   // Writing over the source? Save its current data first, or refuse.
+  if (overwritesSource(input) && !input.skipSafetyBackup) run.stage('safety');
   const safety = await ensureSafetyCopy(ctx, input, (plan) =>
     backupDb(ctx, {
       stack: destStack,
@@ -924,15 +964,19 @@ export async function restoreDb(ctx: OrgContext, input: RestoreDbInput): Promise
       resticNetwork: resticNetworkFor(target.endpoint),
       targetId: target.id,
       safety: safetyAudit,
+      progress: run,
       ...engineImageFor(input.engine),
     });
     return { mode: view.mode, engine: view.engine, bytesRestored: view.bytesRestored, recoveredTo: view.recoveredTo, safetySnapshotId };
   }
 
+  run.stage('download');
   const conn = await connFrom(ctx, destStack, destCluster, primary, input.database);
   const node = await resolveManagerNode(ctx);
   try {
     const result = await ctx.hub.dispatch<DbRestoreResult>(node.id, 'db.restore', {
+      // An older agent ignores it and reports only the result.
+      reportProgress: true,
       engine: input.engine,
       mode: input.mode,
       conn,
@@ -944,7 +988,7 @@ export async function restoreDb(ctx: OrgContext, input: RestoreDbInput): Promise
       network: clusterNetworkName(destStack, destCluster),
       resticNetwork: resticNetworkFor(target.endpoint),
       dataVolume,
-    });
+    }, { onProgress: (p) => run.agent(p) });
     await writeAudit(ctx, {
       action: 'db.restore',
       actorType: ctx.user ? 'user' : 'system',

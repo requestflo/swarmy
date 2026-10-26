@@ -1,4 +1,4 @@
-import type { AgentSkew, ContainerInfo, SwarmServiceInfo, SwarmNodeInfo, SwarmState, TermTarget, VolumeSizesSample } from '@swarmy/core/protocol';
+import type { AgentSkew, CommandProgress, ContainerInfo, SwarmServiceInfo, SwarmNodeInfo, SwarmState, TermTarget, VolumeSizesSample } from '@swarmy/core/protocol';
 import type { EdgeTrafficRing } from '@swarmy/core';
 import type {
   ClusterStatsFrame,
@@ -163,12 +163,16 @@ export interface AgentHub {
   isOnline(nodeId: string): boolean;
   onlineNodeIds(): string[];
 
-  /** Send a command to one node and await its correlated result. */
+  /**
+   * Send a command to one node and await its correlated result. `onProgress`
+   * hears the command's `running` progress frames (each also re-arms its
+   * deadline), e.g. a restore's stages.
+   */
   dispatch<R = unknown>(
     nodeId: string,
     cmd: CommandName,
     payload: unknown,
-    opts?: { timeoutMs?: number },
+    opts?: { timeoutMs?: number; onProgress?: (progress: CommandProgress) => void },
   ): Promise<R>;
 
   /** Stream frames (logs) until the signal aborts. */
