@@ -302,6 +302,16 @@ the memory setter and disk per copy (39); "Members sign in with SSO only" and
 SSO invites (48, 56); take an incident for 30 min, estate uptime and how long
 the last put-back took on the phone (21).
 
+**Seventh pass (2026-10-26, later):** each edge's rendered Caddyfile with a
+diff against another (13); "Simulate X down" on Geo-DNS, and why answers last
+two minutes at most (32); the WAL-gap check that blocks restoring into a gap,
+restore progress, and the off-site copy's lag (40, 16 — snapshot download stays
+out: the agent protocol can't stream large bodies); "What we found" for
+Postgres, Redis, S3 and cron with the reason, and "App #N" as the GitHub App's
+number (23); editable preview rules and previews that sleep after 2 h idle
+(68); recent sign-ins, per-path who-can-enter and an SSO-only switch on App
+access (65).
+
 Found, not fixed (worth deciding):
 
 - Board 52 offers "All minor updates" for auto-patching; the upgrades epic
