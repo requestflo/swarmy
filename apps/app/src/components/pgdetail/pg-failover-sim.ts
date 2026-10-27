@@ -62,7 +62,8 @@ export function simulateOutage(
   const decide = (replayLsn: string, known: boolean): FailoverDecision =>
     decideFailover({
       topology,
-      candidates: survivors.map((s) => ({ service: s.service, running: s.servers.length, replayLsn, lagSeconds: s.lagSeconds })),
+      // One candidate per surviving COPY (a service runs one per server), as the worker does.
+      candidates: survivors.flatMap((s) => s.servers.map((n) => ({ service: s.service, copy: n.id, running: 1, replayLsn, lagSeconds: s.lagSeconds }))),
       watermark: known ? { lsn: MARK, sampledAt: now } : null,
       lastHealthyAt: known ? now : null,
       confirmation: null,
@@ -98,7 +99,8 @@ export function simWords(sim: OutageSim, serverOf: (service: string) => string):
   if (sim.caughtUp.kind !== 'promote') {
     return [{ tone: 'warn', lead: `No standby copy outside ${sim.scope.label} is running.`, rest: `swarmy waits for ${where}. Nothing is switched and nothing is lost.` }];
   }
-  const to = serverOf(sim.caughtUp.target);
+  const copy = sim.caughtUp.copy;
+  const to = sim.survivors.flatMap((s) => s.servers).find((n) => n.id === copy)?.name ?? serverOf(sim.caughtUp.target);
   return [
     { tone: 'ok', lead: `If the copy on ${to} has every change, it takes over by itself.`, rest: 'Nothing is lost, and the other copies follow the new main copy.' },
     {

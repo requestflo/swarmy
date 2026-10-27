@@ -7,11 +7,18 @@ import {
   DB_DATA_VOLUME_LABEL,
   DB_FAILOVER_CONFIRM_LABEL,
   DB_FAILOVER_PENDING_LABEL,
+  DB_FAILOVER_PROMOTING_LABEL,
   DB_PIN_NODE_LABEL,
   STACK_LABEL,
   PG_ENV,
-  PG_PROMOTE_SQL,
   applyPgMember,
+  chosenCopy,
+  needsReshape,
+  planCopyPromotion,
+  promotingMark,
+  type FailoverConfirmation,
+  type FailoverDecision,
+  type StandbyCopy,
   pgPrimaryEnv,
   pgReplicaEnv,
   choosePinNode,
@@ -22,7 +29,6 @@ import {
   parseFailoverConfirmation,
   parsePendingFailover,
   pendingFailoverChanged,
-  type FailoverCandidate,
   type PrimaryWatermark,
   dbStorageLabels,
   dbStorageState,
@@ -57,7 +63,6 @@ import {
   lagLabelUpdates,
   lsnDiffBytes,
   minuteDue,
-  parseLagOutput,
   pinnedRegionFit,
   planClusterStorage,
   planReplicaScale,
@@ -73,6 +78,9 @@ import { convergeDbPooler, repointPoolerAfterPromotion } from './manageddb-poole
 import { followPromotion, followWriter } from './manageddb-apps';
 import { plannedRequest, promotionRecord, thawStaleSwitchover } from './manageddb-switchover';
 import { createWatermarkStore } from './manageddb-watermark';
+import { probeCopies, promoteCopy, runningCopies } from './manageddb-copies';
+import { convergeReshape, floatedExWriter } from './manageddb-reshape';
+import { clearRefusal, guardStandbyWriters, refuseFailover } from './manageddb-failover-refuse';
 import {
   DB_PITR_ARCHIVE_CMD_LABEL,
   PITR_ARCHIVE_COMMAND_HASH,
@@ -144,8 +152,15 @@ import {
  *   worker stamps the data-loss window as `swarmy.db.failover.pending`, raises a
  *   critical alert + incident, and waits for an admin confirmation
  *   (`swarmy.db.failover.confirm`, written by `manageddb.confirmFailover`).
- *   Promotion itself: exec `SELECT pg_promote()` via psql,
- *   verify `pg_is_in_recovery()=f`, flip `swarmy.db.role` labels (labels-only —
+ *   All of it is per COPY, never per service (a standby service runs one copy
+ *   per server): every running copy is probed on its own, the decision names
+ *   one copy, that copy is marked (`swarmy.db.failover.promoting`) before the
+ *   exec, and anything that could make a second writer refuses loudly
+ *   (manageddb-copies, manageddb-failover-refuse, @swarmy/core
+ *   manageddb-failover-copies). A service that held several copies comes back
+ *   as the one promoted copy, pinned to its server (manageddb-reshape).
+ *   Promotion itself: exec `SELECT pg_promote()` via psql in THAT copy's container,
+ *   verify `pg_is_in_recovery()=f` there, flip `swarmy.db.role` labels (labels-only —
  *   the promoted task keeps its promoted in-memory state), repoint every other
  *   member's `SWARMY_PG_PRIMARY_HOST` under a fresh `SWARMY_PG_REJOIN` epoch
  *   (redeploy specs; the boot layer re-points standbys and moves a demoted
@@ -495,17 +510,12 @@ export interface Contract {
 
 // ── A2 live plumbing ──────────────────────────────────────────────────────────
 
-const LAG_SQL =
-  "SELECT COALESCE(EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp())),0)::text || '|' || COALESCE(pg_last_wal_replay_lsn()::text,'')";
 /** The primary's last FLUSHED position — the failover watermark (see decideFailover). */
 const PRIMARY_LSN_SQL = 'SELECT pg_current_wal_flush_lsn()::text';
-const IN_RECOVERY_SQL = 'SELECT pg_is_in_recovery()';
 
 function psql(sql: string): string {
   return `${PG_PASSWORD_FROM_MEMBER} psql -U postgres -d postgres -tAc "${sql}"`;
 }
-
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 /** Find a running container for the service + the node hosting it (org-scoped). */
 function execTarget(
@@ -569,12 +579,15 @@ export interface MemberLag {
 
 /** One tick's lag picture + the primary's flushed-LSN sample (null = not taken). */
 export interface ClusterLag {
+  /** Per member service: its least caught-up copy (the lag labels, the timeline). */
   members: Record<string, MemberLag>;
   primaryLsn: string | null;
+  /** Every running standby copy, probed on its own: the failover decides on these. */
+  copies: StandbyCopy[];
 }
 
 /**
- * Measure replication lag for every replica member and stamp
+ * Probe every running copy of every replica member on its own and stamp
  * `swarmy.db.lag.<member>` labels onto the primary (change-gated so a steady
  * cluster causes no service updates). Returns the fresh samples for promotion.
  */
@@ -585,7 +598,7 @@ async function measureClusterLag(
 ): Promise<ClusterLag> {
   const measured: Record<string, MemberLag> = {};
   const replicas = replicaMembers(c).filter((s) => (s.desiredReplicas ?? 0) > 0);
-  if (replicas.length === 0) return { members: measured, primaryLsn: null };
+  if (replicas.length === 0) return { members: measured, primaryLsn: null, copies: [] };
 
   const primary = c.primary;
   const primaryHealthy = Boolean(primary && (primary.runningReplicas ?? 0) > 0);
@@ -595,16 +608,15 @@ async function measureClusterLag(
     if (res && res.exitCode === 0) primaryLsn = res.output.trim().split(/\r?\n/)[0]?.trim() || null;
   }
 
-  for (const replica of replicas) {
-    const res = await execIn(orgId, replica, psql(LAG_SQL));
-    if (!res || res.exitCode !== 0) continue;
-    const sample = parseLagOutput(res.output);
-    if (!sample) continue;
-    measured[replica.name] = {
-      lagSeconds: sample.lagSeconds,
-      lsnDiffBytes:
-        primaryLsn && sample.replayLsn ? lsnDiffBytes(primaryLsn, sample.replayLsn) : null,
-      replayLsn: sample.replayLsn,
+  const copies = await probeCopies(orgId, replicas);
+  for (const copy of copies) {
+    if (copy.lagSeconds === null) continue;
+    const prev = measured[copy.service];
+    if (prev && prev.lagSeconds >= copy.lagSeconds) continue;
+    measured[copy.service] = {
+      lagSeconds: copy.lagSeconds,
+      lsnDiffBytes: primaryLsn && copy.replayLsn ? lsnDiffBytes(primaryLsn, copy.replayLsn) : null,
+      replayLsn: copy.replayLsn,
     };
   }
 
@@ -624,7 +636,7 @@ async function measureClusterLag(
         .catch(() => undefined);
     }
   }
-  return { members: measured, primaryLsn };
+  return { members: measured, primaryLsn, copies };
 }
 
 // ── A2 PITR / WAL-archiving convergence ──────────────────────────────────────
@@ -972,7 +984,7 @@ export function repointSpec(
  */
 function extensionsSettled(primary: SwarmServiceInfo): boolean {
   const l = primary.labels;
-  if (l[DB_FAILOVER_PENDING_LABEL] || l[DB_FAILOVER_CONFIRM_LABEL] || l[DB_SWITCHOVER_LABEL]) return false;
+  if (l[DB_FAILOVER_PENDING_LABEL] || l[DB_FAILOVER_CONFIRM_LABEL] || l[DB_SWITCHOVER_LABEL] || l[DB_FAILOVER_PROMOTING_LABEL]) return false;
   return (l[DB_BACKUP_PITR_LABEL] === 'true') === Boolean(l[DB_PITR_APPLIED_LABEL]);
 }
 
@@ -1032,18 +1044,6 @@ export function memorySpec(
   return applyPgMemory({ ...base, labels }, labels);
 }
 
-/** exec `SELECT pg_promote()` in one running task + verify recovery ended. */
-async function promoteInPlace(orgId: string, svc: SwarmServiceInfo): Promise<boolean> {
-  const promote = await execIn(orgId, svc, psql(PG_PROMOTE_SQL), PROMOTE_TIMEOUT_MS);
-  if (!promote || promote.exitCode !== 0) return false;
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const verify = await execIn(orgId, svc, psql(IN_RECOVERY_SQL));
-    if (verify && verify.exitCode === 0 && verify.output.trim().startsWith('f')) return true;
-    await sleep(2_000);
-  }
-  return false;
-}
-
 /**
  * Watch the primary's health; after the grace window run the failover-safety
  * decision (`decideFailover`): promote a provably caught-up replica, or stamp
@@ -1060,7 +1060,6 @@ export async function maybePromote(
   lag: ClusterLag,
 ): Promise<void> {
   const { ctx, seams } = contract;
-  const measured = lag.members;
   const key = `${orgId}/${c.stack}/${c.cluster}`;
   const clusterRef = `${c.stack}/${c.cluster}`;
   const resource = `db:${c.stack}/${c.cluster}`;
@@ -1105,6 +1104,9 @@ export async function maybePromote(
       watermarkStore.record(orgId, clusterRef, { primary: primary!.name, lsn: lag.primaryLsn, sampledAt: now });
     }
     if (handshakeHolders.length > 0) await clearHandshake();
+    await guardStandbyWriters(contract, key, { stack: c.stack, cluster: c.cluster, writer: primary!.name, standbys: replicaMembers(c) }, lag.copies, (service) =>
+      hub.dispatch(node, 'service.updateLabels', { service, add: {}, removeKeys: [DB_FAILOVER_PROMOTING_LABEL] }).catch(() => undefined),
+    );
     await thawStaleSwitchover(primary!, now, {
       sql: (statement) => execIn(orgId, primary!, psql(statement)),
       dropLabel: () => hub.dispatch(node, 'service.updateLabels', { service: primary!.name, add: {}, removeKeys: [DB_SWITCHOVER_LABEL] }).catch(() => undefined),
@@ -1143,6 +1145,9 @@ export async function maybePromote(
   // fresh. Past DB_RESTART_PLANNED_MAX_AGE_MS an unhealthy primary is a real
   // outage again and goes through the grace window + decideFailover as usual.
   if (plannedRestartActive(primary?.labels, now)) return;
+  // The writer swarmy just promoted is being reshaped to its one copy
+  // (manageddb-reshape): down on purpose, and its data is the only writer's.
+  if (primary?.labels[DB_FAILOVER_PROMOTING_LABEL]) return;
 
   const ticks = (unhealthyTicks.get(key) ?? 0) + 1;
   unhealthyTicks.set(key, ticks);
@@ -1174,12 +1179,12 @@ export async function maybePromote(
     .map((s) => s.labels[DB_FAILOVER_CONFIRM_LABEL])
     .find((v): v is string => Boolean(v));
   const confirmation = parseFailoverConfirmation(confirmRaw);
-  const candidates: FailoverCandidate[] = replicaMembers(c).map((s) => ({
-    service: s.name,
-    running: s.runningReplicas ?? 0,
-    replayLsn: measured[s.name]?.replayLsn ?? null,
-    lagSeconds: measured[s.name]?.lagSeconds ?? null,
-  }));
+  // Per COPY, never per service (@swarmy/core manageddb-failover-copies): one
+  // candidate per running copy, and a promotion swarmy began is resumed on
+  // that copy alone. A wrong shape (a copy already writing, …) refuses loudly.
+  const shape = planCopyPromotion({ copies: lag.copies, promoting: promotingMark(replicaMembers(c)) });
+  if (shape.kind === 'refuse') return refuseFailover(contract, key, c, shape);
+  if (shape.kind === 'resume') return promoteChosen(contract, orgId, node, c, topology, lag, shape.copy, { kind: 'promote', target: shape.copy.service, behindBytes: null, behindSeconds: shape.copy.lagSeconds, confirmed: false }, { ticks, planned, resumed: true, confirmation });
   // This process never saw the primary healthy (it restarted mid-outage): a
   // stored sample may stand in, only if taken within the in-memory envelope
   // of this process's first unhealthy observation. Otherwise unknown ⇒ hold.
@@ -1196,7 +1201,7 @@ export async function maybePromote(
     }
   }
   // A planned request narrows the candidates to its copy and can only raise the watermark.
-  const scoped = plannedPromotion({ candidates, watermark }, request);
+  const scoped = plannedPromotion({ candidates: shape.candidates, watermark }, request);
   const decision = decideFailover({
     topology,
     candidates: scoped.candidates,
@@ -1205,6 +1210,7 @@ export async function maybePromote(
     confirmation,
   });
   if (decision.kind === 'never' || decision.kind === 'wait') return; // keep counting, retry next tick
+  if (decision.kind === 'refuse') return refuseFailover(contract, key, c, decision);
 
   if (decision.kind === 'confirm') {
     // Not provably caught up: never promote silently. Stamp the window, alert once.
@@ -1262,35 +1268,83 @@ export async function maybePromote(
     return;
   }
 
-  const target = replicaMembers(c).find((s) => s.name === decision.target);
-  if (!target) return;
-  const promoted = await promoteInPlace(orgId, target);
-  if (!promoted) return; // exec failed/gated — retry next tick
+  const pick = chosenCopy(lag.copies, decision);
+  if (!pick) return; // the decision names a copy probed this tick; anything else waits
+  await promoteChosen(contract, orgId, node, c, topology, lag, pick, decision, { ticks, planned, resumed: false, confirmation });
+}
 
-  const setLabels = (service: string, add: Record<string, string>) =>
-    hub.dispatch(node, 'service.updateLabels', { service, add, removeKeys: [] }).catch(() => undefined);
+type PromoteDecision = Extract<FailoverDecision, { kind: 'promote' }>;
+
+/**
+ * Promote exactly ONE copy (`pick`), then flip roles, repoint the rest and
+ * record it. The copy is marked on its service before the exec, so no later
+ * pass promotes another (it resumes this one). A service that holds other
+ * copies too is stopped here and comes back as that one copy, pinned to its
+ * server (manageddb-reshape); the demoted base writer then carries the
+ * standby copies instead, floating.
+ */
+async function promoteChosen(
+  contract: Contract,
+  orgId: string,
+  node: string,
+  c: Cluster,
+  topology: DbTopology,
+  lag: ClusterLag,
+  pick: StandbyCopy,
+  decision: PromoteDecision,
+  o: { ticks: number; planned: boolean; resumed: boolean; confirmation: FailoverConfirmation | null },
+): Promise<void> {
+  const { ctx, seams } = contract;
+  const { ticks, planned, confirmation } = o;
+  const key = `${orgId}/${c.stack}/${c.cluster}`;
+  const clusterRef = `${c.stack}/${c.cluster}`;
+  const resource = `db:${clusterRef}`;
+  const groupKey = `db:${clusterRef}`;
+  const now = Date.now();
+  const primary = c.primary;
+  const target = replicaMembers(c).find((s) => s.name === pick.service);
+  if (!target || !pick.node) return;
+  const relabel = (service: string, add: Record<string, string>, removeKeys: string[] = []) =>
+    hub.dispatch(node, 'service.updateLabels', { service, add, removeKeys }).then(() => true, () => false);
+
+  // Mark the copy BEFORE the exec: from here on it is the only one any pass may promote.
+  if (target.labels[DB_FAILOVER_PROMOTING_LABEL] !== pick.node && !(await relabel(target.name, { [DB_FAILOVER_PROMOTING_LABEL]: pick.node }))) return;
+  if (!(await promoteCopy(pick, PROMOTE_TIMEOUT_MS))) return; // exec failed/gated: the next pass resumes this copy
+  const reshape = needsReshape(target) || lag.copies.filter((x) => x.service === target.name).length > 1;
 
   // Labels-only flips: the promoted task keeps its promoted in-memory state.
   // The writer's declarations (memory, extensions) follow it to the new primary.
-  await setLabels(target.name, { [DB_ROLE_LABEL]: 'primary', [DB_LEADER_LABEL]: target.name, ...primaryDeclarations(primary?.labels) });
+  // A reshaped service keeps the mark until it runs as the one copy.
+  await relabel(
+    target.name,
+    { [DB_ROLE_LABEL]: 'primary', [DB_LEADER_LABEL]: target.name, ...primaryDeclarations(primary?.labels) },
+    reshape ? [] : [DB_FAILOVER_PROMOTING_LABEL],
+  );
+  if (reshape) await hub.dispatch(node, 'service.scale', { service: target.name, replicas: 0 }).catch(() => undefined);
   const others = [primary, ...replicaMembers(c)].filter(
     (s): s is SwarmServiceInfo => Boolean(s) && s!.name !== target.name,
   );
   for (const member of others) {
-    await setLabels(member.name, {
+    await relabel(member.name, {
       [DB_LEADER_LABEL]: target.name,
       ...(member === primary ? { [DB_ROLE_LABEL]: 'replica' } : {}),
     });
   }
 
   // Repoint every other replica (and the demoted ex-primary) at the new writer.
+  // When the promoted service held the base standby copies, the demoted writer
+  // takes them over: floating, off the new writer's server, as many as before.
   const net = clusterNet(c);
   const epoch = `${target.name}@${new Date(now).toISOString()}`;
+  const nodes = hub.nodeInventory(orgId);
+  const floatEx = reshape && topology !== 'geo' && !target.labels[DB_REGION_LABEL];
+  const standbyCopies = Number.parseInt(target.labels[DB_REPLICAS_LABEL] ?? '', 10) || (target.desiredReplicas ?? 1);
   const repointed: string[] = [];
   for (const member of others) {
     if (member.labels[DB_ROLE_LABEL] === 'dcs') continue;
+    const m = floatEx && member === primary ? floatedExWriter(member, pick.node, standbyCopies) : member;
     await hub
-      .dispatch(node, 'service.deploy', { spec: repointSpec(member, target.name, net, epoch, hub.nodeInventory(orgId)), pullPolicy: 'missing' })
+      .dispatch(node, 'service.deploy', { spec: repointSpec(m, target.name, net, epoch, nodes), pullPolicy: 'missing' })
       .catch(() => undefined);
     repointed.push(member.name);
   }
@@ -1301,21 +1355,29 @@ export async function maybePromote(
   firstUnhealthyAt.delete(key);
   watermarkStore.forget(orgId, clusterRef);
   confirmAlerted.delete(key);
+  clearRefusal(key);
   // The ex-primary was redeployed without the handshake labels; clear any other holder.
-  await clearHandshake();
+  for (const s of [primary, ...replicaMembers(c)]) {
+    if (s && (s.labels[DB_FAILOVER_PENDING_LABEL] !== undefined || s.labels[DB_FAILOVER_CONFIRM_LABEL] !== undefined)) {
+      await relabel(s.name, {}, [DB_FAILOVER_PENDING_LABEL, DB_FAILOVER_CONFIRM_LABEL]);
+    }
+  }
 
-  const lagSecs = measured[target.name]?.lagSeconds;
+  const lagSecs = pick.lagSeconds ?? undefined;
   const record = promotionRecord(planned);
   const lagNote =
-    (decision.confirmed
-      ? ` — admin-confirmed, accepted window ${decision.behindBytes === null ? 'unknown' : `${decision.behindBytes} bytes`}`
-      : ' — provably caught up (0 bytes behind)') + (lagSecs !== undefined ? ` (replica lag ${lagSecs}s)` : '');
+    (o.resumed
+      ? ' — finishing the promotion swarmy began on that copy'
+      : decision.confirmed
+        ? ` — admin-confirmed, accepted window ${decision.behindBytes === null ? 'unknown' : `${decision.behindBytes} bytes`}`
+        : ' — provably caught up (0 bytes behind)') + (lagSecs !== undefined ? ` (replica lag ${lagSecs}s)` : '');
+  const which = reshape ? ` (its copy on ${pick.node}; its other copies stop and it comes back as that one copy)` : '';
   await seams.recordIncidentEvent(ctx, {
     groupKey,
     kind: record.kind,
-    message: `Promoted ${target.name} to primary${lagNote}${planned ? ' (planned switch-over)' : ` after ${ticks} unhealthy ticks`}`,
+    message: `Promoted ${target.name}${which} to primary${lagNote}${planned ? ' (planned switch-over)' : ` after ${ticks} unhealthy ticks`}`,
     severity: record.severity,
-    meta: { promoted: target.name, demoted: primary?.name ?? null, cluster: c.cluster, stack: c.stack },
+    meta: { promoted: target.name, copy: pick.node, demoted: primary?.name ?? null, cluster: c.cluster, stack: c.stack },
   }).catch(() => undefined);
   if (repointed.length > 0) {
     await seams.recordIncidentEvent(ctx, {
@@ -1336,7 +1398,7 @@ export async function maybePromote(
   // one each, a rolling restart, on the timeline ("Repointed shop_api at …").
   // Whatever this misses, the next ticks finish (followWriter).
   const apps = await followPromotion({ stack: c.stack, cluster: c.cluster, ...(primary ? { primary } : {}), standbys: replicaMembers(c) }, target.name, {
-    repoint: (o) => seams.repointDbApps(ctx, { stack: c.stack, cluster: c.cluster, ...o }),
+    repoint: (r) => seams.repointDbApps(ctx, { stack: c.stack, cluster: c.cluster, ...r }),
   }).catch(() => null);
   await seams.fireEvent(ctx, {
     signal: 'db-failover',
@@ -1348,9 +1410,12 @@ export async function maybePromote(
     action: 'db.failover.promote',
     actorType: 'system',
     targetType: 'dbCluster',
-    targetId: `${c.stack}/${c.cluster}`,
+    targetId: clusterRef,
     metadata: {
       promoted: target.name,
+      copy: pick.node,
+      reshaped: reshape,
+      resumed: o.resumed,
       demoted: primary?.name ?? null,
       repointed,
       pooler,
@@ -1485,6 +1550,18 @@ async function reconcileOrg(orgId: string): Promise<void> {
       if (c.pooler) await remove(c.pooler.name);
       continue;
     }
+
+    // (-2) A writer promoted from a service that held several copies comes back
+    //      as that one copy, pinned to its server (manageddb-reshape). Nothing
+    //      else touches this cluster until it does.
+    const reshaping = await convergeReshape(primary, clusterNet(c), {
+      runningCopies: () => (primary ? runningCopies(orgId, primary).length : 0),
+      scale,
+      deploy: (spec) => hub.dispatch(node, 'service.deploy', { spec, pullPolicy: 'missing' }).catch(() => undefined),
+      removeMark: (service) =>
+        hub.dispatch(node, 'service.updateLabels', { service, add: {}, removeKeys: [DB_FAILOVER_PROMOTING_LABEL] }).catch(() => undefined),
+    });
+    if (reshaping !== 'none') continue;
 
     // (-1) Credentials: a member still carrying its password as plain env
     //      (pre-secret) is migrated onto the password Docker secret — secret
@@ -1734,7 +1811,7 @@ async function reconcileOrg(orgId: string): Promise<void> {
 
     // (6) A2 — replication-lag telemetry (`swarmy.db.lag.<member>` stamps).
     const measured = await measureClusterLag(orgId, node, c).catch(
-      (): ClusterLag => ({ members: {}, primaryLsn: null }),
+      (): ClusterLag => ({ members: {}, primaryLsn: null, copies: [] }),
     );
 
     // (7) A2 — grace-windowed automatic failover promotion.

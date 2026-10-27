@@ -3,6 +3,7 @@ import { createTestDb, type TestDb } from '@swarmy/db';
 import { hub } from '../gateway';
 import { followWriter, resetAppsFollow, type AppsCluster } from './manageddb-apps';
 import { fakeSwarm } from './manageddb-apps.fake';
+import { runningCopies } from './manageddb-copies';
 import { indexClusters, maybePromote, type ClusterLag, type Contract } from './manageddb-reconcile';
 import { PROMOTION_GRACE_TICKS } from './manageddb-reconcile.core';
 
@@ -69,7 +70,11 @@ const apps = (): AppsCluster => {
   const c = cluster();
   return { stack: 'shop', cluster: 'main', ...(c.primary ? { primary: c.primary } : {}), standbys: c.replica ? [c.replica] : [] };
 };
-const lag = (primaryLsn: string | null): ClusterLag => ({ members: { [R]: { lagSeconds: 0, lsnDiffBytes: 0, replayLsn: '0/3000000' } }, primaryLsn });
+const lag = (primaryLsn: string | null): ClusterLag => ({
+  members: { [R]: { lagSeconds: 0, lsnDiffBytes: 0, replayLsn: '0/3000000' } },
+  primaryLsn,
+  copies: runningCopies(ORG, cluster().replica!).map((c) => ({ ...c, inRecovery: true, replayLsn: '0/3000000', lagSeconds: 0 })),
+});
 const rwOf = (s: ReturnType<typeof fakeSwarm>, app: string) => s.services.get(app)!.refs.find((r) => r.target === 'DATABASE_URL')!.source;
 
 async function failover(s: ReturnType<typeof fakeSwarm>): Promise<Contract> {

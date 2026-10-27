@@ -73,6 +73,13 @@ describe('simulateOutage', () => {
     expect(words[0]!.lead).toBe('If the copy on mgr-2 has every change, it takes over by itself.');
     expect(words[1]!.tone).toBe('warn');
   });
+  test('a standby service with two surviving copies: the rule names ONE copy, as the worker does', () => {
+    const M3 = node('mgr-3', 'eu-west');
+    const two = new Map([...place, ['shop_db-replica', [M3, M2]]]);
+    const sim = simulateOutage('failover', members, two, scope, 1);
+    expect(sim.caughtUp).toMatchObject({ kind: 'promote', target: 'shop_db-replica', copy: 'mgr-2' });
+    expect(simWords(sim, () => 'not used')[0]!.lead).toBe('If the copy on mgr-2 has every change, it takes over by itself.');
+  });
   test('no survivor → waits; one copy → never; primary elsewhere → nothing switches', () => {
     const all = new Map([...place, ['shop_db-replica', [M1]]]);
     expect(simulateOutage('failover', members, all, scope, 1).caughtUp.kind).toBe('wait');

@@ -30,7 +30,7 @@ import {
   secretKeysFromEnv,
   versionsOf,
 } from './app-secrets.service';
-import { applySecretVars, SECRET_ENV_VAR } from '@swarmy/core';
+import { applySecretVars, SECRET_ENV_VAR, writerScaleRefusal } from '@swarmy/core';
 import { enqueueEvent } from './webhooks-out.service';
 
 function recordToEnvArray(env: Record<string, string>): { key: string; value: string }[] {
@@ -448,6 +448,8 @@ export async function scaleService(
 ): Promise<{ id: string; deploymentId: string }> {
   const svc = liveService(ctx, input.id);
   if (!svc) throw notFound('service', input.id);
+  const oneWriter = writerScaleRefusal(svc.labels, input.replicas);
+  if (oneWriter) throw commandRejected(oneWriter);
   const node = await resolveManagerNode(ctx);
   try {
     await ctx.hub.dispatch(node.id, 'service.scale', { service: svc.name, replicas: input.replicas });

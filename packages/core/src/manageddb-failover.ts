@@ -20,6 +20,11 @@
  * `geo` are all async streaming replication, so all three are gated by the same
  * rule — `geo` (cross-region) simply trips the confirmation more often.
  *
+ * Per COPY, never per service: a standby service runs one copy per server, so
+ * every candidate is one copy (its own replay LSN, `copy` = its swarm node) and
+ * the decision names that copy. A candidate standing for several copies is
+ * refused, never promoted (manageddb-failover-copies has the rest).
+ *
  * Residual window, stated honestly: the watermark is the last flushed LSN swarmy
  * OBSERVED (one probe per ~15 s healthy tick). Commits flushed on the primary
  * after that probe and never streamed to any replica are invisible to every
@@ -97,7 +102,17 @@ export interface PrimaryWatermark {
 
 export interface FailoverCandidate {
   service: string;
-  /** Running task count — 0 disqualifies (nothing to exec `pg_ctl promote` in). */
+  /**
+   * The ONE copy this candidate is: the swarm node its task and data volume
+   * live on. A standby service runs one copy per server, so the worker passes
+   * one candidate per copy (manageddb-failover-copies) and promotes only it.
+   */
+  copy?: string;
+  /**
+   * Running tasks this candidate stands for: 1 for a copy, 0 disqualifies
+   * (nothing to promote). More than 1 is several copies behind one name: it
+   * is never promoted, because the exec would pick the copy.
+   */
   running: number;
   /** `pg_last_wal_replay_lsn()` measured on the replica (null = unmeasured). */
   replayLsn: string | null;
@@ -133,9 +148,13 @@ export interface PendingFailover {
 export type FailoverDecision =
   | { kind: 'never'; reason: string }
   | { kind: 'wait'; reason: string }
+  /** The only standbys are shared services (several copies, one name): hold, loudly. */
+  | { kind: 'refuse'; target: string; reason: string }
   | {
       kind: 'promote';
       target: string;
+      /** The copy to promote (its swarm node); absent for a legacy service-level candidate. */
+      copy?: string;
       behindBytes: number | null;
       behindSeconds: number | null;
       /** true = promoted on an admin confirmation (a known/accepted loss window). */
@@ -144,6 +163,7 @@ export type FailoverDecision =
   | {
       kind: 'confirm';
       target: string;
+      copy?: string;
       behindBytes: number | null;
       behindSeconds: number | null;
       reason: string;
@@ -206,8 +226,18 @@ export function decideFailover(input: DecideFailoverInput): FailoverDecision {
           : 'active-active already has other writable primaries',
     };
   }
-  const running = input.candidates.filter((c) => c.running > 0);
-  if (running.length === 0) return { kind: 'wait', reason: 'no running replica to promote' };
+  const live = input.candidates.filter((c) => c.running > 0);
+  // One writer, ever: only a single copy may be promoted (see FailoverCandidate.running).
+  const running = live.filter((c) => c.running === 1);
+  if (running.length === 0) {
+    const shared = live[0];
+    if (!shared) return { kind: 'wait', reason: 'no running replica to promote' };
+    return {
+      kind: 'refuse',
+      target: shared.service,
+      reason: `${shared.service} runs ${shared.running} copies under one name, and promoting it would leave the choice of copy to whichever task answered, so swarmy promotes one copy at a time`,
+    };
+  }
 
   const fresh = watermarkIsFresh(input.watermark, input.lastHealthyAt);
   const scored = running.map((c) => ({
@@ -219,21 +249,25 @@ export function decideFailover(input: DecideFailoverInput): FailoverDecision {
     (a, b) =>
       (a.behind ?? inf) - (b.behind ?? inf) ||
       (a.c.lagSeconds ?? inf) - (b.c.lagSeconds ?? inf) ||
-      a.c.service.localeCompare(b.c.service),
+      a.c.service.localeCompare(b.c.service) ||
+      (a.c.copy ?? '').localeCompare(b.c.copy ?? ''),
   );
   const best = scored[0]!;
+  const copyOf = (c: FailoverCandidate) => (c.copy ? { copy: c.copy } : {});
 
   if (best.behind === 0) {
     return {
       kind: 'promote',
       target: best.c.service,
+      ...copyOf(best.c),
       behindBytes: 0,
       behindSeconds: best.c.lagSeconds,
       confirmed: false,
     };
   }
 
-  // An admin may pick any running replica; the confirmation must cover ITS window.
+  // An admin may pick any running replica; the confirmation must cover ITS
+  // window. A service with several copies: its most caught-up copy (sorted).
   const conf = input.confirmation;
   if (conf) {
     const chosen = scored.find((s) => s.c.service === conf.target);
@@ -241,6 +275,7 @@ export function decideFailover(input: DecideFailoverInput): FailoverDecision {
       return {
         kind: 'promote',
         target: chosen.c.service,
+        ...copyOf(chosen.c),
         behindBytes: chosen.behind,
         behindSeconds: chosen.c.lagSeconds,
         confirmed: true,
@@ -258,6 +293,7 @@ export function decideFailover(input: DecideFailoverInput): FailoverDecision {
   return {
     kind: 'confirm',
     target: best.c.service,
+    ...copyOf(best.c),
     behindBytes: best.behind,
     behindSeconds: best.c.lagSeconds,
     reason,
