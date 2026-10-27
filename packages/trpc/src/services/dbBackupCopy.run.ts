@@ -3,8 +3,9 @@
  * after the save succeeded (board 40's "also copy to"). The volume schedules'
  * path, reused: the same backup again into the second destination
  * (`backup-scheduler` `backupToTarget` there; a second `db.backup` here),
- * catalogued under that destination. The caller passes the copy itself, so
- * this module needs nothing from dbBackup.service.
+ * catalogued under that destination. A wal-g PITR schedule is copied with
+ * `wal-g copy` instead (`dbWalgCopy.service.ts`). The caller passes the copy
+ * itself, so this module needs nothing from dbBackup.service.
  *
  * A failed copy never fails the save. The outcome is stamped on the primary
  * (`swarmy.db.backup.copy`), and audited: `db.backup.copy` on success (by

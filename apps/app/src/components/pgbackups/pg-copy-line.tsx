@@ -16,26 +16,32 @@ export function PgCopyLine({ stack, cluster, b }: { stack: string; cluster: stri
   const copy = b.row?.copy ?? null;
   const dest = b.copyTarget;
   const line = copy && dest ? pgCopyLine(copy, isOffsite(dest)) : null;
-  const can = pgCopyMethod(s.engine) != null;
+  const method = pgCopyMethod(s.engine);
+  const can = method != null;
   return (
     <div className="border-border mt-1 flex w-full min-w-0 flex-col items-start gap-1 border-t pt-2">
       {line && dest ? (
         <>
           <span className="flex max-w-full min-w-0 items-center gap-2 text-[13px]">
             <span aria-hidden className={cn('size-2 shrink-0 rounded-full', TONE_DOT[line.tone])} />
-            <b className="truncate font-semibold">{line.say}</b>
+            <b className="min-w-0 leading-snug font-semibold">{line.say}</b>
           </span>
-          <span className="text-muted-foreground max-w-full truncate text-[12.5px]">to {dest.name}</span>
+          <span className="text-muted-foreground max-w-full text-[12.5px] leading-snug">
+            to {dest.name}
+            {line.reach ? ` · ${line.reach}` : ''}
+          </span>
           <Tech>{line.tech}</Tech>
         </>
       ) : (
         <span className="text-muted-foreground text-[12.5px] leading-snug">
-          {can ? 'Saved in this one place. Add a second copy so losing it isn’t losing them.' : 'These backups live in one place: this engine writes one bucket.'}
+          {can
+            ? 'Saved in this one place. Add a second copy so losing it isn’t losing them.'
+            : 'These backups live in one place: pgBackRest writes one bucket and swarmy can’t copy it.'}
         </span>
       )}
       {can ? (
         <Depth at="controls">
-          <PgCopySelect stack={stack} cluster={cluster} primaryId={b.target?.id ?? null} value={s.secondaryTargetId ?? null} />
+          <PgCopySelect stack={stack} cluster={cluster} primaryId={b.target?.id ?? null} value={s.secondaryTargetId ?? null} s3Only={method === 'walg-copy'} />
         </Depth>
       ) : null}
     </div>

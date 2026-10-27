@@ -78,6 +78,7 @@ import { cronNext, isCronDue, parseCron, type CronSpec } from './schedule';
 import { DB_BACKUP_COPY_LABEL, copyMethod } from './dbBackupCopy.label';
 import { copyFields } from './dbBackupCopy.read';
 import { copyAfterSave } from './dbBackupCopy.run';
+import { walgCopy } from './dbWalgCopy.service';
 import {
   AUTO_BACKUP_RETENTION_DAYS,
   DB_BACKUP_AUTO_LABEL,
@@ -591,8 +592,19 @@ function copyAfter(ctx: OrgContext, primary: InvService, schedule: DbBackupSched
     secondaryTargetId: schedule?.secondaryTargetId,
     saved: { at: saved.savedAt, snapshotId: saved.snapshotId },
     copy: (dest) =>
-      backupDb(ctx, { ...input, targetId: dest, copyOf: saved.snapshotId }).then((r) => ({ snapshotId: r.snapshotId, sizeBytes: r.sizeBytes })),
+      input.engine === 'wal-g'
+        ? walgCopyInto(ctx, primary, input.targetId, dest, saved.snapshotId)
+        : backupDb(ctx, { ...input, targetId: dest, copyOf: saved.snapshotId }).then((r) => ({ snapshotId: r.snapshotId, sizeBytes: r.sizeBytes })),
   });
+}
+
+/** wal-g PITR: `wal-g copy` of the base backup just pushed, and the WAL since it, on the node it ran on. */
+async function walgCopyInto(ctx: OrgContext, primary: InvService, fromId: string, toId: string, backupName: string) {
+  const from = await loadTarget(ctx, fromId);
+  const to = await loadTarget(ctx, toId);
+  const node = await physicalNode(ctx, primary.labels);
+  const resticNetwork = resticNetworkFor(from.endpoint) ?? resticNetworkFor(to.endpoint);
+  return walgCopy(ctx, { nodeId: node.id, from: toResticRepo(from), to: toResticRepo(to), backupName, resticNetwork });
 }
 
 // ── schedule (Docker truth: the `swarmy.db.backup.schedule` primary label) ────
@@ -754,12 +766,14 @@ export async function dbBackupOverview(ctx: OrgContext): Promise<DbBackupOvervie
  * by the agent on the node that holds its data (the restore's own read). An
  * agent without the command answers `unsupported`; the estimate stays.
  */
-export async function getDbPitrWindow(ctx: OrgContext, input: { stack: string; cluster: string }): Promise<DbPitrWindowView> {
+export async function getDbPitrWindow(ctx: OrgContext, input: { stack: string; cluster: string; targetId?: string }): Promise<DbPitrWindowView> {
   const { primary } = findCluster(ctx, input.stack, input.cluster);
   if (!primary) throw notFound('db cluster primary', input.cluster);
   const schedule = parseScheduleLabel(primary.labels[DB_BACKUP_SCHEDULE_LABEL]);
   if (!schedule?.pitr || schedule.engine !== 'wal-g') return pitrWindowView(null);
-  const target = await loadTarget(ctx, await resolveTargetId(ctx, undefined, schedule));
+  // `targetId`: the second copy's own window (a restore from it reaches only that far).
+  const main = await resolveTargetId(ctx, undefined, schedule);
+  const target = await loadTarget(ctx, input.targetId ?? main);
   const node = await physicalNode(ctx, primary.labels);
   try {
     const read = await readPitrWindow(ctx, {
@@ -768,7 +782,7 @@ export async function getDbPitrWindow(ctx: OrgContext, input: { stack: string; c
       network: clusterNetworkName(input.stack, input.cluster),
       resticNetwork: resticNetworkFor(target.endpoint),
     });
-    if (read.status === 'read') rememberPitrWindow(ctx.activeOrgId, `${input.stack}/${input.cluster}`, read.result);
+    if (read.status === 'read' && target.id === main) rememberPitrWindow(ctx.activeOrgId, `${input.stack}/${input.cluster}`, read.result);
     return pitrWindowView(read);
   } catch (e) {
     throw mapDispatchError(e);

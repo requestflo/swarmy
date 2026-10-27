@@ -13,6 +13,7 @@ describe('pgCopyLine', () => {
       say: 'Off-site copy · 4 min behind',
       tone: 'ok',
       tech: 'a second dump after each save · newest copy 2026-10-27 03:01 UTC · 256.0 MB',
+      reach: null,
     });
     expect(pgCopyLine(copy({ behindMs: 0 }), false).say).toBe('Second copy · up to date');
     expect(pgCopyLine(copy({ behindMs: 0, copying: true }), true).say).toBe('Off-site copy · up to date · copying now');
@@ -29,7 +30,7 @@ describe('pgCopyLine', () => {
 
   it('a point-in-time copy says how far a restore from it reaches', () => {
     const v = pgCopyLine(copy({ method: 'walg-copy', behindMs: 50 * 60_000, restoresTo: '2026-10-27T09:10:00.000Z', sizeBytes: null }), true);
-    expect(v).toMatchObject({ say: 'Off-site copy · restores to 2026-10-27 09:10 UTC, 50 min behind', tone: 'ok' });
+    expect(v).toMatchObject({ say: 'Off-site copy · 50 min behind', tone: 'ok', reach: 'restores to 2026-10-27 09:10 UTC' });
     expect(v.tech).toBe('wal-g copy after each base backup · newest copy 2026-10-27 03:01 UTC');
   });
 });
@@ -41,8 +42,9 @@ describe('isOffsite / pgCopyMethod', () => {
     expect(isOffsite({ kind: 'node', name: 'NVMe' })).toBe(false);
   });
 
-  it('logical engines copy by a second dump; pgBackRest can’t be copied', () => {
+  it('logical engines copy by a second dump, wal-g by wal-g copy; pgBackRest can’t be copied', () => {
     expect(pgCopyMethod('pg_dump')).toBe('dump');
+    expect(pgCopyMethod('wal-g')).toBe('walg-copy');
     expect(pgCopyMethod('pgbackrest')).toBeNull();
   });
 });

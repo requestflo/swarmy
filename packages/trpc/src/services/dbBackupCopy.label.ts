@@ -49,7 +49,7 @@ export type CopyAttempt = { targetId: string; savedAt: string; startedAt: string
  */
 export function copyMethod(engine: DbBackupEngine): 'dump' | 'walg-copy' | null {
   if (engine === 'pg_dump' || engine === 'pg_dumpall' || engine === 'snapshot-from-replica') return 'dump';
-  return null;
+  return engine === 'wal-g' ? 'walg-copy' : null;
 }
 
 const isTime = (v: unknown): v is string => typeof v === 'string' && !Number.isNaN(Date.parse(v));

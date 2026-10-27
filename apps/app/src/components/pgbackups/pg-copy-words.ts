@@ -20,13 +20,14 @@ export function isOffsite(t: { kind: string; name: string }): boolean {
 
 /** Mirror of the controller's `copyMethod`: how a schedule on this engine is copied, or null when it can't be. */
 export function pgCopyMethod(engine: DbBackupScheduleView['engine']): 'dump' | 'walg-copy' | null {
-  return engine === 'pg_dump' || engine === 'pg_dumpall' || engine === 'snapshot-from-replica' ? 'dump' : null;
+  if (engine === 'pg_dump' || engine === 'pg_dumpall' || engine === 'snapshot-from-replica') return 'dump';
+  return engine === 'wal-g' ? 'walg-copy' : null;
 }
 
 const utc = (iso: string): string => `${iso.slice(0, 16).replace('T', ' ')} UTC`;
 
-/** The copy's sentence, tone and tech line. */
-export function pgCopyLine(c: DbBackupCopyView, offsite: boolean): { say: string; tone: Tone; tech: string } {
+/** The copy's sentence, tone and tech line, and (point-in-time copies) how far a restore from it reaches. */
+export function pgCopyLine(c: DbBackupCopyView, offsite: boolean): { say: string; tone: Tone; tech: string; reach: string | null } {
   const lead = offsite ? 'Off-site copy' : 'Second copy';
   const tech = [
     c.method === 'dump' ? 'a second dump after each save' : 'wal-g copy after each base backup',
@@ -36,10 +37,10 @@ export function pgCopyLine(c: DbBackupCopyView, offsite: boolean): { say: string
   ]
     .filter(Boolean)
     .join(' · ');
-  if (c.failing) return { say: `${lead} · the last copy failed`, tone: 'bad', tech };
-  if (c.neverCopied) return { say: `${lead} · not copied yet`, tone: 'warn', tech };
-  if (c.behindMs == null) return { say: c.copying ? `${lead} · copying now` : `${lead} · nothing saved yet`, tone: 'idle', tech };
+  const reach = c.restoresTo ? `restores to ${utc(c.restoresTo)}` : null;
+  if (c.failing) return { say: `${lead} · the last copy failed`, tone: 'bad', tech, reach };
+  if (c.neverCopied) return { say: `${lead} · not copied yet`, tone: 'warn', tech, reach };
+  if (c.behindMs == null) return { say: c.copying ? `${lead} · copying now` : `${lead} · nothing saved yet`, tone: 'idle', tech, reach };
   const behind = c.behindMs < MIN ? 'up to date' : `${lagWords(c.behindMs)} behind`;
-  const reach = c.restoresTo ? `restores to ${utc(c.restoresTo)}, ` : '';
-  return { say: `${lead} · ${reach}${behind}${c.copying ? ' · copying now' : ''}`, tone: c.behindMs > STALE_MS ? 'warn' : 'ok', tech };
+  return { say: `${lead} · ${behind}${c.copying ? ' · copying now' : ''}`, tone: c.behindMs > STALE_MS ? 'warn' : 'ok', tech, reach };
 }

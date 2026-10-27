@@ -33,6 +33,8 @@ export const AGENT_CAPABILITY = {
   probeSmtp: 'probeSmtp',
   /** Read-only: is a wal-g PITR cluster's WAL archive continuous (`dbWalVerify`, `wal-g wal-verify`)? */
   dbWalVerify: 'dbWalVerify',
+  /** Copy a wal-g PITR cluster's base backup + the WAL since it to a second destination (`dbWalgCopy`, `wal-g copy`). */
+  dbWalgCopy: 'dbWalgCopy',
 } as const;
 export type AgentCapability = (typeof AGENT_CAPABILITY)[keyof typeof AGENT_CAPABILITY];
 
@@ -45,6 +47,7 @@ export const AGENT_CAPABILITIES: readonly AgentCapability[] = [
   AGENT_CAPABILITY.restartAgent,
   AGENT_CAPABILITY.probeSmtp,
   AGENT_CAPABILITY.dbWalVerify,
+  AGENT_CAPABILITY.dbWalgCopy,
 ];
 
 /**

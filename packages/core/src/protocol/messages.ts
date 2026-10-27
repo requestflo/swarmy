@@ -36,6 +36,7 @@ import { BackupVolumeMsg, RestoreVolumeMsg, ListSnapshotsMsg } from './backup';
 import { DbBackupMsg, DbRestoreMsg } from './dbBackup';
 import { DbPitrWindowMsg } from './pitrWindow';
 import { DbWalVerifyMsg } from './walVerify';
+import { DbWalgCopyMsg } from './walgCopy';
 import { EdgeCertsMsg } from './edge-certs';
 import { EdgeCertRenewMsg } from './edge-cert-renew';
 import { ControllerServiceMsg } from './controllerService';
@@ -139,6 +140,7 @@ export const ControllerToAgentMessage = z.discriminatedUnion('type', [
   DbRestoreMsg,
   DbPitrWindowMsg,
   DbWalVerifyMsg,
+  DbWalgCopyMsg,
   EdgeCertsMsg,
   EdgeCertRenewMsg,
   AppDbBackupMsg,

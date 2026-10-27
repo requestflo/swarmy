@@ -51,10 +51,11 @@ export const dbBackupRouter = router({
   /**
    * The real PITR window, read from the cluster's WAL repo by its agent (a
    * read-only `wal-g backup-list`). `source: 'unsupported'` on an agent that
-   * predates the check; the overview's estimate stands then.
+   * predates the check; the overview's estimate stands then. With `targetId`
+   * (the schedule's second destination): the copy's own window.
    */
   pitrWindow: orgProcedure
-    .input(z.object({ stack: z.string().min(1), cluster: z.string().min(1) }))
+    .input(z.object({ stack: z.string().min(1), cluster: z.string().min(1), targetId: z.string().min(1).optional() }))
     .query(({ ctx, input }) => getDbPitrWindow(ctx, input)),
 
   /**

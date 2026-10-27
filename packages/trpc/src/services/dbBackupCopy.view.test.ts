@@ -32,8 +32,9 @@ describe('the copy label', () => {
     }
   });
 
-  it('logical engines copy by a second dump; pgBackRest keeps one repo', () => {
+  it('logical engines copy by a second dump, wal-g by wal-g copy; pgBackRest keeps one repo', () => {
     expect(['pg_dump', 'pg_dumpall', 'snapshot-from-replica'].map((e) => copyMethod(e as never))).toEqual(['dump', 'dump', 'dump']);
+    expect(copyMethod('wal-g')).toBe('walg-copy');
     expect(copyMethod('pgbackrest')).toBeNull();
   });
 });
@@ -59,6 +60,14 @@ describe('dbCopyView', () => {
     expect(view({ lastRun: null })).toMatchObject({ behindMs: null, neverCopied: false });
     // A copy record about a former second destination says nothing about this one.
     expect(view({ record: { ...ok(0, 1), targetId: 'r2' } })).toMatchObject({ neverCopied: true, newestCopyAt: null });
+  });
+
+  it('a wal-g copy is as far behind as the main archive reaches past where a restore from the copy stops', () => {
+    const walg = nextCopyRecord(null, { targetId: 'b2', savedAt: T(0), startedAt: T(1), status: 'succeeded', snapshotId: 'base_09', restoresTo: T(2) });
+    const v = view({ schedule: { ...SCHED, engine: 'wal-g' }, record: walg, mainReachesTo: Date.parse(T(50)) });
+    expect(v).toMatchObject({ method: 'walg-copy', behindMs: 48 * 60_000, restoresTo: T(2), newestCopyAt: T(1) });
+    // Copying again does not hide the lag: the copy reaches no further until it lands.
+    expect(view({ schedule: { ...SCHED, engine: 'wal-g' }, record: walg, copying: true, mainReachesTo: Date.parse(T(50)) })).toMatchObject({ behindMs: 48 * 60_000, copying: true });
   });
 
   it('no copy without a second destination, the same one twice, or an engine that can’t copy', () => {

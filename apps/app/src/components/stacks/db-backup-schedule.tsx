@@ -114,7 +114,7 @@ export function DbBackupSchedule({
         </div>
       )}
       {current && pgCopyMethod(current.engine) ? (
-        <PgCopySelect stack={stack} cluster={cluster} primaryId={current.targetId ?? targetId} value={current.secondaryTargetId ?? null} />
+        <PgCopySelect stack={stack} cluster={cluster} primaryId={current.targetId ?? targetId} value={current.secondaryTargetId ?? null} s3Only={current.engine === 'wal-g'} />
       ) : null}
       <div className="flex items-center gap-3">
         <Button variant="outline" onClick={submit} disabled={save.isPending || schedule.isPending}>

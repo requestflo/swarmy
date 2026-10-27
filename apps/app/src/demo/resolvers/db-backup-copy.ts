@@ -2,17 +2,21 @@ import type { DbBackupCopyView, DbBackupOverviewRow, DbBackupScheduleView, DbBac
 import type { DemoHandler, DemoStore, DomainResolvers } from '../types';
 import { backupCopyLag } from './backup-copy-lag';
 import { data } from './data';
+import { dbPitrWindow } from './db-pitr-window';
 
 /**
  * "Also copy to" on database schedules (board 40), over data.ts's clusters:
  * storefront/checkout's nightly dump is also copied to an off-site R2
- * bucket. The overview carries each copy and how far it trails (the
- * controller's rule: the newest save against when the newest copy began),
- * `dbBackups.list` reads the copy's own saves, and `backups.copyLag` counts
- * the databases at their destination. Comes after data and backupCopyLag.
+ * bucket, and data/main's wal-g base backups with the changes since them
+ * (`wal-g copy`). The overview carries each copy and how far it trails (the
+ * controller's rule: the newest save against when the newest copy began; for
+ * wal-g, how far the main archive reaches past where the copy stops),
+ * `dbBackups.list` / `.pitrWindow` read the copy's own, and `backups.copyLag`
+ * counts the databases at their destination. Comes after data,
+ * dbPitrWindow and backupCopyLag.
  */
 
-interface Copy { targetId: string; since: string; okSavedAt: string | null; okStartedAt: string | null; sizeBytes: string | null; error: string | null }
+interface Copy { targetId: string; since: string; okSavedAt: string | null; okStartedAt: string | null; sizeBytes: string | null; error: string | null; restoresTo?: string | null }
 interface Cluster { stack: string; cluster: string; schedule: { engine: string } | null; lastRunAt: string | null; lastStatus: string | null; lastSizeBytes: string | null }
 interface Target { id: string; name: string; kind: string; endpoint: string | null; bucket: string; prefix: string | null; region: string | null; hasCredentials: boolean; enabled: boolean; createdAt: string }
 interface Lag { targetId: string; schedules: number; databases: number; behindMs: number | null; worstVolume: string | null; neverCopied: number; copying: number; failing: number; lastError: string | null; newestCopyAt: string | null; copiedBytes: string }
@@ -31,10 +35,13 @@ const call = async (h: DemoHandler | undefined, i: unknown, s: DemoStore): Promi
 
 export function demoCopyView(s: DemoStore, c: Copy, cl: Cluster | undefined): DbBackupCopyView {
   const newest = cl?.lastStatus === 'succeeded' ? cl.lastRunAt : c.okSavedAt;
-  const behindMs = newest && c.okStartedAt ? Math.max(0, Date.parse(newest) - Date.parse(c.okStartedAt)) : null;
+  // wal-g: the main archive reaches the newest change (a minute ago, as dbPitrWindow says).
+  const behindMs = c.restoresTo
+    ? Math.max(0, Date.now() - 60_000 - Date.parse(c.restoresTo))
+    : newest && c.okStartedAt ? Math.max(0, Date.parse(newest) - Date.parse(c.okStartedAt)) : null;
   return {
-    targetId: c.targetId, targetName: nameOf(s, c.targetId), method: 'dump', behindMs, neverCopied: newest != null && !c.okStartedAt,
-    copying: false, failing: c.error != null, lastError: c.error, newestCopyAt: c.okStartedAt, sizeBytes: c.sizeBytes, restoresTo: null,
+    targetId: c.targetId, targetName: nameOf(s, c.targetId), method: c.restoresTo !== undefined ? 'walg-copy' : 'dump', behindMs, neverCopied: newest != null && !c.okStartedAt,
+    copying: false, failing: c.error != null, lastError: c.error, newestCopyAt: c.okStartedAt, sizeBytes: c.sizeBytes, restoresTo: c.restoresTo ?? null,
   };
 }
 
@@ -43,7 +50,11 @@ function copyNow(s: DemoStore, b: { stack: string; cluster: string }, targetId: 
   const cl = cluster(s, b);
   const prev = copies(s)[ref(b)];
   const now = new Date().toISOString();
-  copies(s)[ref(b)] = { targetId, since: prev?.targetId === targetId ? prev.since : now, okSavedAt: cl?.lastRunAt ?? null, okStartedAt: cl?.lastRunAt ? now : null, sizeBytes: cl?.lastSizeBytes ?? null, error: null };
+  const walg = cl?.schedule?.engine === 'wal-g';
+  copies(s)[ref(b)] = {
+    targetId, since: prev?.targetId === targetId ? prev.since : now, okSavedAt: cl?.lastRunAt ?? null, okStartedAt: cl?.lastRunAt ? now : null,
+    sizeBytes: cl?.lastSizeBytes ?? null, error: null, ...(walg ? { restoresTo: cl?.lastRunAt ? now : null } : {}),
+  };
 }
 
 export const dbBackupCopy: DomainResolvers = {
@@ -52,6 +63,15 @@ export const dbBackupCopy: DomainResolvers = {
     if (!d.targets.some((t) => t.id === R2.id)) d.targets.push(R2);
     // Last night's dump failed (data.ts); the save before it was copied two minutes after it finished.
     const save = d.dbSnapshots.filter((x) => x.stack === 'storefront' && x.cluster === 'checkout').sort((a, b) => b.time.localeCompare(a.time))[0];
+    // data/main's newest base backup was copied with the changes since it a minute after it finished.
+    const main = d.dbClusters.find((c) => ref(c) === 'data/main');
+    if (main?.lastRunAt) {
+      const at = Date.parse(main.lastRunAt);
+      copies(store)['data/main'] = {
+        targetId: R2.id, since: new Date(at - 30 * 3_600_000).toISOString(), okSavedAt: main.lastRunAt, okStartedAt: new Date(at + 60_000).toISOString(),
+        sizeBytes: main.lastSizeBytes, error: null, restoresTo: new Date(at + 2 * 60_000).toISOString(),
+      };
+    }
     if (!save) return;
     copies(store)['storefront/checkout'] = {
       targetId: R2.id, since: new Date(Date.now() - 4 * 86_400_000).toISOString(), okSavedAt: save.time,
@@ -94,6 +114,15 @@ export const dbBackupCopy: DomainResolvers = {
       const c = b.stack && b.cluster ? copies(s)[`${b.stack}/${b.cluster}`] : undefined;
       if (!c || b.targetId !== c.targetId) return rows;
       return rows.filter((r) => r.time >= c.since && !r.reason).map((r) => ({ ...r, id: `c${r.id.slice(1)}` }));
+    },
+    // The copy's own window: from its oldest base backup to where the last copy reached.
+    'dbBackups.pitrWindow': async (i, s) => {
+      const b = i as { stack: string; cluster: string; targetId?: string };
+      const v = (await call(dbPitrWindow.handlers?.['dbBackups.pitrWindow'], i, s)) as { source: string; backups: Array<{ finishTime: string }>; window: { from: string; to: string } | null };
+      const c = copies(s)[ref(b)];
+      if (!c?.restoresTo || b.targetId !== c.targetId || v.source !== 'agent') return v;
+      const backups = v.backups.filter((x) => x.finishTime >= c.since && x.finishTime <= c.restoresTo!);
+      return { ...v, backups, window: backups[0] ? { from: backups[0].finishTime, to: c.restoresTo } : null, latestWalAt: c.restoresTo };
     },
     'backups.copyLag': async (i, s) => {
       const vols = (await call(backupCopyLag.handlers?.['backups.copyLag'], i, s)) as Array<Omit<Lag, 'databases'>>;

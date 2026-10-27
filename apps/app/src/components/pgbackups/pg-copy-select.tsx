@@ -10,10 +10,12 @@ interface PgCopySelectProps {
   /** The schedule's main destination (not offered). */
   primaryId: string | null;
   value: string | null;
+  /** wal-g copies into S3 buckets only. */
+  s3Only?: boolean;
 }
 
 /** "Also copy to" on a database's schedule: every save is copied to a second destination too (`dbBackups.setSecondary`). */
-export function PgCopySelect({ stack, cluster, primaryId, value }: PgCopySelectProps): React.JSX.Element {
+export function PgCopySelect({ stack, cluster, primaryId, value, s3Only }: PgCopySelectProps): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const targets = useQuery(trpc.backups.listTargets.queryOptions());
@@ -24,7 +26,7 @@ export function PgCopySelect({ stack, cluster, primaryId, value }: PgCopySelectP
       onError: (e) => toast.error(e.message),
     }),
   );
-  const options = (targets.data ?? []).filter((t) => t.enabled).map((t) => ({ id: t.id, name: t.name }));
+  const options = (targets.data ?? []).filter((t) => t.enabled && (!s3Only || t.kind.toLowerCase() === 's3')).map((t) => ({ id: t.id, name: t.name }));
   return (
     <div className="flex w-full flex-col gap-1">
       <span className="text-muted-foreground text-[12px] font-semibold">Also copy to</span>

@@ -16,6 +16,7 @@ import { env } from './env';
 import { backupVolume, restoreVolume, listSnapshots, backupDb, restoreDb } from './handlers/backup';
 import { dbPitrWindow } from './handlers/pitr-window';
 import { dbWalVerify } from './handlers/wal-verify';
+import { dbWalgCopy } from './handlers/walg-copy';
 import { readEdgeCerts } from './handlers/edge-certs';
 import { renewEdgeCert } from './handlers/edge-cert-renew';
 import { appDbBackup, appDbRestore, appDbVerify } from './handlers/appdb';
@@ -281,6 +282,13 @@ export async function handleCommand(
       // Advertised in AGENT_CAPABILITIES.
       const p = envlp.payload;
       return run(conn, p.commandId, () => dbWalVerify(docker, p));
+    }
+    case 'dbWalgCopy': {
+      // `wal-g copy` between two S3 destinations in a sidecar: no task exec and
+      // no volume, so dbPitrWindow's gates (none); both sides' credentials are
+      // container env, the configs a tmpfs file. Advertised in AGENT_CAPABILITIES.
+      const p = envlp.payload;
+      return run(conn, p.commandId, () => dbWalgCopy(docker, p));
     }
     case 'edgeCerts': {
       // Read-only: the `.crt` facts of this node's edge Caddy task (swarmy's

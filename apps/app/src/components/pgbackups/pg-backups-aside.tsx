@@ -3,6 +3,7 @@ import { CodeView, Section, Tech } from '@/components/calm';
 import { humanBytes } from '@/components/stack-data/pg-choices';
 import { engineLabel, isPhysical } from '@/components/stacks/db-backup-format';
 import { primaryService, renderedDbLabels } from './pg-labels';
+import { pgCopyMethod } from './pg-copy-words';
 import type { PgBackupsData } from './use-pg-backups';
 
 interface PgAsideProps {
@@ -44,11 +45,24 @@ function Row({ k, v, tech }: { k: string; v: React.ReactNode; tech?: string }): 
   );
 }
 
+/** Where the second copy is and how it is made: wal-g copies each base backup with the changes since it. */
+function secondCopy(b: PgBackupsData): [string, string | undefined] {
+  const s = b.schedule;
+  const method = s ? pgCopyMethod(s.engine) : null;
+  if (!s) return ['not on a schedule', undefined];
+  if (!method) return ['none: pgBackRest writes one bucket', undefined];
+  if (!b.copyTarget) return ['none yet: these saves live in one place', undefined];
+  return method === 'walg-copy'
+    ? [`in ${b.copyTarget.name}: each base copy and the changes since it`, 'wal-g copy --backup-name <base> after each base backup · a restore from it reaches the last copy']
+    : [`in ${b.copyTarget.name}: every save, made again there`, 'a second db.backup after each save'];
+}
+
 /** "What gets saved": the copy, the changes between copies, the lock on it, and the list. */
 export function PgSavedCard({ stack, cluster, b }: PgAsideProps): React.JSX.Element {
   const s = b.schedule;
   const physical = s ? isPhysical(s.engine) : false;
   const size = humanBytes(b.row?.lastSizeBytes ?? null);
+  const [copyWords, copyTech] = secondCopy(b);
   return (
     <Section title="What gets saved" count={cluster}>
       <div className="flex flex-col">
@@ -62,6 +76,7 @@ export function PgSavedCard({ stack, cluster, b }: PgAsideProps): React.JSX.Elem
           v={s?.pitr ? 'kept between copies, to the second' : 'not kept: restores go back to a full copy'}
           tech={s?.pitr ? 'WAL archive → wal-shipper → wal-g wal-push' : 'no swarmy.db.backup.pitr label'}
         />
+        <Row k="Second copy" v={copyWords} tech={copyTech} />
         <Row
           k="Encryption"
           v={physical ? 'as private as the bucket it goes to' : 'locked with your backup key before it leaves'}

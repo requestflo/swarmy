@@ -43,11 +43,13 @@ export async function setDbBackupSecondary(ctx: OrgContext, input: SetDbBackupSe
   if (!schedule) throw commandRejected(`Put ${input.cluster} on a schedule first: the second copy follows each save.`);
   const dest = input.secondaryTargetId;
   if (dest) {
-    await loadTarget(ctx, dest); // org-scope check
+    const t = await loadTarget(ctx, dest); // org-scope check
     if (dest === (await resolveTargetId(ctx, undefined, schedule))) throw badRequest('The second destination must differ from the first.');
-    if (!copyMethod(schedule.engine)) {
+    const method = copyMethod(schedule.engine);
+    if (!method) {
       throw commandRejected(`A ${schedule.engine} schedule writes its backups to one place; swarmy can't copy them to a second destination.`);
     }
+    if (method === 'walg-copy' && t.kind.toUpperCase() !== 'S3') throw commandRejected('wal-g copies into an S3 bucket only: pick an S3 destination for the second copy.');
   }
   const { secondaryTargetId: _drop, ...rest } = schedule;
   const next = dest ? { ...rest, secondaryTargetId: dest } : rest;

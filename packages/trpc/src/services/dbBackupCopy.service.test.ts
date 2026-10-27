@@ -21,21 +21,25 @@ const target = (id: string, bucket: string) => ({
   credentialRef: null, secretKeyRef: null, resticPasswordRef: encryptSecret('pw'), enabled: true, createdAt: new Date(Date.now() - (id === 'main' ? 2 : 1) * 60_000),
 });
 
-function world(schedule: DbBackupSchedule, opts: { copyFails?: boolean } = {}) {
+function world(schedule: DbBackupSchedule, opts: { copyFails?: boolean; oldAgent?: boolean } = {}) {
   const dispatches: Dispatch[] = [];
   const audits: Array<{ action: string; metadata: Record<string, unknown> }> = [];
   const labels: Record<string, string> = {
     'com.docker.stack.namespace': 'shop', 'swarmy.db.cluster': 'main', 'swarmy.db.role': 'primary',
-    'swarmy.db.backup.schedule': encodeScheduleLabel(schedule),
+    'swarmy.db.backup.schedule': encodeScheduleLabel(schedule), 'swarmy.db.dataVolume': 'shop_main-primary-data',
   };
   const primary = { id: 's1', name: 'shop_main-primary', image: 'pg', mode: 'replicated' as const, desiredReplicas: 1, runningReplicas: 1, labels, env: ['POSTGRES_PASSWORD=pw'], networks: [], ports: [] };
   const hub = {
     managerNode: () => 'node1',
     isOnline: () => true,
     liveInventory: () => ({ services: [primary], containers: [] }),
+    onlineNodeIds: () => ['node1'],
+    swarmNodeIdFor: () => 'sw1',
+    agentBuildFor: () => ({ version: '1.9.0', capabilities: opts.oldAgent ? ['dbPitrWindow'] : ['dbPitrWindow', 'dbWalgCopy'] }),
     dispatch: (_n: string, cmd: string, payload: Record<string, unknown>) => {
       dispatches.push({ cmd, payload });
       if (cmd === 'service.updateLabels') Object.assign(labels, payload.add);
+      if (cmd === 'db.walgCopy') return Promise.resolve(WALG_COPIED);
       if (cmd !== 'db.backup') return Promise.resolve({});
       const repo = (payload.repo as { repo: string }).repo;
       if (opts.copyFails && repo.includes('/copy')) return Promise.reject(new Error('AccessDenied: the off-site bucket refused the upload'));
@@ -46,11 +50,17 @@ function world(schedule: DbBackupSchedule, opts: { copyFails?: boolean } = {}) {
     organization: { findMany: () => Promise.resolve([{ id: 'org1' }]) },
     auditLog: { create: (a: { data: { action: string; metadata: Record<string, unknown> } }) => (audits.push(a.data), Promise.resolve({})) },
   };
-  seedKvRows(hub as never, 'org1', 'bkp-target', [target('main', 'main'), target('copy', 'copy')]);
+  seedKvRows(hub as never, 'org1', 'bkp-target', [target('main', 'main'), target('copy', 'copy'), { ...target('nvme', '/srv/backups'), kind: 'NODE', endpoint: null }]);
   const ctx = { db, hub, activeOrgId: 'org1', user: { id: 'u1' } } as unknown as OrgContext;
   return { deps: { db, hub, auth: {} } as never, ctx, dispatches, audits, labels };
 }
 
+const WALG_COPIED = {
+  backupName: 'save1',
+  backups: [{ name: 'save1', finishTime: '2026-10-27T03:01:00.000Z', sizeBytes: 1_842_300_416 }],
+  window: { from: '2026-10-27T03:01:00.000Z', to: '2026-10-27T03:02:00.000Z' },
+  checkedAt: '2026-10-27T03:02:30.000Z',
+};
 const SCHED: DbBackupSchedule = { cron: '* * * * *', engine: 'pg_dump', retentionDays: 7, pitr: false, targetId: 'main', secondaryTargetId: 'copy' };
 const NOW = new Date('2026-10-27T03:00:30Z');
 
@@ -82,6 +92,37 @@ describe('the scheduled save is copied to the second destination', () => {
     await runDueDbBackups(NOW, w.deps);
     expect(w.dispatches.filter((d) => d.cmd === 'db.backup')).toHaveLength(1);
     expect(w.labels['swarmy.db.backup.copy']).toBeUndefined();
+  });
+});
+
+describe('a wal-g PITR schedule is copied with wal-g copy', () => {
+  const WALG: DbBackupSchedule = { ...SCHED, engine: 'wal-g', pitr: true };
+
+  it('after the base backup: one db.walgCopy from the main to the second destination, stamped with how far the copy restores', async () => {
+    const w = world(WALG);
+    await runDueDbBackups(NOW, w.deps);
+    expect(w.dispatches.filter((d) => d.cmd === 'db.backup')).toHaveLength(1);
+    const copy = w.dispatches.find((d) => d.cmd === 'db.walgCopy')!;
+    expect(copy.payload).toMatchObject({ engine: 'wal-g', backupName: 'save1' });
+    expect((copy.payload.from as { repo: string }).repo).toBe('s3:https://s3.example.com/main');
+    expect((copy.payload.to as { repo: string }).repo).toBe('s3:https://s3.example.com/copy');
+    expect(parseCopyLabel(w.labels['swarmy.db.backup.copy'])).toMatchObject({
+      status: 'succeeded',
+      ok: { snapshotId: 'save1', sizeBytes: '1842300416', restoresTo: '2026-10-27T03:02:00.000Z' },
+    });
+  });
+
+  it('an agent that predates the command is never sent it: the copy fails in plain words', async () => {
+    const w = world(WALG, { oldAgent: true });
+    await runDueDbBackups(NOW, w.deps);
+    expect(w.dispatches.some((d) => d.cmd === 'db.walgCopy')).toBe(false);
+    expect(parseCopyLabel(w.labels['swarmy.db.backup.copy'])?.error).toContain('predates dbWalgCopy');
+  });
+
+  it('wal-g copies into an S3 bucket only', async () => {
+    const w = world({ ...WALG, secondaryTargetId: undefined });
+    await expect(setDbBackupSecondary(w.ctx, { stack: 'shop', cluster: 'main', secondaryTargetId: 'nvme' })).rejects.toThrow('S3 bucket only');
+    expect((await setDbBackupSecondary(w.ctx, { stack: 'shop', cluster: 'main', secondaryTargetId: 'copy' })).secondaryTargetId).toBe('copy');
   });
 });
 
