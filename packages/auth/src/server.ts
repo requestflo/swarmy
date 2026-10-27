@@ -23,14 +23,14 @@ import { trustedOriginsNow } from './origins';
 import { mfaAssurance, swarmyTwoFactor } from './two-factor';
 import { OIDC_DISABLED_PATHS, swarmyOidcProvider } from './oidc-provider';
 import { onSessionDeleted } from './token-revocation';
-import { samlProviderIdFromPath, samlUserEmail } from './saml';
+import { samlProviderIdFromPath, samlUserEmail, ssoPublicBase } from './saml';
+import { signupInvite } from './saml-invite';
 import { swarmySaml } from './saml-plugin';
 import { sessionCreateBefore } from './sso-enforcement-hooks';
 import { swarmySsoEnforcement } from './sso-enforcement-plugin';
 import { ssoProviderReady } from './sso-ready';
 import {
   allowedDomainsFor,
-  inviteIdFromRequest,
   socialProviderFromPath,
   socialProfileMapper,
   ssoProfileMapper,
@@ -197,7 +197,7 @@ export function buildAuth(
   if (oidcSso.length) {
     optional.push(genericOAuth({ config: oidcSso.map(ssoToGenericOAuth) }) as BetterAuthPlugin);
   }
-  optional.push(...swarmySaml(config.sso ?? []));
+  optional.push(...swarmySaml(config.sso ?? [], ssoPublicBase(), db));
   if (opts.extraPlugins?.length) {
     optional.push(...opts.extraPlugins);
   }
@@ -232,7 +232,8 @@ export function buildAuth(
             const samlId = samlProviderIdFromPath(ctx?.path, params);
             const email = samlId && ssoById.has(samlId) ? samlUserEmail(samlId, user.email) : user.email;
             await assertSignupAllowed(db, email, process.env, {
-              inviteId: inviteIdFromRequest(ctx),
+              // The invite cookie, or at a SAML ACS the invite bound to its AuthnRequest.
+              ...signupInvite(ctx),
               ssoProviderId: ssoProviderId && ssoById.has(ssoProviderId) ? ssoProviderId : null,
               username: typeof user.username === 'string' ? user.username : null,
               emailVerified: user.emailVerified === true,

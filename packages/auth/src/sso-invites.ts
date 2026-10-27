@@ -13,12 +13,13 @@ import { ssoOnlyOrgIds } from './sso-enforcement-hooks';
  *    the provider names one.
  *
  * The SAML gap: the IdP's POST to the ACS is cross-site, so the browser leaves
- * the SameSite=Lax invite cookie behind and the sign-in hook can't tell which
- * invite the person opened. So after every SSO sign-in the hook also redeems
- * the pending SSO invite of that provider's org that names the address the
- * IdP just vouched for ({@link findSsoInviteFor}); a link is redeemed by the
- * login page's accept once the browser is back on a first-party request, where
- * the cookie and the session's `signInMethod` both are.
+ * the SameSite=Lax invite cookie behind. The invite a SAML sign-in started
+ * from rides its AuthnRequest instead (saml-invite.ts), which is what admits a
+ * new person on a link. After every SSO sign-in the hook also redeems the
+ * pending SSO invite of that provider's org that names the address the IdP
+ * just vouched for ({@link findSsoInviteFor}). OIDC needs neither: its
+ * callback is a top-level GET, which carries the Lax cookie (Better Auth's
+ * signed `state` cookie, checked there, is Lax too).
  */
 
 export type InviteSsoRefusal = 'sso_required' | 'sso_email_mismatch' | 'sso_domain_mismatch';

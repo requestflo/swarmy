@@ -4,7 +4,8 @@ import { APIError, createAuthMiddleware } from 'better-auth/api';
 import type { ResolvedSsoProvider } from './config';
 import { groupsFromClaim, mapGroups } from './identity';
 import { stashSsoGroups } from './provisioning';
-import { requireAnsweredRequest } from './saml-request';
+import { bindInviteToAuthnRequest, requireAnsweredRequest } from './saml-request';
+import type { BindInviteDb } from './saml-invite';
 import {
   SAML_ACS_PREFIX,
   SAML_METADATA_PATH,
@@ -50,11 +51,13 @@ function authPath(url: URL, baseURL: string): string {
  * configured. The plugin's provider CRUD (`/sso/register`, …), its OIDC
  * callbacks and single logout all answer 404, so nothing reaches its own table
  * and no user can register an IdP. The ACS takes only answers to our own
- * AuthnRequests (saml-request.ts).
+ * AuthnRequests (saml-request.ts), each carrying the invite its sign-in
+ * started from, if any (saml-invite.ts).
  */
-function samlGuard(ids: ReadonlySet<string>): BetterAuthPlugin {
+function samlGuard(ids: ReadonlySet<string>, db?: BindInviteDb): BetterAuthPlugin {
   return {
     id: 'swarmy-saml-guard',
+    init: () => (db ? { options: { databaseHooks: { verification: { create: { before: bindInviteToAuthnRequest(db) } } } } } : {}),
     onRequest: async (request, ctx) => {
       const url = new URL(request.url);
       const path = authPath(url, ctx.baseURL);
@@ -103,9 +106,9 @@ export function samlPluginOptions(ready: ResolvedSsoProvider[], base: string = s
   };
 }
 
-/** The SAML plugins for the configured providers; none when no row is ready. */
-export function swarmySaml(providers: ResolvedSsoProvider[], base: string = ssoPublicBase()): BetterAuthPlugin[] {
+/** The SAML plugins for the configured providers; none when no row is ready. `db` lets invites ride the AuthnRequest. */
+export function swarmySaml(providers: ResolvedSsoProvider[], base: string = ssoPublicBase(), db?: BindInviteDb): BetterAuthPlugin[] {
   const ready = providers.filter(samlReady);
   if (!ready.length) return [];
-  return [sso(samlPluginOptions(ready, base)) as unknown as BetterAuthPlugin, samlGuard(new Set(ready.map((p) => p.providerId)))];
+  return [sso(samlPluginOptions(ready, base)) as unknown as BetterAuthPlugin, samlGuard(new Set(ready.map((p) => p.providerId)), db)];
 }

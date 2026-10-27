@@ -4,16 +4,19 @@ import { createAuthMiddleware } from 'better-auth/api';
 import { setCookieCache } from 'better-auth/cookies';
 import type { DB } from '@swarmy/db';
 import { emailDomainAllowed, parseAllowedDomains } from './signup-policy';
-import { groupsFromClaim, INVITE_COOKIE, mapGroups, readCookie, usernamePlaceholderEmail } from './identity';
+import { groupsFromClaim, INVITE_COOKIE, mapGroups, usernamePlaceholderEmail } from './identity';
 import { idpPlaceholderEmail } from './identity-idp';
 import type { ResolvedAuthConfig, ResolvedSsoProvider } from './config';
+import { inviteIdFromRequest } from './invite-cookie';
 import type { InviteAppGrant } from './invite-redeem';
 import { SAML_ACS_PREFIX, samlProviderIdFromPath } from './saml';
+import { boundInviteFrom } from './saml-invite';
 import { redeemOnSignIn } from './sign-in-invite';
 import { sessionMayBeActiveIn, ssoOnlyOrgIds } from './sso-enforcement-hooks';
 
-// Invite redemption lives in invite-redeem.ts; re-exported for existing importers.
+// Invite redemption lives in invite-redeem.ts, the cookie in invite-cookie.ts; re-exported for existing importers.
 export { needsAppGrant, redeemInvitation, type InviteAppGrant, type RedeemResult } from './invite-redeem';
+export { inviteIdFromRequest };
 
 /**
  * Who joins which org, and with which groups, when they sign in.
@@ -98,7 +101,7 @@ export function socialProfileMapper(providerId: string) {
 }
 
 type ProvisionDb = Pick<DB, 'member' | 'invitation' | 'session'> &
-  Partial<Pick<DB, 'ssoProvider' | 'account' | 'organization' | 'orgSecurityPolicy'>>;
+  Partial<Pick<DB, 'ssoProvider' | 'account' | 'organization' | 'orgSecurityPolicy' | 'inviteLink'>>;
 
 /**
  * A social sign-in whose provider-verified email domain the provider's
@@ -175,16 +178,6 @@ export async function provisionSsoMember(
     });
   }
   return { orgId: provider.orgId, created: false };
-}
-
-function cookieHeader(ctx: { headers?: Headers | null; request?: Request | null } | null | undefined): string | null {
-  return ctx?.headers?.get('cookie') ?? ctx?.request?.headers.get('cookie') ?? null;
-}
-
-/** The invite id the login page parked in a cookie, if any. */
-export function inviteIdFromRequest(ctx: { headers?: Headers | null; request?: Request | null } | null | undefined): string | null {
-  const id = readCookie(cookieHeader(ctx), INVITE_COOKIE);
-  return id && /^[\w-]{1,128}$/.test(id) ? id : null;
 }
 
 /** `/oauth2/callback/:providerId` (OIDC) or `/sso/saml2/sp/acs/:providerId` (SAML) → the provider id. */
@@ -273,6 +266,7 @@ export function swarmyProvisioning(
               db,
               {
                 inviteId: inviteIdFromRequest(ctx),
+                bound: boundInviteFrom(ctx),
                 user: created.user as { id: string; email: string; emailVerified?: boolean },
                 signInMethod: method,
                 ssoOrgId: provider?.orgId ?? null,

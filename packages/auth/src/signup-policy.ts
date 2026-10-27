@@ -1,7 +1,7 @@
 import { APIError } from 'better-auth/api';
 import type { DB } from '@swarmy/db';
 import { isLinkInviteEmail } from './identity';
-import { findInviteLink, inviteLinkState, isInviteLinkToken } from './invite-links';
+import { findInviteLink, findInviteLinkById, inviteLinkState, isInviteLinkToken } from './invite-links';
 import { inviteNeedsSso } from './sso-invites';
 
 /**
@@ -26,7 +26,8 @@ import { inviteNeedsSso } from './sso-invites';
  *      `swi_…` invite link with uses left (`invite-links.ts`) — that admits this
  *      person: a link-only invite admits whoever holds it (username, social,
  *      SSO — no email needed); an invite that names an email admits only that
- *      proven address, as in 4;
+ *      proven address, as in 4. A SAML ACS never carries the cookie; there the
+ *      invite the sign-in started from is bound server-side (saml-invite.ts);
  *   6. the sign-up is an org SSO first login (`/oauth2/callback/<providerId>`)
  *      and that enabled provider auto-provisions (the default): the IdP is the
  *      org's own directory, so its people are admitted and join as members;
@@ -58,8 +59,10 @@ export type SignupPolicyDb = Pick<DB, 'user' | 'organization' | 'invitation' | '
 
 /** How the account is being created (from the Better Auth request, when there is one). */
 export interface SignupVia {
-  /** Invitation id from the invite-link cookie. */
+  /** Invitation id (or `swi_…` token) from the invite-link cookie, or bound to a SAML sign-in. */
   inviteId?: string | null;
+  /** A shareable link's row id, bound server-side to this SAML sign-in (saml-invite.ts). */
+  inviteLinkId?: string | null;
   /** The org SSO provider id when the path is `/oauth2/callback/<providerId>`. */
   ssoProviderId?: string | null;
   /** The installer's bootstrap username (no-email first admin). */
@@ -157,10 +160,10 @@ export async function isSignupAllowed(
   }
   // A shareable invite link (`swi_…`) admits whoever holds it while it is
   // unexpired, unrevoked and has uses left.
-  if (isInviteLinkToken(via.inviteId)) {
-    const row = await findInviteLink(db, via.inviteId);
-    if (row && inviteLinkState(row, now) === 'ok' && (await ssoOk(row.orgId, row.requireSso))) return true;
-  }
+  const row = via.inviteLinkId
+    ? await findInviteLinkById(db, via.inviteLinkId)
+    : isInviteLinkToken(via.inviteId) ? await findInviteLink(db, via.inviteId) : null;
+  if (row && inviteLinkState(row, now) === 'ok' && (await ssoOk(row.orgId, row.requireSso))) return true;
   if (via.inviteId && !isInviteLinkToken(via.inviteId)) {
     const link = await db.invitation.findFirst({
       where: { id: via.inviteId, status: 'pending', expiresAt: { gt: now } },

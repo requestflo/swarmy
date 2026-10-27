@@ -1,4 +1,5 @@
 import { generateKeyPairSync, randomBytes, sign } from 'node:crypto';
+import { inflateRawSync } from 'node:zlib';
 import { IdentityProvider, ServiceProvider } from 'samlify';
 import { samlSpMetadataXml, type SamlSpUrls } from './saml';
 
@@ -99,5 +100,33 @@ export function testIdp(entityId: string, ssoUrl: string, key: TestKey = selfSig
       return res.context;
     },
     unsignedResponse: (sp: SamlSpUrls, a: TestAssertion): string => Buffer.from(responseXml({ entityId }, sp, a)).toString('base64'),
+  };
+}
+
+/** Drives SP-initiated SAML sign-in through a Better Auth handler, as the login page and the IdP would. */
+export function samlBrowser(handler: (req: Request) => Promise<Response>, base: string, providerId: string) {
+  const call = (path: string, init: RequestInit) => handler(new Request(`${base}/api/auth${path}`, init));
+  return {
+    /** The login page's `POST /sign-in/sso` (with its cookies): the AuthnRequest ID and RelayState. */
+    async start(cookie?: string): Promise<{ id: string; relay: string }> {
+      const res = await call('/sign-in/sso', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: base, ...(cookie ? { cookie } : {}) },
+        body: JSON.stringify({ providerId, callbackURL: '/' }),
+      });
+      const url = new URL(((await res.json()) as { url: string }).url);
+      const xml = inflateRawSync(Buffer.from(url.searchParams.get('SAMLRequest')!, 'base64')).toString();
+      return { id: /\bID="([^"]+)"/.exec(xml)![1]!, relay: url.searchParams.get('RelayState') ?? '' };
+    },
+    /** The IdP's cross-site POST to the ACS: no swarmy cookie rides it. */
+    async acs(samlResponse: string, relay: string): Promise<{ status: number; location: string; signedIn: boolean }> {
+      const res = await call(`/sso/saml2/sp/acs/${encodeURIComponent(providerId)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded', origin: 'https://idp.invalid' },
+        body: new URLSearchParams({ SAMLResponse: samlResponse, RelayState: relay }).toString(),
+      });
+      const signedIn = res.headers.getSetCookie().some((c) => c.startsWith('swarmy.session_token=') && !/max-age=0/i.test(c));
+      return { status: res.status, location: res.headers.get('location') ?? '', signedIn };
+    },
   };
 }

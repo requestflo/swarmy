@@ -192,9 +192,12 @@ Four ideas, one story:
   "Must accept with SSO": it is accepted only by someone signed in through the
   org's own SSO, as the invited address or, for a link, at the provider's
   domain. In an SSO-only org every invite works that way. A SAML assertion
-  arrives without the invite cookie (a cross-site POST), so after any SSO
-  sign-in the pending SSO invite naming the address the IdP vouched for is
-  redeemed; links are redeemed when the browser lands back on the login page.
+  arrives without the invite cookie (a cross-site POST), so the invite a SAML
+  sign-in starts from travels with swarmy's own record of that sign-in
+  request, and is redeemed when the IdP answers it. That lets a new person
+  join from a link even when the provider doesn't add people automatically.
+  After any SSO sign-in, the pending SSO invite naming the address the IdP
+  vouched for is redeemed too.
 - **Signing out ends API access too.** Sign-out, revoking a session and a 2FA
   reset stamp `User.tokensRevokedAt`: an access token issued before it is
   refused, the OAuth grants minted from that session are deleted, and an app

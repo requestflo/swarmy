@@ -194,9 +194,17 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
   of an SSO-only org) go through `ssoInviteDecision` (`sso-invites.ts`): the
   session's `signInMethod` must be the inviting org's own provider, by the
   invited address or (links) the provider's domain. Redemption lives in
-  `invite-redeem.ts`; at sign-in `sign-in-invite.ts` redeems the cookie's
-  invite, else the pending SSO invite naming the IdP's address (the SAML ACS
-  never carries the cookie), before SSO JIT so the invited role wins.
+  `invite-redeem.ts` (links: `invite-link-redeem.ts`, shared with
+  `authConfig.acceptInvite`); at sign-in `sign-in-invite.ts` redeems, before
+  SSO JIT so the invited role wins: the invite bound to a SAML sign-in, else
+  the cookie's invite, else the pending SSO invite naming the IdP's address.
+  The SAML ACS never carries the cookie (cross-site POST), so `/sign-in/sso`
+  writes the cookie's invite (a row id, never a link token) into the
+  AuthnRequest record and `saml-request.ts` hands it on, once, when it
+  consumes that record (`saml-invite.ts`); sign-up admission reads it too, so
+  a link admits a new person with auto-provisioning off. RelayState is never
+  trusted for it. OIDC needs none of this: its callback is a top-level GET
+  that carries the Lax cookie (as it does Better Auth's checked `state`).
 - **Ending a session ends its tokens.** The `session.delete` hook (and the
   2FA reset, which deletes sessions directly, so it calls `revokeUserTokens`
   itself) stamps `User.tokensRevokedAt` (the API token verifier refuses any

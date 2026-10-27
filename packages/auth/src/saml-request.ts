@@ -1,6 +1,8 @@
 import { createAuthMiddleware } from 'better-auth/api';
 import { Extractor } from 'samlify';
-import { SAML_ACS_PREFIX, samlProviderIdFromPath } from './saml';
+import { inviteIdFromRequest } from './invite-cookie';
+import { SAML_ACS_PREFIX, SAML_SIGN_IN_PATH, samlProviderIdFromPath } from './saml';
+import { BOUND_INVITE_KEY, bindableInvite, parseBoundInvite, type BindInviteDb, type BoundInvite } from './saml-invite';
 
 /**
  * Every SAML response must answer a sign-in this controller started, once.
@@ -16,6 +18,9 @@ import { SAML_ACS_PREFIX, samlProviderIdFromPath } from './saml';
  * unless that value is the signed `SubjectConfirmationData@InResponseTo` or
  * the whole Response is signed, so consuming it here is safe even though the
  * signature is verified afterwards.
+ *
+ * The record also carries the invite the sign-in started from, if any
+ * (saml-invite.ts): written as the plugin stores it, handed on when consumed.
  */
 
 /** The plugin's verification key for an AuthnRequest it issued. */
@@ -36,16 +41,32 @@ export function answeredRequestId(samlResponse: string): string | null {
   }
 }
 
-function requestProvider(value: string): string | null {
+function readRecord(value: string): { providerId: string | null; invite: BoundInvite | null } {
   try {
-    const parsed = JSON.parse(value) as { providerId?: unknown };
-    return typeof parsed.providerId === 'string' ? parsed.providerId : null;
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    const providerId = typeof parsed.providerId === 'string' ? parsed.providerId : null;
+    return { providerId, invite: parseBoundInvite(parsed[BOUND_INVITE_KEY]) };
   } catch {
-    return null;
+    return { providerId: null, invite: null };
   }
 }
 
-/** Before-hook for the ACS: consume the answered AuthnRequest or refuse the response. */
+/**
+ * `verification.create.before`: as the plugin stores an AuthnRequest during
+ * `/sign-in/sso`, add the invite that request's cookie names (when it can
+ * still admit someone). Every other verification row passes untouched.
+ */
+export function bindInviteToAuthnRequest(db: BindInviteDb) {
+  return async (data: { identifier: string; value: string }, ctx: { path?: string; headers?: Headers | null; request?: Request | null } | null) => {
+    if (ctx?.path !== SAML_SIGN_IN_PATH || !data.identifier.startsWith(AUTHN_REQUEST_KEY_PREFIX)) return;
+    const invite = await bindableInvite(db, inviteIdFromRequest(ctx));
+    const record = invite ? (JSON.parse(data.value) as unknown) : null;
+    if (!record || typeof record !== 'object') return;
+    return { data: { ...data, value: JSON.stringify({ ...record, [BOUND_INVITE_KEY]: invite }) } };
+  };
+}
+
+/** Before-hook for the ACS: consume the answered AuthnRequest (handing on its invite) or refuse the response. */
 export const requireAnsweredRequest = {
   matcher: (ctx: { path?: string }) => Boolean(ctx.path?.startsWith(SAML_ACS_PREFIX)),
   handler: createAuthMiddleware(async (ctx) => {
@@ -53,7 +74,10 @@ export const requireAnsweredRequest = {
     const body = (ctx.body ?? {}) as Record<string, unknown>;
     const id = typeof body.SAMLResponse === 'string' ? answeredRequestId(body.SAMLResponse) : null;
     const record = id ? await ctx.context.internalAdapter.consumeVerificationValue(`${AUTHN_REQUEST_KEY_PREFIX}${id}`) : null;
-    if (record && providerId && requestProvider(record.value) === providerId) return;
+    const answered = record ? readRecord(record.value) : null;
+    if (answered && providerId && answered.providerId === providerId) {
+      return answered.invite ? { context: { [BOUND_INVITE_KEY]: answered.invite } } : undefined;
+    }
     ctx.context.logger.warn('SAML response refused: it answers no sign-in this controller started', { providerId });
     throw ctx.redirect(`${new URL(ctx.context.baseURL).origin}/login?error=saml_unsolicited`);
   }),
