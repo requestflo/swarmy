@@ -1,4 +1,5 @@
 import { authRegistry } from '@swarmy/auth';
+import { bytesWords, DOWNLOAD_MAX_ENV, parseDownloadMaxBytes } from '@swarmy/core';
 import { PROTOCOL_VERSION } from '@swarmy/core/protocol';
 import { prisma } from '@swarmy/db';
 import { writeAudit } from '@swarmy/trpc';
@@ -6,18 +7,26 @@ import { writeAudit } from '@swarmy/trpc';
 import { registry, store } from '../gateway/instances';
 import { DownloadHub } from './download-hub';
 import { handleBackupDownload } from './route';
-import { maxLiveDownloads, runtimeHoldsResponseBackpressure } from './runtime';
+import { bufferedDownloadBudget, controllerMemoryBytes, maxLiveDownloads, runtimeHoldsResponseBackpressure } from './runtime';
 
+let maxLive = maxLiveDownloads(Bun.version);
 if (!runtimeHoldsResponseBackpressure(Bun.version)) {
+  // This Bun holds a slow download in memory, so size the cap and the number
+  // at once to this controller's memory. The default cap is what tickets are
+  // minted with (trpc reads the env on every mint); an operator's is kept.
+  const set = process.env[DOWNLOAD_MAX_ENV]?.trim() ? parseDownloadMaxBytes(process.env[DOWNLOAD_MAX_ENV]) : null;
+  const budget = bufferedDownloadBudget(controllerMemoryBytes(), set);
+  if (set === null) process.env[DOWNLOAD_MAX_ENV] = String(budget.cap);
+  maxLive = budget.maxLive;
   // eslint-disable-next-line no-console
   console.warn(
-    `[downloads] Bun ${Bun.version} buffers a streamed response whatever the browser's speed: a slow backup download is held in controller memory (up to ${maxLiveDownloads(Bun.version)} at once, each up to its cap). Bun 1.4+ streams it at the browser's pace.`,
+    `[downloads] Bun ${Bun.version} buffers a streamed response whatever the browser's speed, so a slow backup download is held in controller memory: ${maxLive} at once, each up to ${bytesWords(budget.cap)}${set === null ? ' (sized to this controller\'s memory)' : ''}. Bun 1.4+ streams at the browser's pace.`,
   );
 }
 
 /** The controller's one download hub (snapshot downloads, board 16). */
 export const downloadHub = new DownloadHub({
-  maxLive: maxLiveDownloads(Bun.version),
+  maxLive,
   send: (nodeId, type, payload) =>
     registry.send(nodeId, { v: PROTOCOL_VERSION, id: crypto.randomUUID(), ts: Date.now(), type, payload }),
   isOnline: (nodeId) => registry.isOnline(nodeId),
