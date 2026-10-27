@@ -44,6 +44,10 @@ export const AGENT_CAPABILITY = {
    * (`helper-pull.ts`). Without it the controller sends upstream refs only.
    */
   helperImageMirror: 'helperImageMirror',
+  /** Read-only: one directory of a volume backup (`snapshotLs`, `restic ls`), for the download picker. */
+  snapshotLs: 'snapshotLs',
+  /** Stream one file or folder out of a volume backup (`snapshotDump` + the `stream*` credit frames). */
+  snapshotDump: 'snapshotDump',
 } as const;
 export type AgentCapability = (typeof AGENT_CAPABILITY)[keyof typeof AGENT_CAPABILITY];
 
@@ -58,6 +62,8 @@ export const AGENT_CAPABILITIES: readonly AgentCapability[] = [
   AGENT_CAPABILITY.dbWalVerify,
   AGENT_CAPABILITY.dbWalgCopy,
   AGENT_CAPABILITY.helperImageMirror,
+  AGENT_CAPABILITY.snapshotLs,
+  AGENT_CAPABILITY.snapshotDump,
 ];
 
 /**

@@ -36,6 +36,7 @@ export * from './data-pin';
 export * from './db-restore-copy';
 export * from './app-restore-plan';
 export * from './app-restore-view';
+export * from './snapshot-download';
 export * from './db-writes';
 export * from './disk-forecast';
 export * from './disk-inventory';

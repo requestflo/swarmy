@@ -37,6 +37,8 @@ import { DbBackupMsg, DbRestoreMsg } from './dbBackup';
 import { DbPitrWindowMsg } from './pitrWindow';
 import { DbWalVerifyMsg } from './walVerify';
 import { DbWalgCopyMsg } from './walgCopy';
+import { SnapshotDumpMsg, SnapshotLsMsg } from './snapshot-dump';
+import { StreamCancelMsg, StreamCreditMsg, StreamEndMsg } from './stream';
 import { EdgeCertsMsg } from './edge-certs';
 import { EdgeCertRenewMsg } from './edge-cert-renew';
 import { ControllerServiceMsg } from './controllerService';
@@ -93,6 +95,7 @@ export const AgentToControllerMessage = z.discriminatedUnion('type', [
   IngressNodeStatusMsg,
   DeployProgressMsg,
   BuildStageMsg,
+  StreamEndMsg,
 ]);
 export type AgentToControllerMessage = z.infer<typeof AgentToControllerMessage>;
 
@@ -141,6 +144,10 @@ export const ControllerToAgentMessage = z.discriminatedUnion('type', [
   DbPitrWindowMsg,
   DbWalVerifyMsg,
   DbWalgCopyMsg,
+  SnapshotLsMsg,
+  SnapshotDumpMsg,
+  StreamCreditMsg,
+  StreamCancelMsg,
   EdgeCertsMsg,
   EdgeCertRenewMsg,
   AppDbBackupMsg,

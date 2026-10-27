@@ -107,6 +107,8 @@ export const DEFAULT_COMMAND_TIMEOUTS: Record<string, number> = {
   backupVolume: 4 * 3_600_000,
   restoreVolume: 4 * 3_600_000,
   listSnapshots: 180_000,
+  // Read-only `restic ls` of one directory: loading the repo index is the slow part.
+  snapshotLs: 180_000,
   dbBackup: 4 * 3_600_000,
   dbRestore: 4 * 3_600_000,
   // Read-only PITR window check: one `wal-g backup-list` (+ a WAL listing).
