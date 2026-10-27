@@ -17,22 +17,40 @@
  *       Inspect local exports, or snapshots in a repo.
  *
  * Data always moves through short-lived sidecar containers with the volumes
- * bind-mounted, so any volume driver works and nothing new touches disk.
+ * bind-mounted, so any volume driver works and nothing new touches disk. Their
+ * images come from what the node has (rescue-image.ts): the image already
+ * here, the cluster registry's copy (login from SWARMY_REGISTRY_PASSWORD), or
+ * upstream by digest.
  */
 import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { DockerClient } from '@swarmy/core/docker';
-import { DEFAULT_RESTIC_IMAGE, type ResticRepo, type ResticSnapshotInfo } from '@swarmy/core/protocol';
-import { MOVER_IMAGE } from '@swarmy/core';
+import type { ResticRepo, ResticSnapshotInfo } from '@swarmy/core/protocol';
 import { ensureRepo, repoEnv, runSidecar, parseSummary } from '../handlers/backup';
 import { env } from '../env';
 import { versionInfo } from '../version';
 import { confirmYesNo, fail, fmt, say } from './context';
+import { readLocalMirror, rescueLogin, resolveRescueImage, type RescueSource } from './rescue-image';
 
 const STACK_LABEL = 'com.docker.stack.namespace';
-/** The BOM's alpine (the volume mover's image): tar for the export/restore legs. */
-const TAR_IMAGE = MOVER_IMAGE;
+const SOURCE_WORDS: Record<RescueSource, string> = {
+  node: 'already on this node',
+  mirror: 'from the cluster registry',
+  upstream: 'from upstream',
+};
+
+/**
+ * A rescue sidecar's image: the compiled BOM's restic (by digest), or its
+ * alpine (the volume mover's image: tar for the export/restore legs). The
+ * mirror copy or the image already here wins over upstream (rescue-image.ts).
+ */
+async function rescueImage(docker: DockerClient, key: 'restic' | 'alpine'): Promise<string> {
+  const mirror = await readLocalMirror(docker);
+  const { image, source } = await resolveRescueImage(docker, key, mirror, rescueLogin()).catch((e: Error) => fail(e.message));
+  say(fmt.dim(`  ${key} ${image} (${SOURCE_WORDS[source]})`));
+  return image;
+}
 
 interface ExportManifest {
   kind: 'swarmy-rescue-export';
@@ -136,6 +154,8 @@ async function backupExport(docker: DockerClient, flags: Set<string>, options: M
 
   say(`exporting ${volumes.length} volume${volumes.length === 1 ? '' : 's'}${stack ? ` from stack ${fmt.bold(stack)}` : ''}:`);
   for (const v of volumes) say(fmt.dim(`  - ${v.name} (${v.driver})`));
+  // Before anything is stopped: a missing image must not leave the app down.
+  const tar = await rescueImage(docker, 'alpine');
 
   let stopped: string[] = [];
   if (quiesce) {
@@ -177,7 +197,7 @@ async function backupExport(docker: DockerClient, flags: Set<string>, options: M
     const res = await runSidecar(
       docker,
       {
-        image: TAR_IMAGE,
+        image: tar,
         entrypoint: ['/bin/sh', '-c'],
         args: [`tar -czf /out/${path.basename(outFile)} -C /backup meta vols`],
         env: [],
@@ -232,6 +252,7 @@ async function backupRestore(docker: DockerClient, flags: Set<string>, options: 
     if (!go) fail('aborted');
   }
 
+  const tar = await rescueImage(docker, 'alpine');
   for (const v of manifest.volumes) {
     await docker.docker.createVolume({ Name: v.name, Labels: v.labels }).catch(() => undefined);
   }
@@ -244,7 +265,7 @@ async function backupRestore(docker: DockerClient, flags: Set<string>, options: 
   const res = await runSidecar(
     docker,
     {
-      image: TAR_IMAGE,
+      image: tar,
       entrypoint: ['/bin/sh', '-c'],
       // Overwrite-in-place semantics; only the vols/ subtree is extracted.
       args: [`tar -xzf /in/${path.basename(file)} -C /backup vols`],
@@ -291,14 +312,15 @@ async function backupPush(docker: DockerClient, options: Map<string, string>): P
   const tags = ['rescue', ...(stack ? [`stack:${stack}`] : []), ...(options.get('tag') ? [options.get('tag')!] : [])];
 
   say(`pushing ${volumes.length} volume(s) to ${fmt.bold(repo.repo)}…`);
-  await ensureRepo(docker, DEFAULT_RESTIC_IMAGE, repo, undefined);
+  const restic = await rescueImage(docker, 'restic');
+  await ensureRepo(docker, restic, repo, undefined);
 
   for (const v of volumes) {
     say(`  ${fmt.cyan('▸')} ${v.name}`);
     const res = await runSidecar(
       docker,
       {
-        image: DEFAULT_RESTIC_IMAGE,
+        image: restic,
         args: ['backup', '/data', '--json', '--host', v.name, ...tags.flatMap((t) => ['--tag', t])],
         env: repoEnv(repo),
         binds: [`${v.name}:/data:ro`],
@@ -347,7 +369,7 @@ async function backupList(docker: DockerClient, options: Map<string, string>): P
     const repo = await collectRepo(options);
     const res = await runSidecar(
       docker,
-      { image: DEFAULT_RESTIC_IMAGE, args: ['snapshots', '--json'], env: repoEnv(repo), binds: [] },
+      { image: await rescueImage(docker, 'restic'), args: ['snapshots', '--json'], env: repoEnv(repo), binds: [] },
       () => {},
     );
     if (res.exitCode !== 0) fail(`restic snapshots failed: ${res.stderr.trim() || `exit ${res.exitCode}`}`);

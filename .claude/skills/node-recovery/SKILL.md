@@ -82,6 +82,12 @@ thin `runDaemon()` shim kept only so the container image's
    credentials from env/prompt — NEVER argv (visible in `ps`). It reuses the
    restic internals exported from `handlers/backup.ts`
    (`runSidecar`/`repoEnv`/`ensureRepo`/`parseSummary`) — see `skill("backups-dr")`.
+   Its sidecar images come from what the node has (`cli/rescue-image.ts`): the
+   compiled BOM's ref by digest, already here as the mirror's copy or upstream
+   → no network; else the mirror's copy when the registry's `swarmy.mirror.*`
+   labels (readable on a manager over the local socket) trust one and the
+   operator set `SWARMY_REGISTRY_PASSWORD`; else upstream. Resolve it before
+   `--stop` quiesces anything.
 
 8. **The compiled binary is hermetic.** Built with
    `--compile-exec-argv=--env-file=/dev/null` so a stray `.env` in the operator's
