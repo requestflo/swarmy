@@ -39,23 +39,28 @@ export function inviteLinkState(row: Pick<InviteLinkRow, 'expiresAt' | 'maxUses'
 
 export type InviteLinkDb = Partial<Pick<DB, 'inviteLink'>>;
 
+const ROW_SELECT = {
+  id: true,
+  orgId: true,
+  role: true,
+  stackName: true,
+  expiresAt: true,
+  maxUses: true,
+  uses: true,
+  revokedAt: true,
+  requireSso: true,
+} as const;
+
 /** The link row for a presented token (any state), or null. */
 export async function findInviteLink(db: InviteLinkDb, token: string): Promise<InviteLinkRow | null> {
   if (!db.inviteLink || !isInviteLinkToken(token)) return null;
-  return db.inviteLink.findUnique({
-    where: { tokenHash: hashToken(token) },
-    select: {
-      id: true,
-      orgId: true,
-      role: true,
-      stackName: true,
-      expiresAt: true,
-      maxUses: true,
-      uses: true,
-      revokedAt: true,
-      requireSso: true,
-    },
-  });
+  return db.inviteLink.findUnique({ where: { tokenHash: hashToken(token) }, select: ROW_SELECT });
+}
+
+/** The link row by its id: a reference the server bound itself (saml-invite.ts), never a client value. */
+export async function findInviteLinkById(db: InviteLinkDb, id: string): Promise<InviteLinkRow | null> {
+  if (!db.inviteLink) return null;
+  return db.inviteLink.findUnique({ where: { id }, select: ROW_SELECT });
 }
 
 /** Sign-up admission: does this token name a link that still admits people? */

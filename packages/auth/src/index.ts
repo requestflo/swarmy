@@ -123,10 +123,12 @@ export {
   isInviteLinkToken,
   inviteLinkState,
   findInviteLink,
+  findInviteLinkById,
   inviteLinkAdmits,
   type InviteLinkRow,
   type InviteLinkState,
 } from './invite-links';
+export { redeemInviteLink, type LinkRedeemResult, type LinkRefusal } from './invite-link-redeem';
 export {
   loadAuthConfig,
   loadSsoProviders,

@@ -8,21 +8,25 @@
  * app, production included.
  *
  * The token (`swi_<prefix>_<secret>`) is shown once in the URL; only its
- * sha-256 is stored. Redemption bumps `uses` with a compare-and-swap, so a
- * link can't admit more than `maxUses` people even under concurrent clicks. A
- * person already in the org is not re-added and doesn't burn a use.
+ * sha-256 is stored. Redemption (`@swarmy/auth` invite-link-redeem.ts) bumps
+ * `uses` with a compare-and-swap, so a link can't admit more than `maxUses`
+ * people even under concurrent clicks. A person already in the org is not
+ * re-added and doesn't burn a use.
  */
 import { randomBytes } from 'node:crypto';
 import { TRPCError } from '@trpc/server';
 import { hashToken } from '@swarmy/core/crypto';
 import {
-  checkSsoInvite,
   findInviteLink,
   INVITE_LINK_PREFIX,
   inviteNeedsSso,
   inviteLinkState,
+  needsAppGrant,
+  redeemInviteLink,
+  type AuthAudit,
   type InviteLinkRow,
   type InviteLinkState,
+  type LinkRedeemResult,
 } from '@swarmy/auth';
 import type { DB } from '@swarmy/db';
 import type { AuthedContext, OrgContext } from '../context';
@@ -233,33 +237,12 @@ const STATE_MESSAGE: Record<Exclude<InviteLinkState, 'ok'>, string> = {
   revoked: 'This invite link was turned off. Ask an admin for a new one.',
 };
 
-/**
- * Claim one use: a compare-and-swap on `uses`, re-checking revoked/expiry in
- * the same conditional update. Retries a few times under contention.
- */
-async function claimUse(db: DB, row: InviteLinkRow, now: Date): Promise<void> {
-  let current = row;
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const state = inviteLinkState(current, now);
-    if (state !== 'ok') throw badRequest(STATE_MESSAGE[state]);
-    const res = await db.inviteLink.updateMany({
-      where: {
-        id: current.id,
-        uses: current.uses,
-        revokedAt: null,
-        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
-      },
-      data: { uses: current.uses + 1 },
-    });
-    if (res.count === 1) return;
-    const fresh = await db.inviteLink.findUnique({
-      where: { id: current.id },
-      select: { id: true, orgId: true, role: true, stackName: true, expiresAt: true, maxUses: true, uses: true, revokedAt: true },
-    });
-    if (!fresh) throw new TRPCError({ code: 'NOT_FOUND', message: 'This invite link no longer exists.' });
-    current = fresh;
-  }
-  throw new TRPCError({ code: 'CONFLICT', message: 'Lots of people are using this link right now — try again.' });
+/** Why a link refused someone, as the login page shows it. */
+function linkRefusal(res: Extract<LinkRedeemResult, { ok: false }>): TRPCError {
+  if (res.reason === 'sso_required') return inviteSsoError(res.sso);
+  if (res.reason === 'gone') return new TRPCError({ code: 'NOT_FOUND', message: 'This invite link no longer exists.' });
+  if (res.reason === 'busy') return new TRPCError({ code: 'CONFLICT', message: 'Lots of people are using this link right now — try again.' });
+  return badRequest(STATE_MESSAGE[res.reason]);
 }
 
 export interface AcceptInviteLinkResult {
@@ -269,7 +252,8 @@ export interface AcceptInviteLinkResult {
 
 /**
  * Join the link's org as the signed-in user (and get its app grant). A person
- * who is already a member is left as they are and doesn't burn a use.
+ * who is already a member is left as they are and doesn't burn a use. The
+ * rules are `@swarmy/auth`'s `redeemInviteLink`, which the SAML ACS uses too.
  */
 export async function acceptInviteLink(
   ctx: AuthedContext,
@@ -278,39 +262,10 @@ export async function acceptInviteLink(
 ): Promise<AcceptInviteLinkResult> {
   const row = await findInviteLink(ctx.db, token);
   if (!row) throw new TRPCError({ code: 'NOT_FOUND', message: 'This invite link does not exist. Ask an admin for a new one.' });
-  const auditCtx = { db: ctx.db, activeOrgId: row.orgId, user: ctx.user };
-
-  const existing = await ctx.db.member.findFirst({
-    where: { organizationId: row.orgId, userId: ctx.user.id },
-    select: { id: true },
-  });
-  if (existing) {
-    await writeAudit(auditCtx, {
-      action: 'member.inviteLink.accept',
-      targetType: 'inviteLink',
-      targetId: row.id,
-      metadata: { alreadyMember: true },
-    });
-    return { orgId: row.orgId, alreadyMember: true };
-  }
-
-  // An SSO link: only a session signed in through this org's own SSO (at its domain, if it names one).
-  if (await inviteNeedsSso(ctx.db, { requireSso: row.requireSso, orgId: row.orgId })) {
-    const d = await checkSsoInvite(ctx.db, { email: null, orgId: row.orgId }, { signInMethod: await sessionSignInMethod(ctx), email: ctx.user.email });
-    if (!d.ok) throw inviteSsoError(d.reason);
-  }
-  await claimUse(ctx.db, row, now);
-  const role = toRole(row.role);
-  const member = await ctx.db.member.create({
-    data: { id: crypto.randomUUID(), organizationId: row.orgId, userId: ctx.user.id, role },
-    select: { id: true },
-  });
-  if (row.stackName && role === 'member') await grantInviteApp(ctx, row.orgId, member.id, row.stackName);
-  await writeAudit(auditCtx, {
-    action: 'member.inviteLink.accept',
-    targetType: 'inviteLink',
-    targetId: row.id,
-    metadata: { alreadyMember: false, role, stackName: row.stackName, memberId: member.id, requireSso: row.requireSso ?? false },
-  });
-  return { orgId: row.orgId, alreadyMember: false };
+  const audit: AuthAudit = (orgId, entry) => writeAudit({ db: ctx.db, activeOrgId: orgId, user: ctx.user }, entry);
+  const user = { id: ctx.user.id, email: ctx.user.email };
+  const res = await redeemInviteLink(ctx.db, { link: row, user, signInMethod: await sessionSignInMethod(ctx) }, audit, now);
+  if (!res.ok) throw linkRefusal(res);
+  if (needsAppGrant(res)) await grantInviteApp(ctx, res.orgId, res.memberId, res.stackName);
+  return { orgId: res.orgId, alreadyMember: !res.created };
 }
