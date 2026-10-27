@@ -71,7 +71,13 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
    `@swarmy/core/system-images`, `system-image-mirror` worker; the index lives
    in `swarmy.mirror.*` labels on the registry service, trusted only while the
    registry task stays on `swarmy.mirror.node`) and the hub decorator rewrites
-   exact upstream system refs to the mirrored `@sha256` ref. A registry
+   exact upstream system refs to the mirrored `@sha256` ref. Backup/restore/
+   dump sidecars ride it too (`helper-images-mirror.ts`): each helper field
+   becomes its copy (tag kept) with the upstream ref in a parallel
+   `fallback*Image` field and the in-swarm login in `registryAuth`, but only
+   for an agent that advertises `helperImageMirror` (an older one pulls
+   sidecars anonymously, which the registry refuses); the decorator gets the
+   target `nodeId` for that. A registry
    redeploy must carry `mirrorLabelsOf(live.labels)`. The worker and the
    platform upgrade's preflight both copy through `mirrorSystemImagesForOrg`,
    which shares a copy already in flight per org and image

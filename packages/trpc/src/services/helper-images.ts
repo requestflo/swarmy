@@ -13,6 +13,7 @@ import { SYSTEM_IMAGES, type SystemImage } from '@swarmy/core/system-images';
 import type { DB } from '@swarmy/db';
 import type { CommandName } from '../hub/types';
 import { effectiveImagesFor } from './platform-images';
+import { HELPER_FIELDS } from './helper-images-mirror';
 
 type Fields = Partial<Record<'image' | 'resticImage' | 'clientImage' | 'engineImage', HelperImage>>;
 
@@ -38,18 +39,8 @@ function fieldsFor(cmd: CommandName, payload: { engine?: unknown }): Fields | nu
   }
 }
 
-export const HELPER_IMAGE_COMMANDS: ReadonlySet<CommandName> = new Set<CommandName>([
-  'backup.run',
-  'backup.restore',
-  'backup.list',
-  'appdb.backup',
-  'appdb.restore',
-  'appdb.verify',
-  'db.backup',
-  'db.restore',
-  'db.pitrWindow',
-  'db.walVerify',
-]);
+/** Every backup/restore/dump command (the field table lives in helper-images-mirror.ts). */
+export const HELPER_IMAGE_COMMANDS: ReadonlySet<CommandName> = new Set(Object.keys(HELPER_FIELDS) as CommandName[]);
 
 /** Fill a backup/restore payload's empty helper-image fields with digest-pinned refs. Same reference when nothing changes. */
 export function pinHelperImages<P>(cmd: CommandName, payload: P, images: readonly SystemImage[] = SYSTEM_IMAGES): P {

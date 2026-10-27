@@ -173,7 +173,7 @@ export class AgentHubImpl implements AgentHub {
     const orgId = this.store.nodeOrg.get(nodeId);
     if (this.decorate && orgId) {
       // Fail open: a decorator error must never block the command itself.
-      payload = await this.decorate(orgId, cmd, payload).catch(() => payload);
+      payload = await this.decorate(orgId, cmd, payload, nodeId).catch(() => payload);
     }
     if (cmd === 'service.deploy' && orgId) {
       // Every system-service converge (DNS, edge, collector, Garage, registry,

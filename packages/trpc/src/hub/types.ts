@@ -79,9 +79,10 @@ export type CommandName =
  * Hub-level payload hook applied to EVERY dispatch before it is sent (e.g. the
  * registry-auth decorator attaching pull creds to org-registry deploys). Gets the
  * node's org; returns the (possibly augmented) payload. Must not throw — the hub
- * falls back to the original payload if it does.
+ * falls back to the original payload if it does. `nodeId` is the node the
+ * command goes to (its agent's advertised capabilities can shape the payload).
  */
-export type DispatchDecorator = (orgId: string, cmd: CommandName, payload: unknown) => Promise<unknown>;
+export type DispatchDecorator = (orgId: string, cmd: CommandName, payload: unknown, nodeId?: string) => Promise<unknown>;
 
 /** CommandName → wire protocol message `type` (see @swarmy/core/protocol). */
 export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {

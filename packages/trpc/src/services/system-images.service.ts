@@ -56,6 +56,7 @@ import { REGISTRY_CACHE_SERVICE, REGISTRY_FORWARDER_NETWORK } from '@swarmy/core
 import { liveRegistryTopology, registryTopologyFor, type RegistryTopology } from './registry-topology';
 import { copyOnce } from './system-images-flights';
 import { copyEachVia, type copyPayload } from './system-images-copy';
+import { isHelperImageCommand, mirrorHelperImages } from './helper-images-mirror';
 
 // ── Pull-through cache (Docker Hub) ──────────────────────────────────────────
 
@@ -188,7 +189,10 @@ export function mirrorStateFrom(inv: {
  * exact upstream system ref that is mirrored + trusted. Same reference back
  * when nothing changes. Commands: `service.deploy` (spec.image),
  * `container.runOnce` (image + `fallbackImage`), `image.build` (BuildKit
- * `builderImage` when unset). `image.pull` is deliberately NOT rewritten: it
+ * `builderImage` when unset), and every backup/restore/dump command's helper
+ * fields, each with its upstream fallback (helper-images-mirror.ts; the hub
+ * decorator sends those only to an agent that advertises
+ * `helperImageMirror`). `image.pull` is deliberately NOT rewritten: it
  * pre-stages images for later `pull: false` runOnces, which pick whichever of
  * the mirrored / upstream ref is on the node (agent `presentOrFallback`), and
  * the pull command has no upstream fallback of its own.
@@ -216,6 +220,16 @@ export function rewriteSystemImages<P>(
   if (cmd === 'container.runOnce') {
     const to = map(p?.image);
     return to ? ({ ...p, image: to, fallbackImage: p.image } as P) : payload;
+  }
+  // Backup/restore/dump sidecars arrive as `<ref>@<release digest>`: the copy
+  // keeps the tag (restic's version sniff reads it), upstream is the fallback.
+  if (isHelperImageCommand(cmd)) {
+    return mirrorHelperImages(cmd, payload, (ref) => {
+      const bare = bareSystemRef(ref, images);
+      const to = map(bare);
+      const img = bare ? systemImageForRef(bare, images) : undefined;
+      return to && isDataImage(img) ? dataDeployRef(to, img) : to;
+    });
   }
   if (cmd === 'image.build' && p) {
     let out = p;

@@ -32,6 +32,7 @@ import { loadOrgRegistryCredentials } from './registry-credentials.service';
 import { mirrorStateFrom, pinSystemImages, rewriteSystemImages } from './system-images.service';
 import { effectiveImagesFor } from './platform-images';
 import { pinHelperImagesFor } from './helper-images';
+import { HELPER_FIELDS, agentTakesMirroredHelpers, helperImagesOf, isHelperImageCommand } from './helper-images-mirror';
 import { REGISTRY_FORWARDER_NETWORK, REGISTRY_SERVICE } from '@swarmy/core/registry-forwarder';
 import type { RegistryTopology } from './registry-topology';
 
@@ -128,13 +129,23 @@ export function registryAuthConverged(live: SwarmServiceInfo, secretName: string
   );
 }
 
-const MIRROR_CMDS = new Set<CommandName>(['service.deploy', 'container.runOnce', 'image.build', 'applyMesh', 'mesh.accessRouter', 'mesh.reimage']);
+const MIRROR_CMDS = new Set<CommandName>([
+  'service.deploy',
+  'container.runOnce',
+  'image.build',
+  'applyMesh',
+  'mesh.accessRouter',
+  'mesh.reimage',
+  ...(Object.keys(HELPER_FIELDS) as CommandName[]),
+]);
 
 /** Images a dispatch will make a node pull (only the commands that pull). */
 export function dispatchImages(cmd: CommandName, payload: unknown): string[] {
   const p = payload as { spec?: { image?: unknown }; image?: unknown; mirrorImage?: unknown } | null | undefined;
   if (cmd === 'service.deploy') return typeof p?.spec?.image === 'string' ? [p.spec.image] : [];
   if (cmd === 'image.pull' || cmd === 'container.runOnce') return typeof p?.image === 'string' ? [p.image] : [];
+  // Backup/restore/dump sidecars: their helper images (a mirrored copy needs the login).
+  if (isHelperImageCommand(cmd)) return helperImagesOf(cmd, payload);
   // Mesh clients pull their public upstream ref anonymously; only the cluster
   // copy (the `mirrorImage` hint) needs the in-swarm registry login.
   if (cmd === 'applyMesh' || cmd === 'mesh.accessRouter' || cmd === 'mesh.reimage') return typeof p?.mirrorImage === 'string' ? [p.mirrorImage] : [];
@@ -175,7 +186,9 @@ function mayBeRegistryImage(images: string[]): boolean {
  * (longest `host[/path]` prefix match; GHCR, Docker Hub, GitLab, ECR, …).
  * Builds get every third-party login as `pullAuths` (private `FROM` bases).
  * Backup/restore/dump commands get their sidecar images digest-pinned at the
- * release's digests first (`pinHelperImagesFor`, helper-images.ts).
+ * release's digests first (`pinHelperImagesFor`, helper-images.ts), then, for
+ * an agent that advertises `helperImageMirror`, mirrored with an upstream
+ * fallback and the in-swarm login (helper-images-mirror.ts).
  * Fails open to the undecorated payload (the registry itself still enforces auth).
  */
 export function createRegistryAuthDecorator(
@@ -198,8 +211,10 @@ export function createRegistryAuthDecorator(
   // System-image mirror (B3/B4): swap an exact upstream system ref for its
   // mirrored digest ref BEFORE auth is attached (so the mirror pull gets the
   // in-swarm registry login). Never throws — a miss is the upstream ref.
-  const mirror = async (orgId: string, cmd: CommandName, payload: unknown): Promise<unknown> => {
+  const mirror = async (orgId: string, cmd: CommandName, payload: unknown, nodeId?: string): Promise<unknown> => {
     if (!liveInventory || !MIRROR_CMDS.has(cmd)) return payload;
+    // An older agent pulls its sidecar without a login: keep it on upstream refs.
+    if (isHelperImageCommand(cmd) && !agentTakesMirroredHelpers(hub, nodeId)) return payload;
     try {
       // The running release's digests (platform manifest) — the compiled BOM
       // until a platform upgrade has recorded one.
@@ -213,9 +228,9 @@ export function createRegistryAuthDecorator(
       return payload;
     }
   };
-  return async (orgId, cmd, rawPayload) => {
+  return async (orgId, cmd, rawPayload, nodeId) => {
     // Backup/restore sidecars carry their helper images digest-pinned (helper-images.ts).
-    const payload = await mirror(orgId, cmd, await pinHelperImagesFor(db, orgId, cmd, rawPayload));
+    const payload = await mirror(orgId, cmd, await pinHelperImagesFor(db, orgId, cmd, rawPayload), nodeId);
     if (cmd === 'image.build') {
       const creds = await thirdParty(orgId);
       return attachBuildPullAuths(payload, buildPullAuths(creds));
@@ -231,6 +246,8 @@ export function createRegistryAuthDecorator(
         if (out !== payload) return out;
       }
     }
+    // Sidecars only ever need the mirror's login, never a third-party one.
+    if (isHelperImageCommand(cmd)) return payload;
     return attachThirdPartyAuth(cmd, payload, await thirdParty(orgId));
   };
 }
