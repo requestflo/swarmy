@@ -11,10 +11,11 @@
  * the copy's own base backups and WAL listing back, so the controller learns
  * how far a restore from the copy reaches.
  */
-import { DEFAULT_COMMAND_TIMEOUTS, DEFAULT_WALG_IMAGE } from '@swarmy/core/protocol';
+import { DEFAULT_COMMAND_TIMEOUTS } from '@swarmy/core/protocol';
 import type { DbWalgCopyPayload, DbWalgCopyResult } from '@swarmy/core/protocol';
 import type { DockerClient } from '@swarmy/core/docker';
 import { assertSnapshotRef, physicalEnv, physicalNetworks, runSidecar, stderrTail } from './backup';
+import { pullHelper } from './helper-pull';
 import { WAL_LISTING_MARKER, parseWindowOutput } from './pitr-window';
 
 /** Printed once the copy is done, followed by the base backup it copied. */
@@ -73,7 +74,7 @@ export async function dbWalgCopy(docker: DockerClient, p: DbWalgCopyPayload, now
   const env = [...sideEnv('FROM', physicalEnv(p.from).env), ...sideEnv('TO', physicalEnv(p.to).env), `SWARMY_BACKUP_NAME=${name}`];
   const budget = p.timeoutMs ?? DEFAULT_COMMAND_TIMEOUTS.dbWalgCopy ?? 4 * 3_600_000;
   const res = await runSidecar(docker, {
-    image: p.engineImage ?? DEFAULT_WALG_IMAGE,
+    image: await pullHelper(docker, 'walg', p.engineImage, p.fallbackEngineImage, p.registryAuth),
     entrypoint: ['/bin/sh', '-c'],
     args: [walgCopyScript()],
     env,

@@ -63,7 +63,7 @@ describe('rewriteSystemImages — every backup/restore/dump command pulls throug
       clientImage: M_PG, fallbackClientImage: PG,
       engineImage: M_WALG, fallbackEngineImage: WALG,
     });
-    for (const cmd of ['db.pitrWindow', 'db.walVerify'] as const) {
+    for (const cmd of ['db.pitrWindow', 'db.walVerify', 'db.walgCopy'] as const) {
       expect(send(cmd, { engine: 'wal-g' })).toEqual({ engine: 'wal-g', engineImage: M_WALG, fallbackEngineImage: WALG });
     }
   });
@@ -94,7 +94,7 @@ describe('rewriteSystemImages — every backup/restore/dump command pulls throug
 describe('the helper field table', () => {
   it('covers exactly the commands whose sidecars are digest-pinned', () => {
     const all: CommandName[] = ['appdb.backup', 'appdb.restore', 'appdb.verify', 'backup.list', 'backup.restore', 'backup.run'];
-    all.push('db.backup', 'db.pitrWindow', 'db.restore', 'db.walVerify');
+    all.push('db.backup', 'db.pitrWindow', 'db.restore', 'db.walVerify', 'db.walgCopy');
     expect([...HELPER_IMAGE_COMMANDS].sort()).toEqual(all);
     for (const cmd of HELPER_IMAGE_COMMANDS) {
       const pinned = pinHelperImages(cmd, { engine: 'wal-g' }, images) as Record<string, unknown>;

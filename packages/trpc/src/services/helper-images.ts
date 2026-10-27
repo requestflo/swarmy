@@ -33,6 +33,7 @@ function fieldsFor(cmd: CommandName, payload: { engine?: unknown }): Fields | nu
       return { resticImage: 'restic', clientImage: 'pgClient', ...(payload.engine === 'wal-g' ? { engineImage: 'walg' } : {}) };
     case 'db.pitrWindow':
     case 'db.walVerify':
+    case 'db.walgCopy':
       return { engineImage: 'walg' };
     default:
       return null;

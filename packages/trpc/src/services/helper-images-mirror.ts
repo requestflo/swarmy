@@ -35,6 +35,7 @@ export const HELPER_FIELDS: Readonly<Partial<Record<CommandName, readonly Helper
   'db.restore': ['resticImage', 'clientImage', 'engineImage'],
   'db.pitrWindow': ['engineImage'],
   'db.walVerify': ['engineImage'],
+  'db.walgCopy': ['engineImage'],
 };
 
 export function isHelperImageCommand(cmd: CommandName): boolean {

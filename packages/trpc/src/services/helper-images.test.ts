@@ -35,6 +35,7 @@ describe('pinHelperImages — which field runs which helper', () => {
     });
     expect(pin('db.pitrWindow', { engine: 'wal-g' }, images)).toEqual({ engine: 'wal-g', engineImage: WALG });
     expect(pin('db.walVerify', { engine: 'wal-g' }, images)).toEqual({ engine: 'wal-g', engineImage: WALG });
+    expect(pin('db.walgCopy', { engine: 'wal-g' }, images)).toEqual({ engine: 'wal-g', engineImage: WALG });
   });
 
   it("never replaces an image the caller chose (the operator's pgBackRest, a custom restic)", () => {
