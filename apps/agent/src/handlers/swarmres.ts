@@ -34,6 +34,7 @@ import type {
 } from '@swarmy/core/protocol';
 import { RUN_ONCE_OUTPUT_TAIL_BYTES, runOnceBindsRefusal } from '@swarmy/core/protocol';
 import { presentOrFallback, pullWithFallback } from './pull-fallback';
+import { runCopyOnce } from './run-once-copy';
 import { putSecretFiles } from './secret-file';
 
 // ── secrets ──────────────────────────────────────────────────────────────────
@@ -143,6 +144,12 @@ export async function runOnce(docker: DockerClient, p: RunOncePayload): Promise<
   // host-root foothold, refused whatever the controller asked for.
   const refused = runOnceBindsRefusal(p.binds, [p.image, p.fallbackImage]);
   if (refused) throw Object.assign(new Error(`refusing runOnce bind: ${refused}`), { code: 'E_BIND_REFUSED' });
+  // An image copy: one running container per key on this node (run-once-copy.ts).
+  if (p.copyKey) return runCopyOnce(docker, p.copyKey, p.timeoutMs, (labels) => runContainer(docker, p, labels));
+  return runContainer(docker, p);
+}
+
+async function runContainer(docker: DockerClient, p: RunOncePayload, labels?: Record<string, string>): Promise<RunOnceResult> {
   const d = docker.docker;
   const started = Date.now();
   // A mirrored system image falls back to its upstream ref when the in-swarm registry can't serve it.
@@ -165,6 +172,7 @@ export async function runOnce(docker: DockerClient, p: RunOncePayload): Promise<
     ...(p.entrypoint ? { Entrypoint: p.entrypoint } : {}),
     ...(p.user ? { User: p.user } : {}),
     Env: env,
+    ...(labels ? { Labels: labels } : {}),
     HostConfig: {
       Binds: p.binds,
       AutoRemove: false,

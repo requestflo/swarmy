@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import type { Auth } from '@swarmy/auth';
 import type { DB } from '@swarmy/db';
-import { MIRROR_OK_MARKER, SYSTEM_IMAGES, type SystemImage, type SystemImageKey } from '@swarmy/core/system-images';
+import { MIRROR_OK_MARKER, SYSTEM_IMAGES, copySourceFor, type SystemImage, type SystemImageKey } from '@swarmy/core/system-images';
 import type { AgentHub } from '../hub/types';
 import { copyOnce, type CopyOutcome, type Flights } from './system-images-flights';
 import { mirrorSystemImagesForOrg } from './system-images.service';
@@ -57,6 +57,16 @@ describe('copyOnce: one copy of an image per org at a time', () => {
     expect(c.calls).toEqual([['x'], ['x'], ['x']]);
   });
 
+  it('an image a copy from before a restart is still copying is in flight for the starter and for whoever joined', async () => {
+    const flights: Flights = new Map();
+    const c = deferredCopies();
+    const first = copyOnce('o1', [img('x'), img('y')], c.copy, flights);
+    const second = copyOnce('o1', [img('y')], c.copy, flights);
+    c.pending[0]!.resolve({ ok: new Map([['x' as SystemImageKey, d('a')]]), failed: [], inFlight: ['y' as SystemImageKey] });
+    expect(await first).toMatchObject({ failed: [], inFlight: ['y'] });
+    expect(await second).toMatchObject({ failed: [], inFlight: ['y'], joined: ['y'] });
+  });
+
   it("the starter sees its own failure; a caller that joined reports those images as failed", async () => {
     const flights: Flights = new Map();
     const c = deferredCopies();
@@ -70,7 +80,7 @@ describe('copyOnce: one copy of an image per org at a time', () => {
 });
 
 describe('mirrorSystemImagesForOrg: a preflight during a mirror tick starts no second copy', () => {
-  it('two concurrent mirrors of the same release run one regctl copy', async () => {
+  it('two concurrent mirrors of the same release run one labelled regctl copy per image', async () => {
     const images = SYSTEM_IMAGES.filter((i) => !i.bundleOnly).slice(0, 3).map((i) => ({ ...i, digest: i.digest ?? d('c') }));
     const runs: string[] = [];
     let release!: () => void;
@@ -80,9 +90,9 @@ describe('mirrorSystemImagesForOrg: a preflight during a mirror tick starts no s
     const hub = {
       liveInventory: () => ({ services: [registry], containers: [task] }),
       managerNode: () => 'm1',
-      dispatch: async (_n: string, cmd: string, p: { cmd?: string[] }) => {
+      dispatch: async (_n: string, cmd: string, p: { copyKey?: string }) => {
         if (cmd !== 'container.runOnce') return {};
-        runs.push(String(p.cmd?.[0]));
+        runs.push(String(p.copyKey));
         await gate;
         return { exitCode: 0, output: images.map((i) => `${MIRROR_OK_MARKER} ${i.key} ${i.digest}`).join('\n') };
       },
@@ -94,7 +104,7 @@ describe('mirrorSystemImagesForOrg: a preflight during a mirror tick starts no s
     await new Promise((r) => setTimeout(r, 10));
     release();
     const [a, b] = await Promise.all([tick, preflight]);
-    expect(runs).toHaveLength(1);
+    expect(runs).toEqual(images.map((i) => copySourceFor(i)));
     expect(a.copied.sort()).toEqual(images.map((i) => i.key).sort());
     expect(b.copied.sort()).toEqual(a.copied);
   });

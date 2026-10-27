@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { RunOnceMsg, RunOncePayload } from './swarmres';
+import { COPY_KEY_LABEL, RunOnceMsg, RunOncePayload, RunOnceResult } from './swarmres';
 import { ControllerToAgentMessage } from './messages';
 
 const CMD_ID = '00000000-0000-4000-8000-000000000001';
@@ -48,5 +48,24 @@ describe('RunOnceMsg round-trip through ControllerToAgentMessage', () => {
       expect(parsed.payload.user).toBe('0:0');
       expect(parsed.payload).toEqual(msg.payload);
     }
+  });
+});
+
+describe('RunOnce copyKey / alreadyRunning (additive)', () => {
+  const KEY = `ghcr.io/requestflo/swarmy-dns@sha256:${'a'.repeat(64)}`;
+
+  it('copyKey rides the union; absent stays absent; empty is refused', () => {
+    const wire = JSON.parse(JSON.stringify({ type: 'runOnce', payload: { commandId: CMD_ID, image: 'regctl', copyKey: KEY } }));
+    const parsed = ControllerToAgentMessage.parse(wire);
+    expect(parsed.type === 'runOnce' && parsed.payload.copyKey).toBe(KEY);
+    expect(RunOncePayload.parse({ commandId: CMD_ID, image: 'x' }).copyKey).toBeUndefined();
+    expect(RunOncePayload.safeParse({ commandId: CMD_ID, image: 'x', copyKey: '' }).success).toBe(false);
+    expect(RunOnceMsg.safeParse({ type: 'runOnceX', payload: { commandId: CMD_ID, image: 'x', copyKey: KEY } }).success).toBe(false);
+  });
+
+  it('a result says whether the copy was already running; older results parse without it', () => {
+    expect(RunOnceResult.parse({ exitCode: 0, output: '', alreadyRunning: true }).alreadyRunning).toBe(true);
+    expect(RunOnceResult.parse({ exitCode: 0, output: 'x' }).alreadyRunning).toBeUndefined();
+    expect(COPY_KEY_LABEL).toBe('swarmy.copy.key');
   });
 });

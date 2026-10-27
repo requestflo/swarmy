@@ -12,8 +12,10 @@
  * list. A finished copy leaves the map: it is not a cache — the next caller
  * reads the labels the copy stamped.
  *
- * In-process only (one controller holds the lease). Tested in
- * `system-images-flights.test.ts`.
+ * In-process only (one controller holds the lease), so a controller restart
+ * forgets it; the agent's `swarmy.copy.key` check covers that case
+ * (system-images-copy.ts), and an image a copy from before the restart is
+ * still copying comes back `inFlight`. Tested in `system-images-flights.test.ts`.
  */
 import { copySourceFor, type SystemImage, type SystemImageKey } from '@swarmy/core/system-images';
 
@@ -21,6 +23,8 @@ export interface CopyOutcome {
   /** Key → digest that landed in the registry. */
   ok: Map<SystemImageKey, string>;
   failed: SystemImageKey[];
+  /** Still being copied by a copy that was already running on the node (e.g. from before a controller restart). */
+  inFlight?: SystemImageKey[];
 }
 
 export type CopyBatch = (items: SystemImage[]) => Promise<CopyOutcome>;
@@ -43,8 +47,8 @@ export async function copyOnce(
   todo: readonly SystemImage[],
   copy: CopyBatch,
   flights: Flights = FLIGHTS,
-): Promise<CopyOutcome & { joined: SystemImageKey[] }> {
-  if (todo.length === 0) return { ok: new Map(), failed: [], joined: [] };
+): Promise<CopyOutcome & { inFlight: SystemImageKey[]; joined: SystemImageKey[] }> {
+  if (todo.length === 0) return { ok: new Map(), failed: [], inFlight: [], joined: [] };
   const org = flights.get(orgId) ?? new Map<string, Promise<CopyOutcome>>();
   flights.set(orgId, org);
   const unique = [...new Map(todo.map((img) => [copyIdentity(img), img])).values()];
@@ -65,9 +69,11 @@ export async function copyOnce(
 
   const ok = new Map<SystemImageKey, string>();
   const failed: SystemImageKey[] = [];
+  const inFlight: SystemImageKey[] = [];
   const take = (img: SystemImage, out: CopyOutcome | null) => {
     const digest = out?.ok.get(img.key);
     if (digest) ok.set(img.key, digest);
+    else if (out?.inFlight?.includes(img.key)) inFlight.push(img.key);
     else failed.push(img.key);
   };
   const others = await Promise.all(joined.map(({ flight }) => flight.catch(() => null)));
@@ -76,5 +82,5 @@ export async function copyOnce(
     const own = await batch;
     for (const img of mine) take(img, own);
   }
-  return { ok, failed, joined: joined.map(({ img }) => img.key) };
+  return { ok, failed, inFlight, joined: joined.map(({ img }) => img.key) };
 }

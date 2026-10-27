@@ -37,10 +37,8 @@ import {
   copySourceFor,
   mirrorLabelsAfter,
   mirroredRefFor,
-  parseMirrorOutput,
   planMirror,
   railpackImageRewrites,
-  renderMirrorScript,
   systemImage,
   systemImageForRef,
   type SystemImage,
@@ -57,6 +55,7 @@ import { effectiveImagesFor } from './platform-images';
 import { REGISTRY_CACHE_SERVICE, REGISTRY_FORWARDER_NETWORK } from '@swarmy/core/registry-forwarder';
 import { liveRegistryTopology, registryTopologyFor, type RegistryTopology } from './registry-topology';
 import { copyOnce } from './system-images-flights';
+import { copyEachVia, type copyPayload } from './system-images-copy';
 
 // ── Pull-through cache (Docker Hub) ──────────────────────────────────────────
 
@@ -302,6 +301,8 @@ export interface MirrorTickResult {
   orgId: string;
   copied: string[];
   failed: string[];
+  /** Still being copied by a copy already running on the node (from before a controller restart). */
+  inFlight?: string[];
   skipped?: string;
 }
 
@@ -351,26 +352,15 @@ export async function mirrorSystemImagesForOrg(
   if (!todo.length) return { orgId, copied: [], failed: [] };
 
   const creds = decodeRegistryCreds(row.credentialsEnc);
-  // A preflight and a mirror tick share the copies already in flight.
-  const out = await copyOnce(orgId, todo, async (items) => {
-    const res = await deps.hub.dispatch<RunOnceResult>(
-      manager,
-      'container.runOnce',
-      {
-        image: systemImage('regctl').ref,
-        entrypoint: ['/bin/sh', '-c'],
-        cmd: [renderMirrorScript(items, host)],
-        env: creds ? { SWARMY_REG_USER: creds.username, SWARMY_REG_PASS: creds.password } : {},
-        networks: ['host'],
-        timeoutMs: 45 * 60_000,
-      },
-      { timeoutMs: 46 * 60_000 },
-    );
-    return parseMirrorOutput(res.output);
-  });
+  // A preflight and a mirror tick share the copies already in flight; one
+  // labelled one-shot per image lets the agent share a copy across a
+  // controller restart too (system-images-copy.ts).
+  const run = (payload: ReturnType<typeof copyPayload>) =>
+    deps.hub.dispatch<RunOnceResult>(manager, 'container.runOnce', payload, { timeoutMs: 46 * 60_000 });
+  const out = await copyOnce(orgId, todo, copyEachVia(run, host, creds));
   const { add, removeKeys } = mirrorLabelsAfter(state.labels, state.registryNodeId, out.ok, images);
   await deps.hub.dispatch(manager, 'service.updateLabels', { service: REGISTRY_SERVICE_NAME, add, removeKeys });
-  return { orgId, copied: [...out.ok.keys()], failed: out.failed };
+  return { orgId, copied: [...out.ok.keys()], failed: out.failed, ...(out.inFlight.length ? { inFlight: out.inFlight } : {}) };
 }
 
 export async function mirrorSystemImagesAllOrgs(deps: Deps, ensureRegistry?: EnsureRegistry): Promise<MirrorTickResult[]> {

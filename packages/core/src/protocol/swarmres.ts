@@ -157,6 +157,15 @@ export const RunOncePayload = z.object({
    * it riding `Env` (visible in `docker inspect`). Additive; older agents ignore it.
    */
   secretFiles: z.array(SecretFile).optional(),
+  /**
+   * What this one-shot copies (an image copy into the cluster registry:
+   * `<image@digest>`). The agent labels the container
+   * `swarmy.copy.key=<copyKey>` ({@link COPY_KEY_LABEL}) and, before starting
+   * one, waits on a copy with the same key already running on the node — one
+   * a controller restarted away from — instead of starting another
+   * (`alreadyRunning` on the result). Additive: older agents ignore it.
+   */
+  copyKey: z.string().min(1).max(512).optional(),
 });
 export const RunOnceMsg = z.object({
   type: z.literal('runOnce'),
@@ -222,5 +231,15 @@ export const RunOnceResult = z.object({
   durationMs: z.number().int().nonnegative().optional(),
   /** True when the container was killed at `timeoutMs`. */
   timedOut: z.boolean().optional(),
+  /**
+   * `copyKey` runs only: a copy with the same key was already running on the
+   * node, and this result is that copy's (output read back once it ended; empty
+   * when it could not be). The caller treats a key the output does not settle
+   * as still in flight, never as failed.
+   */
+  alreadyRunning: z.boolean().optional(),
 });
 export type RunOnceResult = z.infer<typeof RunOnceResult>;
+
+/** The label on a `copyKey` one-shot: one running copy per key per node. */
+export const COPY_KEY_LABEL = 'swarmy.copy.key';

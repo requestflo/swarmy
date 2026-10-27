@@ -75,7 +75,13 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
    redeploy must carry `mirrorLabelsOf(live.labels)`. The worker and the
    platform upgrade's preflight both copy through `mirrorSystemImagesForOrg`,
    which shares a copy already in flight per org and image
-   (`system-images-flights.ts`) instead of starting it twice.
+   (`system-images-flights.ts`) instead of starting it twice. That map is
+   in-process, so each image is its own regctl one-shot carrying `copyKey`
+   (`<image@digest>`, `system-images-copy.ts`): the agent labels it
+   `swarmy.copy.key` and, before starting one, joins or waits on a copy with
+   the same key already running on the node (`handlers/run-once-copy.ts`),
+   answering `alreadyRunning`; an image that copy doesn't settle is
+   `inFlight` (never failed) in the preflight's note and the worker's log.
 6. **Secrets are JIT-resolved and never baked in.** Git tokens, registry creds,
    and the cosign private key are stored encrypted (`@swarmy/core/crypto` vault,
    `SWARMY_SECRET_KEY`), decrypted at dispatch, passed as a git auth header /

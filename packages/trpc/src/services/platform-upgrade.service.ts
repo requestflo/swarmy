@@ -105,6 +105,7 @@ import {
 import { decodeRegistryCreds } from './registry-auth';
 import { canonicalRegistryHost } from './registryPolicy.service';
 import { mirrorStateFrom, mirrorSystemImagesForOrg } from './system-images.service';
+import { mirrorNote } from './system-images-copy';
 import { storageClusterRepo } from './storage-cluster.repo';
 
 export const CONTROLLER_SERVICE = 'swarmy_controller';
@@ -115,7 +116,7 @@ const ENGINE_TIMEOUT_MS = 45 * 60_000;
 /** IO seams (tests inject fakes). */
 export interface PlatformUpgradeDeps {
   controllerBackup: (ctx: OrgContext) => Promise<{ snapshotId: string }>;
-  mirror: (ctx: OrgContext, m: PlatformManifest) => Promise<{ copied: string[]; failed: string[]; skipped?: string }>;
+  mirror: (ctx: OrgContext, m: PlatformManifest) => Promise<{ copied: string[]; failed: string[]; inFlight?: string[]; skipped?: string }>;
   upgradeAgent: (ctx: OrgContext, nodeId: string, image?: string) => Promise<unknown>;
   agentRelease: () => { version: string; commit?: string } | null;
   engine: {
@@ -352,11 +353,7 @@ export function buildHandlers(ctx: OrgContext, row: RunRow, deps: PlatformUpgrad
     if (!d.mirrored) {
       const r = await deps.mirror(ctx, target).catch((e: unknown) => ({ copied: [], failed: [], skipped: e instanceof Error ? e.message : String(e) }));
       d.mirrored = true;
-      c.note(
-        r.skipped
-          ? `images not pre-copied (${r.skipped}); nodes pull them from upstream`
-          : `release images in the cluster registry: ${r.copied.length} copied${r.failed.length ? `, ${r.failed.length} failed (upstream fallback)` : ''}`,
-      );
+      c.note(mirrorNote(r));
     }
     return {
       status: 'done' as const,

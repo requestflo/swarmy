@@ -61,10 +61,12 @@ export function startSystemImageMirror(): () => void {
       });
       const results = await mirrorSystemImagesAllOrgs(deps(), (d, orgId) => ensureRegistryDeployed(systemContext(d, orgId)));
       for (const r of results) {
-        if (r.copied.length || r.failed.length) {
+        if (r.copied.length || r.failed.length || r.inFlight?.length) {
           // eslint-disable-next-line no-console
           console.log(
-            `[system-image-mirror] org ${r.orgId}: copied ${r.copied.length}${r.failed.length ? `, failed ${r.failed.join(',')}` : ''}`,
+            `[system-image-mirror] org ${r.orgId}: copied ${r.copied.length}` +
+              `${r.inFlight?.length ? `, still copying ${r.inFlight.join(',')}` : ''}` +
+              `${r.failed.length ? `, failed ${r.failed.join(',')}` : ''}`,
           );
         }
       }
