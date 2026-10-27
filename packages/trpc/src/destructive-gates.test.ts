@@ -110,6 +110,9 @@ const GATES: Array<[string, unknown, string]> = [
   ['dbBackups.restore', {}, 'data.restore'],
   ['dbBackups.restoreAsCopy', {}, 'data.restore'],
   ['backups.restoreApp', {}, 'data.restore'],
+  // Reading inside a save: as sensitive as the live data (board 16 download).
+  ['backups.browseSnapshot', {}, 'data.restore'],
+  ['backups.downloadTicket', {}, 'data.restore'],
   ['controllerBackup.restore', {}, 'data.restore'],
   ['swarmKv.revert', {}, 'data.restore'],
   ['secrets.deleteFamily', {}, 'secret.delete'],

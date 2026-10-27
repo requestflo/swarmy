@@ -6,6 +6,8 @@ export type {
   CommandName,
   CommandResult,
   DispatchDecorator,
+  DownloadClaims,
+  DownloadStatusView,
 } from './hub/types';
 export { COMMAND_PROTOCOL_TYPE } from './hub/types';
 export { writeAudit } from './services/audit.service';

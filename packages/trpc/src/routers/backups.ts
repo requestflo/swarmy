@@ -16,6 +16,7 @@ import { autoBackupCoverage, setAutoVolumeBackup } from '../services/autoBackup.
 import { getCopyLag } from '../services/backupCopyLag.service';
 import { appDbBackupRouter } from './appDbBackup';
 import { appRestoreProcedures } from './appRestore';
+import { backupDownloadProcedures } from './backupDownload';
 
 const retentionDays = z.number().int().min(1).max(3650);
 
@@ -130,4 +131,7 @@ export const backupsRouter = router({
 
   /** Whole-app restore: `appRestoreScope` + `restoreApp`. */
   ...appRestoreProcedures,
+
+  /** Look inside a volume save + download a file or folder: `browseSnapshot`, `downloadTicket`, `downloadStatus`. */
+  ...backupDownloadProcedures,
 });

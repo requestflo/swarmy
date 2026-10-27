@@ -1,4 +1,4 @@
-import type { AgentSkew, CommandProgress, ContainerInfo, SwarmServiceInfo, SwarmNodeInfo, SwarmState, TermTarget, VolumeSizesSample } from '@swarmy/core/protocol';
+import type { AgentSkew, CommandProgress, ContainerInfo, SnapshotDumpPayload, SwarmServiceInfo, SwarmNodeInfo, SwarmState, TermTarget, VolumeSizesSample } from '@swarmy/core/protocol';
 import type { EdgeTrafficRing } from '@swarmy/core';
 import type {
   ClusterStatsFrame,
@@ -33,6 +33,7 @@ export type CommandName =
   | 'backup.run'
   | 'backup.restore'
   | 'backup.list'
+  | 'backup.ls' // read-only: one folder inside a volume backup, for the download picker (capability `snapshotLs`)
   | 'db.backup' // data-plane: logical/physical DB backup (pg_dump/wal-g/…)
   | 'db.restore'
   | 'db.pitrWindow' // read-only: a PITR cluster's base backups + recoverable window (agent capability `dbPitrWindow`)
@@ -106,6 +107,7 @@ export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
   'backup.run': 'backupVolume',
   'backup.restore': 'restoreVolume',
   'backup.list': 'listSnapshots',
+  'backup.ls': 'snapshotLs',
   'db.backup': 'dbBackup',
   'db.restore': 'dbRestore',
   'db.pitrWindow': 'dbPitrWindow',
@@ -148,6 +150,35 @@ export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
   'agent.update': 'updateAgent',
   'agent.restart': 'restartAgent',
 };
+
+/**
+ * Everything a snapshot download needs once its ticket is claimed at
+ * `/api/backups/download` (board 16). Held only in controller memory, for the
+ * ticket's 30 s; `start.repo` carries the decrypted restic credentials, the
+ * same as any dispatch payload, and is never returned to a client.
+ */
+export interface DownloadClaims {
+  /** Also the stream id on the agent link. */
+  downloadId: string;
+  orgId: string;
+  userId: string;
+  nodeId: string;
+  start: Pick<SnapshotDumpPayload, 'repo' | 'snapshotId' | 'path' | 'kind' | 'image' | 'network'>;
+  fileName: string;
+  maxBytes: number;
+  /** A single file: the controller wraps restic's bytes in this tar entry. */
+  entry?: { name: string; size: number; mtimeMs: number };
+  /** For the audit rows the route writes when the download ends. */
+  audit: { snapshotId: string; volume: string; path: string };
+}
+
+/** A download's progress, for the dialog that started it (`backups.downloadStatus`). */
+export interface DownloadStatusView {
+  state: 'ready' | 'streaming' | 'done' | 'failed' | 'canceled';
+  bytes: number;
+  error: string | null;
+  updatedAt: number;
+}
 
 export interface CommandResult<R = unknown> {
   id: string;
@@ -286,4 +317,12 @@ export interface AgentHub {
 
   /** Best-effort teardown of a live terminal session's data-plane socket. */
   killTerminalSession?(sessionId: string): boolean;
+
+  /**
+   * Mint a single-use ticket for one snapshot download (`/api/backups/download`).
+   * Optional: test/demo hubs have no download route.
+   */
+  mintDownloadTicket?(claims: DownloadClaims): { ticket: string; expiresAt: number };
+  /** A download's progress, with who started it (the router checks both). */
+  downloadStatus?(downloadId: string): (DownloadStatusView & { orgId: string; userId: string }) | undefined;
 }
