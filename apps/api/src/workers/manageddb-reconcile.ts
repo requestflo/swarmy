@@ -51,7 +51,6 @@ import {
   applyPgMemory,
   envPreload,
   pgMemoryCarry,
-  primaryDeclarations,
   POOLER_ROLE,
 } from '@swarmy/core';
 import { decryptSecret } from '@swarmy/core/crypto';
@@ -79,7 +78,8 @@ import { followPromotion, followWriter } from './manageddb-apps';
 import { plannedRequest, promotionRecord, thawStaleSwitchover } from './manageddb-switchover';
 import { createWatermarkStore } from './manageddb-watermark';
 import { probeCopies, promoteCopy, runningCopies } from './manageddb-copies';
-import { convergeReshape, floatedExWriter } from './manageddb-reshape';
+import { convergeReshape } from './manageddb-reshape';
+import { planPromotion, regionSlotTaken } from './manageddb-promotion-plan';
 import { clearRefusal, guardStandbyWriters, refuseFailover } from './manageddb-failover-refuse';
 import {
   DB_PITR_ARCHIVE_CMD_LABEL,
@@ -158,10 +158,13 @@ import {
  *   exec, and anything that could make a second writer refuses loudly
  *   (manageddb-copies, manageddb-failover-refuse, @swarmy/core
  *   manageddb-failover-copies). A service that held several copies comes back
- *   as the one promoted copy, pinned to its server (manageddb-reshape).
+ *   as the one promoted copy, pinned to its server (manageddb-reshape); a
+ *   1-copy standby is redeployed pinned to its server in the same pass. Either
+ *   way the writer takes the cluster's declarations, the geo regions included
+ *   (the pure plan: manageddb-promotion-plan).
  *   Promotion itself: exec `SELECT pg_promote()` via psql in THAT copy's container,
- *   verify `pg_is_in_recovery()=f` there, flip `swarmy.db.role` labels (labels-only —
- *   the promoted task keeps its promoted in-memory state), repoint every other
+ *   verify `pg_is_in_recovery()=f` there, flip `swarmy.db.role` labels (labels
+ *   first — the promoted task keeps its promoted state), repoint every other
  *   member's `SWARMY_PG_PRIMARY_HOST` under a fresh `SWARMY_PG_REJOIN` epoch
  *   (redeploy specs; the boot layer re-points standbys and moves a demoted
  *   ex-writer's data ASIDE before re-cloning — never deletes it), points the
@@ -917,66 +920,7 @@ const watermarkStore = createWatermarkStore(prisma);
 /** Clusters whose "failover needs confirmation" alert fired this episode. */
 const confirmAlerted = new Set<string>();
 
-/**
- * Spec repointing a replica-role service at the promoted writer. `epoch` is
- * the promotion's rejoin token: a standby just re-points; a member holding
- * WRITER data (the demoted ex-primary) moves it aside and re-clones — see
- * @swarmy/core manageddb-pg.
- */
-export function repointSpec(
-  s: SwarmServiceInfo,
-  promoted: string,
-  net: string,
-  epoch: string,
-  nodes?: readonly DbPlacementNode[],
-): ServiceSpec {
-  const env = envRecord(s.env ?? []);
-  const networks = (s.networks ?? []).map((n) => n.name).filter((n) => n.length > 0);
-  const region = s.labels[DB_REGION_LABEL];
-  // A free-floating member keeps preferring database-role servers; a pinned
-  // one (the demoted ex-primary) stays where its data is.
-  const floating = nodes && !s.labels[DB_PIN_NODE_LABEL];
-  const avoidNode = s.labels[DB_AVOID_NODE_LABEL];
-  const placed = floating
-    ? dbFloatingPlacement({ nodes, replicas: s.desiredReplicas ?? 1, ...(region ? { region } : {}), ...(avoidNode ? { avoidNode } : {}) })
-    : { constraints: region ? [`node.labels.${REGION_NODE_LABEL}==${region}`] : [], onRole: false };
-  const base: Record<string, string> = {
-    ...s.labels,
-    [DB_ROLE_LABEL]: 'replica',
-    [DB_LEADER_LABEL]: promoted,
-  };
-  const labels = floating ? dbRolePlacementLabels(base, placed) : base;
-  // The failover wait/confirm handshake is over once a writer is promoted.
-  delete labels[DB_FAILOVER_PENDING_LABEL];
-  delete labels[DB_FAILOVER_CONFIRM_LABEL];
-  // A planned switchover (volume mobility) is over once a writer is promoted.
-  delete labels[DB_SWITCHOVER_LABEL];
-  // A demoted ex-primary loses its PITR marker — its archive bits drop with the
-  // redeploy (live truth carries no mounts/configs) and the new writer re-earns
-  // them from the PITR convergence.
-  delete labels[DB_PITR_APPLIED_LABEL];
-  // Storage is carried forward from the member's own labels: the demoted
-  // ex-primary keeps its pinned data volume, replicas keep their per-node one.
-  const replEnv = pgReplicaEnv({
-    password: env[PG_ENV.password] ?? '',
-    replicationUser: env[PG_ENV.replicationUser] ?? REPLICATION_USER,
-    replicationPassword: env[PG_ENV.replicationPassword] ?? env[PG_ENV.password] ?? '',
-    primaryHost: promoted,
-    primaryPort: PG_PORT,
-    rejoin: epoch,
-  });
-  return applyPgMember<ServiceSpec>({
-    name: s.name,
-    image: s.image,
-    mode: { replicated: { replicas: s.desiredReplicas ?? 1 } },
-    env: { ...env, ...replEnv },
-    labels,
-    networks: networks.length > 0 ? networks : [net],
-    ...((s.secrets ?? []).length > 0 ? { secrets: (s.secrets ?? []).map((n) => ({ source: n })) } : {}),
-    ...((s.configs ?? []).length > 0 ? { configs: (s.configs ?? []).map((n) => ({ source: n })) } : {}),
-    ...(placed.constraints.length > 0 ? { placement: { constraints: placed.constraints } } : {}),
-  }, labels);
-}
+export { repointSpec } from './manageddb-repoint-spec';
 
 /**
  * Nothing else is mid-flight on the writer: no held failover, no planned
@@ -1281,7 +1225,9 @@ type PromoteDecision = Extract<FailoverDecision, { kind: 'promote' }>;
  * pass promotes another (it resumes this one). A service that holds other
  * copies too is stopped here and comes back as that one copy, pinned to its
  * server (manageddb-reshape); the demoted base writer then carries the
- * standby copies instead, floating.
+ * standby copies instead, floating. A 1-copy standby is redeployed as that
+ * copy, pinned to its server, in this pass. Every path — failover, planned
+ * switchover, the retire flow — gets here and runs the same pure plan.
  */
 async function promoteChosen(
   contract: Contract,
@@ -1312,15 +1258,21 @@ async function promoteChosen(
   if (!(await promoteCopy(pick, PROMOTE_TIMEOUT_MS))) return; // exec failed/gated: the next pass resumes this copy
   const reshape = needsReshape(target) || lag.copies.filter((x) => x.service === target.name).length > 1;
 
-  // Labels-only flips: the promoted task keeps its promoted in-memory state.
-  // The writer's declarations (memory, extensions) follow it to the new primary.
-  // A reshaped service keeps the mark until it runs as the one copy.
-  await relabel(
-    target.name,
-    { [DB_ROLE_LABEL]: 'primary', [DB_LEADER_LABEL]: target.name, ...primaryDeclarations(primary?.labels) },
-    reshape ? [] : [DB_FAILOVER_PROMOTING_LABEL],
-  );
+  // The pure plan (manageddb-promotion-plan): the writer takes the cluster's
+  // declarations (memory, extensions, pooler, the geo regions) and is pinned
+  // to the server its data is on; the others are repointed at it.
+  const net = clusterNet(c);
+  const epoch = `${target.name}@${new Date(now).toISOString()}`;
+  const nodes = hub.nodeInventory(orgId);
+  const plan = planPromotion({ ...(primary ? { primary } : {}), target, node: pick.node, standbys: replicaMembers(c), topology, reshape, net, epoch, nodes });
+  // Labels-only flip first: the promoted task keeps its promoted state. The
+  // mark stays until the writer runs as its one copy, pinned; until the flip
+  // lands nothing is repointed (the next pass resumes this copy).
+  if (!(await relabel(target.name, plan.writer))) return;
+  // One copy of several: every copy stops, it comes back as that one (manageddb-reshape).
+  // One copy: redeployed pinned, stop-first; a failed pin is the reshape step's next tick.
   if (reshape) await hub.dispatch(node, 'service.scale', { service: target.name, replicas: 0 }).catch(() => undefined);
+  else if (plan.pin) await hub.dispatch(node, 'service.deploy', { spec: plan.pin, pullPolicy: 'missing' }).catch(() => undefined);
   const others = [primary, ...replicaMembers(c)].filter(
     (s): s is SwarmServiceInfo => Boolean(s) && s!.name !== target.name,
   );
@@ -1332,21 +1284,10 @@ async function promoteChosen(
   }
 
   // Repoint every other replica (and the demoted ex-primary) at the new writer.
-  // When the promoted service held the base standby copies, the demoted writer
-  // takes them over: floating, off the new writer's server, as many as before.
-  const net = clusterNet(c);
-  const epoch = `${target.name}@${new Date(now).toISOString()}`;
-  const nodes = hub.nodeInventory(orgId);
-  const floatEx = reshape && topology !== 'geo' && !target.labels[DB_REGION_LABEL];
-  const standbyCopies = Number.parseInt(target.labels[DB_REPLICAS_LABEL] ?? '', 10) || (target.desiredReplicas ?? 1);
   const repointed: string[] = [];
-  for (const member of others) {
-    if (member.labels[DB_ROLE_LABEL] === 'dcs') continue;
-    const m = floatEx && member === primary ? floatedExWriter(member, pick.node, standbyCopies) : member;
-    await hub
-      .dispatch(node, 'service.deploy', { spec: repointSpec(m, target.name, net, epoch, nodes), pullPolicy: 'missing' })
-      .catch(() => undefined);
-    repointed.push(member.name);
+  for (const spec of plan.repoint) {
+    await hub.dispatch(node, 'service.deploy', { spec, pullPolicy: 'missing' }).catch(() => undefined);
+    repointed.push(spec.name);
   }
 
   unhealthyTicks.delete(key);
@@ -1371,13 +1312,14 @@ async function promoteChosen(
       : decision.confirmed
         ? ` — admin-confirmed, accepted window ${decision.behindBytes === null ? 'unknown' : `${decision.behindBytes} bytes`}`
         : ' — provably caught up (0 bytes behind)') + (lagSecs !== undefined ? ` (replica lag ${lagSecs}s)` : '');
-  const which = reshape ? ` (its copy on ${pick.node}; its other copies stop and it comes back as that one copy)` : '';
+  const which = reshape ? ` (its copy on ${pick.node}; its other copies stop and it comes back as that one copy)` : ` (pinned to ${pick.node})`;
+  const moved = plan.writeRegion ? `; writes are now in ${plan.writeRegion.to} (were ${plan.writeRegion.from})` : '';
   await seams.recordIncidentEvent(ctx, {
     groupKey,
     kind: record.kind,
-    message: `Promoted ${target.name}${which} to primary${lagNote}${planned ? ' (planned switch-over)' : ` after ${ticks} unhealthy ticks`}`,
+    message: `Promoted ${target.name}${which} to primary${lagNote}${planned ? ' (planned switch-over)' : ` after ${ticks} unhealthy ticks`}${moved}`,
     severity: record.severity,
-    meta: { promoted: target.name, copy: pick.node, demoted: primary?.name ?? null, cluster: c.cluster, stack: c.stack },
+    meta: { promoted: target.name, copy: pick.node, demoted: primary?.name ?? null, cluster: c.cluster, stack: c.stack, ...(plan.writeRegion ? { writeRegion: plan.writeRegion } : {}) },
   }).catch(() => undefined);
   if (repointed.length > 0) {
     await seams.recordIncidentEvent(ctx, {
@@ -1415,6 +1357,8 @@ async function promoteChosen(
       promoted: target.name,
       copy: pick.node,
       reshaped: reshape,
+      pinnedTo: pick.node,
+      ...(plan.writeRegion ? { writeRegion: plan.writeRegion } : {}),
       resumed: o.resumed,
       demoted: primary?.name ?? null,
       repointed,
@@ -1698,7 +1642,8 @@ async function reconcileOrg(orgId: string): Promise<void> {
           continue;
         }
         if (!sib) {
-          if (primary) await deploy(regionReplicaSpec(c, primary, region, n, multiNode, nodes));
+          // A writer promoted from this region's sibling holds its name: never deploy over it.
+          if (primary && !regionSlotTaken(c.base, region, primary.name)) await deploy(regionReplicaSpec(c, primary, region, n, multiNode, nodes));
         } else {
           const avoidNode = sib.labels[DB_AVOID_NODE_LABEL];
           const move = planReplicaScale({

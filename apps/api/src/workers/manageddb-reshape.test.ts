@@ -30,8 +30,10 @@ describe('reshapeStep', () => {
     expect(reshapeStep(svc(W, 0, 1), 1)).toBe('wait');
     expect(reshapeStep(svc(W, 0, 0), 0)).toBe('pin');
   });
-  it('a 1-copy promotion whose mark stayed behind is only unmarked; a 1-desired service running two copies is stopped', () => {
-    expect(reshapeStep(svc(W, 1), 1)).toBe('unmark');
+  it('a 1-copy writer pinned to the marked server is only unmarked; unpinned, it is pinned there; two copies are stopped', () => {
+    expect(reshapeStep(svc({ ...W, 'swarmy.db.node': 'node-c' }, 1), 1)).toBe('unmark');
+    expect(reshapeStep(svc(W, 1), 1)).toBe('pin');
+    expect(reshapeStep(svc({ ...W, 'swarmy.db.node': 'node-a' }, 1), 1)).toBe('pin');
     expect(reshapeStep(svc(W, 1, 2), 2)).toBe('stop');
   });
   it('nothing to do without the mark, or for a standby carrying it (the promotion pass owns that)', () => {

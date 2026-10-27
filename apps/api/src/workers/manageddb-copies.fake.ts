@@ -9,13 +9,14 @@ import { fakeSwarm } from './manageddb-apps.fake';
  * managed Postgres members are (one copy per server). Each copy's Postgres
  * state lives with its server (`<service>@<node>`, like a node-local volume):
  * its replay LSN, and whether `pg_promote()` ever ran there. Every exec is
- * recorded with the container it ran in.
+ * recorded with the container it ran in. `nodeLabels` gives servers labels
+ * (`swarmy.region`), and a `node.labels.<k>==<v>` constraint places by them.
  */
 
 const NODES = ['swarm-a', 'swarm-b', 'swarm-c'];
 const agentOf = (node: string) => `a-${node}`;
 
-export function copiesSwarm(orgId: string) {
+export function copiesSwarm(orgId: string, nodeLabels: Record<string, Record<string, string>> = {}) {
   const base = fakeSwarm(orgId);
   /** `<service>@<node>` whose data has been promoted (a writer). */
   const writers = new Set<string>();
@@ -32,7 +33,12 @@ export function copiesSwarm(orgId: string) {
     const pin = cons.map((c) => /^node\.id==(\S+)$/.exec(c)?.[1]).find(Boolean);
     const avoid = new Set(cons.map((c) => /^node\.id!=(\S+)$/.exec(c)?.[1]).filter(Boolean));
     const want = svc.spec.mode?.replicated?.replicas ?? 1;
-    return (pin ? [pin] : NODES.filter((n) => !avoid.has(n))).slice(0, want);
+    const fits = (n: string) =>
+      cons.every((c) => {
+        const m = /^node\.labels\.(.+?)==(.+)$/.exec(c);
+        return !m || nodeLabels[n]?.[m[1]!] === m[2];
+      });
+    return (pin ? [pin] : NODES.filter((n) => !avoid.has(n))).filter(fits).slice(0, want);
   };
   const containerOf = (name: string, node: string) => `c-${name}-${base.services.get(name)!.gen}-${node}`;
   const containers = () =>
@@ -72,7 +78,7 @@ export function copiesSwarm(orgId: string) {
     latestContainers: (agent: string) => containers().filter((c) => agentOf(c.node) === agent),
     onlineNodeIds: () => NODES.map(agentOf),
     swarmNodeIdFor: (agent: string) => agent.replace(/^a-/, ''),
-    nodeInventory: () => NODES.map((n) => ({ swarmNodeId: n, hostname: n, role: 'worker', status: 'ready', availability: 'active', labels: {} })),
+    nodeInventory: () => NODES.map((n) => ({ swarmNodeId: n, hostname: n, role: 'worker', status: 'ready', availability: 'active', labels: nodeLabels[n] ?? {} })),
   };
   return {
     ...base,

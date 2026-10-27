@@ -34,6 +34,7 @@ import type { ServiceSpec, SwarmServiceInfo } from '@swarmy/core/protocol';
 const ROLE = 'swarmy.db.role';
 const LEADER = 'swarmy.db.leader';
 const REGION = 'swarmy.db.region';
+const PLACED_REGION = 'swarmy.db.placedRegion';
 
 function envRecord(env: readonly string[] = []): Record<string, string> {
   const out: Record<string, string> = {};
@@ -44,14 +45,18 @@ function envRecord(env: readonly string[] = []): Record<string, string> {
   return out;
 }
 
-/** The promoted service as one writer copy pinned to `node`. Pure. */
+/**
+ * The promoted service as one writer copy pinned to `node` (the server its
+ * data is on), kept in its region (`placedRegion`, else its sibling region).
+ * Pure.
+ */
 export function promotedCopySpec(s: SwarmServiceInfo, node: string, net: string): ServiceSpec {
   const labels: Record<string, string> = { ...s.labels, [ROLE]: 'primary', [LEADER]: s.name, [DB_PIN_NODE_LABEL]: node };
   for (const k of [DB_AVOID_NODE_LABEL, DB_ROLE_PLACED_LABEL, DB_FAILOVER_PROMOTING_LABEL, DB_FAILOVER_PENDING_LABEL, DB_FAILOVER_CONFIRM_LABEL, DB_SWITCHOVER_LABEL]) {
     delete labels[k];
   }
   const networks = (s.networks ?? []).map((n) => n.name).filter((n) => n.length > 0);
-  const region = s.labels[REGION];
+  const region = s.labels[PLACED_REGION] ?? s.labels[REGION];
   return applyPgMember<ServiceSpec>(
     {
       name: s.name,
@@ -80,15 +85,18 @@ export type ReshapeStep = 'none' | 'stop' | 'wait' | 'pin' | 'unmark';
 
 /**
  * What the writer carrying the promoting mark needs this tick. Pure.
- * `unmark`: a 1-copy promotion whose mark wasn't dropped (nothing to
- * reshape). `stop`: copies are still wanted. `wait`: stopping. `pin`: none
- * left, start the one writer copy.
+ * `unmark`: a 1-copy writer already pinned to the marked server whose mark
+ * wasn't dropped. `stop`: copies are still wanted. `wait`: stopping. `pin`:
+ * none left (or one copy, not yet pinned there): start the one writer copy,
+ * pinned, stop-first — one copy never shares its data directory.
  */
 export function reshapeStep(w: Pick<SwarmServiceInfo, 'labels' | 'desiredReplicas' | 'runningReplicas'>, runningCopies: number): ReshapeStep {
   if (w.labels[ROLE] !== 'primary' || !w.labels[DB_FAILOVER_PROMOTING_LABEL]) return 'none';
   const copies = Math.max(runningCopies, w.runningReplicas ?? 0);
   const desired = w.desiredReplicas ?? 0;
-  if (!needsReshape({ desiredReplicas: desired, runningReplicas: copies }) && desired === 1) return 'unmark';
+  if (!needsReshape({ desiredReplicas: desired, runningReplicas: copies }) && desired === 1) {
+    return w.labels[DB_PIN_NODE_LABEL] === w.labels[DB_FAILOVER_PROMOTING_LABEL] ? 'unmark' : 'pin';
+  }
   if (desired > 0) return 'stop';
   return copies > 0 ? 'wait' : 'pin';
 }
