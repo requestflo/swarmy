@@ -177,6 +177,22 @@ Four ideas, one story:
   confirmed (and which window). The decision is pure
   (`decideFailover` in `@swarmy/core` `manageddb-failover.ts`, unit-tested).
 
+  **One promotion, one writer.** A standby service runs one copy per server
+  (`replicas: 2` is one service, two tasks, two data directories), so failover
+  is decided and carried out per COPY, never per service. Every running copy is
+  probed on its own; the decision names one copy (its server); that copy is
+  marked on its service (`swarmy.db.failover.promoting`) before `pg_promote()`
+  runs in its container, and from then on no pass may promote any other copy
+  (a retried pass resumes the marked one). Swarmy refuses, loudly
+  (`db.failover.refused` incident + critical alert + audit), rather than
+  promote when the shape is wrong: two copies already take writes, a copy it
+  didn't promote takes writes, the marked copy is out of reach, or it can't
+  tell which server a copy is on. A service that held several copies then comes
+  back as the one promoted copy, pinned to its server (every copy stops first,
+  so the writer is down a few more seconds; its data is never touched), and
+  the demoted writer carries the standby copies from then on, floating. A
+  plain service scale of a managed writer past one copy is refused.
+
   | Topology | What happens when the primary dies |
   |---|---|
   | `single` | Never promoted — there is no replica. Restore from backup. |
@@ -195,11 +211,15 @@ Four ideas, one story:
   the writer" on the database page, dragging the writer on the Data page, and
   the server-retire flow) hands the writes to a chosen standby copy, or the
   most caught-up one. It refuses, before touching anything, unless the copy is
-  the only one in its service, streaming, and within one WAL segment; the
+  streaming and within one WAL segment; the
   writer runs; and nothing else is in flight (a held failover, another
   switch-over, a planned restart). An app connected straight to the writer is
   no reason to refuse: the confirm names it, and it restarts onto the new
-  writer with the promotion pass, as in a failover. Then: writes pause
+  writer with the promotion pass, as in a failover. Nor is a copy that shares
+  its service with other copies: the request names that one copy, the pass
+  promotes it alone, and its service comes back as that copy (the confirm says
+  writes stop again for a few seconds). The old writer is started again only
+  once the pass has repointed it, never under its old writer spec. Then: writes pause
   (`default_transaction_read_only`, open read-write transactions ended — rolled
   back, never committed), the copy must replay the writer's final flushed
   position within a minute, the writer stops under the `swarmy.db.switchover`
