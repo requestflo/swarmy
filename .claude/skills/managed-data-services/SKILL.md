@@ -97,7 +97,17 @@ state belongs see `skill("docker-native-storage")`.
     reach) refuses loudly (`db.failover.refused`). A multi-copy service then
     comes back as that one copy pinned to its server (`manageddb-reshape.ts`:
     scale to 0, then one pinned stop-first copy), and the demoted base writer
-    floats with the standby copies. Never exec `pg_promote()` in "a task of the
+    floats with the standby copies; a 1-copy standby is redeployed pinned in
+    the same pass. Every path (failover, planned switchover, the retire flow)
+    runs ONE pure plan, `planPromotion` (`manageddb-promotion-plan.ts`): the
+    writer is always pinned to the server its data is on, and takes the geo
+    declarations (every `swarmy.db.region.<r>.replicas`; `writeRegion` +
+    `placedRegion` = its data's region) off the demoted writer; standbys keep
+    their region. A region sibling is never deployed over the writer's name
+    (`regionSlotTaken`). The reconcile's writer guard
+    (`manageddb-writer-{guard,repair}.ts`) repairs an unpinned writer or a geo
+    writer missing its declarations on the next tick (signature-gated,
+    `db.writer.repair` audit + timeline). Never exec `pg_promote()` in "a task of the
     service". Promotion is `SELECT pg_promote()`; the repoint
     redeploys every other member under a fresh `SWARMY_PG_REJOIN` epoch, points
     the pooler at the new writer, and rolls every app wired DIRECTLY to the
@@ -181,7 +191,8 @@ state belongs see `skill("docker-native-storage")`.
     only once the extensions step is idle (standbys, verify `SHOW
     shared_buffers`, then the writer in place under `swarmy.db.restart.planned`).
     A promotion carries the writer's declarations (`primaryDeclarations`:
-    memory + extensions) to the new primary.
+    memory + extensions + pooler, and the geo ones, `writerGeoCarry`) to the
+    new primary.
 
 ## Contracts between the layers
 
@@ -216,7 +227,7 @@ state belongs see `skill("docker-native-storage")`.
 | Postgres reconcile (failover/lag/PITR) + pure core | `apps/api/src/workers/manageddb-reconcile.ts`, `…-reconcile.core.ts` |
 | Apps follow the writer (pure plan, URL-secret addressing, re-mint + rolling redeploy, the reconcile step) | `packages/core/src/manageddb-{app-repoint,url-secret}.ts`, `packages/trpc/src/services/manageddb-{app-repoint.service,app-wire,url-secrets}.ts`, `apps/api/src/workers/manageddb-apps.ts` (+ the end-to-end `manageddb-apps.test.ts` on `manageddb-apps.fake.ts`) |
 | Failover safety rule (`decideFailover`) + pending/confirm label codecs | `packages/core/src/manageddb-failover.ts` (+ `.test.ts`); confirm = `manageddb.service.ts#confirmFailover`; UI `components/stacks/db-failover-confirm.tsx` |
-| One promotion, one writer (per-copy probe + plan, the promoting mark, the reshape, loud refusals) | `packages/core/src/manageddb-failover-copies.ts` (`planCopyPromotion`, `writerScaleRefusal`), `apps/api/src/workers/manageddb-{copies,reshape,failover-refuse}.ts` (+ the end-to-end `manageddb-copies.test.ts` on `manageddb-copies.fake.ts`) |
+| One promotion, one writer (per-copy probe + plan, the promoting mark, the reshape, loud refusals) | `packages/core/src/manageddb-failover-copies.ts` (`planCopyPromotion`, `writerScaleRefusal`), `apps/api/src/workers/manageddb-{copies,reshape,failover-refuse}.ts` (+ the end-to-end `manageddb-copies.test.ts` on `manageddb-copies.fake.ts`); what every promotion leaves (pin + geo declarations, pure) `manageddb-promotion-plan.ts`, `manageddb-repoint-spec.ts` (+ `manageddb-promotion-carry.test.ts`); the writer guard `manageddb-writer-{guard,repair}.ts` |
 | Planned switchover (`db.switchover` / `db.switchoverRun`: pure plan + refusals, run decisions, `swarmy.db.switchover` request codec, run view; the promotion is the reconcile's own pass, narrowed by `plannedPromotion`) | `packages/core/src/manageddb-switchover{,-run,-view}.ts`, `packages/trpc/src/services/manageddb-switchover{.service,.run,.steps,.runs,.start}.ts` (router `routers/manageddb-switchover.ts`), `apps/api/src/workers/manageddb-switchover.ts` (planned record + stale-pause thaw); the server-retire flow's writer move rides it (`packages/trpc/src/services/dbWriterMove.service.ts`); UI runs the same plan on `db.get` + `db.replication` + `db.pooler`: Postgres page at Controls `components/pgdetail/pg-switchover-{section,confirm,progress,plan,words}.ts(x)` + `use-pg-switchover.ts`, board 15's copies by server `components/data/data-pg-{copies,strip,chip}.tsx` + `pg-copies-model.ts`; demo `demo/resolvers/pg-switchover.ts` |
 | Cache: `swarmy.cache.*`, sentinel, maxmemory+headroom, password secret | `packages/trpc/src/services/cache.service.ts`, `apps/api/src/workers/cache-reconcile.ts` |
 | Cache when-full + persistence (`swarmy.cache.evictionPolicy|persistence` declared, `.appliedPolicy` per member; CONFIG SET live, stamp only once on disk; queue stores keep noeviction) | `packages/trpc/src/services/cache-policy{,-plan,.service}.ts`, `apps/api/src/workers/cache-policy-reconcile.ts` |

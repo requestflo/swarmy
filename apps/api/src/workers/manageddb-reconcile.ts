@@ -80,6 +80,7 @@ import { createWatermarkStore } from './manageddb-watermark';
 import { probeCopies, promoteCopy, runningCopies } from './manageddb-copies';
 import { convergeReshape } from './manageddb-reshape';
 import { planPromotion, regionSlotTaken } from './manageddb-promotion-plan';
+import { guardWriter } from './manageddb-writer-guard';
 import { clearRefusal, guardStandbyWriters, refuseFailover } from './manageddb-failover-refuse';
 import {
   DB_PITR_ARCHIVE_CMD_LABEL,
@@ -1437,6 +1438,18 @@ export function indexClusters(services: readonly SwarmServiceInfo[]): Map<string
   return clusters;
 }
 
+/** Every Postgres member service of the cluster, the ones indexClusters set aside included. */
+export function clusterMembers(services: readonly SwarmServiceInfo[], c: Pick<Cluster, 'stack' | 'cluster'>): SwarmServiceInfo[] {
+  return services.filter(
+    (s) =>
+      s.labels[DB_CLUSTER_LABEL] === c.cluster &&
+      (s.labels[STACK_LABEL] ?? '') === c.stack &&
+      s.labels[DB_ENGINE_LABEL] === 'postgres' &&
+      s.labels[DB_WAL_SHIPPER_LABEL] !== 'true' &&
+      s.labels[DB_ROLE_LABEL] !== POOLER_ROLE,
+  );
+}
+
 async function reconcileOrg(orgId: string): Promise<void> {
   const node = hub.managerNode(orgId);
   if (!node) return;
@@ -1506,6 +1519,30 @@ async function reconcileOrg(orgId: string): Promise<void> {
         hub.dispatch(node, 'service.updateLabels', { service, add: {}, removeKeys: [DB_FAILOVER_PROMOTING_LABEL] }).catch(() => undefined),
     });
     if (reshaping !== 'none') continue;
+
+    // (-2b) The writer a promotion left behind: pinned to the server its data
+    //       is on, the geo declarations on it (manageddb-writer-guard). Before
+    //       the geo step, which would remove the siblings it no longer declares.
+    if (primary && contract) {
+      const { seams, ctx } = contract;
+      const ref = `${c.stack}/${c.cluster}`;
+      const repaired = await guardWriter(`${orgId}/${ref}`, c.cluster, {
+        base: c.base,
+        topology,
+        writer: primary,
+        others: clusterMembers(services, c).filter((s) => s.name !== primary.name),
+        copyNodes: runningCopies(orgId, primary).map((x) => x.node),
+        nodes,
+        net: clusterNet(c),
+        now: Date.now(),
+      }, {
+        deploy: (spec) => hub.dispatch(node, 'service.deploy', { spec, pullPolicy: 'missing' }).then(() => true, () => false),
+        setLabels: (service, add, removeKeys) => hub.dispatch(node, 'service.updateLabels', { service, add, removeKeys }).then(() => true, () => false),
+        audit: (metadata) => seams.writeAudit(ctx, { action: 'db.writer.repair', actorType: 'system', targetType: 'dbCluster', targetId: ref, metadata }).catch(() => undefined),
+        incident: (message, meta) => seams.recordIncidentEvent(ctx, { groupKey: `db:${ref}`, kind: 'db.writer.repair', message, severity: 'warning', meta }).catch(() => undefined),
+      }).catch(() => null);
+      if (repaired) continue;
+    }
 
     // (-1) Credentials: a member still carrying its password as plain env
     //      (pre-secret) is migrated onto the password Docker secret — secret
