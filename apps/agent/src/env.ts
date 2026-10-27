@@ -72,6 +72,13 @@ export const env = {
   // Hard per-session output cap (bytes) — `yes`-bomb / runaway-output guard.
   // 0 disables the cap. Default 64 MiB.
   TERM_MAX_OUTPUT_BYTES: Number(process.env.SWARMY_TERM_MAX_OUTPUT_BYTES ?? 64 * 1024 * 1024),
+  // Downloading a file or folder out of a volume backup (`snapshotDump`) is on
+  // by default: it reads only the restic repo, with credentials the controller
+  // sends per stream. SWARMY_ALLOW_SNAPSHOT_DOWNLOAD=false vetoes it on this box.
+  ALLOW_SNAPSHOT_DOWNLOAD: (process.env.SWARMY_ALLOW_SNAPSHOT_DOWNLOAD ?? 'true') !== 'false',
+  // This agent's own ceiling on one download (bytes), whatever the controller
+  // asks for. Default 64 GiB; the controller's cap (default 2 GiB) is lower.
+  SNAPSHOT_DOWNLOAD_MAX_BYTES: Number(process.env.SWARMY_SNAPSHOT_DOWNLOAD_MAX_BYTES ?? 64 * 1024 ** 3) || 64 * 1024 ** 3,
   // Mesh provisioning is on by default; a node can opt out (epic #6).
   ALLOW_MESH: (process.env.SWARMY_ALLOW_MESH ?? 'true') === 'true',
   // The self-hosted mesh control plane runs (and replicates) only under its

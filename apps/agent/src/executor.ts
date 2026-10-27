@@ -17,6 +17,8 @@ import { backupVolume, restoreVolume, listSnapshots, backupDb, restoreDb } from 
 import { dbPitrWindow } from './handlers/pitr-window';
 import { dbWalVerify } from './handlers/wal-verify';
 import { dbWalgCopy } from './handlers/walg-copy';
+import { snapshotLs } from './handlers/snapshot-ls';
+import { handleSnapshotDump, handleStreamCancel, handleStreamCredit } from './handlers/snapshot-dump';
 import { readEdgeCerts } from './handlers/edge-certs';
 import { renewEdgeCert } from './handlers/edge-cert-renew';
 import { appDbBackup, appDbRestore, appDbVerify } from './handlers/appdb';
@@ -290,6 +292,22 @@ export async function handleCommand(
       const p = envlp.payload;
       return run(conn, p.commandId, () => dbWalgCopy(docker, p));
     }
+    case 'snapshotLs': {
+      // Read-only `restic ls` in a sidecar (capability `snapshotLs`): like
+      // listSnapshots it execs into no task, so no SWARMY_ALLOW_EXEC veto.
+      const p = envlp.payload;
+      return run(conn, p.commandId, () => snapshotLs(docker, p));
+    }
+    case 'snapshotDump':
+      // A stream, not a command: answered by binary chunks + one streamEnd
+      // (capability `snapshotDump`; local veto SWARMY_ALLOW_SNAPSHOT_DOWNLOAD).
+      return handleSnapshotDump(docker, conn, envlp.payload);
+    case 'streamCredit':
+      handleStreamCredit(envlp.payload);
+      return;
+    case 'streamCancel':
+      handleStreamCancel(envlp.payload);
+      return;
     case 'edgeCerts': {
       // Read-only: the `.crt` facts of this node's edge Caddy task (swarmy's
       // own edge, like the metrics scrape — no exec veto). Advertised in

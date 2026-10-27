@@ -298,6 +298,17 @@ export class AgentConnection {
     );
   }
 
+  /**
+   * A binary frame: only stream chunks (`@swarmy/core/protocol` stream-frame),
+   * and only for a stream the controller started, so a controller that
+   * predates binary frames never receives one. False when the link is down.
+   */
+  sendBinary(data: Uint8Array): boolean {
+    if (this.ws?.readyState !== 1) return false;
+    this.ws.send(data);
+    return true;
+  }
+
   get connected(): boolean {
     return this.ws?.readyState === 1;
   }
