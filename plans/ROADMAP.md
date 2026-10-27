@@ -233,7 +233,14 @@ server and the BuildKit registry cache. What is left (none launch-blocking):
   seeds the built-in registry from it. Needs Docker's containerd image store,
   and a run on a real box with no route out. Managed-data images are in the
   BOM since 2026-10-26 (+~1.9 GB; `--without data-images` leaves them out).
-  Agent-side backup sidecars still pull by tag.
+  Backup, restore and dump sidecars pull by digest through the mirror (an
+  upstream fallback) since 2026-10-27; snapshot browse/download's restic
+  sidecar doesn't yet (the agent's only-restic-may-read guard refuses the
+  mirrored repo, and the stream bypasses the dispatch decorator).
+- Snapshot download (2026-10-27) runs on Bun 1.3.14 with the controller
+  buffering a slow browser's download in memory (sized to memory: an eighth
+  per download, a quarter in all). Moving the controller image to Bun 1.4
+  makes backpressure reach the browser.
 
 - The Release workflow is manual until launch; restore `push: branches: [main]`
   afterwards.
