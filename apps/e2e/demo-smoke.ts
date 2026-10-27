@@ -295,6 +295,22 @@ try {
     fail(`time travel: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`);
   }
 
+  // Board 16: look inside a volume save, pick a file, download — the demo says nothing downloads.
+  try {
+    const before = pageErrors.length;
+    await page.goto(`${BASE}/stacks/storefront/backups`, { waitUntil: 'networkidle' });
+    await page.getByRole('button', { name: 'Download a file or folder…', disabled: false }).first().click();
+    await page.getByRole('button', { name: /^config\b/ }).click();
+    await page.getByRole('button', { name: /^app\.yml\b/ }).click();
+    await page.getByText('config/app.yml · 2.3 KB').first().waitFor({ timeout: 10_000 });
+    await page.getByRole('button', { name: 'Download this file' }).click();
+    await page.getByText(/^This is a demo, so nothing downloads\. On your own controller this saves storefront_\S+-config_app\.yml-\d{8}-\d{4}\.tar\.gz/).first().waitFor({ timeout: 10_000 });
+    if (pageErrors.length > before) fail(`snapshot download: ${pageErrors.slice(before).join(' | ')}`);
+    else console.log('✓ snapshot download: browse a save, pick config/app.yml, the demo names the .tar.gz it would be');
+  } catch (e) {
+    fail(`snapshot download: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`);
+  }
+
   // Convert to swarmy.yaml: Source tab → the generated file, checked, with Connect a repo as the next step.
   try {
     const before = pageErrors.length;

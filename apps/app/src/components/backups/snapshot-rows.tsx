@@ -3,6 +3,7 @@ import { DatabaseBackupIcon } from 'lucide-react';
 import { EmptyState } from '@swarmy/ui';
 import { CalmRow, Depth, RowList, type Tone } from '@/components/calm';
 import { fmtBytes, relativeTime } from './backup-format';
+import { DownloadSnapshotSheet } from './download-snapshot-sheet';
 import { RestoreSnapshotConfirm } from './restore-snapshot-confirm';
 import { SnapshotFailureReason } from './snapshot-failure-reason';
 import { volumeWords } from './backup-words';
@@ -64,7 +65,12 @@ export function SnapshotRows({ rows, emptyTitle, emptyDescription }: SnapshotRow
             }
             tech={`snapshot ${snap.id.slice(0, 8)}`}
             word={s.word}
-            trailing={<RestoreSnapshotConfirm snapshotId={snap.id} volume={snap.volume} disabled={snap.status !== 'SUCCEEDED'} />}
+            trailing={
+              <div className="flex flex-wrap justify-end gap-2">
+                <DownloadSnapshotSheet snapshotId={snap.id} volume={snap.volume} disabled={snap.status !== 'SUCCEEDED'} />
+                <RestoreSnapshotConfirm snapshotId={snap.id} volume={snap.volume} disabled={snap.status !== 'SUCCEEDED'} />
+              </div>
+            }
           />
         );
       })}

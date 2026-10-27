@@ -6,6 +6,7 @@ import { DbRestoreDialog } from '@/components/stacks/db-restore-dialog';
 import { SAFETY_COPY_WORDS, isSafetyCopy } from '@/components/stacks/db-backup-format';
 import { fmtBytes } from './backup-format';
 import { failureWords } from './backup-words';
+import { DownloadSnapshotSheet } from './download-snapshot-sheet';
 import { RestoreSnapshotConfirm } from './restore-snapshot-confirm';
 import type { GridCell, GridLane } from './restore-grid-model';
 
@@ -53,6 +54,7 @@ export function RestorePointDetail({ lane, cell }: { lane: GridLane; cell: GridC
           {s.error ? ` · ${s.error}` : ''}
         </Tech>
       </div>
+      {usable && lane.kind === 'volume' ? <DownloadSnapshotSheet snapshotId={s.id} volume={lane.ref} /> : null}
       {usable && lane.kind === 'volume' ? <RestoreSnapshotConfirm snapshotId={s.id} volume={lane.ref} /> : null}
       {usable && lane.kind === 'db' ? (
         <DbRestoreDialog

@@ -56,6 +56,7 @@ import { dbRestoreCopy } from './resolvers/db-restore-copy';
 import { appRestoreDemo } from './resolvers/app-restore';
 import { dbWritesDemo } from './resolvers/db-writes';
 import { dbPitrWindow } from './resolvers/db-pitr-window';
+import { backupDownload } from './resolvers/backup-download';
 import { dbWalCheck } from './resolvers/db-wal-check';
 import { dbRestoreProgress } from './resolvers/db-restore-progress';
 import { backupCopyLag } from './resolvers/backup-copy-lag';
@@ -182,6 +183,7 @@ const MODULES: DomainResolvers[] = [
   appRestoreDemo,
   dbWritesDemo,
   dbPitrWindow,
+  backupDownload,
   dbWalCheck,
   dbBackupEngines,
   controllerstore,
