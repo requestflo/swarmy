@@ -40,6 +40,13 @@ describe('renderedDbLabels', () => {
     expect(renderedDbLabels(auto, 'x')).not.toContain('swarmy.db.backup.pitr=');
   });
 
+  test('the second destination rides last, and its copy label is named', () => {
+    const out = renderedDbLabels({ ...schedule, secondaryTargetId: 'tgt-r2' }, 'x');
+    expect(out).toContain('"dataVolume":"data_main-primary-data","secondaryTargetId":"tgt-r2"}');
+    expect(out).toContain('# swarmy.db.backup.copy: stamped after each copy');
+    expect(renderedDbLabels(schedule, 'x')).not.toContain('backup.copy');
+  });
+
   test('no schedule says so', () => {
     expect(renderedDbLabels(null, 'x')).toContain('no recurring backup');
   });

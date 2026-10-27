@@ -59,6 +59,7 @@ import { dbPitrWindow } from './resolvers/db-pitr-window';
 import { dbWalCheck } from './resolvers/db-wal-check';
 import { dbRestoreProgress } from './resolvers/db-restore-progress';
 import { backupCopyLag } from './resolvers/backup-copy-lag';
+import { dbBackupCopy } from './resolvers/db-backup-copy';
 import { dbBackupEngines } from './resolvers/db-backup-engines';
 import { controllerstore } from './resolvers/controllerstore';
 import { platform } from './resolvers/platform';
@@ -249,6 +250,8 @@ const MODULES: DomainResolvers[] = [
   dbRestoreProgress,
   // Its seed adds a second copy to data's schedules, so it comes after data.
   backupCopyLag,
+  // Wraps data's dbBackups.* reads and backupCopyLag's copyLag (a database's off-site copy), so it comes after both.
+  dbBackupCopy,
 ];
 
 export const HANDLERS: Record<string, DemoHandler> = Object.assign(

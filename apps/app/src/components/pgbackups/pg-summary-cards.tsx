@@ -5,6 +5,7 @@ import { TONE_DOT, Tech } from '@/components/calm';
 import { cronWords } from '@/components/stack-data/pg-choices';
 import { RunDrillDialog } from '@/components/resilience/run-drill-dialog';
 import { formatDurationMs, formatDurationSec, relativeTime } from '@/components/resilience/format';
+import { PgCopyLine } from './pg-copy-line';
 import type { PgBackupsData } from './use-pg-backups';
 
 const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
@@ -53,6 +54,7 @@ export function PgSummaryCards({ stack, cluster, b }: { stack: string; cluster: 
           <b className="text-[15px] font-semibold">Nowhere yet</b>
         )}
         {b.target ? <span className="text-muted-foreground max-w-full truncate font-mono text-[11.5px]">{whereLine(b.target)}</span> : null}
+        {b.target ? <PgCopyLine stack={stack} cluster={cluster} b={b} /> : null}
         <Link to="/backups" className="text-primary mt-1 font-mono text-[11.5px] hover:underline">
           {b.target ? 'Manage destinations →' : 'Set up a destination →'}
         </Link>

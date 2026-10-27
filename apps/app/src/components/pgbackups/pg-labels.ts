@@ -22,6 +22,7 @@ export function renderedDbLabels(
     ...(s.dataVolume ? { dataVolume: s.dataVolume } : {}),
     // Saving from the dashboard makes it a user's schedule, so `auto` drops.
     ...(s.auto && retentionDays === undefined ? { auto: true } : {}),
+    ...(s.secondaryTargetId ? { secondaryTargetId: s.secondaryTargetId } : {}),
   });
   const lines = [head, `swarmy.db.backup.schedule=${schedule}`];
   if (s.pitr) lines.push('swarmy.db.backup.pitr=true');
@@ -30,6 +31,7 @@ export function renderedDbLabels(
       ? `# swarmy.db.backup.lastRun: stamped after every run (last ${s.lastRunAt}, ${s.lastStatus ?? 'unknown'})`
       : '# swarmy.db.backup.lastRun: stamped after the first run',
   );
+  if (s.secondaryTargetId) lines.push('# swarmy.db.backup.copy: stamped after each copy to the second destination');
   return lines.join('\n');
 }
 

@@ -13,8 +13,9 @@ import { PgWalLine } from './pg-wal-line';
 import { PgRestoreProgress } from './pg-restore-progress';
 import { isBlocked, walBlocked } from './wal-check';
 import { PgRestoreTarget, type RestoreTarget } from './pg-restore-target';
+import { PgRestoreSource } from './pg-restore-source';
 import { pointTime } from './retention-strip';
-import type { PgBackupsData } from './use-pg-backups';
+import type { PgBackupsData, PgSource } from './use-pg-backups';
 
 interface PgRestoreProps {
   stack: string;
@@ -24,6 +25,8 @@ interface PgRestoreProps {
   selected: string | null;
   /** Coral only when the page shows no other next action. */
   primary: boolean;
+  /** Restore from the main destination or the second copy. */
+  onFrom: (f: PgSource) => void;
 }
 
 /**
@@ -32,7 +35,7 @@ interface PgRestoreProps {
  * beside this one (`dbBackups.restoreAsCopy`) or in place behind a typed
  * confirm (`dbBackups.restore`, mode `pitr` or `in-place`).
  */
-export function PgRestore({ stack, cluster, b, selected, primary }: PgRestoreProps): React.JSX.Element {
+export function PgRestore({ stack, cluster, b, selected, primary, onFrom }: PgRestoreProps): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const s = b.schedule;
@@ -72,8 +75,10 @@ export function PgRestore({ stack, cluster, b, selected, primary }: PgRestorePro
           ? { engine: point.engine ?? 'pg_dump', snapshotId: point.id }
           : null;
     if (!what) return;
-    if (target === 'new') return copy.restore.mutate({ stack, cluster, ...what, name: copy.name });
-    restore.mutate({ stack, cluster, ...what, ...(pitr ? { mode: 'pitr' as const, dataVolume: s?.dataVolume ?? undefined } : { mode: 'in-place' as const }) });
+    // From the second copy: the same restore, read from that destination.
+    const src = b.restoreTargetId ? { targetId: b.restoreTargetId } : {};
+    if (target === 'new') return copy.restore.mutate({ stack, cluster, ...what, ...src, name: copy.name });
+    restore.mutate({ stack, cluster, ...what, ...src, ...(pitr ? { mode: 'pitr' as const, dataVolume: s?.dataVolume ?? undefined } : { mode: 'in-place' as const }) });
   };
   const ready = (pitr || point != null) && !unreachable && (target === 'in' ? confirm.trim() === ref : copy.ready);
   const pending = restore.isPending || copy.running != null;
@@ -86,6 +91,7 @@ export function PgRestore({ stack, cluster, b, selected, primary }: PgRestorePro
       title={pitr ? 'Restore to a point in time' : 'Restore a saved copy'}
       count={pitr && span ? `any second in the last ${spanDays(span)} days` : point ? `from the save of ${pointTime(Date.parse(point.time))} UTC` : undefined}
     >
+      <PgRestoreSource b={b} onFrom={onFrom} />
       {pitr && span && at != null ? <PgScrubber span={span} value={at} onChange={setPit} blocked={blocked} /> : null}
       {pitr && span ? (
         <PgWindowNote span={span} source={b.pitrWindowSource} checked={s?.engine === 'wal-g' && !b.pitrReadUnsupported} unsupported={b.pitrReadUnsupported} />

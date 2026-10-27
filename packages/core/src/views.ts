@@ -339,6 +339,39 @@ export interface DbBackupScheduleView {
   nextRunAt: string | null;
   /** Created by default-on DB backups (nightly pg_dump, keep 7) — not by a user. */
   auto: boolean;
+  /** "Also copy to": the second destination each save is copied to, or null. */
+  secondaryTargetId?: string | null;
+}
+
+/**
+ * How far a cluster's "also copy to" destination trails its main one, from
+ * the `swarmy.db.backup.copy` label the controller stamps after each copy.
+ */
+export interface DbBackupCopyView {
+  /** The second destination. */
+  targetId: string;
+  targetName: string | null;
+  /**
+   * How the copy is made: `dump` = a second dump into it right after each
+   * save (logical engines); `walg-copy` = `wal-g copy` of each base backup
+   * and the WAL archived since it (wal-g PITR).
+   */
+  method: 'dump' | 'walg-copy';
+  /** 0 = in step; null until a save has been copied there (or nothing is saved yet). */
+  behindMs: number | null;
+  /** A save exists but no copy of one has landed there yet. */
+  neverCopied: boolean;
+  /** A copy is running now (a copy in flight is not lag). */
+  copying: boolean;
+  /** The last copy failed; `lastError` says why. */
+  failing: boolean;
+  lastError: string | null;
+  /** When the newest copy that landed started. */
+  newestCopyAt: string | null;
+  /** That copy's size (stringified), when known. */
+  sizeBytes: string | null;
+  /** wal-g PITR: the newest moment a restore from the copy reaches. */
+  restoresTo: string | null;
 }
 
 /** One DB backup in the restic catalog, projected for the dashboard. */
@@ -385,6 +418,10 @@ export interface DbBackupOverviewRow {
   pitrWindowSource?: 'agent' | 'estimate';
   /** The schedule was created by default-on DB backups (not a user). */
   auto: boolean;
+  /** "Also copy to": the schedule's second destination, or null. */
+  secondaryTargetId?: string | null;
+  /** How far that copy trails; null without a second destination. */
+  copy?: DbBackupCopyView | null;
 }
 
 /** A PITR cluster's recoverable window as its agent read it from the WAL repo (`dbBackups.pitrWindow`). */

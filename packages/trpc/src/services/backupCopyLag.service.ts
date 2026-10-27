@@ -11,17 +11,25 @@
  * copy that started after the save holds data at least as new). A copy that
  * never landed, one running now and one whose last try failed are counted
  * apart, so a nightly copy in flight never reads as "a day behind".
+ *
+ * Managed-Postgres schedules copy too (`dbBackupCopy.*`): their lag is read
+ * off the primary's labels and folded in (`backupCopyLag.db.ts`).
  */
 import type { OrgContext } from '../context';
+import { foldDbCopies } from './backupCopyLag.db';
 import { backupSchedules } from './backups.repo';
+import { dbCopies } from './dbBackupCopy.service';
 
 export interface BackupCopyLagView {
   /** The second destination. */
   targetId: string;
-  /** Active schedules that copy here. */
+  /** Active schedules that copy here (volumes and databases). */
   schedules: number;
+  /** How many of them are managed-Postgres schedules. */
+  databases: number;
   /** The worst volume's lag (0 = in step); null while nothing has been saved and copied yet. */
   behindMs: number | null;
+  /** The worst volume, or `<stack>/<cluster>` for a database. */
   worstVolume: string | null;
   /** Volumes saved on their primary destination but never copied here. */
   neverCopied: number;
@@ -67,7 +75,7 @@ export function copyLag(schedules: readonly Sched[], rows: readonly SnapRow[]): 
   for (const s of schedules) {
     const dest = s.secondaryTargetId;
     if (!dest || dest === s.targetId) continue;
-    const v = out.get(dest) ?? { targetId: dest, schedules: 0, behindMs: null, worstVolume: null, neverCopied: 0, copying: 0, failing: 0, lastError: null, newestCopyAt: null, copiedBytes: '0', copied: 0n, errorAt: 0 };
+    const v = out.get(dest) ?? { targetId: dest, schedules: 0, databases: 0, behindMs: null, worstVolume: null, neverCopied: 0, copying: 0, failing: 0, lastError: null, newestCopyAt: null, copiedBytes: '0', copied: 0n, errorAt: 0 };
     out.set(dest, v);
     v.schedules += 1;
     const saved = newestOk.get(key(s.volume, s.targetId));
@@ -96,8 +104,19 @@ export function copyLag(schedules: readonly Sched[], rows: readonly SnapRow[]): 
 /** How far back the catalogue is read: a copy older than this counts as never landed. */
 const LOOKBACK_MS = 90 * 86_400_000;
 
-/** `backups.copyLag`: every "also copy to" destination of the org's active schedules. */
+/** `backups.copyLag`: every "also copy to" destination of the org's active schedules, volumes and databases. */
 export async function getCopyLag(ctx: OrgContext, now = Date.now()): Promise<BackupCopyLagView[]> {
+  const volumes = await volumeCopyLag(ctx, now);
+  let dbs: ReturnType<typeof dbCopies> = [];
+  try {
+    dbs = dbCopies(ctx, now);
+  } catch {
+    // no live inventory (no connected manager): the volume rows stand alone
+  }
+  return foldDbCopies(volumes, dbs);
+}
+
+async function volumeCopyLag(ctx: OrgContext, now: number): Promise<BackupCopyLagView[]> {
   const schedules = (await backupSchedules(ctx, ctx.activeOrgId).findMany({ where: { paused: false, optedOutAt: null } })) as Sched[];
   const copying = schedules.filter((s) => s.secondaryTargetId && s.secondaryTargetId !== s.targetId);
   if (copying.length === 0) return [];

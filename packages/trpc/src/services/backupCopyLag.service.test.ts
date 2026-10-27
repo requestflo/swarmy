@@ -26,7 +26,7 @@ describe('copyLag', () => {
   it('in step when each copy started after its save; the copy sizes add up', () => {
     const v = copyLag(SCHEDULES, [row('shop_db', 'garage', 0), row('shop_db', 'b2', 3), row('shop_uploads', 'garage', 1), row('shop_uploads', 'b2', 5, 'SUCCEEDED', { sizeBytes: 500 })]);
     expect(v).toEqual([
-      { targetId: 'b2', schedules: 2, behindMs: 0, worstVolume: 'shop_db', neverCopied: 0, copying: 0, failing: 0, lastError: null, newestCopyAt: at(5).toISOString(), copiedBytes: '1500' },
+      { targetId: 'b2', schedules: 2, databases: 0, behindMs: 0, worstVolume: 'shop_db', neverCopied: 0, copying: 0, failing: 0, lastError: null, newestCopyAt: at(5).toISOString(), copiedBytes: '1500' },
     ]);
   });
 

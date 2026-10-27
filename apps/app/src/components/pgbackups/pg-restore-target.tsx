@@ -15,7 +15,8 @@ interface PgRestoreTargetProps {
   onConfirm: (v: string) => void;
 }
 
-function Pick({ on, onClick, title, sub }: { on: boolean; onClick: () => void; title: string; sub: React.ReactNode }): React.JSX.Element {
+/** One choice of a restore radio group (where it lands; where it comes from). */
+export function RestorePick({ on, onClick, title, sub }: { on: boolean; onClick: () => void; title: string; sub: React.ReactNode }): React.JSX.Element {
   return (
     <button
       type="button"
@@ -39,13 +40,13 @@ export function PgRestoreTarget(p: PgRestoreTargetProps): React.JSX.Element {
   return (
     <div className="flex flex-col gap-2.5">
       <div role="radiogroup" aria-label="Where to restore" className="flex flex-col gap-2 sm:flex-row">
-        <Pick
+        <RestorePick
           on={p.target === 'new'}
           onClick={() => p.onTarget('new')}
           title="Into a new cluster"
           sub={<>creates <span className="font-mono">{p.copyName}</span> · nothing changes until you switch {p.stack} to it</>}
         />
-        <Pick on={p.target === 'in'} onClick={() => p.onTarget('in')} title="In place" sub={`replaces ${p.cluster} · its current data is backed up first`} />
+        <RestorePick on={p.target === 'in'} onClick={() => p.onTarget('in')} title="In place" sub={`replaces ${p.cluster} · its current data is backed up first`} />
       </div>
       {p.target === 'in' ? (
         <Input

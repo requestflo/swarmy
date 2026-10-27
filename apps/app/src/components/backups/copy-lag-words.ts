@@ -22,10 +22,17 @@ export function lagWords(ms: number): string {
   return `${Math.round(ms / (24 * HOUR))} days`;
 }
 
-const vols = (n: number): string => `${n} volume${n === 1 ? '' : 's'}`;
+/** "2 volumes", "1 database", or both kinds: what this destination copies. */
+function things(n: number, l: CopyLag): string {
+  const one = n === 1;
+  if (!l.databases) return `${n} volume${one ? '' : 's'}`;
+  if (l.databases === l.schedules) return `${n} database${one ? '' : 's'}`;
+  return `${n} ${one ? 'volume or database' : 'volumes or databases'}`;
+}
 
 /** The row's sentence, its tone and its tech line. */
 export function copyLagLine(l: CopyLag): { say: string; tone: Tone; tech: string } {
+  const vols = (n: number): string => things(n, l);
   const tech = [
     `also copy to · ${l.schedules} schedule${l.schedules === 1 ? '' : 's'}`,
     l.newestCopyAt ? `newest copy ${l.newestCopyAt.slice(0, 16).replace('T', ' ')} UTC` : null,

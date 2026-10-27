@@ -6,6 +6,8 @@ import type { DbBackupEngine } from '@swarmy/core/protocol';
 import { useTRPC } from '@/integrations/trpc';
 import { AutoBackupBadge } from '@/components/backups/auto-backup-badge';
 import { DbBackupCronField } from './db-backup-cron-field';
+import { PgCopySelect } from '@/components/pgbackups/pg-copy-select';
+import { pgCopyMethod } from '@/components/pgbackups/pg-copy-words';
 
 interface DbBackupScheduleProps {
   stack: string;
@@ -111,6 +113,9 @@ export function DbBackupSchedule({
           </div>
         </div>
       )}
+      {current && pgCopyMethod(current.engine) ? (
+        <PgCopySelect stack={stack} cluster={cluster} primaryId={current.targetId ?? targetId} value={current.secondaryTargetId ?? null} />
+      ) : null}
       <div className="flex items-center gap-3">
         <Button variant="outline" onClick={submit} disabled={save.isPending || schedule.isPending}>
           Save schedule

@@ -17,6 +17,7 @@ import { restoreDbAsCopy } from '../services/dbRestoreCopy.service';
 import { getDbWalCheck } from '../services/dbWalCheck.service';
 import { getDbWrites } from '../services/dbWrites.service';
 import { restoreProgress } from '../services/restore-progress';
+import { dbBackupCopyProcedures } from './dbBackupCopy';
 
 const copyName = z
   .string()
@@ -40,6 +41,9 @@ export const dbBackupRouter = router({
    * with the reason.
    */
   engines: orgProcedure.query(() => dbBackupEngineOffers()),
+
+  /** "Also copy to": the schedule's second destination (`setSecondary`). */
+  ...dbBackupCopyProcedures,
 
   /** Org-wide coverage: every managed cluster with schedule + last backup + PITR window. */
   overview: orgProcedure.query(({ ctx }) => dbBackupOverview(ctx)),

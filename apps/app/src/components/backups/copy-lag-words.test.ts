@@ -4,6 +4,7 @@ import { copyLagLine, lagWords, type CopyLag } from './copy-lag-words';
 const lag = (over: Partial<CopyLag> = {}): CopyLag => ({
   targetId: 'b2',
   schedules: 4,
+  databases: 0,
   behindMs: 4 * 60_000,
   worstVolume: 'shop_db',
   neverCopied: 0,
@@ -31,6 +32,11 @@ describe('copyLagLine', () => {
     const failed = copyLagLine(lag({ failing: 1, lastError: 'AccessDenied' }));
     expect(failed).toMatchObject({ say: 'Second copy · the last copy of 1 volume failed', tone: 'bad' });
     expect(failed.tech).toContain('last error: AccessDenied');
+  });
+
+  it('says databases when database schedules copy here too', () => {
+    expect(copyLagLine(lag({ databases: 4, failing: 1 })).say).toBe('Second copy · the last copy of 1 database failed');
+    expect(copyLagLine(lag({ databases: 1, neverCopied: 2 })).say).toBe('Second copy · 2 volumes or databases not copied yet');
   });
 
   it('nothing copied yet, or nothing saved yet', () => {

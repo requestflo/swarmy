@@ -6,7 +6,7 @@ import { PgLabelsCode, PgSavedCard } from './pg-backups-aside';
 import { PgRestore } from './pg-restore';
 import { PgRetention } from './pg-retention';
 import { PgSummaryCards } from './pg-summary-cards';
-import { usePgBackups } from './use-pg-backups';
+import { usePgBackups, type PgSource } from './use-pg-backups';
 
 interface PgBackupsProps {
   stack: string;
@@ -19,7 +19,9 @@ interface PgBackupsProps {
  * restore, to any second when the cluster archives its changes.
  */
 export function PgBackupsSection({ stack, cluster, primary }: PgBackupsProps & { primary: boolean }): React.JSX.Element {
-  const b = usePgBackups(stack, cluster);
+  // Restores read from the main destination, or from the second copy when it is down.
+  const [from, setFrom] = React.useState<PgSource>('main');
+  const b = usePgBackups(stack, cluster, from);
   const [selected, setSelected] = React.useState<string | null>(null);
   if (b.pending) return <CardSkeleton lines={4} />;
   if (b.error) return <ErrorState title={`Couldn’t load ${cluster}’s backups.`} error={b.error} />;
@@ -38,7 +40,7 @@ export function PgBackupsSection({ stack, cluster, primary }: PgBackupsProps & {
       </div>
       <PgSummaryCards stack={stack} cluster={cluster} b={b} />
       <PgRetention stack={stack} cluster={cluster} b={b} selected={selected} onSelect={setSelected} />
-      <PgRestore stack={stack} cluster={cluster} b={b} selected={selected} primary={primary} />
+      <PgRestore stack={stack} cluster={cluster} b={b} selected={selected} primary={primary} onFrom={setFrom} />
     </div>
   );
 }

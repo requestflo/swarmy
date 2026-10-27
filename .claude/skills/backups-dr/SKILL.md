@@ -42,7 +42,7 @@ and where everything lives. Backups are dispatched to the agent as commands — 
    `ctl-backup/`). The DB holds `Snapshot`, `BackupJob`, `RestoreOperation` and
    `ControllerSnapshot`. A managed
    DB cluster's recurring-backup intent lives on Docker: the
-   `swarmy.db.backup.schedule` JSON label on the primary (+ `.lastRun`, `.pitr`).
+   `swarmy.db.backup.schedule` JSON label on the primary (+ `.lastRun`, `.pitr`, `.copy`).
    If you're about to add a column that mirrors a service label, stop — see
    `skill("docker-native-storage")`.
 5. **DB backup engine ↔ restore mode must match.** Logical (`pg_dump` /
@@ -234,6 +234,7 @@ and where everything lives. Backups are dispatched to the agent as commands — 
 | Volume backups: targets CRUD, native Garage target, backup/restore/list | `packages/trpc/src/services/backups.service.ts` (+ `routers/backups.ts`) |
 | Volume backup schedules + restore-op history | `packages/trpc/src/services/backupSchedule.service.ts` |
 | Two destinations per schedule (primary + `secondaryTargetId` "also copy to") | `backupSchedule.service.ts` (`setScheduleSecondary`), worker `apps/api/src/workers/backup-scheduler.ts` (`backupToTarget`), UI `components/backups/schedule-secondary-select.tsx` |
+| "Also copy to" on a managed-Postgres schedule: `secondaryTargetId` in the schedule label; after each save that stamps `.lastRun`, a second `db.backup` into it (`copyOf`, audited `db.backup.copy`); outcome in the `swarmy.db.backup.copy` label (last attempt + newest copy that landed); lag off labels, folded into `backups.copyLag` | `packages/trpc/src/services/dbBackupCopy.{label,view,run,read,service}.ts`, `backupCopyLag.db.ts`, router `routers/dbBackupCopy.ts` (`dbBackups.setSecondary`); UI `components/pgbackups/pg-copy-{line,select,words}.ts(x)`, `pg-restore-source.tsx` (restore from the copy: `targetId`) |
 | DB backups: engines, `swarmy.db.backup.*` labels, schedule, PITR, restore | `packages/trpc/src/services/dbBackup.service.ts` (+ `routers/dbBackup.ts`) |
 | Pre-restore safety copy (`overwritesSource`, `safetyBackupPlan`, `latestRestorable`, `ensureSafetyCopy`) | `packages/trpc/src/services/dbRestoreSafety.service.ts` (+ `.test.ts`) |
 | PITR window check before a restore (preflight, last read per cluster, the dashboard's `dbBackups.pitrWindow`) | `packages/trpc/src/services/dbPitrWindow.{service,judge}.ts`, wire `packages/core/src/protocol/pitrWindow.ts`, agent `apps/agent/src/handlers/pitr-window.ts` |

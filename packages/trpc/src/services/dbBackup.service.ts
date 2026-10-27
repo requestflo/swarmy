@@ -18,6 +18,10 @@
  * `swarmy.db.backup.lastRun`, and `swarmy.db.backup.pitr` flags WAL archiving
  * for the manageddb reconcile (slice A2). `runDueDbBackups` scans live
  * inventory across orgs each tick and dispatches whatever is due.
+ *
+ * "Also copy to": the schedule's `secondaryTargetId` gets a copy of each save
+ * that stamps `.lastRun` (`dbBackupCopy.run.ts`; outcome in
+ * `swarmy.db.backup.copy`, lag in `dbBackupCopy.view.ts`).
  */
 import { backupTargets } from './backups.repo';
 import type { Auth } from '@swarmy/auth';
@@ -71,6 +75,9 @@ import {
   readDbPassword,
 } from './manageddb.service';
 import { cronNext, isCronDue, parseCron, type CronSpec } from './schedule';
+import { DB_BACKUP_COPY_LABEL, copyMethod } from './dbBackupCopy.label';
+import { copyFields } from './dbBackupCopy.read';
+import { copyAfterSave } from './dbBackupCopy.run';
 import {
   AUTO_BACKUP_RETENTION_DAYS,
   DB_BACKUP_AUTO_LABEL,
@@ -107,6 +114,8 @@ export interface DbBackupSchedule {
    * `swarmy.db.backup.auto=off` opt-out so it is never re-created.
    */
   auto?: boolean;
+  /** "Also copy to": each save is copied here too (`dbBackupCopy.run.ts`). */
+  secondaryTargetId?: string;
 }
 
 /** Decoded `swarmy.db.backup.lastRun` label. */
@@ -137,6 +146,7 @@ export function parseScheduleLabel(raw: string | undefined | null): DbBackupSche
       ...(typeof v.targetId === 'string' && v.targetId ? { targetId: v.targetId } : {}),
       ...(typeof v.dataVolume === 'string' && v.dataVolume ? { dataVolume: v.dataVolume } : {}),
       ...(v.auto === true ? { auto: true } : {}),
+      ...(typeof v.secondaryTargetId === 'string' && v.secondaryTargetId ? { secondaryTargetId: v.secondaryTargetId } : {}),
     };
   } catch {
     return null;
@@ -153,6 +163,7 @@ export function encodeScheduleLabel(s: DbBackupSchedule): string {
     ...(s.targetId ? { targetId: s.targetId } : {}),
     ...(s.dataVolume ? { dataVolume: s.dataVolume } : {}),
     ...(s.auto ? { auto: true } : {}),
+    ...(s.secondaryTargetId ? { secondaryTargetId: s.secondaryTargetId } : {}),
   });
 }
 
@@ -248,6 +259,7 @@ export function scheduleView(
     lastError: lastRun?.error ?? null,
     nextRunAt,
     auto: schedule.auto === true,
+    secondaryTargetId: schedule.secondaryTargetId ?? null,
   };
 }
 
@@ -266,7 +278,7 @@ interface TargetRow {
   resticPasswordRef: string;
 }
 
-async function loadTarget(ctx: OrgContext, id: string): Promise<TargetRow> {
+export async function loadTarget(ctx: OrgContext, id: string): Promise<TargetRow> {
   const row = (await backupTargets(ctx, ctx.activeOrgId).findFirst({
     where: { id, orgId: ctx.activeOrgId },
   })) as unknown as TargetRow | null;
@@ -275,7 +287,7 @@ async function loadTarget(ctx: OrgContext, id: string): Promise<TargetRow> {
 }
 
 /** input target → schedule target → the org's first enabled target. */
-async function resolveTargetId(
+export async function resolveTargetId(
   ctx: OrgContext,
   explicit: string | undefined,
   schedule: DbBackupSchedule | null,
@@ -326,7 +338,7 @@ function envRecord(s: InvService): Record<string, string> {
 }
 
 /** Base (unregioned, member-1) primaries across the whole org — one per cluster. */
-function clusterPrimaries(ctx: OrgContext): InvService[] {
+export function clusterPrimaries(ctx: OrgContext): InvService[] {
   const { services, containers } = ctx.hub.liveInventory(ctx.activeOrgId);
   return buildInventory(services, containers).services.filter(
     (s) =>
@@ -336,7 +348,7 @@ function clusterPrimaries(ctx: OrgContext): InvService[] {
   );
 }
 
-function findCluster(
+export function findCluster(
   ctx: OrgContext,
   stack: string,
   cluster: string,
@@ -441,6 +453,12 @@ export interface BackupDbInput {
    * stamp `swarmy.db.backup.lastRun` (that label is the schedule's outcome).
    */
   reason?: typeof PRE_RESTORE_REASON;
+  /**
+   * A copy of save `copyOf` into the schedule's second destination: it does
+   * not stamp `.lastRun` or read write counters, and is audited
+   * `db.backup.copy`.
+   */
+  copyOf?: string;
 }
 
 export interface DbBackupRunView {
@@ -448,6 +466,8 @@ export interface DbBackupRunView {
   snapshotId: string;
   sizeBytes: string;
   databases: string[];
+  /** The time stamped on `swarmy.db.backup.lastRun` for this save. */
+  savedAt: string;
 }
 
 export async function backupDb(ctx: OrgContext, input: BackupDbInput): Promise<DbBackupRunView> {
@@ -470,10 +490,10 @@ export async function backupDb(ctx: OrgContext, input: BackupDbInput): Promise<D
   }
 
   const node = physical ? await physicalNode(ctx, primary.labels) : await resolveManagerNode(ctx);
-  const stamp = (run: DbBackupLastRun) => (input.reason ? Promise.resolve() : stampLastRun(ctx, primary.name, run));
+  const stamp = (run: DbBackupLastRun) => (input.reason || input.copyOf ? Promise.resolve() : stampLastRun(ctx, primary.name, run));
   // The primary's write counters just before a logical save of the main database, kept on its
   // audit row so "rows written since" can be counted later (dbWrites.service). Never fails the save.
-  const writes = physical || input.database ? null : await readWritesBeforeSave(ctx, input.stack, input.cluster, primary.name);
+  const writes = physical || input.database || input.copyOf ? null : await readWritesBeforeSave(ctx, input.stack, input.cluster, primary.name);
   try {
     const result = await ctx.hub.dispatch<DbBackupResult>(node.id, 'db.backup', {
       jobId: randomToken('dbk'),
@@ -488,7 +508,7 @@ export async function backupDb(ctx: OrgContext, input: BackupDbInput): Promise<D
       ...engineImageFor(input.engine),
     });
     await writeAudit(ctx, {
-      action: 'db.backup',
+      action: input.copyOf ? 'db.backup.copy' : 'db.backup',
       actorType: ctx.user ? 'user' : 'system',
       targetType: 'dbCluster',
       targetId: `${input.stack}/${input.cluster}`,
@@ -498,6 +518,7 @@ export async function backupDb(ctx: OrgContext, input: BackupDbInput): Promise<D
         snapshotId: result.snapshotId,
         fromReplica,
         ...(input.reason ? { reason: input.reason } : {}),
+        ...(input.copyOf ? { copyOf: input.copyOf } : {}),
         ...(writes ? { writes } : {}),
       },
     });
@@ -506,8 +527,9 @@ export async function backupDb(ctx: OrgContext, input: BackupDbInput): Promise<D
       { targetType: 'dbCluster', targetId: `${input.stack}/${input.cluster}` },
       result.retention,
     );
+    const savedAt = new Date().toISOString();
     await stamp({
-      at: new Date().toISOString(),
+      at: savedAt,
       status: 'succeeded',
       engine: input.engine,
       snapshotId: result.snapshotId,
@@ -518,6 +540,7 @@ export async function backupDb(ctx: OrgContext, input: BackupDbInput): Promise<D
       snapshotId: result.snapshotId,
       sizeBytes: String(result.sizeBytes),
       databases: result.databases,
+      savedAt,
     };
   } catch (e) {
     await stamp({
@@ -541,7 +564,7 @@ export async function runDbBackup(ctx: OrgContext, input: RunDbBackupInput): Pro
   const schedule = parseScheduleLabel(primary.labels[DB_BACKUP_SCHEDULE_LABEL]);
   const engine = input.engine ?? schedule?.engine ?? 'pg_dump';
   const targetId = await resolveTargetId(ctx, input.targetId, schedule);
-  return backupDb(ctx, {
+  const run: BackupDbInput = {
     stack: input.stack,
     cluster: input.cluster,
     engine,
@@ -549,6 +572,26 @@ export async function runDbBackup(ctx: OrgContext, input: RunDbBackupInput): Pro
     database: input.database,
     dataVolume: input.dataVolume ?? schedule?.dataVolume,
     retentionDays: schedule?.retentionDays,
+  };
+  const saved = await backupDb(ctx, run);
+  // A save into the schedule's own destination is copied on too, in the background.
+  if (!input.targetId || input.targetId === schedule?.targetId) void copyAfter(ctx, primary, schedule, run, saved);
+  return saved;
+}
+
+/** After a save that stamped `.lastRun`: copy it into the schedule's second destination. Never throws. */
+function copyAfter(ctx: OrgContext, primary: InvService, schedule: DbBackupSchedule | null, input: BackupDbInput, saved: DbBackupRunView): Promise<unknown> {
+  return copyAfterSave(ctx, {
+    stack: input.stack,
+    cluster: input.cluster,
+    primaryService: primary.name,
+    previous: primary.labels[DB_BACKUP_COPY_LABEL],
+    engine: input.engine,
+    targetId: input.targetId,
+    secondaryTargetId: schedule?.secondaryTargetId,
+    saved: { at: saved.savedAt, snapshotId: saved.snapshotId },
+    copy: (dest) =>
+      backupDb(ctx, { ...input, targetId: dest, copyOf: saved.snapshotId }).then((r) => ({ snapshotId: r.snapshotId, sizeBytes: r.sizeBytes })),
   });
 }
 
@@ -610,6 +653,10 @@ export async function setDbBackupSchedule(
   }
   if (input.targetId) await loadTarget(ctx, input.targetId); // org-scope check
 
+  // The second destination is set on its own (`dbBackups.setSecondary`): saving
+  // the schedule keeps it while it can still be copied there.
+  const prev = parseScheduleLabel(primary.labels[DB_BACKUP_SCHEDULE_LABEL])?.secondaryTargetId;
+  const keep = prev && prev !== input.targetId && copyMethod(input.engine) ? prev : undefined;
   const schedule: DbBackupSchedule = {
     cron: input.cron,
     engine: input.engine,
@@ -617,6 +664,7 @@ export async function setDbBackupSchedule(
     pitr: input.pitr,
     ...(input.targetId ? { targetId: input.targetId } : {}),
     ...(input.dataVolume ? { dataVolume: input.dataVolume } : {}),
+    ...(keep ? { secondaryTargetId: keep } : {}),
   };
   try {
     await ctx.hub.dispatch(node.id, 'service.updateLabels', {
@@ -675,6 +723,8 @@ export async function dbBackupOverview(ctx: OrgContext): Promise<DbBackupOvervie
       // The agent's last read of the WAL repo beats the schedule's estimate.
       const read = knownPitrWindow(ctx.activeOrgId, `${p.stack}/${p.labels[DB_CLUSTER_LABEL] ?? ''}`, now.getTime());
       const estimate = pitrWindow(schedule, lastRun, now);
+      const ref = `${p.stack}/${p.labels[DB_CLUSTER_LABEL] ?? ''}`;
+      const copy = copyFields({ orgId: ctx.activeOrgId, ref, labels: p.labels, schedule, lastRun, targetName: (id) => targetName.get(id) ?? null, now: now.getTime() });
       return {
         stack: p.stack,
         cluster: p.labels[DB_CLUSTER_LABEL] ?? '',
@@ -693,6 +743,7 @@ export async function dbBackupOverview(ctx: OrgContext): Promise<DbBackupOvervie
         pitrWindow: read ? read.window : estimate,
         ...(read ? { pitrWindowSource: 'agent' as const } : schedule?.pitr ? { pitrWindowSource: 'estimate' as const } : {}),
         auto: schedule?.auto === true,
+        ...copy,
       };
     })
     .sort((a, b) => `${a.stack}/${a.cluster}`.localeCompare(`${b.stack}/${b.cluster}`));
@@ -1072,14 +1123,16 @@ export async function runDueDbBackups(now: Date, deps?: RunDueDbBackupsDeps): Pr
       if (!cluster) continue;
       try {
         const targetId = await resolveTargetId(ctx, undefined, schedule);
-        await backupDb(ctx, {
+        const input: BackupDbInput = {
           stack,
           cluster,
           engine: schedule.engine,
           targetId,
           dataVolume: schedule.dataVolume,
           retentionDays: schedule.retentionDays,
-        });
+        };
+        const saved = await backupDb(ctx, input);
+        await copyAfter(ctx, primary, schedule, input, saved);
       } catch (e) {
         // backupDb stamps dispatch failures itself; stamp pre-dispatch failures
         // (e.g. no destination) too so the schedule is not hot-retried each tick.

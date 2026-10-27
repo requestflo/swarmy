@@ -147,7 +147,8 @@ const routes: Array<[string, RegExp?]> = [
   ['/stacks/storefront/errors'],
   ['/stacks/storefront/replays'],
   ['/stacks/storefront/rum-settings'],
-  ['/stacks/storefront/backups'],
+  // A database's off-site copy and how far it trails (board 40).
+  ['/stacks/storefront/backups', /Off-site copy · up to date/],
   ['/stacks/storefront/time-travel', /right now/],
   // Volumes say their size and server; wkr-2's older agent doesn't report sizes.
   ['/stacks/data/config/placement', /stays on wkr-1 with its data[\s\S]*4\.2 GB on wkr-1[\s\S]*Size not reported/],
