@@ -22,7 +22,9 @@ import { nodesRunning, waitFor, type MoverDeps } from './volumeMove.service';
  *     server, so it re-clones elsewhere instead of on the server leaving;
  *   - the declared copies and topology put back afterwards.
  *
- * A refusal the operator must settle (a copy sharing its service, a held
+ * A copy that shares its service with other copies is fine: the plan never
+ * picks one on the server leaving, and the promotion pass promotes that copy
+ * alone. A refusal the operator must settle (a held
  * failover) comes back as `refused` so the retire run waits for them instead
  * of failing. An app wired straight to the writer is none: it restarts onto
  * the new writer with the promotion pass.
@@ -73,10 +75,11 @@ export async function moveDbWriterOff(
 
   say(`Waiting for ${target} to catch up.`);
   const deadline = deps.now() + REPLICA_TIMEOUT_MS;
-  let { plan } = await planDbSwitchover(ctx, { stack, cluster, target });
+  // Never a copy on the server leaving, even one sharing its service with a copy elsewhere.
+  let { plan } = await planDbSwitchover(ctx, { stack, cluster, target, avoidNodeId });
   while (!plan.ok && WAITABLE.has(plan.code) && deps.now() <= deadline) {
     await deps.sleep(PLAN_POLL_MS);
-    ({ plan } = await planDbSwitchover(ctx, { stack, cluster, target }));
+    ({ plan } = await planDbSwitchover(ctx, { stack, cluster, target, avoidNodeId }));
   }
   if (!plan.ok) {
     if (WAITABLE.has(plan.code)) throw commandRejected(`${plan.reason} (gave up after 15 minutes)`);
@@ -84,10 +87,11 @@ export async function moveDbWriterOff(
   }
 
   const keep = addedReplica ? declared : Math.max(1, declared);
+  const writerNode = plan.nodeId ?? nodesRunning(ctx, target)[0] ?? '';
   const res = await runDbSwitchover(ctx, { stack, cluster, target }, deps.io, {
     plan,
     say,
-    rejoin: (demoted) => rejoinElsewhere(ctx, demoted, avoidNodeId, target, keep),
+    rejoin: (demoted) => rejoinElsewhere(ctx, demoted, avoidNodeId, writerNode, keep),
   });
   if (addedReplica) {
     // Restore what was declared: setReplicas scales the (now) replica — the ex-primary.
@@ -98,11 +102,12 @@ export async function moveDbWriterOff(
 }
 
 /** The old writer, un-pinned and kept off `avoidNodeId`: it re-clones on another server. */
-async function rejoinElsewhere(ctx: OrgContext, demoted: SwarmServiceInfo, avoidNodeId: string, writer: string, replicas: number): Promise<void> {
+async function rejoinElsewhere(ctx: OrgContext, demoted: SwarmServiceInfo, avoidNodeId: string, writerNode: string, replicas: number): Promise<void> {
   const labels = { ...demoted.labels };
   delete labels[DB_PIN_NODE_LABEL];
   delete labels[DB_SWITCHOVER_LABEL];
-  const writerSwarm = ctx.hub.swarmNodeIdFor(nodesRunning(ctx, writer)[0] ?? '');
+  // The promoted copy's server (a reshaped writer may not be running yet).
+  const writerSwarm = ctx.hub.swarmNodeIdFor(writerNode);
   if (writerSwarm) labels[DB_AVOID_NODE_LABEL] = writerSwarm;
   const spec = rebuildDbMemberSpec(demoted, labels, replicas);
   const avoid = ctx.hub.swarmNodeIdFor(avoidNodeId);

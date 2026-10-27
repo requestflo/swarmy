@@ -88,6 +88,12 @@ describe('plannedPromotion — narrows the candidates, only ever raises the bar'
     expect(plannedPromotion({ candidates, watermark }, { at: 'x', target: 'c' }).candidates).toEqual([]);
   });
 
+  it('a request naming a copy narrows to that one copy of the service', () => {
+    const copies = [{ service: 'b', copy: 'n1' }, { service: 'b', copy: 'n2' }, { service: 'a', copy: 'n2' }];
+    expect(plannedPromotion({ candidates: copies, watermark }, { at: 'x', target: 'b', copy: 'n2' }).candidates).toEqual([{ service: 'b', copy: 'n2' }]);
+    expect(parseSwitchoverRequest(encodeSwitchoverRequest({ at: '2026-10-27T00:00:00Z', target: 'b', copy: 'n2' }))).toEqual({ at: '2026-10-27T00:00:00Z', target: 'b', copy: 'n2' });
+  });
+
   it('a later final position raises the watermark; an earlier or unreadable one does not', () => {
     expect(plannedPromotion({ candidates, watermark }, { at: 'x', finalLsn: '0/3000000' }).watermark).toEqual({ lsn: '0/3000000', sampledAt: 5 });
     expect(plannedPromotion({ candidates, watermark }, { at: 'x', finalLsn: '0/1000000' }).watermark).toEqual(watermark);

@@ -1,5 +1,6 @@
 import {
   DB_FAILOVER_PENDING_LABEL,
+  DB_FAILOVER_PROMOTING_LABEL,
   DB_POOLER_TARGET_LABEL,
   DB_SWITCHOVER_LABEL,
   POOLER_ROLE,
@@ -89,7 +90,11 @@ export async function until(s: RunScope, timeoutMs: number, cond: () => boolean)
 export async function restoreWriter(s: RunScope, managerId: string, startMs: number): Promise<boolean> {
   const { ctx, io } = s;
   await ctx.hub.dispatch(managerId, 'service.updateLabels', { service: s.from, add: {}, removeKeys: [DB_SWITCHOVER_LABEL] }).catch(() => undefined);
-  if (live(s, s.target)?.labels['swarmy.db.role'] === 'primary') return true;
+  const t = live(s, s.target)?.labels;
+  if (t?.['swarmy.db.role'] === 'primary') return true;
+  // The reconcile marks the copy before it execs pg_promote: from then on one
+  // copy may already write, so the old writer must never start as a second.
+  if (t?.[DB_FAILOVER_PROMOTING_LABEL]) return true;
   const recovering = await io.psql(s.target, SWITCHOVER_SQL.inRecovery).then((o) => o.trim()).catch(() => 't');
   if (recovering.startsWith('f')) return true;
   await ctx.hub.dispatch(managerId, 'service.scale', { service: s.from, replicas: 1 }).catch(() => undefined);
@@ -105,12 +110,21 @@ export async function restoreWriter(s: RunScope, managerId: string, startMs: num
  * names the new one, `swarmy.db.inject.host`).
  */
 export function repointed(s: RunScope): boolean {
-  const old = live(s, s.from);
-  const oldOk = !!old && old.labels['swarmy.db.role'] === 'replica' && old.labels[DB_SWITCHOVER_LABEL] === undefined;
+  const oldOk = exWriterRepointed(s);
   const services = s.ctx.hub.liveInventory(s.ctx.activeOrgId).services;
   const pooler = services.find((x) => x.labels[STACK_LABEL] === s.stack && x.labels['swarmy.db.cluster'] === s.cluster && x.labels['swarmy.db.role'] === POOLER_ROLE);
   const apps = wiredApps(services, s.stack, s.cluster).filter((a) => connectViaOf(a.labels) === 'direct');
   return oldOk && (!pooler || pooler.labels[DB_POOLER_TARGET_LABEL] === s.target) && apps.every((a) => appWriterHost(a.labels, s.stack, s.cluster) === s.target);
+}
+
+/**
+ * The old writer's spec is the promotion pass's repoint (a standby of the new
+ * writer under a fresh rejoin epoch): only then may it start again. Before
+ * that, starting it would start its old writer spec, a second writer.
+ */
+export function exWriterRepointed(s: RunScope): boolean {
+  const old = live(s, s.from);
+  return !!old && old.labels['swarmy.db.role'] === 'replica' && old.labels[DB_SWITCHOVER_LABEL] === undefined;
 }
 
 /** Who follows the new writer, in words: "the other copies, the pooler and shop_api". */

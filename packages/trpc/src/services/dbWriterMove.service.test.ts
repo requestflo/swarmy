@@ -39,13 +39,14 @@ describe('moveDbWriterOff — the retire flow', () => {
     expect(f.audit.filter((a) => a.startsWith('db.'))).toEqual(['db.switchover.start', 'db.switchover']);
   });
 
-  it('a standby service holding two copies: refused for the operator to settle, nothing touched', async () => {
+  it('a standby service holding two copies: its copy off the leaving server takes the writes alone', async () => {
     const { f, deps } = setup({ shared: true, app: 'direct' });
     const res = await moveDbWriterOff(f.ctx, IN, deps);
-    expect(res).toMatchObject({ kind: 'refused' });
-    if (res.kind === 'refused') expect(res.reason).toContain('one service');
-    expect(f.calls.every((c) => c.cmd === 'db.query')).toBe(true);
-    expect(f.sql).toEqual([]);
+    expect(res).toMatchObject({ kind: 'moved', promoted: 'shop_db-replica' });
+    const req = f.calls.filter((c) => c.cmd === 'service.updateLabels' && (c.payload.add as Record<string, string>)['swarmy.db.switchover']).at(-1)!;
+    expect((req.payload.add as Record<string, string>)['swarmy.db.switchover']).toContain('"copy":"sw-n2"');
+    const spec = f.calls.find((c) => c.cmd === 'service.deploy')!.payload.spec as { labels: Record<string, string> };
+    expect(spec.labels['swarmy.db.avoidNode']).toBe('sw-n2');
   });
 
   it('a copy that never catches up while writes continue gives up before anything is paused', async () => {

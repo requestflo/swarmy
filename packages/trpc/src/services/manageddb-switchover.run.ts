@@ -19,7 +19,7 @@ import { resolveManagerNode } from './dispatch.service';
 import { recordIncidentEvent } from './incidents-record';
 import { copyNamer, planDbSwitchover } from './manageddb-switchover.service';
 import { putSwitchoverRun } from './manageddb-switchover.runs';
-import { awaitPromotion, drainTo, followers, live, repointed, restoreWriter, until, type RunScope, type SwitchoverIo } from './manageddb-switchover.steps';
+import { awaitPromotion, drainTo, exWriterRepointed, followers, live, repointed, restoreWriter, until, type RunScope, type SwitchoverIo } from './manageddb-switchover.steps';
 
 /**
  * Run a planned switchover (`db.switchover`, the retire flow): pause →
@@ -94,9 +94,12 @@ export async function runDbSwitchover(
   await audit('db.switchover.start', { from, to: target });
   const pausedAt = io.now();
   const at = iso();
+  // The ONE copy to promote (its service may run several): the plan's most caught-up.
+  const swarmNode = plan.nodeId ? ctx.hub.swarmNodeIdFor(plan.nodeId) : undefined;
+  const copy = swarmNode ? { copy: swarmNode } : {};
   try {
     step('pause', 'running', `Pausing writes on ${F}.`);
-    await labels({ [DB_SWITCHOVER_LABEL]: encodeSwitchoverRequest({ at, target }) });
+    await labels({ [DB_SWITCHOVER_LABEL]: encodeSwitchoverRequest({ at, target, ...copy }) });
     let finalLsn: string;
     try {
       await io.psql(from, SWITCHOVER_SQL.freeze);
@@ -116,7 +119,7 @@ export async function runDbSwitchover(
 
     step('promote', 'running', `Stopping ${F}; swarmy makes ${T} the writer.`);
     try {
-      await labels({ [DB_SWITCHOVER_LABEL]: encodeSwitchoverRequest({ at, target, finalLsn }) });
+      await labels({ [DB_SWITCHOVER_LABEL]: encodeSwitchoverRequest({ at, target, ...copy, finalLsn }) });
       await ctx.hub.dispatch(mgr.id, 'service.scale', { service: from, replicas: 0 });
     } catch (e) {
       await thaw();
@@ -126,7 +129,8 @@ export async function runDbSwitchover(
     if (d.kind === 'abort' && !(await restoreWriter(s, mgr.id, t.startMs ?? 180_000))) throw commandRejected(d.reason);
     const pausedSeconds = Math.max(0, Math.round((io.now() - pausedAt) / 1000));
     view = { ...view, pausedSeconds };
-    step('promote', 'done', `${T} takes the writes. Writes were paused for ${pausedSeconds} s.`);
+    const again = plan.reshape ? ' It comes back as that one copy, so writes stop again for a few seconds.' : '';
+    step('promote', 'done', `${T} takes the writes. Writes were paused for ${pausedSeconds} s.${again}`);
 
     const who = followers(plan.restarts);
     step('repoint', 'running', `Pointing ${who} at it.`);
@@ -136,7 +140,8 @@ export async function runDbSwitchover(
     step('rejoin', 'running', `${F} starts again as a standby (its old data is kept aside).`);
     const demoted = live(s, from);
     const rejoin = o.rejoin ?? (async (m: SwarmServiceInfo) => void (await ctx.hub.dispatch(mgr.id, 'service.scale', { service: m.name, replicas: 1 })));
-    if (demoted) await rejoin(demoted);
+    // Never start it before the promotion pass repointed it: its old spec is a writer's.
+    if (demoted && exWriterRepointed(s)) await rejoin(demoted);
     const rejoined = await until(s, t.rejoinMs ?? 10 * 60_000, () => (live(s, from)?.runningReplicas ?? 0) > 0);
     step('rejoin', rejoined ? 'done' : 'warn', rejoined ? `${F} follows ${T}.` : `${F} is still copying from ${T}; nothing is lost meanwhile.`);
 

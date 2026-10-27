@@ -74,7 +74,7 @@ export interface SwitchoverFacts {
 }
 
 /** Plan a switchover of `<stack>/<cluster>` to `target` (or the most caught-up copy). Never throws a refusal. */
-export async function planDbSwitchover(ctx: OrgContext, input: { stack: string; cluster: string; target?: string }): Promise<SwitchoverFacts> {
+export async function planDbSwitchover(ctx: OrgContext, input: { stack: string; cluster: string; target?: string; avoidNodeId?: string }): Promise<SwitchoverFacts> {
   const members = switchoverMembers(ctx, input.stack, input.cluster);
   const writer = switchoverWriter(members);
   if (members.length === 0) throw notFound('db cluster', `${input.stack}/${input.cluster}`);
@@ -98,6 +98,7 @@ export async function planDbSwitchover(ctx: OrgContext, input: { stack: string; 
     busy: switchoverBusy(ctx, input.stack, input.cluster),
     directApps: directApps(ctx, input.stack, input.cluster),
     ...(input.target ? { target: input.target } : {}),
+    ...(input.avoidNodeId ? { avoidNodeId: input.avoidNodeId } : {}),
     copyName: where,
   });
   return { plan, writer };

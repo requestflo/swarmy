@@ -4,7 +4,7 @@ import { Button, cn } from '@swarmy/ui';
 import { TONE_TEXT, Tech } from '@/components/calm';
 import { CardSkeleton } from '@/components/states';
 import { bytes } from '@/lib/format';
-import { restartWords } from './pg-switchover-words';
+import { reshapeWords, restartWords } from './pg-switchover-words';
 
 /**
  * The confirm for a planned switchover (board 39's "Make this copy the
@@ -45,7 +45,8 @@ export function PgSwitchoverConfirm({
       ) : plan.ok ? (
         <>
           <p className="text-[13px] leading-relaxed">
-            Writes pause for a few seconds; nothing is lost. {copyName(plan.from)} then follows it as a standby. {restartWords(plan.restarts)}
+            Writes pause for a few seconds; nothing is lost. {copyName(plan.from)} then follows it as a standby. {restartWords(plan.restarts)}{' '}
+            {reshapeWords(plan, copyName(plan.target))}
           </p>
           <Tech>
             {bytes(plan.behindBytes)} behind now · writes paused (default_transaction_read_only) until {plan.target} replays the final flushed LSN, at most 60 s, else nothing

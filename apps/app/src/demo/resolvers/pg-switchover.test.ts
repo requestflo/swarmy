@@ -15,8 +15,17 @@ describe('pg-switchover demo (boards 15 and 39)', () => {
   });
   afterEach(() => setSystemTime());
 
-  test('data/main is refused by the shared plan: its two standbys share one service', () => {
-    expect(() => HANDLERS['db.switchover']!({ stack: 'data', cluster: 'main' }, getStore())).toThrow('standby copies as one service');
+  test('data/main: one copy of its two-copy standby takes the writes, and that service comes back as the one copy', () => {
+    const s = getStore();
+    const first = HANDLERS['db.switchover']!({ stack: 'data', cluster: 'main' }, s) as DbSwitchoverRunView;
+    expect([first.target, first.targetNodeId]).toEqual(['data_main-replica', 'n-wkr-1']);
+    setSystemTime(new Date(Date.now() + 9_000));
+    expect((HANDLERS['db.switchoverRun']!({ stack: 'data', cluster: 'main' }, s) as DbSwitchoverRunView).status).toBe('done');
+    const topo = (s.extra.data as { dbTopologies: Array<{ cluster: string; members: Array<{ service: string; role: string; desired: number }> }> }).dbTopologies.find((t) => t.cluster === 'main')!;
+    expect(topo.members.map((m) => [m.service, m.role, m.desired])).toEqual([
+      ['data_main-primary', 'replica', 2],
+      ['data_main-replica', 'primary', 1],
+    ]);
   });
 
   test("checkout's caught-up standby takes the writes; the run walks its steps and the roles swap", () => {

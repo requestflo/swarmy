@@ -30,9 +30,9 @@ describe('planDbSwitchover — gathered from Docker truth and the writer', () =>
     expect(pooled.plan).toMatchObject({ ok: true, restarts: [] });
   });
 
-  it('still refused: a standby service holding two copies (promotion is per service)', async () => {
+  it('a standby service holding two copies: the plan names one copy, and that it comes back as that copy', async () => {
     const { plan } = await planDbSwitchover(fakeSwitchover({ shared: true, app: 'direct' }).ctx, { stack: 'shop', cluster: 'db', target: 'shop_db-replica' });
-    expect(plan).toMatchObject({ ok: false, code: 'shared-copy' });
+    expect(plan).toMatchObject({ ok: true, target: 'shop_db-replica', nodeId: 'n2', reshape: true, restarts: ['shop_api'] });
   });
 
   it('a fresh request on the writer means a switchover is already running', async () => {

@@ -20,8 +20,9 @@ import { demoReplication } from './pg-replication';
  * 8 s) and swaps the writer and the standby in the demo topology once the
  * promotion lands. The story: storefront/checkout's standby on mgr-2 is caught
  * up and both its apps go through the pooler, so it can take the writes;
- * data/main can't yet: its two standbys share one service (data_worker,
- * connected straight to the main copy, would only restart onto the new one).
+ * data/main's two standbys share one service, so its caught-up copy takes the
+ * writes alone and the service comes back as that one copy (data_worker,
+ * connected straight to the main copy, restarts onto the new one).
  */
 
 interface Topo {
@@ -76,6 +77,14 @@ function project(s: DemoStore, r: Run): DbSwitchoverRunView {
     const t = topoOf(s, v.stack, v.cluster);
     if (t && !r.swapped) {
       r.swapped = true;
+      // A standby service with several copies comes back as the ONE promoted
+      // copy; the old main copy carries the standby copies from then on.
+      const to = t.members.find((m) => m.service === v.target);
+      const old = t.members.find((m) => m.role === 'primary');
+      if (to && old && to.desired > 1) {
+        [old.desired, old.running] = [to.desired, to.running];
+        to.desired = to.running = 1;
+      }
       for (const m of t.members) {
         if (m.role === 'primary') m.role = 'replica';
         else if (m.service === v.target) m.role = 'primary';

@@ -79,11 +79,19 @@ describe('planSwitchover — every refusal', () => {
     expect(code(input({ target: 'shop_web' }))).toBe('unknown-target');
   });
 
-  it('a copy sharing its service with another copy cannot be promoted alone', () => {
-    const shared = input({ target: R, members: input().members.map((m) => (m.service === R ? { ...m, desired: 2, running: 2 } : m)) });
-    const p = planSwitchover(shared);
-    expect(p).toMatchObject({ ok: false, code: 'shared-copy', target: R });
-    if (!p.ok) expect(p.reason).toBe('shop_db-replica runs 2 standby copies as one service, so no one of them can take the writes on its own. Keep one standby copy per service first.');
+  it('a service holding two copies hands the writes to its most caught-up copy alone, and says it reshapes', () => {
+    const shared = input({
+      target: R,
+      members: input().members.map((m) => (m.service === R ? { ...m, desired: 2, running: 2 } : m)),
+      standbys: [
+        { service: R, nodeId: 'n2', state: 'streaming', lagBytes: 4096 },
+        { service: R, nodeId: 'n4', state: 'streaming', lagBytes: 64 },
+        { service: R, nodeId: 'n5', state: 'catchup', lagBytes: 0 },
+      ],
+    });
+    expect(planSwitchover(shared)).toEqual({ ok: true, from: P, target: R, nodeId: 'n4', behindBytes: 64, restarts: [], reshape: true });
+    // The retire flow: never onto the server leaving, even when its copy is the most caught up.
+    expect(planSwitchover({ ...shared, avoidNodeId: 'n4' })).toMatchObject({ ok: true, nodeId: 'n2', behindBytes: 4096 });
   });
 
   it('a copy that is not streaming (or has no row at all)', () => {

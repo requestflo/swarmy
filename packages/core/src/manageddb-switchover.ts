@@ -9,15 +9,16 @@
  * pass, gated by `decideFailover` like any other.
  *
  * A copy may take the writes only when it is
- *  - the only task of its service: the promotion pass promotes a SERVICE, so a
- *    service holding two copies would put a writer and a standby behind one
- *    name (and the other copy would keep following the old writer);
  *  - streaming from the writer (`pg_stat_replication.state = streaming`);
  *  - within {@link SWITCHOVER_CATCH_UP_BYTES} of it. Writes are still going,
  *    so exactly 0 is not the bar here; the run pauses writes and then waits
  *    for 0 bytes behind the writer's final flushed position.
  * And the cluster must have a running writer, a gated topology and nothing
- * else in flight. An app connected straight to the writer's address is no
+ * else in flight. A standby service holding several copies is no reason to
+ * refuse: the plan names its most caught-up copy (`nodeId`), the request
+ * carries it, and the promotion pass promotes that ONE copy, then brings the
+ * service back as that copy alone (`reshape`: a few more seconds without
+ * writes; manageddb-failover-copies). An app connected straight to the writer's address is no
  * reason to refuse: the promotion pass re-mints its DATABASE_URL for the new
  * writer and rolls it (`manageddb-app-repoint.ts`), so the plan names it in
  * `restarts` for the confirm to say.
@@ -40,7 +41,6 @@ export type SwitchoverRefusal =
   | 'no-standby'
   | 'unknown-target'
   | 'target-is-writer'
-  | 'shared-copy'
   | 'not-streaming'
   | 'behind';
 
@@ -71,6 +71,8 @@ export interface SwitchoverPlanInput {
   directApps: readonly string[];
   /** The member service to hand the writes to; omitted = the most caught-up copy. */
   target?: string;
+  /** A server the writes must not move to (the retire flow's leaving server): its copies don't count. */
+  avoidNodeId?: string;
   /** Plain name of a member's copy ("wkr-2's copy"); defaults to the service. */
   copyName?: (service: string) => string;
 }
@@ -85,6 +87,8 @@ export type SwitchoverPlan =
       behindBytes: number;
       /** Apps wired straight to the writer: each gets a URL for the new writer and restarts onto it. */
       restarts: string[];
+      /** The target service holds other copies too: it comes back as this one copy (writes stop again briefly). */
+      reshape?: true;
     };
 
 type Refused = Extract<SwitchoverPlan, { ok: false }>;
@@ -97,13 +101,16 @@ const refuse = (code: SwitchoverRefusal, reason: string, target?: string): Refus
   ...(target ? { target } : {}),
 });
 
-/** One copy's verdict: eligible with its lag, or why not. */
+/** A service's rows, the most caught-up streaming copy first. */
+const bestRows = (i: SwitchoverPlanInput, service: string): SwitchoverStandby[] =>
+  i.standbys
+    .filter((s) => s.service === service && (!i.avoidNodeId || s.nodeId !== i.avoidNodeId))
+    .sort((a, b) => Number(b.state === 'streaming') - Number(a.state === 'streaming') || (a.lagBytes ?? Infinity) - (b.lagBytes ?? Infinity) || (a.nodeId ?? '').localeCompare(b.nodeId ?? ''));
+
+/** One member's verdict (its most caught-up copy): eligible with its lag, or why not. */
 function judge(m: SwitchoverMember, i: SwitchoverPlanInput, name: string): SwitchoverPlan {
-  if (m.desired > 1 || m.running > 1) {
-    const n = Math.max(m.desired, m.running);
-    return refuse('shared-copy', `${m.service} runs ${n} standby copies as one service, so no one of them can take the writes on its own. Keep one standby copy per service first.`, m.service);
-  }
-  const row = i.standbys.find((s) => s.service === m.service);
+  const row = bestRows(i, m.service)[0];
+  const shared = m.desired > 1 || m.running > 1 ? { reshape: true as const } : {};
   if (!row || row.state !== 'streaming') {
     const how = row?.state ? `is ${row.state}, not streaming` : 'isn’t streaming from the main copy';
     return refuse('not-streaming', `${name} ${how}, so it can't take the writes yet.`, m.service);
@@ -112,7 +119,7 @@ function judge(m: SwitchoverMember, i: SwitchoverPlanInput, name: string): Switc
   if (row.lagBytes > SWITCHOVER_CATCH_UP_BYTES) {
     return refuse('behind', `${name} is ${amount(row.lagBytes)} behind. Wait until it catches up.`, m.service);
   }
-  return { ok: true, from: '', target: m.service, nodeId: row.nodeId, behindBytes: row.lagBytes, restarts: [...i.directApps].sort() };
+  return { ok: true, from: '', target: m.service, nodeId: row.nodeId, behindBytes: row.lagBytes, restarts: [...i.directApps].sort(), ...shared };
 }
 
 /** Who takes the writes in a planned switchover, or why nobody may. Deterministic. */
@@ -136,7 +143,7 @@ export function planSwitchover(i: SwitchoverPlanInput): SwitchoverPlan {
     return v.ok ? { ...v, from: writer.service } : v;
   }
   const verdicts = standbys.map((m) => ({ m, v: judge(m, i, name(m.service)) }));
-  const lag = (s: string) => i.standbys.find((r) => r.service === s)?.lagBytes ?? Number.POSITIVE_INFINITY;
+  const lag = (s: string) => bestRows(i, s)[0]?.lagBytes ?? Number.POSITIVE_INFINITY;
   verdicts.sort((a, b) => lag(a.m.service) - lag(b.m.service) || a.m.service.localeCompare(b.m.service));
   const best = verdicts.find((x) => x.v.ok)?.v ?? verdicts[0]!.v;
   return best.ok ? { ...best, from: writer.service } : best;

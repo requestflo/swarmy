@@ -91,6 +91,8 @@ export interface SwitchoverRequest {
   at: string;
   /** The member service to promote. */
   target?: string;
+  /** Its ONE copy to promote: the swarm node it runs on (a service may run several). */
+  copy?: string;
   /** The paused writer's final `pg_current_wal_flush_lsn()`. */
   finalLsn?: string;
 }
@@ -109,6 +111,7 @@ export function parseSwitchoverRequest(raw: string | undefined): SwitchoverReque
     return {
       at: v.at,
       ...(typeof v.target === 'string' && v.target ? { target: v.target } : {}),
+      ...(typeof v.copy === 'string' && v.copy ? { copy: v.copy } : {}),
       ...(typeof v.finalLsn === 'string' && v.finalLsn ? { finalLsn: v.finalLsn } : {}),
     };
   } catch {
@@ -118,16 +121,19 @@ export function parseSwitchoverRequest(raw: string | undefined): SwitchoverReque
 
 /**
  * The promotion pass's `decideFailover` input under a planned request: only
- * the requested copy is a candidate, and the watermark is the higher of the
+ * the requested copy is a candidate (its service, and its server when the
+ * request names one), and the watermark is the higher of the
  * reconcile's own sample and the paused writer's final position. It is never
  * lowered, and never invented: no sample of its own stays no sample (⇒ hold).
  */
-export function plannedPromotion<C extends { service: string }>(
+export function plannedPromotion<C extends { service: string; copy?: string }>(
   i: { candidates: C[]; watermark: PrimaryWatermark | null },
   req: SwitchoverRequest | null,
 ): { candidates: C[]; watermark: PrimaryWatermark | null } {
   if (!req) return i;
-  const candidates = req.target ? i.candidates.filter((c) => c.service === req.target) : i.candidates;
+  const candidates = req.target
+    ? i.candidates.filter((c) => c.service === req.target && (!req.copy || c.copy === req.copy))
+    : i.candidates;
   const w = i.watermark;
   const ahead = w && req.finalLsn ? behindWatermarkBytes(req.finalLsn, w.lsn) : null;
   return { candidates, watermark: w && ahead ? { ...w, lsn: req.finalLsn! } : w };

@@ -37,8 +37,8 @@ describe('runDbSwitchover — the happy path', () => {
     // The stop carries the final position for the promotion pass to check against.
     const stamps = f.calls.filter((c) => c.cmd === 'service.updateLabels' && (c.payload.add as Record<string, string>)[DB_SWITCHOVER_LABEL]);
     expect(stamps.map((c) => parseSwitchoverRequest((c.payload.add as Record<string, string>)[DB_SWITCHOVER_LABEL]))).toEqual([
-      { at: expect.any(String), target: 'shop_db-replica' },
-      { at: expect.any(String), target: 'shop_db-replica', finalLsn: '0/3000000' },
+      { at: expect.any(String), target: 'shop_db-replica', copy: 'sw-n2' },
+      { at: expect.any(String), target: 'shop_db-replica', copy: 'sw-n2', finalLsn: '0/3000000' },
     ]);
     expect(scales(f)).toEqual(['shop_db-primary→0', 'shop_db-primary→1']);
     expect(f.audit.filter((a) => a.startsWith('db.'))).toEqual(['db.switchover.start', 'db.switchover']);
@@ -72,10 +72,26 @@ describe('runDbSwitchover — the happy path', () => {
 
 describe('runDbSwitchover — every refusal and abort', () => {
   it('refused before anything is touched', async () => {
-    const { f, done } = run({ shared: true });
-    await expect(done).rejects.toThrow('runs 2 standby copies as one service');
+    const { f, done } = run({ row: { state: 'catchup', lagBytes: 0 } });
+    await expect(done).rejects.toThrow('not streaming');
     expect(f.calls.map((c) => c.cmd)).toEqual(['db.query']);
     expect(f.sql).toEqual([]);
+  });
+
+  it('a standby service holding two copies: the request names ONE copy, and the run says it comes back as that copy', async () => {
+    const { f, done } = run({ shared: true });
+    await done;
+    const req = f.calls.filter((c) => c.cmd === 'service.updateLabels' && (c.payload.add as Record<string, string>)[DB_SWITCHOVER_LABEL]);
+    expect(parseSwitchoverRequest((req.at(-1)!.payload.add as Record<string, string>)[DB_SWITCHOVER_LABEL])).toMatchObject({ target: 'shop_db-replica', copy: 'sw-n2' });
+    expect(view().steps[2]!.message).toContain('It comes back as that one copy');
+  });
+
+  it('a copy marked for promotion at the deadline wins: the old writer is never started again', async () => {
+    const f = fakeSwitchover({ promote: 'marked' });
+    const res = await runDbSwitchover(f.ctx, IN, f.io, { pollMs: 1, timeouts: { promoteMs: 5_000, repointMs: 1_000, rejoinMs: 1_000 } });
+    expect(res.rejoined).toBe(false);
+    expect(scales(f)).toEqual(['shop_db-primary→0']);
+    expect(f.sql.some((q) => q.includes('RESET default_transaction_read_only'))).toBe(false);
   });
 
   it('the copy never catches up: writes resume, the label goes, nothing stops', async () => {
@@ -122,9 +138,11 @@ describe('runDbSwitchover — every refusal and abort', () => {
 
   it('a promotion that landed at the deadline wins: the old writer is never started as a second writer', async () => {
     const f = fakeSwitchover({ promote: 'never', promotedUnlabelled: true });
-    const res = await runDbSwitchover(f.ctx, IN, f.io, { pollMs: 1, timeouts: { promoteMs: 5_000, repointMs: 1_000 } });
+    const res = await runDbSwitchover(f.ctx, IN, f.io, { pollMs: 1, timeouts: { promoteMs: 5_000, repointMs: 1_000, rejoinMs: 1_000 } });
     expect(res.to).toBe('shop_db-replica');
     expect(f.sql.some((q) => q.includes('RESET default_transaction_read_only'))).toBe(false);
-    expect(view().steps.map((s) => s.status)).toEqual(['done', 'done', 'done', 'warn', 'done']);
+    // Not repointed yet, so not started: its old spec is a writer's.
+    expect(scales(f)).toEqual(['shop_db-primary→0']);
+    expect(view().steps.map((s) => s.status)).toEqual(['done', 'done', 'done', 'warn', 'warn']);
   });
 });

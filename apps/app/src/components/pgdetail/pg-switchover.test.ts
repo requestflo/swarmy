@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { SWITCHOVER_BUSY, newSwitchoverRun, withSwitchoverStep } from '@swarmy/core';
 import { copyNameOf, planCopy, type PgSwitchoverFacts } from './pg-switchover-plan';
-import { restartWords, runWords } from './pg-switchover-words';
+import { reshapeWords, restartWords, runWords } from './pg-switchover-words';
 
 const P = 'storefront_checkout-primary';
 const R = 'storefront_checkout-replica';
@@ -41,6 +41,8 @@ describe('planCopy — the dashboard asks the shared plan, on the same reads', (
     expect(restartWords(['storefront_worker'])).toBe('storefront_worker connects straight to the main copy, so it restarts onto the new writer.');
     expect(restartWords(['a', 'b', 'c'])).toBe('a, b and c connect straight to the main copy, so they restart onto the new writer.');
     expect(restartWords([])).toBeNull();
+    expect(reshapeWords({ reshape: true }, 'mgr-1’s copy')).toBe('mgr-1’s copy shares its service with other standby copies, so that service restarts as this one copy and writes stop again for a few seconds. The old main copy carries the standby copies after.');
+    expect(reshapeWords({}, 'x')).toBeNull();
   });
 
   it('a held failover, a run in flight', () => {

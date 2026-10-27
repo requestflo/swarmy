@@ -14,7 +14,8 @@ import type { SwitchoverIo } from './manageddb-switchover.steps';
  */
 
 export interface FakeOpts {
-  promote?: 'yes' | 'hold' | 'never';
+  /** `marked`: the pass marked the copy and exec'd pg_promote, but never finished (its reply was lost). */
+  promote?: 'yes' | 'hold' | 'never' | 'marked';
   lagStuck?: boolean;
   /** The standby's state and lag as pg_stat_replication reports them. */
   row?: { state: string; lagBytes: number | null } | null;
@@ -92,6 +93,7 @@ export function fakeSwitchover(o: FakeOpts = {}) {
   // The promotion pass, as the reconcile runs it once the writer stops.
   const reconcile = () => {
     if (o.promote === 'never') return;
+    if (o.promote === 'marked') return void (replica.labels['swarmy.db.failover.promoting'] = 'sw-n2');
     if (o.promote === 'hold') {
       primary.labels[DB_FAILOVER_PENDING_LABEL] = '{"target":"shop_db-replica","behindBytes":null}';
       return;

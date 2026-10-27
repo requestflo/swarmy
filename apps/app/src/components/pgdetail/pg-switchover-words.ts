@@ -44,6 +44,16 @@ export function runWords(run: DbSwitchoverRunView, copyName: (service: string) =
  * The apps a switch-over restarts (the plan's `restarts`: wired straight to
  * the main copy, not through the pooler), in a sentence; null when none.
  */
+/**
+ * The plan's `reshape`: the copy's service runs other copies too, so it comes
+ * back as this one copy (swarmy promotes one copy, never a whole service).
+ */
+export function reshapeWords(plan: { reshape?: true }, target: string): string | null {
+  return plan.reshape
+    ? `${target} shares its service with other standby copies, so that service restarts as this one copy and writes stop again for a few seconds. The old main copy carries the standby copies after.`
+    : null;
+}
+
 export function restartWords(apps: readonly string[]): string | null {
   if (apps.length === 0) return null;
   const names = apps.length === 1 ? apps[0]! : `${apps.slice(0, -1).join(', ')} and ${apps[apps.length - 1]}`;
