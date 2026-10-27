@@ -121,8 +121,9 @@ export class DownloadHub {
     }
   }
 
-  /** Stop downloads whose agent went quiet while the browser waited. */
+  /** Drop expired tickets (they hold repo credentials); stop downloads whose agent went quiet. */
   sweep(now = Date.now()): void {
+    this.tickets.sweep();
     for (const d of [...this.live.values()]) {
       if (d.starved && now - d.lastHeardAt > DOWNLOAD_STALL_MS) d.fail('E_STALLED', 'the agent sent nothing for 5 minutes', true);
     }
