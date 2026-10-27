@@ -20,7 +20,7 @@
  * `rollback` ({@link WALG_PITR_ROLLBACK_SCRIPT}) puts the aside copy back
  * when the restored server does not recover (the controller decides that).
  */
-import { DEFAULT_WALG_IMAGE } from '@swarmy/core/protocol';
+import { helperImage } from '@swarmy/core/protocol';
 import type { DbRestorePayload, DbRestoreResult } from '@swarmy/core/protocol';
 import type { RestoreReporter } from './restore-progress';
 import type { DockerClient } from '@swarmy/core/docker';
@@ -241,7 +241,7 @@ export async function restoreWalgPitr(
   await waitVolumeIdle(docker, dataVolume, opts.idleTimeoutMs, opts.sleep);
 
   const { env } = physicalEnv(p.repo);
-  const image = p.engineImage ?? DEFAULT_WALG_IMAGE;
+  const image = helperImage('walg', p.engineImage);
   const base = {
     image,
     entrypoint: ['/bin/sh', '-c'],

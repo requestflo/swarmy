@@ -19,6 +19,7 @@ export * from './backup';
 export * from './dbBackup';
 export * from './pitrWindow';
 export * from './walVerify';
+export * from './helper-images';
 export * from './edge-certs';
 export * from './edge-cert-renew';
 export * from './swarmres';

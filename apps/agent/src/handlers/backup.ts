@@ -30,10 +30,8 @@ import {
   DOCKER_VOLUME_NAME_RE,
   ISO_TIMESTAMP_RE,
   SNAPSHOT_REF_RE,
-  DEFAULT_PG_CLIENT_IMAGE,
   PGBACKREST_NO_IMAGE,
-  DEFAULT_RESTIC_IMAGE,
-  DEFAULT_WALG_IMAGE,
+  helperImage,
   isPhysicalEngine,
   DEFAULT_COMMAND_TIMEOUTS,
 } from '@swarmy/core/protocol';
@@ -390,7 +388,7 @@ export async function backupVolume(
   conn: AgentConnection,
   p: BackupVolumePayload,
 ): Promise<import('@swarmy/core/protocol').BackupVolumeResult> {
-  const image = p.image ?? DEFAULT_RESTIC_IMAGE;
+  const image = helperImage('restic', p.image);
   const started = Date.now();
   const onLine = streamer(conn, p.commandId);
   await ensureRepo(docker, image, p.repo, p.network);
@@ -446,7 +444,7 @@ export async function restoreVolume(
   conn: AgentConnection,
   p: RestoreVolumePayload,
 ): Promise<import('@swarmy/core/protocol').RestoreVolumeResult> {
-  const image = p.image ?? DEFAULT_RESTIC_IMAGE;
+  const image = helperImage('restic', p.image);
   const started = Date.now();
   assertVolumeName(p.targetVolume);
   assertSnapshotRef(p.snapshotId);
@@ -539,7 +537,7 @@ export async function listSnapshots(
   docker: DockerClient,
   p: ListSnapshotsPayload,
 ): Promise<{ snapshots: ResticSnapshotInfo[] }> {
-  const image = p.image ?? DEFAULT_RESTIC_IMAGE;
+  const image = helperImage('restic', p.image);
   await ensureRepo(docker, image, p.repo, p.network);
   const tagArgs = p.tags.flatMap((t) => ['--tag', t]);
   const res = await runSidecar(docker, {
@@ -812,8 +810,8 @@ async function backupDbLogical(
   started: number,
   onLine: (line: string) => void,
 ): Promise<DbBackupResult> {
-  const clientImage = p.clientImage ?? DEFAULT_PG_CLIENT_IMAGE;
-  const resticImage = p.resticImage ?? DEFAULT_RESTIC_IMAGE;
+  const clientImage = helperImage('pgClient', p.clientImage);
+  const resticImage = helperImage('restic', p.resticImage);
   const scratch = scratchVolumeName(p.jobId);
   await docker.docker.createVolume({ Name: scratch });
   try {
@@ -927,7 +925,7 @@ async function backupDbPhysical(
   // from the server's data_directory.
   const layout = await resolvePgDataLayout(docker, p.conn.host, dataVolume);
   if (p.engine === 'wal-g') {
-    const image = p.engineImage ?? DEFAULT_WALG_IMAGE;
+    const image = helperImage('walg', p.engineImage);
     const res = await runSidecar(
       docker,
       {
@@ -1091,8 +1089,8 @@ async function restoreDbLogical(
   if (isPhysicalEngine(p.engine)) {
     throw new Error(`engine "${p.engine}" supports only pitr restore, not "${p.mode}"`);
   }
-  const clientImage = p.clientImage ?? DEFAULT_PG_CLIENT_IMAGE;
-  const resticImage = p.resticImage ?? DEFAULT_RESTIC_IMAGE;
+  const clientImage = helperImage('pgClient', p.clientImage);
+  const resticImage = helperImage('restic', p.resticImage);
   const dumpAll = p.engine === 'pg_dumpall';
   if (dumpAll && p.mode === 'single-database') {
     throw new Error('single-database restore needs a pg_dump (per-db) backup, not pg_dumpall');

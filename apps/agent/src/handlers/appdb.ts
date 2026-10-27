@@ -17,7 +17,7 @@ import { randomBytes } from 'node:crypto';
 import type { DockerClient } from '@swarmy/core/docker';
 import {
   APPDB_DUMP_MOUNT,
-  DEFAULT_RESTIC_IMAGE,
+  helperImage,
   KV_PLACE_SCRIPT,
   appDbRetentionTags,
   dumpScript,
@@ -119,7 +119,7 @@ async function fetchDump(
   const res = await runSidecar(
     docker,
     {
-      image: p.resticImage ?? DEFAULT_RESTIC_IMAGE,
+      image: helperImage('restic', p.resticImage),
       args: ['restore', assertSnapshotRef(p.snapshotId), '--target', '/', '--json'],
       env: repoEnv(p.repo),
       binds: [`${scratch}:${D}`, ...repoBinds(p.repo)],
@@ -145,7 +145,7 @@ export async function appDbBackup(
     throw new Error(`${p.engine} backups need the data volume and its mount path`);
   }
   const credEnv = await probe(docker, task, p);
-  const resticImage = p.resticImage ?? DEFAULT_RESTIC_IMAGE;
+  const resticImage = helperImage('restic', p.resticImage);
 
   return withScratch(docker, scratchName('swarmy-appdb', p.jobId), async () => {
     const scratch = scratchName('swarmy-appdb', p.jobId);
@@ -245,7 +245,7 @@ export async function appDbRestore(
       const place = await runSidecar(
         docker,
         {
-          image: p.resticImage ?? DEFAULT_RESTIC_IMAGE,
+          image: helperImage('restic', p.resticImage),
           entrypoint: ['/bin/sh', '-c'],
           args: [KV_PLACE_SCRIPT],
           env: [`SWARMY_SUFFIX=${p.suffix}`],
@@ -320,7 +320,7 @@ export async function appDbVerify(
       if (kv) {
         await docker.docker.createVolume({ Name: seedVolume, Labels: { 'swarmy.appdb.scratch': 'true' } });
         const seed = await runSidecar(docker, {
-          image: p.resticImage ?? DEFAULT_RESTIC_IMAGE,
+          image: helperImage('restic', p.resticImage),
           entrypoint: ['/bin/sh', '-c'],
           args: [KV_PLACE_SCRIPT],
           env: ['SWARMY_SUFFIX=verify'],

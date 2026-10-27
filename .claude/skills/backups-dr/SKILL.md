@@ -230,6 +230,7 @@ and where everything lives. Backups are dispatched to the agent as commands — 
 | Agent restic + DB-engine sidecars (backup/restore/list, logical+physical) | `apps/agent/src/handlers/backup.ts` |
 | Controller-dark operator rescue backups (export/restore/push/list) | `apps/agent/src/cli/backup.ts` (see `skill("node-recovery")`) |
 | Backup wire types (`ResticRepo`, payloads, default images) | `packages/core/src/protocol/backup.ts` |
+| Sidecar images by digest: the hub decorator fills each backup/restore/dump command's empty `image`/`resticImage`/`clientImage`/`engineImage` with the release's `<ref>@<digest>` (never an operator's image); the agent runs it, and with none (or the bare tag an older controller sends) its own compiled-BOM default (`helperImage`) | `packages/core/src/protocol/helper-images.ts`, `packages/trpc/src/services/helper-images.ts` (called from `registry-auth.ts`'s decorator) |
 | Volume backups: targets CRUD, native Garage target, backup/restore/list | `packages/trpc/src/services/backups.service.ts` (+ `routers/backups.ts`) |
 | Volume backup schedules + restore-op history | `packages/trpc/src/services/backupSchedule.service.ts` |
 | Two destinations per schedule (primary + `secondaryTargetId` "also copy to") | `backupSchedule.service.ts` (`setScheduleSecondary`), worker `apps/api/src/workers/backup-scheduler.ts` (`backupToTarget`), UI `components/backups/schedule-secondary-select.tsx` |

@@ -10,7 +10,7 @@
  * backup's end) and ends at the newest archived WAL segment, or at the check
  * time when the WAL listing could not be read.
  */
-import { DEFAULT_COMMAND_TIMEOUTS, DEFAULT_WALG_IMAGE } from '@swarmy/core/protocol';
+import { DEFAULT_COMMAND_TIMEOUTS, helperImage } from '@swarmy/core/protocol';
 import type { DbPitrWindowPayload, DbPitrWindowResult, PitrBaseBackup } from '@swarmy/core/protocol';
 import type { DockerClient } from '@swarmy/core/docker';
 import { S3_PREFLIGHT, physicalEnv, physicalNetworks, runSidecar, stderrTail } from './backup';
@@ -117,7 +117,7 @@ export async function dbPitrWindow(docker: DockerClient, p: DbPitrWindowPayload,
   const { env } = physicalEnv(p.repo);
   const budget = p.timeoutMs ?? DEFAULT_COMMAND_TIMEOUTS.dbPitrWindow ?? 300_000;
   const res = await runSidecar(docker, {
-    image: p.engineImage ?? DEFAULT_WALG_IMAGE,
+    image: helperImage('walg', p.engineImage),
     entrypoint: ['/bin/sh', '-c'],
     args: [walgWindowScript()],
     env,

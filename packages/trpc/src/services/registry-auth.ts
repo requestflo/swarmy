@@ -31,6 +31,7 @@ import { buildPullAuths, matchCredential, toRegistryAuth, type ResolvedCredentia
 import { loadOrgRegistryCredentials } from './registry-credentials.service';
 import { mirrorStateFrom, pinSystemImages, rewriteSystemImages } from './system-images.service';
 import { effectiveImagesFor } from './platform-images';
+import { pinHelperImagesFor } from './helper-images';
 import { REGISTRY_FORWARDER_NETWORK, REGISTRY_SERVICE } from '@swarmy/core/registry-forwarder';
 import type { RegistryTopology } from './registry-topology';
 
@@ -173,6 +174,8 @@ function mayBeRegistryImage(images: string[]): boolean {
  * registry login (org-registry images) → the org's third-party credentials
  * (longest `host[/path]` prefix match; GHCR, Docker Hub, GitLab, ECR, …).
  * Builds get every third-party login as `pullAuths` (private `FROM` bases).
+ * Backup/restore/dump commands get their sidecar images digest-pinned at the
+ * release's digests first (`pinHelperImagesFor`, helper-images.ts).
  * Fails open to the undecorated payload (the registry itself still enforces auth).
  */
 export function createRegistryAuthDecorator(
@@ -211,7 +214,8 @@ export function createRegistryAuthDecorator(
     }
   };
   return async (orgId, cmd, rawPayload) => {
-    const payload = await mirror(orgId, cmd, rawPayload);
+    // Backup/restore sidecars carry their helper images digest-pinned (helper-images.ts).
+    const payload = await mirror(orgId, cmd, await pinHelperImagesFor(db, orgId, cmd, rawPayload));
     if (cmd === 'image.build') {
       const creds = await thirdParty(orgId);
       return attachBuildPullAuths(payload, buildPullAuths(creds));

@@ -10,7 +10,7 @@
  * lists the archived WAL (`wal-g st ls wal_005/`) for upload times, which put
  * a time on each end of a gap, and the base backups.
  */
-import { DEFAULT_COMMAND_TIMEOUTS, DEFAULT_WALG_IMAGE } from '@swarmy/core/protocol';
+import { DEFAULT_COMMAND_TIMEOUTS, helperImage } from '@swarmy/core/protocol';
 import type { DbWalVerifyPayload, DbWalVerifyResult, WalCheckStatus, WalRange, WalRangeStatus } from '@swarmy/core/protocol';
 import type { DockerClient } from '@swarmy/core/docker';
 import { S3_PREFLIGHT, pgConnEnv, physicalEnv, physicalNetworks, runSidecar, stderrTail } from './backup';
@@ -123,7 +123,7 @@ export async function dbWalVerify(docker: DockerClient, p: DbWalVerifyPayload, n
   const { env } = physicalEnv(p.repo);
   const budget = p.timeoutMs ?? DEFAULT_COMMAND_TIMEOUTS.dbWalVerify ?? 300_000;
   const res = await runSidecar(docker, {
-    image: p.engineImage ?? DEFAULT_WALG_IMAGE,
+    image: helperImage('walg', p.engineImage),
     entrypoint: ['/bin/sh', '-c'],
     args: [walVerifyScript()],
     env: [...env, ...pgConnEnv(p.conn)],
