@@ -26,6 +26,7 @@
 import { z } from 'zod';
 import { CommandId } from './primitives';
 import { ContainerPath, DockerVolumeName, ResticRepo, RetentionOutcome, SnapshotRef } from './backup';
+import { resticFallbackFields } from './helper-pull';
 
 const cmd = { commandId: CommandId, timeoutMs: z.number().int().positive().optional() };
 
@@ -81,6 +82,8 @@ const store = {
   /** Overlay the restic sidecar joins for in-cluster repos (`swarmy-garage`). */
   network: z.string().optional(),
   resticImage: z.string().optional(),
+  /** A mirrored `resticImage`'s upstream fallback + the mirror login (helper-pull.ts). Additive. */
+  ...resticFallbackFields,
 };
 
 // ── appDbBackup ──────────────────────────────────────────────────────────────

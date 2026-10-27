@@ -18,6 +18,7 @@ import { CommandId } from './primitives';
 import { ResticRepo } from './backup';
 import { DbConnection } from './dbBackup';
 import { PitrBaseBackup } from './pitrWindow';
+import { engineFallbackFields } from './helper-pull';
 
 const cmd = { commandId: CommandId, timeoutMs: z.number().int().positive().optional() };
 
@@ -34,6 +35,8 @@ export const DbWalVerifyPayload = z.object({
   resticNetwork: z.string().optional(),
   /** wal-g image override; defaults to `DEFAULT_WALG_IMAGE`. */
   engineImage: z.string().optional(),
+  /** A mirrored `engineImage`'s upstream fallback + the mirror login (helper-pull.ts). Additive. */
+  ...engineFallbackFields,
 });
 export type DbWalVerifyPayload = z.infer<typeof DbWalVerifyPayload>;
 

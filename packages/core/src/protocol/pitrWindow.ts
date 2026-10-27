@@ -14,6 +14,7 @@
 import { z } from 'zod';
 import { CommandId } from './primitives';
 import { ResticRepo } from './backup';
+import { engineFallbackFields } from './helper-pull';
 
 /** Reusable command preamble (every controller→agent command carries these). */
 const cmd = { commandId: CommandId, timeoutMs: z.number().int().positive().optional() };
@@ -30,6 +31,8 @@ export const DbPitrWindowPayload = z.object({
   resticNetwork: z.string().optional(),
   /** wal-g image override; defaults to `DEFAULT_WALG_IMAGE`. */
   engineImage: z.string().optional(),
+  /** A mirrored `engineImage`'s upstream fallback + the mirror login (helper-pull.ts). Additive. */
+  ...engineFallbackFields,
 });
 export type DbPitrWindowPayload = z.infer<typeof DbPitrWindowPayload>;
 

@@ -13,7 +13,10 @@
  * Append only: never rename or remove a capability.
  */
 
-/** Each capability is the wire `type` of the command it stands for. */
+/**
+ * Each capability is the wire `type` of the command it stands for, or (for
+ * an additive payload behaviour on existing commands) a name of its own.
+ */
 export const AGENT_CAPABILITY = {
   /** Read-only: a PITR cluster's base backups and recoverable window (`dbPitrWindow`). */
   dbPitrWindow: 'dbPitrWindow',
@@ -35,6 +38,12 @@ export const AGENT_CAPABILITY = {
   dbWalVerify: 'dbWalVerify',
   /** Copy a wal-g PITR cluster's base backup + the WAL since it to a second destination (`dbWalgCopy`, `wal-g copy`). */
   dbWalgCopy: 'dbWalgCopy',
+  /**
+   * Not a command: backup/restore/dump sidecars pull a mirrored helper image
+   * with the `registryAuth` sent beside it, then its upstream fallback
+   * (`helper-pull.ts`). Without it the controller sends upstream refs only.
+   */
+  helperImageMirror: 'helperImageMirror',
 } as const;
 export type AgentCapability = (typeof AGENT_CAPABILITY)[keyof typeof AGENT_CAPABILITY];
 
@@ -48,6 +57,7 @@ export const AGENT_CAPABILITIES: readonly AgentCapability[] = [
   AGENT_CAPABILITY.probeSmtp,
   AGENT_CAPABILITY.dbWalVerify,
   AGENT_CAPABILITY.dbWalgCopy,
+  AGENT_CAPABILITY.helperImageMirror,
 ];
 
 /**

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { dataImage } from '../data-images';
 import { CommandId } from './primitives';
+import { imageFallbackFields } from './helper-pull';
 
 /** Reusable command preamble (every controller→agent command carries these). */
 const cmd = { commandId: CommandId, timeoutMs: z.number().int().positive().optional() };
@@ -81,6 +82,8 @@ export const BackupVolumePayload = z.object({
   retentionDays: z.number().int().min(1).max(3650).optional(),
   /** Image override; defaults to {@link DEFAULT_RESTIC_IMAGE}. */
   image: z.string().optional(),
+  /** A mirrored `image`'s upstream fallback + the mirror login (helper-pull.ts). Additive. */
+  ...imageFallbackFields,
   /**
    * Overlay network the restic sidecar joins so in-cluster repo endpoints
    * (e.g. `swarmy-garage`) resolve. Omitted for external/on-node targets.
@@ -103,6 +106,7 @@ export const RestoreVolumePayload = z.object({
   /** Docker local volume to restore into (created if missing). */
   targetVolume: DockerVolumeName,
   image: z.string().optional(),
+  ...imageFallbackFields,
   /** Overlay network for in-cluster repo endpoints (see BackupVolumePayload). */
   network: z.string().optional(),
 });
@@ -120,6 +124,7 @@ export const ListSnapshotsPayload = z.object({
   /** Optional tag filter (e.g. a single volume). */
   tags: z.array(z.string()).default([]),
   image: z.string().optional(),
+  ...imageFallbackFields,
   /** Overlay network for in-cluster repo endpoints (see BackupVolumePayload). */
   network: z.string().optional(),
 });

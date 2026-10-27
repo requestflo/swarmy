@@ -16,6 +16,7 @@ import { parseImageRef } from '../system-images';
 import { CommandId } from './primitives';
 import { DbName, DockerVolumeName, IsoTimestamp, ResticRepo, SnapshotRef } from './backup';
 import { ResticSnapshotInfo, RetentionOutcome } from './backup';
+import { dbHelperFallbackFields } from './helper-pull';
 
 /** Reusable command preamble (every controller→agent command carries these). */
 const cmd = { commandId: CommandId, timeoutMs: z.number().int().positive().optional() };
@@ -147,6 +148,8 @@ const engineEnv = {
   engineImage: z.string().optional(),
   /** restic image for the logical dump→repo store leg. */
   resticImage: z.string().optional(),
+  /** Mirrored helpers' upstream fallbacks + the mirror login (helper-pull.ts). Additive. */
+  ...dbHelperFallbackFields,
   /** physical engines: the primary's PGDATA Docker volume (base backup source). */
   dataVolume: DockerVolumeName.optional(),
 };

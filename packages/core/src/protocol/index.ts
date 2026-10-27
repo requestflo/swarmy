@@ -21,6 +21,7 @@ export * from './pitrWindow';
 export * from './walVerify';
 export * from './helper-images';
 export * from './walgCopy';
+export * from './helper-pull';
 export * from './edge-certs';
 export * from './edge-cert-renew';
 export * from './swarmres';
