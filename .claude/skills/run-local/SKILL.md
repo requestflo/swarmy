@@ -100,7 +100,7 @@ interactive demo (no Docker/DB/agent needed). The flag is sticky in
 | File | Holds | Override |
 |---|---|---|
 | `$SWARMY_DATA_DIR/control.db` | every control-plane model | `SWARMY_DB_PATH` |
-| `$SWARMY_DATA_DIR/telemetry.db` | history only (`MetricSample`, `EdgeTrafficRollup`, Pg query and data-stat samples) | `SWARMY_TELEMETRY_DB_PATH` |
+| `$SWARMY_DATA_DIR/telemetry.db` | history only (`MetricSample`, `EdgeTrafficRollup`/`EdgeTrafficHourly`, Pg query and data-stat samples) | `SWARMY_TELEMETRY_DB_PATH` |
 
 `SWARMY_DATA_DIR` defaults to `<repo>/.swarmy/data` in dev and is
 `/var/lib/swarmy/data` in prod. The files run in WAL mode, so you also see

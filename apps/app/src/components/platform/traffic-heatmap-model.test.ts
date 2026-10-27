@@ -30,6 +30,14 @@ describe('heatGrid', () => {
     expect(quietestSlot(grid)).toBe('Mon 04:00–06:00 UTC');
   });
 
+  test('four weeks: each slot averages the same weekday and hours across weeks', () => {
+    const grid = heatGrid(
+      [0, 7, 14, 21].map((d, i) => ({ t: at(d, 10), requestsPerMin: 100 * (i + 1) })),
+      { days: [], startHour: 0, hours: 1 },
+    );
+    expect(grid[0]![5]).toEqual({ rate: 250, level: 1, inWindow: false });
+  });
+
   test('no data, no quietest slot', () => {
     expect(quietestSlot(heatGrid([], { days: [], startHour: 0, hours: 1 }))).toBeNull();
   });

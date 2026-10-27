@@ -72,6 +72,32 @@ model EdgeTrafficRollup {
   @@map("edge_traffic_rollup")
 }
 
+// The same counts folded to one row per (edge, host, hour), kept 35 days, so
+// a four-week chart reads 672 hours instead of 8064 five-minute buckets. The
+// edge-traffic worker refolds each completed hour from its 5-minute rows and
+// upserts, so a restart or a second fold of the same hour never doubles it;
+// it prunes them too. Columns as EdgeTrafficRollup (`host = ''` = coverage;
+// region/app from the hour's newest 5-minute row).
+model EdgeTrafficHourly {
+  id              Int      @id @default(autoincrement())
+  orgId           String
+  nodeId          String
+  region          String?
+  host            String
+  app             String?
+  bucketStart     DateTime
+  requests        Int
+  errors5xx       Int
+  status403       Int?
+  status429       Int?
+  durationBuckets String?
+
+  @@unique([orgId, nodeId, host, bucketStart])
+  @@index([orgId, bucketStart])
+  @@index([bucketStart])
+  @@map("edge_traffic_hourly")
+}
+
 // Managed Postgres slow queries over 24 h (studio insights). pg_stat_statements
 // is cumulative, so the pg-slow-queries worker snapshots it every ~5 minutes
 // (the studio's bounded, audited system read) and keeps one row per statement

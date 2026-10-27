@@ -1,7 +1,8 @@
 /**
- * Pure: a week of edge traffic (`traffic.series` 7d, hourly buckets) folded
- * into a 7 × 12 grid of two-hour UTC slots, with the auto-patch window drawn
- * over it — so you can see the window sits in your quiet hours.
+ * Pure: four weeks of edge traffic (`traffic.series` 28d, hourly buckets)
+ * folded into a 7 × 12 grid of two-hour UTC slots — each slot the average of
+ * every hour that falls in it — with the auto-patch window drawn over it, so
+ * you can see the window sits in your quiet hours.
  */
 
 export interface SeriesPoint {

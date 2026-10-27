@@ -69,6 +69,7 @@ export * from './edge-traffic';
 export * from './edge-traffic-hosts';
 export * from './edge-traffic-caddy';
 export * from './edge-traffic-extras';
+export * from './edge-traffic-hourly';
 export * from './edge-latency';
 export * from './node-stats-history';
 export * from './data-history';

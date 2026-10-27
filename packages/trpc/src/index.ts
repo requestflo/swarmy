@@ -505,6 +505,7 @@ export { checkEmailDomain, probePort25, ensureAppEmailCredential } from './servi
 export { observabilityStore, orgErrorRates, type ServiceErrorRate } from './services/observability.service';
 // ── per-edge request counting (Q4): rollup flush + prune for the edge-traffic worker ──
 export { flushTrafficRollups, pruneTrafficRollups } from './services/traffic.service';
+export { advanceTrafficHours, pruneTrafficHours } from './services/traffic-hourly';
 // The deploy safety gate's error trip reads one app's minutes off the ring.
 export { appTrafficMinutes } from './services/traffic-app-minutes';
 // Cold-start time: the activator records each wake it timed.

@@ -130,7 +130,11 @@ invariants that must survive every change, and where everything lives.
   `metrics.edge` (older controllers drop them, older agents omit them). The
   controller keeps BUCKET COUNTS in the hub's 1-minute ring and the 5-minute
   `EdgeTrafficRollup` rows (`telemetry.db`, 7 days; the coverage row carries
-  each edge's whole histogram). p50/p95 come only from merged buckets
+  each edge's whole histogram), folded by the edge-traffic worker into
+  `EdgeTrafficHourly` (35 days; each completed hour refolded from its
+  5-minute rows and upserted, so a restart never doubles it; pure
+  `foldTrafficHours` in `edge-traffic-hourly.ts`). `traffic.series` `28d`
+  (Settings › Platform's four-week heatmap) reads the hourly rows. p50/p95 come only from merged buckets
   (`edge-latency.ts` `mergeLatency`), never an average of percentiles.
   `traffic.now` / `traffic.series` (`traffic.service.ts`, `traffic-series.ts`,
   narrowable to one `host` or `nodeId`) serve them. Requests a protection

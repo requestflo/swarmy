@@ -16,6 +16,7 @@ export { apportion };
  *               → `metrics.edge` (per-host deltas since the last scrape)
  *   controller: {@link EdgeTrafficRing} (1-minute buckets, last 6 h, in memory)
  *               → {@link rollupRing} (5-minute rows persisted for 7 days)
+ *               → foldTrafficHours (hourly rows for 35 days, edge-traffic-hourly.ts)
  *               → {@link aggregateTrafficNow} / {@link bucketTrafficSeries}
  *
  * Numbers only: plain-words phrasing ("434 visitors a minute in Europe") is a
@@ -389,7 +390,7 @@ export function rollupWindow(
 
 // ── read side: views ───────────────────────────────────────────────────────
 
-export const TrafficWindow = z.enum(['6h', '24h', '7d']);
+export const TrafficWindow = z.enum(['6h', '24h', '7d', '28d']);
 export type TrafficWindow = z.infer<typeof TrafficWindow>;
 
 export const TrafficSeriesInput = z.object({
@@ -405,11 +406,15 @@ export const TrafficSeriesInput = z.object({
 });
 export type TrafficSeriesInput = z.infer<typeof TrafficSeriesInput>;
 
-/** Bucket width per window: 6 h → 5 min (72 points), 24 h → 15 min (96), 7 d → 1 h (168). */
+/**
+ * Bucket width per window: 6 h → 5 min (72 points), 24 h → 15 min (96), 7 d → 1 h (168),
+ * 28 d → 1 h (672, read from the hourly rollups — the 5-minute ones keep 7 days).
+ */
 export const TRAFFIC_WINDOWS: Record<TrafficWindow, { spanMs: number; bucketMs: number }> = {
   '6h': { spanMs: 6 * 60 * MINUTE_MS, bucketMs: 5 * MINUTE_MS },
   '24h': { spanMs: 24 * 60 * MINUTE_MS, bucketMs: 15 * MINUTE_MS },
   '7d': { spanMs: 7 * 24 * 60 * MINUTE_MS, bucketMs: 60 * MINUTE_MS },
+  '28d': { spanMs: 28 * 24 * 60 * MINUTE_MS, bucketMs: 60 * MINUTE_MS },
 };
 
 /** `reporting` = heard from recently; `stale` = was, not lately; `no-data` = nothing yet. */
