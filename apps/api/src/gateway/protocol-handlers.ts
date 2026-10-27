@@ -31,6 +31,7 @@ import type { AgentHubImpl } from './hub';
 import type { GatewayStore } from './store';
 import type { AgentSocket, ConnectionRegistry } from './registry';
 import { terminalHub } from '../terminal';
+import { downloadHub } from '../downloads';
 
 function sha256(s: string): string {
   return createHash('sha256').update(s).digest('hex');
@@ -218,6 +219,9 @@ export async function handleAgentMessage(ws: AgentSocket, raw: string, deps: Dep
     case 'termData':
     case 'termExit':
       terminalHub.onAgentTermFrame(env.type, env.payload);
+      return;
+    case 'streamEnd':
+      if (ws.data.nodeId) downloadHub.onEnd(ws.data.nodeId, env.payload);
       return;
     case 'deployProgress': {
       // A traced deploy's pull/start progress. Kept only when the sending node
@@ -466,9 +470,21 @@ async function handleRegister(ws: AgentSocket, payload: RegisterPayload, deps: D
   });
 }
 
+/** A binary frame: a stream chunk from a registered agent (anything else closes the socket). */
+export function handleAgentBinary(ws: AgentSocket, message: Buffer): void {
+  const nodeId = ws.data.nodeId;
+  if (ws.data.state !== 'ready' || !nodeId) {
+    ws.close(CloseCode.UNAUTHORIZED, 'expected register');
+    return;
+  }
+  downloadHub.onChunk(nodeId, new Uint8Array(message.buffer, message.byteOffset, message.byteLength));
+}
+
 export function handleAgentClose(ws: AgentSocket, deps: Deps): void {
   const nodeId = ws.data.nodeId;
   if (!nodeId) return;
+  // Only the node's CURRENT link carries its downloads; a superseded one closing doesn't end them.
+  if (deps.registry.get(nodeId) === ws) downloadHub.onAgentGone(nodeId);
   deps.registry.remove(nodeId, ws);
   // Node liveness is hub-truth now (status/lastSeenAt columns removed). forget()
   // retains a last-known snapshot for ABAC/dr-reconcile, then drops live telemetry.

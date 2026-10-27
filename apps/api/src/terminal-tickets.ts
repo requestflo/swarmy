@@ -51,12 +51,11 @@ export interface TicketClaims {
   nodeCapable?: boolean;
 }
 
-interface StoredTicket extends TicketClaims {
-  expiresAt: number;
-}
+type StoredTicket<C> = C & { expiresAt: number };
 
-export class TicketStore {
-  private tickets = new Map<string, StoredTicket>();
+/** Single-use tickets over any claims (the terminal's by default; downloads reuse it). */
+export class TicketStore<C extends object = TicketClaims> {
+  private tickets = new Map<string, StoredTicket<C>>();
 
   constructor(
     private readonly ttlMs = TICKET_TTL_MS,
@@ -64,7 +63,7 @@ export class TicketStore {
   ) {}
 
   /** Mint a ticket for the claims. Returns the opaque ticket + expiry. */
-  mint(claims: TicketClaims): { ticket: string; expiresAt: number } {
+  mint(claims: C): { ticket: string; expiresAt: number } {
     const ticket = crypto.randomUUID();
     const expiresAt = this.now() + this.ttlMs;
     this.tickets.set(ticket, { ...claims, expiresAt });
@@ -72,13 +71,13 @@ export class TicketStore {
   }
 
   /** Claim a ticket exactly once. Returns null if unknown, used, or expired. */
-  claim(ticket: string): TicketClaims | null {
+  claim(ticket: string): C | null {
     const t = this.tickets.get(ticket);
     if (!t) return null;
     this.tickets.delete(ticket); // single-use: gone whether or not it's valid
     if (t.expiresAt < this.now()) return null;
     const { expiresAt: _expiresAt, ...claims } = t;
-    return claims;
+    return claims as unknown as C;
   }
 
   /** Drop expired tickets (housekeeping). */

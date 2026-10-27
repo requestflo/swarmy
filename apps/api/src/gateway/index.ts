@@ -1,5 +1,5 @@
 import { AgentHubImpl } from './hub';
-import { handleAgentClose, handleAgentMessage } from './protocol-handlers';
+import { handleAgentBinary, handleAgentClose, handleAgentMessage } from './protocol-handlers';
 import { startBuildLogBridge } from './build-log-bridge';
 import type { AgentSocket, AgentWsData } from './registry';
 import { prisma } from '@swarmy/db';
@@ -27,7 +27,10 @@ export const agentWebSocketHandlers = {
     // ws.data is set at upgrade time.
   },
   async message(ws: AgentSocket, message: string | Buffer) {
-    await handleAgentMessage(ws, typeof message === 'string' ? message : message.toString(), deps);
+    // Binary frames are stream chunks (snapshot downloads), only ever sent for
+    // a stream this controller started, and only on a registered socket.
+    if (typeof message !== 'string') return handleAgentBinary(ws, message);
+    await handleAgentMessage(ws, message, deps);
   },
   async close(ws: AgentSocket) {
     await handleAgentClose(ws, deps);

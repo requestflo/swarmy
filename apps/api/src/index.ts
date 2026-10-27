@@ -55,6 +55,7 @@ import {
   type TermWsData,
   type TermSocket,
 } from './terminal';
+import { serveBackupDownload } from './downloads';
 import { startWorkers } from './workers';
 import { startControllerStore } from './controller-store';
 import { webhooksApp } from './webhooks';
@@ -469,6 +470,13 @@ const server = Bun.serve<WsData>({
         data: { state: 'await_register', openedAt: Date.now(), sourceIp } satisfies AgentWsData,
       });
       return upgraded ? undefined : new Response('websocket upgrade failed', { status: 400 });
+    }
+    if (url.pathname === '/api/backups/download') {
+      // A snapshot download streams for as long as it takes; restic may also
+      // spend a while loading the repo index before the first byte. No idle
+      // cutoff for this request: the download hub's own stall sweep ends it.
+      srv.timeout(req, 0);
+      return adaptDirectHttpResponse(req, await serveBackupDownload(adaptDirectHttpRequest(req, directHost, cookiePrefix)), directHost);
     }
     if (url.pathname === '/term/ws') {
       const data = await authorizeTermUpgrade(adaptDirectHttpRequest(req, directHost, cookiePrefix));

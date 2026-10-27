@@ -13,6 +13,7 @@ import {
   type VolumeSizesSample,
 } from '@swarmy/core/protocol';
 import { terminalHub } from '../terminal';
+import { downloadHub } from '../downloads';
 import type {
   ClusterStatsFrame,
   ContainerStatsSnapshot,
@@ -26,6 +27,8 @@ import {
   type AgentHub,
   type CommandName,
   type DispatchDecorator,
+  type DownloadClaims,
+  type DownloadStatusView,
 } from '@swarmy/trpc';
 import type { EdgeTrafficRing } from '@swarmy/core';
 import { asyncQueue, GatewayStore } from './store';
@@ -86,6 +89,15 @@ export class AgentHubImpl implements AgentHub {
   /** Best-effort teardown of a live terminal session's data-plane socket. */
   killTerminalSession(sessionId: string): boolean {
     return terminalHub.killSession(sessionId);
+  }
+
+  /** A single-use ticket for one snapshot download (`/api/backups/download`). */
+  mintDownloadTicket(claims: DownloadClaims): { ticket: string; expiresAt: number } {
+    return downloadHub.mint(claims);
+  }
+
+  downloadStatus(downloadId: string): (DownloadStatusView & { orgId: string; userId: string }) | undefined {
+    return downloadHub.statusOf(downloadId);
   }
 
   /**
