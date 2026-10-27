@@ -17,7 +17,13 @@ function fakeDocker(stdout: string) {
   const docker = {
     pullImage: async (image: string) => void pulled.push(image),
     docker: {
-      getImage: () => ({ inspect: async () => ({ Config: { User: '' } }) }),
+      // On the node once pulled.
+      getImage: (ref: string) => ({
+        inspect: async () => {
+          if (!pulled.includes(ref)) throw new Error('no such image');
+          return { Config: { User: '' } };
+        },
+      }),
       getNetwork: () => ({ connect: async () => undefined }),
       modem: { demuxStream: (_s: unknown, o: { write(b: Buffer): void }) => o.write(Buffer.from(stdout)) },
       createContainer: async (opts: { Image: string }) => {
@@ -49,7 +55,8 @@ describe('restic sidecars (volume backups, restores, listings)', () => {
     const pinned = `${dataImage('restic').ref}@${D('e')}`;
     const f = fakeDocker('[]');
     await listSnapshots(f.docker, list(pinned));
-    expect(f.pulled).toEqual([pinned, pinned]); // `restic init`, then `restic snapshots`
+    // `restic init` pulls it; `restic snapshots` finds it on the node (pinned bytes can't change).
+    expect(f.pulled).toEqual([pinned]);
     expect(f.created).toEqual([pinned, pinned]);
   });
 

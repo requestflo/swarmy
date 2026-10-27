@@ -31,12 +31,12 @@ import {
   ISO_TIMESTAMP_RE,
   SNAPSHOT_REF_RE,
   PGBACKREST_NO_IMAGE,
-  helperImage,
   isPhysicalEngine,
   DEFAULT_COMMAND_TIMEOUTS,
 } from '@swarmy/core/protocol';
 import type { AgentConnection } from '../connection';
 import { putSecretFiles } from './secret-file';
+import { pinnedOnNode, pullHelper } from './helper-pull';
 import { restoreWalgPitr, waitVolumeIdle } from './pitr-restore';
 import { RESTIC_PROGRESS_ENV, progressSender, resticRestoreArgs, restoreReporter, withProgress, type RestoreReporter } from './restore-progress';
 
@@ -138,7 +138,12 @@ export async function runSidecar(
   onLine?: (line: string) => void,
 ): Promise<RunOutput> {
   const d = docker.docker;
-  if (opts.pull !== false) await docker.pullImage(opts.image).catch(() => undefined);
+  // A digest-pinned image already here can't change: re-pulling it only costs a
+  // registry round trip (a timeout on an air-gapped node, a refused anonymous
+  // pull of a mirrored copy).
+  if (opts.pull !== false && !(await pinnedOnNode(docker, opts.image))) {
+    await docker.pullImage(opts.image).catch(() => undefined);
+  }
 
   let stdout = '';
   let stderr = '';
@@ -388,7 +393,7 @@ export async function backupVolume(
   conn: AgentConnection,
   p: BackupVolumePayload,
 ): Promise<import('@swarmy/core/protocol').BackupVolumeResult> {
-  const image = helperImage('restic', p.image);
+  const image = await pullHelper(docker, 'restic', p.image, p.fallbackImage, p.registryAuth);
   const started = Date.now();
   const onLine = streamer(conn, p.commandId);
   await ensureRepo(docker, image, p.repo, p.network);
@@ -444,7 +449,7 @@ export async function restoreVolume(
   conn: AgentConnection,
   p: RestoreVolumePayload,
 ): Promise<import('@swarmy/core/protocol').RestoreVolumeResult> {
-  const image = helperImage('restic', p.image);
+  const image = await pullHelper(docker, 'restic', p.image, p.fallbackImage, p.registryAuth);
   const started = Date.now();
   assertVolumeName(p.targetVolume);
   assertSnapshotRef(p.snapshotId);
@@ -537,7 +542,7 @@ export async function listSnapshots(
   docker: DockerClient,
   p: ListSnapshotsPayload,
 ): Promise<{ snapshots: ResticSnapshotInfo[] }> {
-  const image = helperImage('restic', p.image);
+  const image = await pullHelper(docker, 'restic', p.image, p.fallbackImage, p.registryAuth);
   await ensureRepo(docker, image, p.repo, p.network);
   const tagArgs = p.tags.flatMap((t) => ['--tag', t]);
   const res = await runSidecar(docker, {
@@ -810,8 +815,8 @@ async function backupDbLogical(
   started: number,
   onLine: (line: string) => void,
 ): Promise<DbBackupResult> {
-  const clientImage = helperImage('pgClient', p.clientImage);
-  const resticImage = helperImage('restic', p.resticImage);
+  const clientImage = await pullHelper(docker, 'pgClient', p.clientImage, p.fallbackClientImage, p.registryAuth);
+  const resticImage = await pullHelper(docker, 'restic', p.resticImage, p.fallbackResticImage, p.registryAuth);
   const scratch = scratchVolumeName(p.jobId);
   await docker.docker.createVolume({ Name: scratch });
   try {
@@ -925,7 +930,7 @@ async function backupDbPhysical(
   // from the server's data_directory.
   const layout = await resolvePgDataLayout(docker, p.conn.host, dataVolume);
   if (p.engine === 'wal-g') {
-    const image = helperImage('walg', p.engineImage);
+    const image = await pullHelper(docker, 'walg', p.engineImage, p.fallbackEngineImage, p.registryAuth);
     const res = await runSidecar(
       docker,
       {
@@ -1089,8 +1094,8 @@ async function restoreDbLogical(
   if (isPhysicalEngine(p.engine)) {
     throw new Error(`engine "${p.engine}" supports only pitr restore, not "${p.mode}"`);
   }
-  const clientImage = helperImage('pgClient', p.clientImage);
-  const resticImage = helperImage('restic', p.resticImage);
+  const clientImage = await pullHelper(docker, 'pgClient', p.clientImage, p.fallbackClientImage, p.registryAuth);
+  const resticImage = await pullHelper(docker, 'restic', p.resticImage, p.fallbackResticImage, p.registryAuth);
   const dumpAll = p.engine === 'pg_dumpall';
   if (dumpAll && p.mode === 'single-database') {
     throw new Error('single-database restore needs a pg_dump (per-db) backup, not pg_dumpall');
