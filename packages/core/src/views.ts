@@ -2444,7 +2444,9 @@ export type ResilienceCheckId =
   /** A swarm-kv document, or swarmy's whole swarm-kv footprint, nearing its size limit. */
   | 'swarm-kv-size'
   /** A wal-g PITR cluster's WAL archive has a gap: a restore cannot land inside it. */
-  | 'wal-gap';
+  | 'wal-gap'
+  /** A production database's backups live in one place (no second copy, or one that never landed). */
+  | 'db-one-place';
 
 /** One posture problem with a severity and a link to the page that fixes it. */
 export interface ResilienceProblemView {

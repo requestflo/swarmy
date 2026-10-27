@@ -71,6 +71,7 @@ import { drillProgressBus, type DrillProgress } from './drill-progress';
 import { meshControlProblems, meshControlSignal, type MeshControlSignal } from './resilience-mesh';
 import { swarmKvSizeProblems, swarmKvSizeSignal, type SwarmKvSizeSignal } from './resilience.swarm-kv';
 import { walGapProblems, walGapSignal, type WalGapSignal } from './resilience.wal-gaps';
+import { dbCopySignal, dbOnePlaceProblems, type DbCopySignal } from './resilience.db-copies';
 
 // ── Read-only label mirrors (A3/E4 schemes; canonical copies live with owners) ─
 const CACHE_ROLE_LABEL = 'swarmy.cache.role';
@@ -139,6 +140,8 @@ export interface ResilienceSnapshot {
   swarmKvSize?: SwarmKvSizeSignal;
   /** wal-g PITR clusters with their last WAL check (absent = not gathered). */
   walGaps?: WalGapSignal;
+  /** Scheduled managed Postgres clusters and where their saves live (absent = not gathered). */
+  dbCopies?: DbCopySignal;
 }
 
 // ── Pure helpers ───────────────────────────────────────────────────────────────
@@ -389,6 +392,8 @@ export function runChecks(snap: ResilienceSnapshot): ResilienceProblemView[] {
   out.push(...swarmKvSizeProblems(snap.swarmKvSize));
   // 9e. A WAL gap in a PITR cluster's archive: a restore can't land inside it.
   out.push(...walGapProblems(snap.walGaps));
+  // 9f. A production database whose backups live in one place (no second copy, or one that never landed).
+  out.push(...dbOnePlaceProblems(snap.dbCopies));
 
   // 10–12. Swarm manager quorum (WS2). The check ids are additive to
   // ResilienceCheckId; the views.ts union is owned by another workstream this
@@ -609,7 +614,12 @@ export async function buildSnapshot(ctx: OrgContext, stack?: string): Promise<Re
       listDrillHistory(ctx, 50, stack),
     ]);
 
-  const offsite = await offsiteSnapshot(ctx, stack).catch(() => null);
+  const dbCopies = await dbCopySignal(ctx, stack).catch(() => undefined);
+  // Database schedules count for the off-site check too: theirs is the schedule label, not a swarm-kv row.
+  const volumeOffsite = await offsiteSnapshot(ctx, stack).catch(() => null);
+  const offsite = volumeOffsite && dbCopies
+    ? { schedules: volumeOffsite.schedules + dbCopies.clusters.length, offsiteSchedules: volumeOffsite.offsiteSchedules + dbCopies.clusters.filter((c) => c.offsite).length }
+    : volumeOffsite;
   // No store runtime in this process (tests, tools) → no signal, not "local only".
   const controllerStore = await getStoreStatus(ctx).then(controllerStoreSignal).catch(() => null);
   const meshControl = await meshControlSignal(ctx).catch(() => undefined);
@@ -651,6 +661,7 @@ export async function buildSnapshot(ctx: OrgContext, stack?: string): Promise<Re
     ...(meshControl ? { meshControl } : {}),
     ...(swarmKvSize ? { swarmKvSize } : {}),
     ...(walGaps ? { walGaps } : {}),
+    ...(dbCopies ? { dbCopies } : {}),
   };
 }
 

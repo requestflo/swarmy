@@ -374,6 +374,20 @@ try {
     fail(`server controls: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`);
   }
 
+  // Board 40: turn a production database's off-site copy off, and the list says its backups are in one place.
+  try {
+    const before = pageErrors.length;
+    await page.goto(`${BASE}/stacks/storefront/backups`, { waitUntil: 'networkidle' });
+    await page.getByRole('group', { name: 'Detail on this page' }).getByRole('button', { name: 'Controls' }).first().click();
+    await page.getByRole('combobox').filter({ hasText: 'Cloudflare R2 (off-site)' }).first().click();
+    await page.getByRole('option', { name: 'No second copy' }).click();
+    await page.getByText('Production database storefront/checkout has its backups in one place').first().waitFor({ timeout: 20_000 });
+    if (pageErrors.length > before) fail(`db one place: ${pageErrors.slice(before).join(' | ')}`);
+    else console.log('✓ board 40: no second copy → "storefront/checkout has its backups in one place"');
+  } catch (e) {
+    fail(`db one place: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`);
+  }
+
   // The banner links back out.
   await page.goto(`${BASE}/`, { waitUntil: 'networkidle' });
   const links = await page

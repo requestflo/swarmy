@@ -456,6 +456,19 @@ describe('storage-offsite check', () => {
   });
 });
 
+describe('db-one-place check', () => {
+  const one = { stack: 'shop', cluster: 'main', production: true, engine: 'pg_dump' as const, targetName: 'B2', inCluster: false, copy: 'none' as const, lastError: null, offsite: true };
+
+  it('a production database with its backups in one place is in the list', () => {
+    expect(byCheck(runChecks(healthySnapshot({ dbCopies: { clusters: [one] } })), 'db-one-place').map((x) => [x.id, x.severity])).toEqual([['db-one-place/shop/main', 'warn']]);
+  });
+
+  it('is quiet without the signal and once a second copy has landed', () => {
+    expect(byCheck(runChecks(healthySnapshot()), 'db-one-place')).toHaveLength(0);
+    expect(byCheck(runChecks(healthySnapshot({ dbCopies: { clusters: [{ ...one, copy: 'landed' }] } })), 'db-one-place')).toHaveLength(0);
+  });
+});
+
 describe('wal-gap check', () => {
   const gap = { from: '2026-07-01T13:10:00.000Z', to: '2026-07-01T13:25:00.000Z', segments: 2, startSegment: 'S0A', endSegment: 'S0B', reachableAgainAt: null };
   const check = { source: 'agent' as const, status: 'gaps' as const, continuousSince: gap.to, latestWalAt: NOW, gaps: [gap], pendingSegments: 0, timeline: 'ok' as const, checkedAt: NOW };

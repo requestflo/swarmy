@@ -60,6 +60,7 @@ import { dbWalCheck } from './resolvers/db-wal-check';
 import { dbRestoreProgress } from './resolvers/db-restore-progress';
 import { backupCopyLag } from './resolvers/backup-copy-lag';
 import { dbBackupCopy } from './resolvers/db-backup-copy';
+import { dbOnePlace } from './resolvers/db-one-place';
 import { dbBackupEngines } from './resolvers/db-backup-engines';
 import { controllerstore } from './resolvers/controllerstore';
 import { platform } from './resolvers/platform';
@@ -252,6 +253,8 @@ const MODULES: DomainResolvers[] = [
   backupCopyLag,
   // Wraps data's dbBackups.* reads and backupCopyLag's copyLag (a database's off-site copy), so it comes after both.
   dbBackupCopy,
+  // Wraps resilience's overview (a production database saved in one place), so it comes after it and dbBackupCopy.
+  dbOnePlace,
 ];
 
 export const HANDLERS: Record<string, DemoHandler> = Object.assign(
