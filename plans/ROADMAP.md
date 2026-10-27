@@ -156,6 +156,17 @@ server and the BuildKit registry cache. What is left (none launch-blocking):
   on the next tick if cut short. A planned zero-data-loss switchover
   (`db.switchover`) shipped the same day. Owed: a real failover drill (secret
   delivery, the roll's downtime, removing a secret a draining task mounts).
+- Fixed 2026-10-27: failover could promote a multi-copy standby service as a
+  whole (several copies, one writer name). Promotion now targets one copy,
+  marked before `pg_promote()`, then reshapes to one pinned copy; it refuses
+  loudly on two writers. Every promotion path also pins the writer to its
+  data's server and carries a geo cluster's region declarations (a reconcile
+  guard repairs either on the next tick). Still open: in geo, the demoted
+  writer is treated as the base standby geo parks at 0 copies, so with a
+  parked base standby service too, the cluster tracks only one of the two.
+- Database backups can copy to a second destination (logical dumps re-run
+  into it; wal-g PITR via `wal-g copy` after each base backup), with the lag
+  on the page and a Resilience warning for one-place production backups.
 - PgBouncer for managed Postgres shipped 2026-10-26 (`swarmy.db.pooler`,
   `auth_query` through its own role so a rotation needs no restart, repointed
   in the promotion pass, apps connect `via: 'pooler'`). Owed: a pass on a real
