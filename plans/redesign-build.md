@@ -324,6 +324,11 @@ plan's YAML diff tab and untouched boxes (26); Paste .env's environment target
 and swarmy.yaml-locked rows (58); search Reindex by swapping in a rebuild (41 —
 the engine switch is explained, not built); the PgBouncer pooler (39).
 
+**Since (2026-10-27):** snapshot download — browse a volume save and take a
+file or folder away as `.tar.gz` (16; the agent streams it, so the seventh
+pass's "can't stream large bodies" no longer holds); four weeks of traffic on
+Platform, from hourly rollups kept 35 days (52).
+
 Found, not fixed (worth deciding):
 
 - Board 52 offers "All minor updates" for auto-patching; the upgrades epic

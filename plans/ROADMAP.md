@@ -12,7 +12,7 @@ How the docs fit together:
 - **`.claude/skills/`** — how to work in the code: invariants and file maps.
 - **`plans/`** — only work that is still being designed or built:
   - [`epic-platform-upgrades.md`](./epic-platform-upgrades.md) — one-button,
-    health-gated upgrades of every platform component (in progress).
+    health-gated upgrades of every platform component (phases 1–3 built).
   - [`redesign-build.md`](./redesign-build.md) — the 69-board canvas built in
     Calm Layers: what's built, what's deferred and why (the build record;
     [`redesign-dashboard-2026-09.md`](./redesign-dashboard-2026-09.md) is the
@@ -111,8 +111,9 @@ server and the BuildKit registry cache. What is left (none launch-blocking):
   claim URIs; encrypted assertions are not supported. "Members sign in with
   SSO only" (owner break-glass: password + 2FA, audited) and SSO-only invites
   shipped 2026-10-26; protected apps run the same 2FA / SSO-only walls as the
-  dashboard. Gap: a new SAML user with a link-only SSO invite and
-  auto-provisioning off can't sign up (the IdP's POST drops the invite cookie).
+  dashboard. Fixed 2026-10-27: a new SAML user on a link-only SSO invite with
+  auto-provisioning off can sign up (the invite rides the signed AuthnRequest
+  record, since the IdP's cross-site POST drops the invite cookie).
 - Open question: a second, agent-side factor for privileged capabilities (node
   shell, mesh, builds), so a compromised controller alone can't use them.
 - Viewer / Developer roles (board 48 shows them) — an owner decision; today's
@@ -236,9 +237,9 @@ server and the BuildKit registry cache. What is left (none launch-blocking):
   Ready nodes, unreachable gossip/VXLAN), dind nodes refused to restart (a
   daemon flag also in daemon.json), and the upgrade started before agents
   redialled. Passes locally (arm64) through reschedule; controller-move and
-  upgrade still need a run on GitHub's amd64 runner. (The upgrade preflight's
-  duplicate image copies are deduped in-process; a controller restart
-  mid-preflight can still leave a stray copy running.)
+  upgrade still need a run on GitHub's amd64 runner. (Since 2026-10-27 a
+  controller restart mid-preflight no longer starts a second image copy: the
+  agent joins the one still running by its `swarmy.copy.key` label.)
 - Air-gapped installs: `install-swarmy.sh --bundle <tar>` (2026-10-25) checks
   the signature, loads every image and installs with no pulls; the controller
   seeds the built-in registry from it. Needs Docker's containerd image store,

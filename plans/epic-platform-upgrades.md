@@ -1,7 +1,12 @@
 # Epic: Platform upgrades — one button, never rebuild a cluster
 
-> Status: in progress. Phase 1 (Garage v2) is being built first because it is the
-> hardest upgrade the platform has to perform and it forces the upgrade primitives.
+> Status: phases 1–3 built — the Garage v1→v2 roll (`platform-garage-roll.ts`),
+> the manifest with digest pins and drift (`@swarmy/core` `platform-manifest.ts`,
+> `platform-drift`), and the resumable upgrade run with the feed URL setting,
+> release-key verification (`platform-verify.ts`), channels, auto-patch,
+> pause/resume/abandon and offline bundles (`platform-bundle.*`). Open: board 52's
+> "All minor updates" (this epic auto-applies patch releases only) —
+> `redesign-build.md`.
 
 ## Problem
 
