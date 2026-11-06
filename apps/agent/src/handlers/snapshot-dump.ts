@@ -11,7 +11,7 @@ import {
 import type { AgentConnection } from '../connection';
 import { env } from '../env';
 import { DumpPump, type PumpEnd } from './dump-pump';
-import { dumpArgs, readSidecar } from './snapshot-read';
+import { dumpArgs, prepareRead } from './snapshot-read';
 import { prepareSidecarStream, type SidecarStream } from './sidecar-stream';
 
 /**
@@ -89,7 +89,7 @@ export async function handleSnapshotDump(docker: DockerClient, conn: AgentConnec
   }, 5_000);
 
   try {
-    const side = await prepareSidecarStream(docker, { ...readSidecar(p), args: dumpArgs(p) }, (data) => session.pump.data(data));
+    const side = await prepareSidecarStream(docker, { ...(await prepareRead(docker, p)), args: dumpArgs(p) }, (data) => session.pump.data(data));
     session.side = side;
     if (session.pump.done) return side.kill(); // canceled while the image pulled
     await side.start();

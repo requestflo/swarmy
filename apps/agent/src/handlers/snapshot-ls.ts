@@ -1,7 +1,7 @@
 import type { DockerClient } from '@swarmy/core/docker';
 import type { SnapshotEntry, SnapshotLsPayload, SnapshotLsResult } from '@swarmy/core/protocol';
 import { stderrWhy } from './dump-pump';
-import { lsArgs, readSidecar } from './snapshot-read';
+import { lsArgs, prepareRead } from './snapshot-read';
 import { prepareSidecarStream } from './sidecar-stream';
 
 /**
@@ -42,7 +42,7 @@ export function foldLs(path: string, entries: SnapshotEntry[], limit: number): S
 }
 
 export async function snapshotLs(docker: DockerClient, p: SnapshotLsPayload): Promise<SnapshotLsResult> {
-  const sc = readSidecar(p);
+  const sc = await prepareRead(docker, p);
   const entries: SnapshotEntry[] = [];
   let tail = '';
   let stopped = false;

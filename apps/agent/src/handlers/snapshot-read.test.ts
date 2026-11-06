@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'bun:test';
+import type { DockerClient } from '@swarmy/core/docker';
+import { dataImage } from '@swarmy/core/data-images';
 import { DEFAULT_RESTIC_IMAGE } from '@swarmy/core/protocol';
-import { dumpArgs, lsArgs, readSidecar } from './snapshot-read';
+import { dumpArgs, lsArgs, prepareRead, readSidecar } from './snapshot-read';
 import { foldLs, parseLsLine } from './snapshot-ls';
 
 const S3 = { kind: 's3' as const, repo: 's3:https://s3.example.com/b', password: 'pw', accessKeyId: 'AK', secretAccessKey: 'SK' };
@@ -24,6 +26,63 @@ describe('readSidecar (how restic reads a save)', () => {
 
   it('runs only the restic image', () => {
     expect(() => readSidecar({ repo: S3, image: 'alpine:3' })).toThrow('only the restic image');
+  });
+
+  it('its mirrored copy is restic too, and so must its fallback be', () => {
+    expect(readSidecar({ repo: S3, image: MIRROR, fallbackImage: UP }).image).toBe(MIRROR);
+    expect(() => readSidecar({ repo: S3, image: 'localhost:5000/swarmy-system/docker.io/library/alpine:3' })).toThrow('only the restic image');
+    expect(() => readSidecar({ repo: S3, image: MIRROR, fallbackImage: 'alpine:3' })).toThrow('only the restic image');
+  });
+});
+
+// A mirrored read image: the in-cluster copy with the mirror login, then upstream.
+const UP = `${dataImage('restic').ref}@${dataImage('restic').digest}`;
+const MIRROR = `localhost:5000/swarmy-system/docker.io/restic/restic:0.16.4@${dataImage('restic').digest}`;
+const AUTH = { username: 'swarmy', password: 'pw', server: 'localhost:5000' };
+
+/** Docker that can pull `pullable` (only with a login for the mirror) and has `present` on the node. */
+function fakeDocker(o: { pullable?: string[]; present?: string[] } = {}) {
+  const pulls: { ref: string; auth: boolean }[] = [];
+  const on = new Set(o.present ?? []);
+  const docker = {
+    pullImage: async (ref: string, auth?: unknown) => {
+      pulls.push({ ref, auth: !!auth });
+      if (!(o.pullable ?? []).includes(ref) || (ref === MIRROR && !auth)) throw new Error(`pull ${ref} failed`);
+      on.add(ref);
+    },
+    docker: {
+      getImage: (ref: string) => ({
+        inspect: async () => {
+          if (!on.has(ref)) throw new Error('no such image');
+          return {};
+        },
+      }),
+    },
+  };
+  return { docker: docker as unknown as DockerClient, pulls };
+}
+
+describe('prepareRead (pulling the read image)', () => {
+  it('pulls the mirrored copy with the login, and the sidecar does not pull it again', async () => {
+    const d = fakeDocker({ pullable: [MIRROR, UP] });
+    const sc = await prepareRead(d.docker, { repo: S3, image: MIRROR, fallbackImage: UP, registryAuth: AUTH });
+    expect(sc.image).toBe(MIRROR);
+    expect(sc.pull).toBe(false);
+    expect(d.pulls).toEqual([{ ref: MIRROR, auth: true }]);
+  });
+
+  it('runs upstream when the mirror can’t serve it', async () => {
+    const d = fakeDocker({ pullable: [UP] });
+    const sc = await prepareRead(d.docker, { repo: S3, image: MIRROR, fallbackImage: UP, registryAuth: AUTH });
+    expect(sc.image).toBe(UP);
+    expect(d.pulls.map((p) => p.ref)).toEqual([MIRROR, UP]);
+  });
+
+  it('an older controller sends neither: nothing pulled here, the sidecar pulls as before', async () => {
+    const d = fakeDocker({ pullable: [UP] });
+    const sc = await prepareRead(d.docker, { repo: S3, image: UP });
+    expect(sc).toMatchObject({ image: UP, pull: true });
+    expect(d.pulls).toEqual([]);
   });
 });
 

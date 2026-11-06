@@ -1,5 +1,6 @@
 import type { DockerClient } from '@swarmy/core/docker';
 import { createFrameDemuxer } from '../frame-demux';
+import { pinnedOnNode } from './helper-pull';
 
 /**
  * A one-shot sidecar whose stdout is STREAMED, not collected (`runSidecar`
@@ -33,11 +34,15 @@ const STDERR_KEEP = 8192;
 
 export async function prepareSidecarStream(
   docker: DockerClient,
-  opts: { image: string; args: string[]; env: string[]; binds: string[]; networkMode?: string },
+  opts: { image: string; args: string[]; env: string[]; binds: string[]; networkMode?: string; pull?: boolean },
   onStdout: (data: Buffer) => void,
 ): Promise<SidecarStream> {
   const d = docker.docker;
-  await docker.pullImage(opts.image).catch(() => undefined);
+  // `pull: false`: the caller pulled it (a mirrored copy needs the login). A
+  // digest-pinned image already here can't change, so it isn't pulled again.
+  if (opts.pull !== false && !(await pinnedOnNode(docker, opts.image))) {
+    await docker.pullImage(opts.image).catch(() => undefined);
+  }
   const container = await d.createContainer({
     Image: opts.image,
     Cmd: opts.args,
