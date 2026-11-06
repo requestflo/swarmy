@@ -16,6 +16,7 @@ import {
   AGENT_CAPABILITY,
   HELPER_FALLBACK_FIELD,
   agentSupports,
+  type AgentCapability,
   type HelperField,
 } from '@swarmy/core/protocol';
 import type { AgentHub, CommandName } from '../hub/types';
@@ -28,6 +29,7 @@ export const HELPER_FIELDS: Readonly<Partial<Record<CommandName, readonly Helper
   'backup.run': ['image'],
   'backup.restore': ['image'],
   'backup.list': ['image'],
+  'backup.ls': ['image'],
   'appdb.backup': ['resticImage'],
   'appdb.restore': ['resticImage'],
   'appdb.verify': ['resticImage'],
@@ -77,8 +79,24 @@ export function mirrorHelperImages<P>(cmd: CommandName, payload: P, toMirror: (r
   return Object.keys(add).length ? ({ ...p, ...add } as P) : payload;
 }
 
-/** Does the agent on `nodeId` pull a mirrored helper with its login and fall back? Unknown node / older agent: no. */
-export function agentTakesMirroredHelpers(hub: Pick<AgentHub, 'agentBuildFor'> | undefined, nodeId: string | undefined): boolean {
+/**
+ * The capability that says an agent pulls a command's mirrored helper with
+ * the login. The backup-browse read path learned it later than the backup
+ * sidecars (`snapshotReadMirror`): an agent with only `helperImageMirror`
+ * would pull a mirrored read image anonymously, and the registry refuses it.
+ */
+const MIRROR_CAPABILITY: Partial<Record<CommandName, AgentCapability>> = {
+  'backup.ls': AGENT_CAPABILITY.snapshotReadMirror,
+};
+
+/** Does the agent on `nodeId` pull `cmd`'s mirrored helper with its login and fall back? Unknown node / older agent: no. */
+export function agentTakesMirroredHelpers(
+  hub: Pick<AgentHub, 'agentBuildFor'> | undefined,
+  nodeId: string | undefined,
+  cmd?: CommandName,
+): boolean {
   if (!nodeId || !hub?.agentBuildFor) return false;
-  return agentSupports(hub.agentBuildFor(nodeId)?.capabilities, AGENT_CAPABILITY.helperImageMirror);
+  const caps = hub.agentBuildFor(nodeId)?.capabilities;
+  const extra = cmd ? MIRROR_CAPABILITY[cmd] : undefined;
+  return agentSupports(caps, AGENT_CAPABILITY.helperImageMirror) && (!extra || agentSupports(caps, extra));
 }

@@ -246,9 +246,9 @@ server and the BuildKit registry cache. What is left (none launch-blocking):
   and a run on a real box with no route out. Managed-data images are in the
   BOM since 2026-10-26 (+~1.9 GB; `--without data-images` leaves them out).
   Backup, restore and dump sidecars pull by digest through the mirror (an
-  upstream fallback) since 2026-10-27; snapshot browse/download's restic
-  sidecar doesn't yet (the agent's only-restic-may-read guard refuses the
-  mirrored repo, and the stream bypasses the dispatch decorator).
+  upstream fallback) since 2026-10-27, and snapshot browse/download's restic
+  since 2026-11-06 (agents advertising `snapshotReadMirror`; the download's
+  start goes through the dispatch decorator as `backup.ls`).
 - Snapshot download (2026-10-27) runs on Bun 1.3.14 with the controller
   buffering a slow browser's download in memory (sized to memory: an eighth
   per download, a quarter in all). Moving the controller image to Bun 1.4

@@ -163,7 +163,8 @@ export interface DownloadClaims {
   orgId: string;
   userId: string;
   nodeId: string;
-  start: Pick<SnapshotDumpPayload, 'repo' | 'snapshotId' | 'path' | 'kind' | 'image' | 'network'>;
+  /** The restic image arrives as `backup.ls`'s would: digest-pinned, mirrored with its fallback and login. */
+  start: Pick<SnapshotDumpPayload, 'repo' | 'snapshotId' | 'path' | 'kind' | 'image' | 'fallbackImage' | 'registryAuth' | 'network'>;
   fileName: string;
   maxBytes: number;
   /** A single file: the controller wraps restic's bytes in this tar entry. */
@@ -323,6 +324,12 @@ export interface AgentHub {
    * Optional: test/demo hubs have no download route.
    */
   mintDownloadTicket?(claims: DownloadClaims): { ticket: string; expiresAt: number };
+  /**
+   * Run a payload through the dispatch decorator without sending it: for a
+   * stream start that isn't a command (`snapshotDump`), so its sidecar image
+   * is pinned and mirrored like `cmd`'s. Optional: test/demo hubs return it as is.
+   */
+  decorateDispatch?(orgId: string, cmd: CommandName, payload: unknown, nodeId?: string): Promise<unknown>;
   /** A download's progress, with who started it (the router checks both). */
   downloadStatus?(downloadId: string): (DownloadStatusView & { orgId: string; userId: string }) | undefined;
 }

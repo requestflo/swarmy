@@ -214,7 +214,7 @@ export function createRegistryAuthDecorator(
   const mirror = async (orgId: string, cmd: CommandName, payload: unknown, nodeId?: string): Promise<unknown> => {
     if (!liveInventory || !MIRROR_CMDS.has(cmd)) return payload;
     // An older agent pulls its sidecar without a login: keep it on upstream refs.
-    if (isHelperImageCommand(cmd) && !agentTakesMirroredHelpers(hub, nodeId)) return payload;
+    if (isHelperImageCommand(cmd) && !agentTakesMirroredHelpers(hub, nodeId, cmd)) return payload;
     try {
       // The running release's digests (platform manifest) — the compiled BOM
       // until a platform upgrade has recorded one.

@@ -65,6 +65,20 @@ export async function browseSnapshot(
   };
 }
 
+/**
+ * The dump runs the same restic read sidecar as `backup.ls`, so its image
+ * arrives the same way: digest-pinned and, on a cluster with a trusted mirror
+ * and an agent that takes it, the mirrored copy with its fallback and login.
+ * The start isn't a dispatch, so it asks the decorator itself; only the
+ * image fields are taken from it.
+ */
+export async function readImageFor(ctx: OrgContext, nodeId: string, start: DownloadClaims['start']): Promise<DownloadClaims['start']> {
+  const out = (await ctx.hub.decorateDispatch?.(ctx.activeOrgId, 'backup.ls', start, nodeId)) as Partial<DownloadClaims['start']> | undefined;
+  if (!out) return start;
+  const { image, fallbackImage, registryAuth } = out;
+  return { ...start, ...(image ? { image } : {}), ...(fallbackImage ? { fallbackImage } : {}), ...(registryAuth ? { registryAuth } : {}) };
+}
+
 export async function mintSnapshotDownload(
   ctx: OrgContext,
   input: { snapshotId: string; path: string },
@@ -85,7 +99,7 @@ export async function mintSnapshotDownload(
     orgId: ctx.activeOrgId,
     userId: ctx.user.id,
     nodeId: r.nodeId,
-    start: { repo: r.repo, snapshotId: r.snapshot.resticId, path: r.abs, kind: node.type, network: r.network },
+    start: await readImageFor(ctx, r.nodeId, { repo: r.repo, snapshotId: r.snapshot.resticId, path: r.abs, kind: node.type, network: r.network }),
     fileName,
     maxBytes,
     // A file comes out of restic as its bare bytes: the controller wraps it in

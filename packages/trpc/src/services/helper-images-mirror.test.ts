@@ -93,7 +93,7 @@ describe('rewriteSystemImages — every backup/restore/dump command pulls throug
 
 describe('the helper field table', () => {
   it('covers exactly the commands whose sidecars are digest-pinned', () => {
-    const all: CommandName[] = ['appdb.backup', 'appdb.restore', 'appdb.verify', 'backup.list', 'backup.restore', 'backup.run'];
+    const all: CommandName[] = ['appdb.backup', 'appdb.restore', 'appdb.verify', 'backup.list', 'backup.ls', 'backup.restore', 'backup.run'];
     all.push('db.backup', 'db.pitrWindow', 'db.restore', 'db.walVerify', 'db.walgCopy');
     expect([...HELPER_IMAGE_COMMANDS].sort()).toEqual(all);
     for (const cmd of HELPER_IMAGE_COMMANDS) {

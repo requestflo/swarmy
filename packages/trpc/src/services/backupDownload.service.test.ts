@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'bun:test';
 import { encryptSecret } from '@swarmy/core/crypto';
 import type { SnapshotLsResult } from '@swarmy/core/protocol';
 import type { DownloadClaims } from '../hub/types';
-import { browseSnapshot, mintSnapshotDownload, snapshotDownloadStatus } from './backupDownload.service';
+import { browseSnapshot, mintSnapshotDownload, readImageFor, snapshotDownloadStatus } from './backupDownload.service';
 import { seedKv, useMemoryKv } from './swarm-kv.service';
 
 process.env.SWARMY_SECRET_KEY ??= 'test-secret-key-for-backup-download';
@@ -101,5 +101,28 @@ describe('snapshotDownloadStatus', () => {
   it('shows a download only to the person who started it', () => {
     expect(snapshotDownloadStatus(ctx(), 'd1')).toEqual({ state: 'streaming', bytes: 10, error: null, updatedAt: 1 });
     expect(snapshotDownloadStatus(ctx({ user: 'someone-else' }), 'd1')).toBeNull();
+  });
+});
+
+describe('readImageFor (the dump’s restic image)', () => {
+  const START = { repo: { kind: 's3' as const, repo: 's3:x', password: 'pw' }, snapshotId: 'abc123', path: '/data/a.txt', kind: 'file' as const };
+  const MIRROR = 'localhost:5000/swarmy-system/docker.io/restic/restic:0.16.4@sha256:' + 'a'.repeat(64);
+  const AUTH = { username: 'swarmy', password: 'pw', server: 'localhost:5000' };
+
+  it('takes the image, its fallback and the login the decorator gives backup.ls, nothing else', async () => {
+    const seen: unknown[] = [];
+    const hub = {
+      decorateDispatch: async (orgId: string, cmd: string, payload: object, nodeId?: string) => {
+        seen.push({ orgId, cmd, nodeId });
+        return { ...payload, image: MIRROR, fallbackImage: 'restic/restic:0.16.4', registryAuth: AUTH, path: '/etc/shadow' };
+      },
+    };
+    const out = await readImageFor({ hub, activeOrgId: 'org1' } as never, 'n1', START);
+    expect(seen).toEqual([{ orgId: 'org1', cmd: 'backup.ls', nodeId: 'n1' }]);
+    expect(out).toEqual({ ...START, image: MIRROR, fallbackImage: 'restic/restic:0.16.4', registryAuth: AUTH });
+  });
+
+  it('a hub with no decorator leaves the start as it is (the agent runs its own restic)', async () => {
+    expect(await readImageFor({ hub: {}, activeOrgId: 'org1' } as never, 'n1', START)).toBe(START);
   });
 });

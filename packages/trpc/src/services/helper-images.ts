@@ -23,6 +23,7 @@ function fieldsFor(cmd: CommandName, payload: { engine?: unknown }): Fields | nu
     case 'backup.run':
     case 'backup.restore':
     case 'backup.list':
+    case 'backup.ls':
       return { image: 'restic' };
     case 'appdb.backup':
     case 'appdb.restore':

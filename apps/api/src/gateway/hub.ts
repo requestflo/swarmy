@@ -108,6 +108,12 @@ export class AgentHubImpl implements AgentHub {
     this.decorate = fn;
   }
 
+  /** The dispatch decorator on its own, for a stream start that isn't a command. Fails open, like dispatch. */
+  async decorateDispatch(orgId: string, cmd: CommandName, payload: unknown, nodeId?: string): Promise<unknown> {
+    if (!this.decorate) return payload;
+    return this.decorate(orgId, cmd, payload, nodeId).catch(() => payload);
+  }
+
   /**
    * Called by the protocol handler on a non-terminal `running` frame carrying
    * `progress`: a heartbeat that re-arms the deadline (see

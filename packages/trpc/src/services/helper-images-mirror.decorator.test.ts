@@ -97,4 +97,12 @@ describe('agentTakesMirroredHelpers', () => {
     expect(agentTakesMirroredHelpers(hub as never, undefined)).toBe(false);
     expect(agentTakesMirroredHelpers(undefined, 'a')).toBe(false);
   });
+
+  it('a backup browse also needs the read path to take the login (snapshotReadMirror)', () => {
+    const caps: Record<string, string[]> = { old: ['helperImageMirror', 'snapshotLs'], new: ['helperImageMirror', 'snapshotLs', 'snapshotReadMirror'] };
+    const hub = { agentBuildFor: (id: string) => ({ version: '1', capabilities: caps[id] ?? [] }) };
+    expect(agentTakesMirroredHelpers(hub as never, 'old', 'backup.run')).toBe(true);
+    expect(agentTakesMirroredHelpers(hub as never, 'old', 'backup.ls')).toBe(false);
+    expect(agentTakesMirroredHelpers(hub as never, 'new', 'backup.ls')).toBe(true);
+  });
 });
