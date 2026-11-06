@@ -274,8 +274,14 @@ export interface Cluster {
   /** `<stack>_<cluster>` — sibling service names derive from this. */
   base: string;
   primary?: SwarmServiceInfo;
-  /** Base (unregioned) read-replica service. */
+  /** Base (unregioned) read-replica service: `<base>-replica` when there is one ({@link baseStandby}). */
   replica?: SwarmServiceInfo;
+  /**
+   * Other unregioned standby services. In geo a demoted writer becomes one
+   * beside the parked base standby; they are tracked like it (lag, promotion,
+   * repoint, guards) and always parked, never given the declared copies.
+   */
+  spareReplicas?: SwarmServiceInfo[];
   /** failover consensus member. */
   dcs?: SwarmServiceInfo;
   /** PITR wal-shipper sidecar (A2). */
@@ -459,8 +465,8 @@ function replicaStorageSpec(
 }
 
 /** PURE — does any member of the cluster still carry its password as plain env? */
-export function needsCredentialMigration(c: Pick<Cluster, 'primary' | 'replica' | 'extraPrimaries' | 'regionReplicas'>): boolean {
-  const members = [c.primary, c.replica, ...c.extraPrimaries.values(), ...c.regionReplicas.values()].filter(
+export function needsCredentialMigration(c: Pick<Cluster, 'primary' | 'replica' | 'spareReplicas' | 'extraPrimaries' | 'regionReplicas'>): boolean {
+  const members = [c.primary, c.replica, ...(c.spareReplicas ?? []), ...c.extraPrimaries.values(), ...c.regionReplicas.values()].filter(
     (m): m is SwarmServiceInfo => Boolean(m),
   );
   return members.some((m) => pgNeedsCredentialMigration(envRecord(m.env ?? []), m.labels));
@@ -567,9 +573,9 @@ async function execIn(
   }
 }
 
-/** Replica-role members eligible for lag telemetry + promotion. */
-function replicaMembers(c: Cluster): SwarmServiceInfo[] {
-  return [c.replica, ...c.regionReplicas.values()].filter(
+/** Replica-role members eligible for lag telemetry + promotion (spares too: a promotion repoints them). */
+export function replicaMembers(c: Cluster): SwarmServiceInfo[] {
+  return [c.replica, ...(c.spareReplicas ?? []), ...c.regionReplicas.values()].filter(
     (s): s is SwarmServiceInfo => Boolean(s),
   );
 }
@@ -1390,9 +1396,35 @@ async function runDueBackupsSweep(now: Date): Promise<void> {
 
 // ── Reconcile ─────────────────────────────────────────────────────────────────
 
+/**
+ * PURE — the base standby among a cluster's unregioned standby services.
+ * In geo a failover promotes a region sibling, and the demoted writer
+ * becomes an unregioned standby beside the parked `<base>-replica`: two
+ * services, where one slot used to hold whichever came last. The one named
+ * `<base>-replica` (else the first by name) is the base standby; the rest
+ * are spares.
+ */
+export function baseStandby(base: string, regionless: readonly SwarmServiceInfo[]): { replica?: SwarmServiceInfo; spares: SwarmServiceInfo[] } {
+  const sorted = [...regionless].sort((a, b) => a.name.localeCompare(b.name));
+  const replica = sorted.find((s) => s.name === `${base}-replica`) ?? sorted[0];
+  return { ...(replica ? { replica } : {}), spares: sorted.filter((s) => s !== replica) };
+}
+
+/**
+ * PURE — the spares to park this tick: the ones still running, unless a
+ * promotion has marked one (the promotion pass owns it until it lands).
+ * At steady state: none.
+ */
+export function parkSpares(c: Pick<Cluster, 'spareReplicas'>): string[] {
+  return (c.spareReplicas ?? [])
+    .filter((s) => (s.desiredReplicas ?? 0) > 0 && !s.labels[DB_FAILOVER_PROMOTING_LABEL])
+    .map((s) => s.name);
+}
+
 /** Every managed-DB service indexed into its cluster, keyed by `<stack> <cluster>`. */
 export function indexClusters(services: readonly SwarmServiceInfo[]): Map<string, Cluster> {
   const clusters = new Map<string, Cluster>();
+  const regionless = new Map<Cluster, SwarmServiceInfo[]>();
   const clusterOf = (s: SwarmServiceInfo, cluster: string): Cluster => {
     const stack = s.labels[STACK_LABEL] ?? '';
     const key = `${stack} ${cluster}`;
@@ -1432,8 +1464,13 @@ export function indexClusters(services: readonly SwarmServiceInfo[]): Map<string
       else c.primary = s;
     } else if (role === 'replica') {
       if (region) c.regionReplicas.set(region, s);
-      else c.replica = s;
+      else (regionless.get(c) ?? regionless.set(c, []).get(c)!).push(s);
     }
+  }
+  for (const [c, list] of regionless) {
+    const { replica, spares } = baseStandby(c.base, list);
+    if (replica) c.replica = replica;
+    if (spares.length > 0) c.spareReplicas = spares;
   }
   return clusters;
 }
@@ -1633,6 +1670,9 @@ async function reconcileOrg(orgId: string): Promise<void> {
       if (move === 'scale') await scale(c.replica.name, target);
       else if (move === 'rebuild') await deploy(replicaStorageSpec(c.replica, c.replica.labels, clusterNet(c), nodes, target));
     }
+    //     A spare (geo: the demoted writer beside the parked base standby)
+    //     stays parked in every topology; its data stays on its volume.
+    for (const spare of parkSpares(c)) await scale(spare, 0);
 
     // (2) failover — leader observation. (No etcd member: see dcsToRemove.)
     const staleDcs = dcsToRemove(c);

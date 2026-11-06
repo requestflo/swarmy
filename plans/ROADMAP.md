@@ -162,9 +162,13 @@ server and the BuildKit registry cache. What is left (none launch-blocking):
   marked before `pg_promote()`, then reshapes to one pinned copy; it refuses
   loudly on two writers. Every promotion path also pins the writer to its
   data's server and carries a geo cluster's region declarations (a reconcile
-  guard repairs either on the next tick). Still open: in geo, the demoted
-  writer is treated as the base standby geo parks at 0 copies, so with a
-  parked base standby service too, the cluster tracks only one of the two.
+  guard repairs either on the next tick). Fixed 2026-11-06: in geo the
+  demoted writer and a parked base standby were both regionless standbys and
+  the cluster tracked only one; now `<base>-replica` is the base standby and
+  the others are spares (lag, promotion, repoint, guards; always parked).
+  Decide: whether a geo cluster's old write region keeps a running standby
+  after a failover. Today the demoted writer is parked (its data kept), so
+  that region runs only the copies declared for it.
 - Database backups can copy to a second destination (logical dumps re-run
   into it; wal-g PITR via `wal-g copy` after each base backup), with the lag
   on the page and a Resilience warning for one-place production backups.

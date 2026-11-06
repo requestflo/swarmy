@@ -4,7 +4,7 @@ import { createTestDb, type TestDb } from '@swarmy/db';
 import { hub } from '../gateway';
 import { probeCopies } from './manageddb-copies';
 import { copiesSwarm } from './manageddb-copies.fake';
-import { indexClusters, maybePromote, type ClusterLag, type Contract } from './manageddb-reconcile';
+import { indexClusters, maybePromote, parkSpares, replicaMembers, type ClusterLag, type Contract } from './manageddb-reconcile';
 import { PROMOTION_GRACE_TICKS } from './manageddb-reconcile.core';
 
 /**
@@ -15,7 +15,7 @@ import { PROMOTION_GRACE_TICKS } from './manageddb-reconcile.core';
  * follow the writer, as provisioning writes them.
  */
 
-const ORGS = ['org-carry-geo', 'org-carry-one', 'org-carry-planned'];
+const ORGS = ['org-carry-geo', 'org-carry-one', 'org-carry-planned', 'org-carry-spare'];
 const P = 'shop_main-primary';
 const R = 'shop_main-replica';
 const EU = 'shop_main-replica-eu';
@@ -60,7 +60,7 @@ async function contract(org: string): Promise<Contract> {
 }
 async function lag(org: string, primaryLsn: string | null): Promise<ClusterLag> {
   const c = cluster(org);
-  return { members: {}, primaryLsn, copies: await probeCopies(org, [c.replica, ...c.regionReplicas.values()].filter((x) => !!x)) };
+  return { members: {}, primaryLsn, copies: await probeCopies(org, replicaMembers(c)) };
 }
 /** A healthy tick samples the watermark; then the writer stops (died, or paused by a planned run). */
 async function outage(org: string, topology: 'geo' | 'failover', planned?: string): Promise<void> {
@@ -135,5 +135,40 @@ describe('a geo failover keeps the regional layout', () => {
     expect(ex.placement?.constraints).toEqual(['node.labels.swarmy.region==us', 'node.id==swarm-a']);
     const audit = await t.db.auditLog.findFirst({ where: { orgId: ORGS[0]!, action: 'db.failover.promote' } });
     expect(audit?.metadata).toMatchObject({ promoted: EU, copy: 'swarm-b', writeRegion: { from: 'us', to: 'eu' } });
+  });
+});
+
+describe('a geo failover with a parked base standby', () => {
+  it('tracks the demoted writer and the base standby both: parked, and repointed by the next promotion', async () => {
+    const org = ORGS[3]!;
+    const s = seed(org, 'geo', { 'swarmy.db.writeRegion': 'us', 'swarmy.db.placedRegion': 'us', 'swarmy.db.region.eu.replicas': '1', 'swarmy.db.region.ap.replicas': '1' });
+    sibling(s, 'eu');
+    sibling(s, 'ap');
+    // geo parks the base standby at 0: reads run on the region siblings.
+    s.put({ ...member, name: R, labels: { ...pg('geo'), 'swarmy.db.role': 'replica', 'swarmy.db.replicas': '0', 'swarmy.db.dataVolume': 'shop_main-replica-data' }, env: standbyEnv, mode: { replicated: { replicas: 0 } } });
+    s.replay.set(`${AP}@swarm-c`, '0/2FFFFFF');
+    s.install();
+    await outage(org, 'geo');
+    expect([...s.writers]).toEqual([`${EU}@swarm-b`]);
+
+    // Two unregioned standbys now: <base>-replica stays the base standby, the
+    // demoted writer is a spare, and both are members.
+    const c = cluster(org);
+    expect(c.replica?.name).toBe(R);
+    expect(c.spareReplicas?.map((x) => x.name)).toEqual([P]);
+    expect(replicaMembers(c).map((x) => x.name).sort()).toEqual([AP, P, R].sort());
+    // The tick parks the spare (the promotion redeployed it with its one copy); then nothing more.
+    expect(parkSpares(c)).toEqual([P]);
+    for (const name of parkSpares(c)) await hub.dispatch('n1', 'service.scale', { service: name, replicas: 0 });
+    expect(parkSpares(cluster(org))).toEqual([]);
+
+    // The next failover repoints both at the new writer.
+    s.replay.set(`${AP}@swarm-c`, MARK);
+    const k = await contract(org);
+    await maybePromote(k, org, 'n1', cluster(org), 'geo', await lag(org, MARK));
+    s.services.get(EU)!.down = true;
+    for (let i = 0; i <= PROMOTION_GRACE_TICKS; i++) await maybePromote(k, org, 'n1', cluster(org), 'geo', await lag(org, null));
+    expect(s.writers.has(`${AP}@swarm-c`)).toBe(true);
+    for (const name of [P, R]) expect(s.services.get(name)!.spec.labels?.['swarmy.db.leader']).toBe(AP);
   });
 });
