@@ -1,7 +1,7 @@
 import type { AuditEntryView } from '@swarmy/core';
 import { curl, restExchange, type CodeTab } from '@/components/calm';
 
-/** Code depth for the timeline: the audit export over REST (the one real endpoint for it). */
+/** Code depth for the timeline: the audit export, incidents and alert events over REST. */
 export function activityCode(audit: AuditEntryView[]): CodeTab[] {
   const since = new Date(Date.now() - 24 * 3600_000).toISOString().slice(0, 19) + 'Z';
   const sample = audit.slice(0, 3).map((a) => ({
@@ -16,5 +16,16 @@ export function activityCode(audit: AuditEntryView[]): CodeTab[] {
     { label: 'REST', code: curl('GET', `/audit/export?format=json&from=${since}`) },
     { label: 'response', code: restExchange('GET', `/audit/export?format=json&from=${since}`, sample) },
     { label: 'CSV', code: curl('GET', '/audit/export?format=csv&actor_type=user') + ' \\\n  -o audit.csv' },
+    {
+      label: 'incidents & alerts',
+      code: [
+        '# Open incidents, and the alerts firing now:',
+        curl('GET', '/incidents?status=open'),
+        curl('GET', '/alert-events?status=firing'),
+        '',
+        '# Acknowledge one: it resolves, with no recovery notification.',
+        curl('POST', '/alert-events/$EVENT_ID/acknowledge'),
+      ].join('\n'),
+    },
   ];
 }

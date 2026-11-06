@@ -51,7 +51,7 @@ export function ActivityPage(): React.JSX.Element {
     ? undefined
     : `${incident ? `${feed.words(incident.title)}. ` : ''}In the last 24 hours: ${plural(count('deploy'), 'deploy')}, ${plural(count('alert'), 'alert')}, ${plural(count('backup'), 'backup')} and ${plural(count('change'), 'other change')}.`;
 
-  const code = <CodeView title="This stream as code" tabs={activityCode(feed.audit)} note="The audit log over REST, with an org API key. Alerts and incidents are read in the dashboard." />;
+  const code = <CodeView title="This stream as code" tabs={activityCode(feed.audit)} note="The audit log, incidents and alerts over REST, with an org API key." />;
   const stream = feed.isLoading ? (
     <SkeletonBody variant="list" />
   ) : feed.error ? (

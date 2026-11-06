@@ -6,6 +6,7 @@ import { ErrorState, SkeletonBody } from '@/components/states';
 import { RowPage, plural } from '@/components/rowpage/row-page';
 import { ExposureSection } from '@/components/exposure/exposure-page';
 import { DecisionsFeed } from './decisions-feed';
+import { guardrailsCode } from './guardrails-code';
 import { RulesList } from './rules-list';
 import { SafetyModeCard, SafetyModeNext } from './safety-mode-card';
 import { StackEnvCard } from './stack-env-card';
@@ -30,12 +31,7 @@ export function GuardrailsPage(): React.JSX.Element {
       {tally.data ? (stopped ? <Say tone="ok">Last 30 days they stopped {tally.data.capped ? 'at least ' : ''}{plural(stopped, 'deploy')}.</Say> : <em>Nothing stopped in 30 days.</em>) : null}
     </>
   );
-  const code = c
-    ? [
-        { label: 'guardrails', code: JSON.stringify(c, null, 2) },
-        { label: 'labels', code: (envs.data ?? []).map((s) => `${s.stack.padEnd(18)} ${s.production ? 'swarmy.env=production' : '(no swarmy.env)'}`).join('\n') || '# no apps yet' },
-      ]
-    : [];
+  const code = c ? guardrailsCode(c, envs.data ?? []) : [];
 
   return (
     <RowPage
@@ -43,7 +39,13 @@ export function GuardrailsPage(): React.JSX.Element {
       description={c?.productionSafetyMode ? 'Production is locked down: every rule blocks there. Each rule below also sets what happens everywhere else.' : 'Checked on every deploy, by anyone. Production is an app labelled production.'}
       aside={
         <>
-          {c ? <CodeView title="Guardrails as code" tabs={code} source="readonly" /> : null}
+          {c ? (
+            <CodeView
+              title="Guardrails as code"
+              tabs={code}
+              note="The rules work the same over REST and Terraform, with an admin's org API key. Which apps are production is set here."
+            />
+          ) : null}
           <DecisionsFeed />
           <StackEnvCard />
         </>

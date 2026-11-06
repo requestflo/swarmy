@@ -18,4 +18,7 @@ describe('curl', () => {
   test('a body adds the content type and payload', () => {
     expect(curl('POST', '/services/web/scale', { replicas: 2 })).toContain(`-d '{"replicas":2}'`);
   });
+  test("a ' in the body survives the shell's single quotes", () => {
+    expect(curl('POST', '/policies', { name: "Don't delete prod" })).toContain(`-d '{"name":"Don'\\''t delete prod"}'`);
+  });
 });

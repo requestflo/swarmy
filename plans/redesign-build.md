@@ -159,8 +159,10 @@ mode renders with no console errors, a pathspec commit.
 - Writing to git from the dashboard (commit swarmy.yaml, open a PR) has no
   backend; every "Open PR" / "Make it permanent" / "Add to swarmy.yaml" on the
   boards is left out until it does. It is the biggest single unlock left.
-- Code views without a public API (alerts, incidents, cost, policies,
-  guardrails, platform) are read-only JSON/labels; they gain REST when it exists.
+- Code views without a public API (cost, platform, status pages, quiet hours)
+  are read-only JSON/labels; they gain REST when it exists. Alerts, incidents,
+  access rules and guardrails show curl and Terraform since 2026-11-06, checked
+  against `openapi.json` and the provider by `calm/code-honesty.test.ts`.
   ⌘K "put back" shows `releases.rollback` for the same reason.
 - Per-app swarmy.yaml from git: the app Code view shows the live spec as
   compose (read-only); there is no stack-spec query yet.

@@ -1,4 +1,4 @@
-import { selectorKey, type AlertRuleView } from '@swarmy/core';
+import { selectorKey } from '@swarmy/core';
 import { phraseFor } from './signal-phrases';
 import type { RuleShape } from './rule-sentence';
 
@@ -18,14 +18,4 @@ export function rawExpression(rule: RuleShape): string {
 /** The evaluator's dedupe key shape (`conditionKey`): one open event per rule + resource. */
 export function evaluatorKey(signal: string, ruleId?: string): string {
   return `${ruleId ?? '<rule>'}|${signal}|<resource>`;
-}
-
-/** Code depth: the rule exactly as the dashboard holds it (no REST route yet). */
-export function ruleJson(
-  rule: (RuleShape & { name: string; enabled: boolean; mutedUntil?: string | null }) | AlertRuleView,
-  id?: string,
-): string {
-  const { name, signal, selector, threshold, forSeconds, channelIds, enabled } = rule;
-  const mutedUntil = rule.mutedUntil ?? null;
-  return JSON.stringify({ ...(id ? { id } : {}), name, signal, selector, threshold, forSeconds, channelIds, enabled, mutedUntil }, null, 2);
 }

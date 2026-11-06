@@ -67,7 +67,7 @@ export function AccessPage(): React.JSX.Element {
           <CodeView
             title="Access as code"
             tabs={accessCode(rules ?? [], methods ?? [], canInvite ? (inviteLinks.data ?? []) : null, ssoOnly?.on ?? null)}
-            note="Dashboard setting. Each rule is a policy document that runs the same on the JSON engine or Cedar. Rules and invite links are edited here and audited; there is no REST route for them yet."
+            note="Each rule is a policy document that runs the same on the JSON engine or Cedar, and works the same over REST and Terraform. Sign-in and invite links are dashboard settings."
           />
           {inviting && canInvite && role ? (
             <InvitePanel callerRole={role} onClose={() => setInviting(false)} />

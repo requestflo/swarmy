@@ -13,7 +13,7 @@
 
 export const API_BASE = 'https://swarmy.example.com/api/v1';
 
-type Json = string | number | boolean | null | Json[] | { [k: string]: Json | undefined };
+export type Json = string | number | boolean | null | Json[] | { [k: string]: Json | undefined };
 
 /** A curl call against the public REST API. */
 export function curl(method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, body?: Json): string {
@@ -21,7 +21,8 @@ export function curl(method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: 
   if (body !== undefined) {
     lines[1] += ' \\';
     lines.push(`  -H "Content-Type: application/json" \\`);
-    lines.push(`  -d '${JSON.stringify(body)}'`);
+    // Single-quoted for the shell: a ' in a name ends the quote, so it's written '\''.
+    lines.push(`  -d '${JSON.stringify(body).replace(/'/g, () => "'\\''")}'`);
   }
   return lines.join('\n');
 }

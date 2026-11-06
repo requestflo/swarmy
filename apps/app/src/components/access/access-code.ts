@@ -1,4 +1,5 @@
 import type { CodeTab } from '@/components/calm';
+import { policiesRest, policiesTerraform } from './policies-code';
 import type { SignInMethod } from './use-signin-methods';
 import type { PolicyRow } from './use-policy-editor';
 
@@ -54,7 +55,7 @@ function signInCode(methods: SignInMethod[], ssoOnly: boolean | null): string {
   ].join('\n');
 }
 
-/** The rules as the policy documents the engine runs (JSON, Cedar-compatible), the sign-in set and the invite links. */
+/** The rules as the policy documents the engine runs (JSON, Cedar-compatible) and as REST + Terraform, the sign-in set and the invite links. */
 export function accessCode(
   rules: PolicyRow[],
   methods: SignInMethod[],
@@ -64,6 +65,8 @@ export function accessCode(
   const policies = rules.map((r) => ({ id: r.id, name: r.name, effect: r.effect, priority: r.priority, enabled: r.enabled, default: r.isDefault, policy: doc(r.source) }));
   return [
     { label: 'policy JSON', code: JSON.stringify(policies, null, 2) },
+    { label: 'curl', code: policiesRest(rules) },
+    { label: 'Terraform', code: policiesTerraform(rules) },
     { label: 'sign-in', code: signInCode(methods, ssoOnly) },
     ...(links ? [{ label: 'invite links', code: inviteLinksCode(links) }] : []),
   ];

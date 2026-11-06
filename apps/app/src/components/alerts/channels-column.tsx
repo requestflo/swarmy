@@ -21,14 +21,18 @@ interface ChannelsColumnProps {
 /**
  * CHANNELS · encrypted · never shown again: one row per channel with how many
  * rules reach it, Send test and its saved receipt, and Edit, then Add a channel for every kind createChannel accepts, then the
- * workspace quiet hours. At Code depth the rule, channels and quiet hours sit
- * on top as read-only JSON.
+ * workspace quiet hours. At Code depth the rule and channels sit on top as
+ * REST and Terraform, the quiet hours as read-only JSON.
  */
 export function ChannelsColumn({ channels, rules, rule, quietHours, className }: ChannelsColumnProps): React.JSX.Element {
   const [adding, setAdding] = React.useState(false);
   return (
     <aside aria-label="Channels" className={cn('flex min-w-0 flex-col gap-3', className)}>
-      <CodeView title="Alerts as code" tabs={alertsCode(rule, rules, channels, quietHours)} note="Dashboard setting · no REST yet" />
+      <CodeView
+        title="Alerts as code"
+        tabs={alertsCode(rule, rules, channels, quietHours)}
+        note="Rules and channels work the same over REST and Terraform, with an org API key. Quiet hours and mutes are dashboard settings."
+      />
       <p className="text-muted-foreground flex flex-wrap justify-between gap-x-3 font-mono text-[11px]">
         <span className="tracking-[0.08em] uppercase">Channels</span>
         <span>encrypted · never shown again</span>
