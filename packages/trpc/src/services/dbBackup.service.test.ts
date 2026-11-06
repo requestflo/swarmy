@@ -276,3 +276,20 @@ describe('effectiveDataVolume — physical engines agree with the managed layout
     expect(effectiveDataVolume(undefined, {})).toBeUndefined();
   });
 });
+
+describe('dumpStandby (where snapshot-from-replica reads)', () => {
+  const svc = (name: string, labels: Record<string, string>, running: number) =>
+    ({ name, labels: { 'swarmy.db.role': 'replica', ...labels }, replicas: { desired: running, running } }) as never;
+
+  it('a running standby: the unregioned base one first, then a region sibling; never a parked one', async () => {
+    const { dumpStandby } = await import('./dbBackup.service');
+    const base = svc('shop_main-replica', {}, 1);
+    const eu = svc('shop_main-replica-eu', { 'swarmy.db.region': 'eu' }, 1);
+    const parked = svc('shop_main-replica', {}, 0);
+    const exWriter = svc('shop_main-primary', {}, 0);
+    expect(dumpStandby([eu, base])).toBe(base);
+    // geo: the base standby is parked (and, after a failover, the demoted writer too).
+    expect(dumpStandby([parked, exWriter, eu])).toBe(eu);
+    expect(dumpStandby([parked, svc('shop_main-primary', { 'swarmy.db.role': 'primary' }, 1)])).toBeUndefined();
+  });
+});

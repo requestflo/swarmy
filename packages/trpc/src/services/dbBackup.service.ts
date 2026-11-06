@@ -70,6 +70,7 @@ import { resolveManagerNode } from './dispatch.service';
 import {
   DB_CLUSTER_LABEL,
   DB_MEMBER_LABEL,
+  DB_REGION_LABEL,
   DB_ROLE_LABEL,
   clusterNetworkName,
   readDbPassword,
@@ -362,8 +363,21 @@ export function findCluster(
     primary: members.find(
       (s) => s.labels[DB_ROLE_LABEL] === 'primary' && !s.labels[DB_MEMBER_LABEL],
     ),
-    replica: members.find((s) => s.labels[DB_ROLE_LABEL] === 'replica'),
+    replica: dumpStandby(members),
   };
+}
+
+/**
+ * The standby a `snapshot-from-replica` dump reads: one with a copy running,
+ * the unregioned base standby first, then a region sibling (geo parks the
+ * base standby at 0 and reads run on the siblings; after a geo failover the
+ * demoted writer is parked too). A parked one has nothing to connect to. Pure.
+ */
+export function dumpStandby(members: readonly InvService[]): InvService | undefined {
+  const running = members
+    .filter((s) => s.labels[DB_ROLE_LABEL] === 'replica' && s.replicas.running > 0)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return running.find((s) => !s.labels[DB_REGION_LABEL]) ?? running[0];
 }
 
 /**
@@ -480,7 +494,7 @@ export async function backupDb(ctx: OrgContext, input: BackupDbInput): Promise<D
   // snapshot-from-replica runs the dump against a read-replica (zero primary load).
   const fromReplica = input.engine === 'snapshot-from-replica';
   if (fromReplica && !replica) {
-    throw commandRejected('snapshot-from-replica needs at least one read replica');
+    throw commandRejected('snapshot-from-replica needs a read replica with a copy running');
   }
   const source = fromReplica ? replica! : primary;
   const conn = await connFrom(ctx, input.stack, input.cluster, source, input.database);
