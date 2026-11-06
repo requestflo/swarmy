@@ -31,8 +31,8 @@ that generic intent — drivers never touch a node directly.
    - tunnels → a `connector` block (`render/connector.ts`
      `buildConnectorServiceSpec`, secrets passed by reference); swarmy makes
      no provider API calls (Cloudflare tunnels are pasted tokens).
-   `apply` should `dispatch.resolveTargetNodes(...)` then `dispatch.sendToNode(...)`
-   for each, exactly like `CaddyDriver.apply`.
+     `apply` should `dispatch.resolveTargetNodes(...)` then `dispatch.sendToNode(...)`
+     for each, exactly like `CaddyDriver.apply`.
 
 4. **Register it** — in `packages/ingress/src/registry.ts` add
    `.register(new <Driver>())` to `defaultRegistry`, and export the class from
@@ -60,6 +60,7 @@ that generic intent — drivers never touch a node directly.
    `bun --filter @swarmy/ingress typecheck`.
 
 ## Notes
+
 - Caddy is the new-org default (`DEFAULT_INGRESS` + the Prisma column
   default); keep `none` and every other driver first-class and selectable — a new
   driver never becomes the default, and an existing org's choice is never rewritten.

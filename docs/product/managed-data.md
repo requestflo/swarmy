@@ -28,7 +28,7 @@ they're operating and click **Data**.
    once at creation, never again" — and wire an app with one click.
 
 No managed-database vendor. No connection string in a `.env`. No password in a
-git repo. It should feel like the data service *introduced itself* to the app —
+git repo. It should feel like the data service _introduced itself_ to the app —
 because swarmy declared the topology on Docker, put the secret in a Docker
 secret, and injected the wiring by env.
 
@@ -53,7 +53,7 @@ app runs, wired — swarmy can vanish and the cluster + app keep talking
 
 Four ideas, one story:
 
-- **Topology is declared on Docker, not in a database.** A cluster *is* its
+- **Topology is declared on Docker, not in a database.** A cluster _is_ its
   `swarmy.db.*` / `swarmy.cache.*` / `swarmy.search.*` / `swarmy.vector.*`
   service labels. There is no per-cluster Prisma row. The view is read off the
   labels every time; scaling replicas or changing maxmemory rewrites a label and
@@ -114,7 +114,7 @@ Four ideas, one story:
   are Qdrant or in-place pgvector.
 - **Private by default; managed data never faces the internet.** No published
   ports on any managed cluster — apps reach them over the cluster's overlay. A
-  published port on a managed service is an *exposure violation* swarmy alerts on
+  published port on a managed service is an _exposure violation_ swarmy alerts on
   (it never rips the port out itself; the fix is yours — see the exposure
   surface).
 - **Attach and detach are symmetric.** Attach stamps env + secret + network +
@@ -132,7 +132,7 @@ Four ideas, one story:
   plumbing, not a tenant app. Node replacement and resync now converge
   automatically via the `storage-reconcile` worker (member discovery, two-step
   layout stage+apply, partition-sync progress surfaced on the cluster status).
-- **DR is layered, not assumed.** Cluster volumes register against an *existing*
+- **DR is layered, not assumed.** Cluster volumes register against an _existing_
   CSI plugin (swarmy ships no driver) so swarm republishes the volume on
   reschedule — live failover. restic backups still layer on top: availability is
   not recoverability. The backup/restore/drill story lives in the `backups-dr`
@@ -193,16 +193,16 @@ Four ideas, one story:
   the demoted writer carries the standby copies from then on, floating. A
   plain service scale of a managed writer past one copy is refused.
 
-  | Topology | What happens when the primary dies |
-  |---|---|
-  | `single` | Never promoted — there is no replica. Restore from backup. |
-  | `primary-replica` | Gated: auto-promote a provably caught-up replica, otherwise hold for confirmation. Same-region streaming is usually caught up, so this rarely asks. |
-  | `failover` | Same gate. The reconcile worker is the promoter; there is no etcd member (it was never read for the decision). If the controller itself moved (its node died with the primary's), the new controller has no watermark to prove a replica caught up, so it holds for confirmation. |
-  | `geo` | Same gate. Cross-region replicas trail more often, so a geo failover asks for confirmation more often — by design. |
-  | `active-active` | Never promoted — the other primaries are already writable. |
+  | Topology          | What happens when the primary dies                                                                                                                                                                                                                                                |
+  | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `single`          | Never promoted — there is no replica. Restore from backup.                                                                                                                                                                                                                        |
+  | `primary-replica` | Gated: auto-promote a provably caught-up replica, otherwise hold for confirmation. Same-region streaming is usually caught up, so this rarely asks.                                                                                                                               |
+  | `failover`        | Same gate. The reconcile worker is the promoter; there is no etcd member (it was never read for the decision). If the controller itself moved (its node died with the primary's), the new controller has no watermark to prove a replica caught up, so it holds for confirmation. |
+  | `geo`             | Same gate. Cross-region replicas trail more often, so a geo failover asks for confirmation more often — by design.                                                                                                                                                                |
+  | `active-active`   | Never promoted — the other primaries are already writable.                                                                                                                                                                                                                        |
 
   Residual window, stated honestly: the watermark is the last flushed position
-  swarmy *observed* (one probe per ~15 s). A commit flushed on the primary after
+  swarmy _observed_ (one probe per ~15 s). A commit flushed on the primary after
   that probe and never streamed to any replica is invisible to every
   asynchronous scheme; only synchronous replication closes it (not offered in
   the base slice).
@@ -316,16 +316,16 @@ Four ideas, one story:
 
 ## Failure modes (designed, not accidental)
 
-| Failure | Behaviour |
-|---|---|
-| Controller down while apps run | Clusters and apps keep talking — topology is on Docker, wiring is on the app's service env. Reconcile resumes converging when the controller returns. |
-| Declared replicas ≠ live tasks | The per-domain reconcile worker converges each tick (scales members, applies memory, re-stamps `swarmy.*.stats`); a transient scheduling gap self-heals. |
-| Credential lost (shown once) | Not recoverable by design — rotate the secret / re-provision. swarmy never stored the plaintext, so there is nothing to leak or hand back. |
+| Failure                                           | Behaviour                                                                                                                                                                                                                           |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Controller down while apps run                    | Clusters and apps keep talking — topology is on Docker, wiring is on the app's service env. Reconcile resumes converging when the controller returns.                                                                               |
+| Declared replicas ≠ live tasks                    | The per-domain reconcile worker converges each tick (scales members, applies memory, re-stamps `swarmy.*.stats`); a transient scheduling gap self-heals.                                                                            |
+| Credential lost (shown once)                      | Not recoverable by design — rotate the secret / re-provision. swarmy never stored the plaintext, so there is nothing to leak or hand back.                                                                                          |
 | Primary dies and no replica is provably caught up | Failover is held, not taken: critical alert + incident with the data-loss window (bytes / seconds behind); an owner/admin confirms on the Data tab or brings the primary back. Never a silent promotion that drops the last writes. |
-| App attached, DB not yet healthy | The app holds a valid `DATABASE_URL`; swarm DNS resolves the primary once its task is up. No wiring rewrite is needed when the DB comes healthy. |
-| Managed cluster gets a published port | Surfaced as an exposure violation and alerted; swarmy never removes the port itself (v1) — the operator fixes it. Private-by-design is enforced by advice, not force. |
-| Bucket delete with objects/attachments | Refused. Delete is blocked while the bucket holds objects or is attached to a service — no silent data loss. |
-| Garage member node offline | S3 stays served from surviving members (replication factor ≥ 2); admin calls prefer an online member and fall back to a manager. |
+| App attached, DB not yet healthy                  | The app holds a valid `DATABASE_URL`; swarm DNS resolves the primary once its task is up. No wiring rewrite is needed when the DB comes healthy.                                                                                    |
+| Managed cluster gets a published port             | Surfaced as an exposure violation and alerted; swarmy never removes the port itself (v1) — the operator fixes it. Private-by-design is enforced by advice, not force.                                                               |
+| Bucket delete with objects/attachments            | Refused. Delete is blocked while the bucket holds objects or is attached to a service — no silent data loss.                                                                                                                        |
+| Garage member node offline                        | S3 stays served from surviving members (replication factor ≥ 2); admin calls prefer an online member and fall back to a manager.                                                                                                    |
 
 ## Explicitly rejected
 
@@ -345,7 +345,7 @@ Four ideas, one story:
   single-datacentre scale-out. Garage replicates (not erasure-codes) across
   small, geo-spread, mixed nodes in one binary with no external metadata DB.
 - **Shipping our own CSI driver.** Cluster volumes register against an operator's
-  *existing* CSI plugin. swarmy orchestrates the registration and mount; it does
+  _existing_ CSI plugin. swarmy orchestrates the registration and mount; it does
   not become a storage driver vendor.
 - **A separate vector database when Postgres will do.** pgvector enables in place
   and reuses the app's existing `DATABASE_URL`. A standalone Qdrant is there when

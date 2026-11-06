@@ -13,9 +13,9 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
 
 ## Invariants (violating any of these is a bug, not a style choice)
 
-1. **The org boundary is the hard tenant wall; ABAC operates *within* it.**
+1. **The org boundary is the hard tenant wall; ABAC operates _within_ it.**
    Every data query on an org-scoped table filters `where: { orgId:
-   ctx.activeOrgId }`. `orgProcedure` proves membership and pins `activeOrgId`
+ctx.activeOrgId }`. `orgProcedure` proves membership and pins `activeOrgId`
    before any resolver runs. Policies may narrow access inside an org; they never
    widen it across orgs. There is no cross-org read, ever — that is structure,
    not a policy decision.
@@ -33,7 +33,7 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
 4. **No stored policies ⇒ seeded defaults, verbatim.** `loadEngine` falls back to
    `defaultPolicyInputs()` when the org has zero enabled `Policy` rows, so an org
    that never opens the policy UI behaves exactly as the `owner/admin/member`
-   model always did. The gate is never *empty* and never *default-permit*.
+   model always did. The gate is never _empty_ and never _default-permit_.
 5. **Forbid-wins, default-deny.** Among matching policies any `forbid` overrides
    every `permit`; no matching permit ⇒ deny. The deciding (highest-priority)
    policy id is reported so the audit row names a real reason. Both engines
@@ -65,7 +65,7 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
    (`admission-gate.ts`) is the one refuse/override step: a caller that passes
    `requireReason` (today `createService`, i.e. `/services/new`) refuses a
    `block` override with no reason (`BAD_REQUEST`, `swarmyCode:
-   OVERRIDE_REASON_REQUIRED`); the reason rides the override audit row and the
+OVERRIDE_REASON_REQUIRED`); the reason rides the override audit row and the
    Recent decisions feed (`GuardrailDecisionView.reason`). Admission refusals
    carry their `violations` in the tRPC error data (`errorFormatter` in
    `trpc.ts`), so the UI can offer the override without re-evaluating.
@@ -82,7 +82,7 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
   `orgProcedure`) → `evaluateAccess(ctx, action, resourceInput)` →
   `buildPrincipal` + `loadEngine` + (if a resource) `loadGrants` +
   `buildResource` → `engine.evaluate(P·A·R·C)` → `{ decision, policyId, reasons,
-  resource }`. Reuse `evaluateAccess` for the policy simulator and list-filtering
+resource }`. Reuse `evaluateAccess` for the policy simulator and list-filtering
   so there is one decision path. `action` must be a member of `ACTIONS`
   (`@swarmy/abac`); `isAction` guards at wiring time.
 - **Resource resolvers** map a procedure's input → a `ResourceInput`
@@ -90,7 +90,7 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
   resource is the org itself). Reuse `resolveNode`/`resolveService`/`resolveStack`
   from `abac.ts`; node/service labels come from the **live hub**, not a DB column.
 - **Attributes (policy doc v2)**: besides `roles/actions/resourceTypes/
-  resourceLabels/attributes/relations/ownerOnly`, a doc may carry `groups`
+resourceLabels/attributes/relations/ownerOnly`, a doc may carry `groups`
   (principal groups = `attributes.groups` ∪ `attributes.ssoGroups` ∪ teamIds —
   `groupsFromAttributes`), `members` (member/user ids) and `conditions`
   `[{ attr, op, value }]` over `resource.env|type|id|label.<k>` and
@@ -100,8 +100,8 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
   `context.attrs`). `describePolicy` renders a doc as a sentence; the dashboard
   imports the browser-safe `@swarmy/abac/model` (no Cedar).
 - **Decision helpers**: `decide()` is the one path; `evaluateAccess(ctx, …,
-  { principal?, engine? })`, `whoCan(db, orgId, action, resource, {
-  hypothetical? })` (`abac-who-can.ts`; every member, pure over db — the
+{ principal?, engine? })`, `whoCan(db, orgId, action, resource, {
+hypothetical? })` (`abac-who-can.ts`; every member, pure over db — the
   simulator and the mesh group sync; a described resource such as "a
   production service" also counts each member's grants on that type) and
   `canPrincipal(db, orgId, userId, …)` all call it. Stored policies are read and
@@ -121,14 +121,14 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
   Guardrails defers to the registry image policy for signatures
   (`requireSignedImagesProd` emits nothing when `RegistryConfig.requireSignedImages`).
 - **Audit shape**: `writeAudit(ctx, { action, targetType?, targetId?, actorType?,
-  actorId?, metadata? })`. `action` is a stable dotted string
+actorId?, metadata? })`. `action` is a stable dotted string
   (`authz.permit:service.restart`, `guardrails.deploy.blocked`,
   `guardrails.safetyMode.set`). The Recent-decisions feed reads
   `DECISION_ACTIONS`.
 - **Admission receipts**: the gate (never an evaluator) records each admission
   run once via `recordAdmission` (`admission-record.ts`; row shape and actions
   are `@swarmy/core` `admissionRecord`): `guardrails.deploy.blocked|warned|
-  allowed` or the override actions, with per-check `checks[{rule, outcome}]`,
+allowed` or the override actions, with per-check `checks[{rule, outcome}]`,
   `admitted`, and `wouldBlock[]` — Warn/Off guardrails re-armed at Block by the
   pure shadow pass (`admission-guardrails-shadow.ts`, sharing the evaluation's
   memoized facts). A clean pass with no `wouldBlock` writes nothing.
@@ -252,7 +252,7 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
   `assertNoOwnerLockout` (`services/policy-lockout.ts`) before writing: a change
   after which no owner is permitted `policy.write` (a forbid covering owners,
   "Owners can do anything" switched off) is refused with `swarmyCode:
-  POLICY_LOCKOUT`, and nothing is written.
+POLICY_LOCKOUT`, and nothing is written.
 - **`authorize()` is the only who-may check.** `TerminalPolicy.allowedRoles` is
   gone; terminal access is `terminal.open` (owners/admins by default, others by
   a grant). Container exec is governed on the service, node shells on the node.
@@ -272,7 +272,7 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
   (`service.deploy`, `stack.deploy`, `service.configure` — member-permitted
   only outside production by the defaults), `secrets.read` and `mesh.connect`. The REST routes over the same
   services carry `requireAction(action, resolver)` (`packages/api-rest/src/
-  middleware.ts`), which calls the SAME `authorize(ctx, action, resource)`
+middleware.ts`), which calls the SAME `authorize(ctx, action, resource)`
   step — never re-implement evaluate+audit in a route. A NEW destructive
   mutation goes on `abacProcedure` (and its REST route on `requireAction`) with
   an owner/admin-only action — never `adminProcedure`/`orgProcedure`.
@@ -300,39 +300,39 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
 
 ## File map
 
-| Concern | Where |
-|---|---|
-| Procedure chain (`public→protected→org→admin`) | `packages/trpc/src/trpc.ts` |
-| `abacProcedure`, `authorize`, `evaluateAccess`, resolvers | `packages/trpc/src/abac.ts` |
-| Config-row resolver for the config-level deletes (`resolveConfigRow`) | `packages/trpc/src/abac-config.ts` |
-| REST policy gate (`requireAction`) | `packages/api-rest/src/middleware.ts` |
-| Destructive-gate CI units (router + REST wiring) | `packages/trpc/src/destructive-gates.test.ts`, `packages/api-rest/src/destructive-gates.test.ts` |
-| Request context (`OrgContext`, `activeOrgId`, hub) | `packages/trpc/src/context.ts`, `apiKeyContext.ts` |
-| Policy engine (`IPolicyEngine`, JSON default) | `packages/abac/src/engine.ts` |
-| Cedar adapter (optional, faithful fallback) | `packages/abac/src/cedar.ts`, `factory.ts` (`createEngine`) |
-| Policy document parse/match + P·A·R·C types | `packages/abac/src/{policy,types}.ts` |
-| Seeded default policy set | `packages/abac/src/defaults.ts` (+ `defaults-config.ts`: the member permits for config-level deletes, unit `config-actions.test.ts`) |
-| Attribute paths, env normalisation, groups, conditions | `packages/abac/src/attrs.ts` |
-| Plain-words rules + action catalogue | `packages/abac/src/describe.ts`; browser entry `model.ts` |
-| Policy storage seam | `packages/trpc/src/services/policy-repo.ts` |
-| Effective rule set + owner-lockout refusal | `packages/trpc/src/services/{policy-effective,policy-lockout}.ts` |
-| who-can (incl. described resources) | `packages/trpc/src/abac-who-can.ts` |
-| Token/session revocation, IdP placeholder, SSO id ownership | `packages/auth/src/{token-revocation,identity-idp}.ts`, `packages/trpc/src/services/sso-identities.ts` |
-| Forward-auth ("Protect my app") + its admin side | `packages/trpc/src/services/app-access{,-admin}.service.ts`; edge snippets `packages/ingress/src/app-auth.ts` |
-| Secret masking in views (env, argv) | `packages/trpc/src/services/{secret-redact,inventory-redact}.ts`, `packages/core/src/secret-args.ts` |
-| Rules editor + who-can UI | `apps/app/src/components/access/{policies-tab,policy-*}.tsx` |
-| Principal/resource/grant builders + relation implication | `packages/abac/src/{build,grants}.ts` |
-| The one audit writer | `packages/trpc/src/services/audit.service.ts` |
-| Admission spine + evaluators | `packages/trpc/src/services/admission{.service,-guardrails,-exposure,-images}.ts` |
-| Refuse / override step (`enforceAdmission`, override reason) | `packages/trpc/src/services/admission-gate.ts`; UI `apps/app/src/components/services/{deploy-override-panel.tsx,policy-refusal.ts}` |
-| Active-org switch that forwards the refreshed session cookies | `packages/trpc/src/services/active-org.ts` (`setActiveOrg`; test `routers/org.switch.test.ts`) |
-| Guardrails config + Recent decisions | `packages/trpc/src/services/guardrails.service.ts` |
-| Admission receipts (record, would-block shadow, tally) | `packages/trpc/src/services/admission-{record,guardrails-shadow,guardrails-facts,tally.service}.ts`; pure `packages/core/src/admission-{record,tally}.ts` |
-| Identity / access routers | `packages/trpc/src/routers/{org,members,policies,sso,oauth,authConfig,apiKeys,guardrails,cost,auditLog}.ts` |
-| Better Auth wiring (runtime-built) | `packages/auth/src/{server,config,client}.ts` |
-| Access & auth models | `packages/db/prisma/schema/access.prisma` (`Policy`, `ResourceGrant`, `SsoProvider`, `AuthProviderConfig`) |
-| Governance config + identity + audit models | `packages/db/prisma/schema/{governance,api,auth}.prisma`; `AuditLog`/`JoinToken` in `cluster.prisma` |
-| UI surfaces | routes `apps/app/src/routes/_authed/{governance,settings_.access,audit,cost}.tsx` (exposure is a section of the Safety page, `governance.tsx`) over `apps/app/src/components/{guardrails,exposure,access,auditlog,cost}/*` (the redesign moves these under Settings → Access and Activity — `plans/redesign-dashboard-2026-09.md` §B.2) |
+| Concern                                                               | Where                                                                                                                                                                                                                                                                                                                                   |
+| --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Procedure chain (`public→protected→org→admin`)                        | `packages/trpc/src/trpc.ts`                                                                                                                                                                                                                                                                                                             |
+| `abacProcedure`, `authorize`, `evaluateAccess`, resolvers             | `packages/trpc/src/abac.ts`                                                                                                                                                                                                                                                                                                             |
+| Config-row resolver for the config-level deletes (`resolveConfigRow`) | `packages/trpc/src/abac-config.ts`                                                                                                                                                                                                                                                                                                      |
+| REST policy gate (`requireAction`)                                    | `packages/api-rest/src/middleware.ts`                                                                                                                                                                                                                                                                                                   |
+| Destructive-gate CI units (router + REST wiring)                      | `packages/trpc/src/destructive-gates.test.ts`, `packages/api-rest/src/destructive-gates.test.ts`                                                                                                                                                                                                                                        |
+| Request context (`OrgContext`, `activeOrgId`, hub)                    | `packages/trpc/src/context.ts`, `apiKeyContext.ts`                                                                                                                                                                                                                                                                                      |
+| Policy engine (`IPolicyEngine`, JSON default)                         | `packages/abac/src/engine.ts`                                                                                                                                                                                                                                                                                                           |
+| Cedar adapter (optional, faithful fallback)                           | `packages/abac/src/cedar.ts`, `factory.ts` (`createEngine`)                                                                                                                                                                                                                                                                             |
+| Policy document parse/match + P·A·R·C types                           | `packages/abac/src/{policy,types}.ts`                                                                                                                                                                                                                                                                                                   |
+| Seeded default policy set                                             | `packages/abac/src/defaults.ts` (+ `defaults-config.ts`: the member permits for config-level deletes, unit `config-actions.test.ts`)                                                                                                                                                                                                    |
+| Attribute paths, env normalisation, groups, conditions                | `packages/abac/src/attrs.ts`                                                                                                                                                                                                                                                                                                            |
+| Plain-words rules + action catalogue                                  | `packages/abac/src/describe.ts`; browser entry `model.ts`                                                                                                                                                                                                                                                                               |
+| Policy storage seam                                                   | `packages/trpc/src/services/policy-repo.ts`                                                                                                                                                                                                                                                                                             |
+| Effective rule set + owner-lockout refusal                            | `packages/trpc/src/services/{policy-effective,policy-lockout}.ts`                                                                                                                                                                                                                                                                       |
+| who-can (incl. described resources)                                   | `packages/trpc/src/abac-who-can.ts`                                                                                                                                                                                                                                                                                                     |
+| Token/session revocation, IdP placeholder, SSO id ownership           | `packages/auth/src/{token-revocation,identity-idp}.ts`, `packages/trpc/src/services/sso-identities.ts`                                                                                                                                                                                                                                  |
+| Forward-auth ("Protect my app") + its admin side                      | `packages/trpc/src/services/app-access{,-admin}.service.ts`; edge snippets `packages/ingress/src/app-auth.ts`                                                                                                                                                                                                                           |
+| Secret masking in views (env, argv)                                   | `packages/trpc/src/services/{secret-redact,inventory-redact}.ts`, `packages/core/src/secret-args.ts`                                                                                                                                                                                                                                    |
+| Rules editor + who-can UI                                             | `apps/app/src/components/access/{policies-tab,policy-*}.tsx`                                                                                                                                                                                                                                                                            |
+| Principal/resource/grant builders + relation implication              | `packages/abac/src/{build,grants}.ts`                                                                                                                                                                                                                                                                                                   |
+| The one audit writer                                                  | `packages/trpc/src/services/audit.service.ts`                                                                                                                                                                                                                                                                                           |
+| Admission spine + evaluators                                          | `packages/trpc/src/services/admission{.service,-guardrails,-exposure,-images}.ts`                                                                                                                                                                                                                                                       |
+| Refuse / override step (`enforceAdmission`, override reason)          | `packages/trpc/src/services/admission-gate.ts`; UI `apps/app/src/components/services/{deploy-override-panel.tsx,policy-refusal.ts}`                                                                                                                                                                                                     |
+| Active-org switch that forwards the refreshed session cookies         | `packages/trpc/src/services/active-org.ts` (`setActiveOrg`; test `routers/org.switch.test.ts`)                                                                                                                                                                                                                                          |
+| Guardrails config + Recent decisions                                  | `packages/trpc/src/services/guardrails.service.ts`                                                                                                                                                                                                                                                                                      |
+| Admission receipts (record, would-block shadow, tally)                | `packages/trpc/src/services/admission-{record,guardrails-shadow,guardrails-facts,tally.service}.ts`; pure `packages/core/src/admission-{record,tally}.ts`                                                                                                                                                                               |
+| Identity / access routers                                             | `packages/trpc/src/routers/{org,members,policies,sso,oauth,authConfig,apiKeys,guardrails,cost,auditLog}.ts`                                                                                                                                                                                                                             |
+| Better Auth wiring (runtime-built)                                    | `packages/auth/src/{server,config,client}.ts`                                                                                                                                                                                                                                                                                           |
+| Access & auth models                                                  | `packages/db/prisma/schema/access.prisma` (`Policy`, `ResourceGrant`, `SsoProvider`, `AuthProviderConfig`)                                                                                                                                                                                                                              |
+| Governance config + identity + audit models                           | `packages/db/prisma/schema/{governance,api,auth}.prisma`; `AuditLog`/`JoinToken` in `cluster.prisma`                                                                                                                                                                                                                                    |
+| UI surfaces                                                           | routes `apps/app/src/routes/_authed/{governance,settings_.access,audit,cost}.tsx` (exposure is a section of the Safety page, `governance.tsx`) over `apps/app/src/components/{guardrails,exposure,access,auditlog,cost}/*` (the redesign moves these under Settings → Access and Activity — `plans/redesign-dashboard-2026-09.md` §B.2) |
 
 ## Recipe: put a mutation behind a policy + audit it
 
@@ -340,7 +340,7 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
    action there + to the seeded defaults if none fits). `isAction` will reject
    typos at wiring time.
 2. **Swap the procedure**: `orgProcedure` → `abacProcedure('service.restart',
-   resolveService)` (define a resolver next to the router if the row isn't one of
+resolveService)` (define a resolver next to the router if the row isn't one of
    the shared three). Do NOT heavily edit other epics' routers — the swap is
    one line.
    A new action must be owner/admin-only in the seeded defaults unless it is
@@ -350,11 +350,11 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
    Add the procedure to `packages/trpc/src/destructive-gates.test.ts` (and REST
    routes to `packages/api-rest/src/destructive-gates.test.ts`).
 3. **Let the seam audit authz**: `abacProcedure` already writes
-   `authz.permit:*` / `authz.deny:*`. Add a domain `writeAudit` in the *service*
+   `authz.permit:*` / `authz.deny:*`. Add a domain `writeAudit` in the _service_
    for the business event (`guardrails.rule.set`), with `actorType:'system'` for
    worker-invoked paths.
 4. **If it deploys**, build an `AdmissionIntent`, call `evaluateAdmission`, refuse
-   on `block` unless `override`, and audit the override. New rules go *inside* an
+   on `block` unless `override`, and audit the override. New rules go _inside_ an
    evaluator, keeping the spine fan-out unchanged.
 5. **Verify**: `bun --filter @swarmy/abac test` (engine parity + policy units),
    `bun test src/destructive-gates.test.ts` in `packages/trpc` and
@@ -369,7 +369,7 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
   `defaults.ts` edits as breaking and cover them with a unit.
 - `abacProcedure` runs `resolveResource` on the raw input; a resolver that returns
   `null` evaluates against the org (collection/instance scope). Returning `null`
-  for a *missing* row means the policy sees "no resource" (non-production), not
+  for a _missing_ row means the policy sees "no resource" (non-production), not
   "denied". The shared `resolveNode`/`resolveService`/`resolveStack` throw
   `NOT_FOUND` for a supplied id that doesn't resolve; `resolveNode` falls back
   to a manager's node list for an offline node and judges a node nothing

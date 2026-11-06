@@ -113,7 +113,7 @@ Three layers, one story:
   counted, and an app's own 403s and 429s are.
 - **A cluster zone gives every app an address without sslip.io.** One
   swarmy-ns zone per org can be the cluster zone (installer `--zone
-  apps.example.com`, which prints the NS + glue records for the registrar, or
+apps.example.com`, which prints the NS + glue records for the registrar, or
   Network › Geo-DNS › Cluster zone once delegation is live). swarmy-dns then
   synthesises `<a-b-c-d>.<zone>` and any name under it to `a.b.c.d` itself, so
   automatic app addresses become `<service>-<stack>.<edge-ip>.<zone>`. It
@@ -132,14 +132,14 @@ Three layers, one story:
 
 ## Failure modes (designed, not accidental)
 
-| Failure | Behaviour |
-|---|---|
-| A region's nodes go offline | Its IPs drop from answers within one reconcile tick (~15s) + TTL (~30s). In-flight clients with cached answers fail over at the Caddy layer only if the node is actually up but the backends died; a hard node death relies on the short TTL. |
-| Local region's containers die, node fine | Caddy `lb_policy first` fails over to next-region upstreams over the mesh; DNS keeps answering with the node (degraded, not dead). |
-| Controller down | DNS nodes serve the last pushed snapshot; Caddy keeps its last config. New topology changes wait; traffic does not. |
-| GeoIP download fails / no egress | The bundled DB-IP Country Lite copy serves (country-level steering). |
-| GeoIP DB missing entirely (`SWARMY_DNS_GEOIP_BUNDLED=` or `off`) | Deterministic (unsteered) answers; never an outage. |
-| All regions unhealthy | Answer with all endpoints (spill), never empty. |
+| Failure                                                          | Behaviour                                                                                                                                                                                                                                     |
+| ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A region's nodes go offline                                      | Its IPs drop from answers within one reconcile tick (~15s) + TTL (~30s). In-flight clients with cached answers fail over at the Caddy layer only if the node is actually up but the backends died; a hard node death relies on the short TTL. |
+| Local region's containers die, node fine                         | Caddy `lb_policy first` fails over to next-region upstreams over the mesh; DNS keeps answering with the node (degraded, not dead).                                                                                                            |
+| Controller down                                                  | DNS nodes serve the last pushed snapshot; Caddy keeps its last config. New topology changes wait; traffic does not.                                                                                                                           |
+| GeoIP download fails / no egress                                 | The bundled DB-IP Country Lite copy serves (country-level steering).                                                                                                                                                                          |
+| GeoIP DB missing entirely (`SWARMY_DNS_GEOIP_BUNDLED=` or `off`) | Deterministic (unsteered) answers; never an outage.                                                                                                                                                                                           |
+| All regions unhealthy                                            | Answer with all endpoints (spill), never empty.                                                                                                                                                                                               |
 
 ## Explicitly rejected
 

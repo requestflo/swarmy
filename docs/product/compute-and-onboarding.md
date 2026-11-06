@@ -29,7 +29,7 @@ to "node ONLINE in the dashboard" with a single pasted line:
 No SSH keys handed to a controller. No manager-vs-worker decision to agonize
 over. No "install Docker, then build the agent, then set five env vars, then
 `docker swarm init`." One line, and the machine joins the swarm. It should feel
-like the box enrolled *itself* — because it did: **the agent dials out, the
+like the box enrolled _itself_ — because it did: **the agent dials out, the
 controller never reaches in.**
 
 ## How it works (enrollment path)
@@ -120,10 +120,10 @@ Four ideas, one story:
   rotated on every successful register** and `sessionVersion` increments; a newer
   session closes the older socket (`DUPLICATE_SESSION`). The session is persisted
   with retry + read-back verification so a reboot reconnects on its own, and the
-  join token stays valid *for the one node it enrolled* (hostname **re-adoption**)
+  join token stays valid _for the one node it enrolled_ (hostname **re-adoption**)
   as a durable fallback credential — so re-running the one-liner or a plain reboot
   always heals rather than stranding the node. "Single-use" therefore means
-  single-*node*: a consumed token can re-authenticate its own box but can never
+  single-_node_: a consumed token can re-authenticate its own box but can never
   enroll a new one, and revoking it is still the absolute kill switch. The full
   recovery story (repair one-liner, on-box `doctor`, the recovery beacon, rescue
   backups) lives in [`node-recovery.md`](./node-recovery.md).
@@ -144,7 +144,7 @@ Four ideas, one story:
   and the controller logs a warning. The judgement is held in memory and
   redone on every register; it is never stored.
 - **The agent is useless off-swarm, and says so.** A swarm-membership watchdog
-  exits the agent if the swarm is *left* out from under a running node (operator
+  exits the agent if the swarm is _left_ out from under a running node (operator
   ran `docker swarm leave`, or the node was removed) — but only after seeing the
   swarm active at least once, so a freshly-enrolling node legitimately waits for
   the controller's `swarm.join`. On exit it sends a `swarmLeft` frame first, so
@@ -153,22 +153,22 @@ Four ideas, one story:
 
 ## Failure modes (designed, not accidental)
 
-| Failure | Behaviour |
-|---|---|
-| Node loses connectivity / box powers off | Socket closes; controller marks the node offline after the missed heartbeat. Its swarm services reschedule per Docker; the agent reconnects with backoff and re-registers when the box returns. |
-| Operator runs `docker swarm leave` on a live node | Watchdog sends `swarmLeft`, then exits; container restarts and waits to rejoin. Controller marks it left-swarm + audits — never a phantom "healthy" member. |
-| Controller down while a node is enrolling | The agent retries the outbound WSS with jittered backoff; nothing on the box needs the controller except registration. Once the controller returns, `register` completes. |
-| Duplicate agent for one node (re-run installer) | Enrollment is idempotent: same hostname upserts (or **re-adopts**) the same `Node`; the newer session wins and the stale socket is closed. Re-running the one-liner switches to repair mode and never creates a duplicate. |
-| Node reboots / loses its session file | The session was persisted durably (retry + read-back), so it reconnects on its own. If the session is gone, the env-file join token re-adopts the same node by hostname. |
-| Node won't reconnect, machine is up | **Repair this node** in the dashboard (re-mints the one-liner) or `swarmy-agent doctor --fix` on the box. See [`node-recovery.md`](./node-recovery.md). |
-| Repair one-liner re-run on an enrolled node | The mesh config moves as one unit: a line that brings a setup key brings the whole mesh config; one without a key keeps the node's saved config whole, including a `SWARMY_ALLOW_MESH=false` opt-out and its driver. A key the agent will ignore is warned about. |
-| A node starts without joining the mesh | The daemon logs why in one line (mesh off on this node, or no setup key), and `doctor` reports a key the opt-out makes it ignore as a warning with the fix. |
-| A dead manager address lingers in the swarm | `doctor`'s swarm rung probes every listed manager address and says whose record it is and the fix (a swarm rebuild for our own stale record; demote/remove, or fix the path, for another manager's) before new overlays break with "no VNI provided". |
-| Node lost every credential (session + token) | The recovery beacon: the agent prints a fingerprint in its journal and posts a claim; a dashboard banner lets the operator approve it after matching the fingerprint (SSH-host-key trust). |
-| Controller down, data at risk on a cut-off node | `swarmy-agent backup export`/`push` moves the node's volumes with zero controller contact. |
-| Docker not yet installed / unavailable | Install script installs Docker first; a running agent that can't reach Docker still reports OS-only node facts and stays connected rather than crash-looping. |
-| A service is moved to a server that can't take it | `decommission.moveService` checks every refusal before it starts (a global or multi-copy service, a managed Postgres primary, a move already running, an offline or draining destination, no named volumes) and returns the reason. Only then does the copy run in the background; its progress is the service's `swarmy.move.state` label and its outcome an audit row. |
-| A manager dies / quorum is at risk | The Swarm health card + resilience score say it in plain words ("3 managers, 1 offline — one more failure loses quorum") before it becomes an outage. Promote/demote are quorum-guarded: swarmy refuses a demote that would leave the swarm headless or below majority. With autolock on, the unlock key is stored encrypted next to the join tokens (or shown once for self-storage) so a restarted manager can always be unlocked. |
+| Failure                                           | Behaviour                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Node loses connectivity / box powers off          | Socket closes; controller marks the node offline after the missed heartbeat. Its swarm services reschedule per Docker; the agent reconnects with backoff and re-registers when the box returns.                                                                                                                                                                                                                                      |
+| Operator runs `docker swarm leave` on a live node | Watchdog sends `swarmLeft`, then exits; container restarts and waits to rejoin. Controller marks it left-swarm + audits — never a phantom "healthy" member.                                                                                                                                                                                                                                                                          |
+| Controller down while a node is enrolling         | The agent retries the outbound WSS with jittered backoff; nothing on the box needs the controller except registration. Once the controller returns, `register` completes.                                                                                                                                                                                                                                                            |
+| Duplicate agent for one node (re-run installer)   | Enrollment is idempotent: same hostname upserts (or **re-adopts**) the same `Node`; the newer session wins and the stale socket is closed. Re-running the one-liner switches to repair mode and never creates a duplicate.                                                                                                                                                                                                           |
+| Node reboots / loses its session file             | The session was persisted durably (retry + read-back), so it reconnects on its own. If the session is gone, the env-file join token re-adopts the same node by hostname.                                                                                                                                                                                                                                                             |
+| Node won't reconnect, machine is up               | **Repair this node** in the dashboard (re-mints the one-liner) or `swarmy-agent doctor --fix` on the box. See [`node-recovery.md`](./node-recovery.md).                                                                                                                                                                                                                                                                              |
+| Repair one-liner re-run on an enrolled node       | The mesh config moves as one unit: a line that brings a setup key brings the whole mesh config; one without a key keeps the node's saved config whole, including a `SWARMY_ALLOW_MESH=false` opt-out and its driver. A key the agent will ignore is warned about.                                                                                                                                                                    |
+| A node starts without joining the mesh            | The daemon logs why in one line (mesh off on this node, or no setup key), and `doctor` reports a key the opt-out makes it ignore as a warning with the fix.                                                                                                                                                                                                                                                                          |
+| A dead manager address lingers in the swarm       | `doctor`'s swarm rung probes every listed manager address and says whose record it is and the fix (a swarm rebuild for our own stale record; demote/remove, or fix the path, for another manager's) before new overlays break with "no VNI provided".                                                                                                                                                                                |
+| Node lost every credential (session + token)      | The recovery beacon: the agent prints a fingerprint in its journal and posts a claim; a dashboard banner lets the operator approve it after matching the fingerprint (SSH-host-key trust).                                                                                                                                                                                                                                           |
+| Controller down, data at risk on a cut-off node   | `swarmy-agent backup export`/`push` moves the node's volumes with zero controller contact.                                                                                                                                                                                                                                                                                                                                           |
+| Docker not yet installed / unavailable            | Install script installs Docker first; a running agent that can't reach Docker still reports OS-only node facts and stays connected rather than crash-looping.                                                                                                                                                                                                                                                                        |
+| A service is moved to a server that can't take it | `decommission.moveService` checks every refusal before it starts (a global or multi-copy service, a managed Postgres primary, a move already running, an offline or draining destination, no named volumes) and returns the reason. Only then does the copy run in the background; its progress is the service's `swarmy.move.state` label and its outcome an audit row.                                                             |
+| A manager dies / quorum is at risk                | The Swarm health card + resilience score say it in plain words ("3 managers, 1 offline — one more failure loses quorum") before it becomes an outage. Promote/demote are quorum-guarded: swarmy refuses a demote that would leave the swarm headless or below majority. With autolock on, the unlock key is stored encrypted next to the join tokens (or shown once for self-storage) so a restarted manager can always be unlocked. |
 
 ## Explicitly rejected
 

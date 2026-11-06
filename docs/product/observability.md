@@ -30,7 +30,7 @@ editing a single line of app code or standing up Grafana.
    at `/s/<slug>` with a 90-day uptime bar — customers saw it before they emailed.
 
 No agent to install per app. No OTLP endpoint to configure. No second store to
-run. It should feel like the telemetry was *always there* and you just turned the
+run. It should feel like the telemetry was _always there_ and you just turned the
 lights on — because turning it on injects only environment, and everything that
 reads that environment (traces, metrics, logs, health, alerts, status) is swarmy's.
 
@@ -102,7 +102,7 @@ Four ideas, one story:
   spine —
   `AlertRule`/`AlertEvent`, `Incident`/`IncidentEvent`, `StatusPage`/`UptimeSample`,
   `NotificationChannel` (config encrypted via the vault, never returned to
-  clients). Identity, access, audit, and the *history of what fired* — swarmy's;
+  clients). Identity, access, audit, and the _history of what fired_ — swarmy's;
   the raw signal firehose — ClickHouse's.
 - **Telemetry is its own data plane.** Spans/metrics/logs go app → collector →
   ClickHouse, never over the agent WebSocket; node/container resource history
@@ -246,25 +246,25 @@ third-party cookie. The app is never modified or redeployed.
 
 ## Failure modes (designed, not accidental)
 
-| Failure | Behaviour |
-|---|---|
-| Telemetry store (ClickHouse) down or unreachable | App traffic is never affected — telemetry is not the app's primary data. Reads return empty + a clear "store unreachable" status; the reconcile worker marks it not-reachable; health says latency/error checks are blind rather than green. |
-| Collector failed to deploy | The collector status reads `FAILED` (the dispatch failure is held in memory; live tasks decide the rest); the health narrative surfaces "telemetry collector failed to deploy — latency and error-rate checks are blind" instead of implying all-clear. |
-| App already sets its own `OTEL_*` (own collector) | User values win — `injectOtel` only fills absent keys, never overwrites. The stack ships to the user's endpoint, not swarmy's. |
-| Stack toggled off | Next deploy drops the injected env/labels; the stack runs byte-identically to never-instrumented (golden guarantee); its data stops landing and TTL-expires. |
-| Trace volume / ClickHouse footprint growing | Tail sampling at the gateway keeps errors/slow traces and samples the rest; retention is a short default `TTL`; the store's `diskUsedBytes` is surfaced in the UI so growth is visible before it hurts. |
-| High-cardinality attributes | Enrichment/redaction at the gateway + clamped queries; org-scope is enforced on every read so cardinality can never leak across orgs. |
+| Failure                                           | Behaviour                                                                                                                                                                                                                                               |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Telemetry store (ClickHouse) down or unreachable  | App traffic is never affected — telemetry is not the app's primary data. Reads return empty + a clear "store unreachable" status; the reconcile worker marks it not-reachable; health says latency/error checks are blind rather than green.            |
+| Collector failed to deploy                        | The collector status reads `FAILED` (the dispatch failure is held in memory; live tasks decide the rest); the health narrative surfaces "telemetry collector failed to deploy — latency and error-rate checks are blind" instead of implying all-clear. |
+| App already sets its own `OTEL_*` (own collector) | User values win — `injectOtel` only fills absent keys, never overwrites. The stack ships to the user's endpoint, not swarmy's.                                                                                                                          |
+| Stack toggled off                                 | Next deploy drops the injected env/labels; the stack runs byte-identically to never-instrumented (golden guarantee); its data stops landing and TTL-expires.                                                                                            |
+| Trace volume / ClickHouse footprint growing       | Tail sampling at the gateway keeps errors/slow traces and samples the rest; retention is a short default `TTL`; the store's `diskUsedBytes` is surfaced in the UI so growth is visible before it hurts.                                                 |
+| High-cardinality attributes                       | Enrichment/redaction at the gateway + clamped queries; org-scope is enforced on every read so cardinality can never leak across orgs.                                                                                                                   |
 
 ## Explicitly rejected
 
 - **Embedding Jaeger / Grafana as the UI.** A native list→waterfall→map keeps one
   design system and one nav; the standard tools stay a Phase-3 escape hatch against
-  the *same* ClickHouse, so we are never blocked, but they are not the product.
+  the _same_ ClickHouse, so we are never blocked, but they are not the product.
 - **A second telemetry store, or a "traces-lite" no-ClickHouse mode.** One store,
   one collector, one schema. Multiple backends multiply the query surface and the
   ops burden for no user-visible win.
 - **Mirroring spans/metrics/logs into swarmy's DB.** The DB owns swarmy's own control
-  state and the history of what *fired*, never the raw signal firehose — that is
+  state and the history of what _fired_, never the raw signal firehose — that is
   ClickHouse's job, TTL'd and partitioned. A column that shadows trace volume is
   the write-amplification bug we designed away.
 - **Making telemetry change the app.** No injected sidecar, image rewrite, or

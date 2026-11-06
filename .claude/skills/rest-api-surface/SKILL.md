@@ -63,7 +63,7 @@ adapter contract.
    `TRPCError`s carrying a `swarmyCode`; `trpcErrorToProblem` (`problem.ts`) is
    the single map from tRPC code → HTTP status, emitting RFC 9457
    `application/problem+json` `{ type, title, status, detail, instance,
-   swarmy_code }`. Never hand-roll an error body in a route — wrap the call in
+swarmy_code }`. Never hand-roll an error body in a route — wrap the call in
    `run(c, fn, status)` (`respond.ts`) and let it map. A new `swarmyCode` is
    added in `@swarmy/trpc/errors`, not here. A validation 400 carries
    `invalid_params: [{ name, reason }]` (RFC 9457 §3): from the request-body
@@ -90,14 +90,14 @@ adapter contract.
    add endpoints/optional fields freely; you never remove or repurpose a field
    or path. A breaking change is a `v2`, not an edit, with a deprecation
    window: wrap the v1 route in `deprecate({ since, sunset, successor?, link?
-   }, route)` (`deprecation.ts`) — the spec gets `deprecated: true` +
+}, route)` (`deprecation.ts`) — the spec gets `deprecated: true` +
    `x-swarmy-deprecated`, and `deprecationSignals` (the first middleware)
    stamps `Deprecation` (RFC 9745) + `Sunset` (RFC 8594) + `Link` on every
    response of it, read back from the same marker. Nothing is deprecated yet.
    New enum values are documented as open, so adding one is non-breaking.
 9. **Mutations are idempotent-replayable; reads are never commands.** A mutation
    (POST/PUT/PATCH/DELETE) carrying `Idempotency-Key` stores `(orgId, key) →
-   (status, body)` and replays it verbatim on retry (`idempotency.ts`, runs
+(status, body)` and replays it verbatim on retry (`idempotency.ts`, runs
    AFTER auth). A key is bound to the first `(method, path)` it was used with —
    reusing it for a different op is `409 IDEMPOTENCY_KEY_REUSED`, never a silent
    wrong replay; only 2xx JSON is memoized. Reads (list/detail) are served by
@@ -112,9 +112,9 @@ adapter contract.
 ## Contracts between the layers
 
 - **Host → REST**: `apps/api/src/index.ts` calls `createRestApp({
-  resolveContextFromApiKey })`, passing the same `prisma`, `hub`, and
+resolveContextFromApiKey })`, passing the same `prisma`, `hub`, and
   `authRegistry.getAuth()` it already wires for tRPC. The `RestDeps` seam
-  (`deps.ts`) is the *only* injection point — the package is framework-light and
+  (`deps.ts`) is the _only_ injection point — the package is framework-light and
   host-agnostic.
 - **REST → services**: a handler gets `c.get('orgCtx')` (an `OrgContext`) and
   `c.get('apiKey')` (`{ id, scopes }`) off the Hono context (`RestEnv` in
@@ -136,7 +136,7 @@ adapter contract.
   `app-scope.ts`).
 - **REST → wire spec**: the committed `packages/api-rest/openapi.json` is the
   contract artifact. The SDKs' MODEL files (`sdks/{typescript/src/models.ts,
-  python/swarmy/models.py,go/models.go}`) are generated from it by
+python/swarmy/models.py,go/models.go}`) are generated from it by
   `scripts/gen-sdks.ts`; their client/resource layers are hand-written and must
   gain each new route by hand — each SDK has a method for every route, and
   `scripts/check-sdk-parity.ts` (CI `sdks` job) fails on a route an SDK lacks
@@ -144,17 +144,15 @@ adapter contract.
   route with a reason (today only `POST /nodes/{id}/cordon`, an alias of
   drain). It finds a method by its transport call, so write the path inline:
   `do(ctx, "GET", "/x/"+pathEscape(id), …)`, `request('GET', \`/x/${…}\`)`,
-  `request("GET", "/x/{}".format(…))`. An optional `$ref` to an object becomes a Go pointer, and a
-  `$ref` to a nullable object is nullable in every language. In a Go REQUEST
-  model (any schema a request body reaches) an optional boolean, or a number
-  whose bounds admit 0, is a pointer (`swarmy.Ptr(false)`; omitempty would drop
-  it), and an optional nullable field is `swarmy.Nullable[T]` + `omitzero`
-  (unset is left out, `swarmy.Null[T]()` sends `null`): a nil pointer would
-  send `null` and clear what the caller never named. The Terraform
-  provider has its OWN hand-written client
-  (`terraform-provider-swarmy/internal/client/*`) and keeps a copy of the spec
-  (`terraform-provider-swarmy/openapi.json`), refreshed with the contract.
-  Provider/SDK auth is `Authorization: Bearer swk_…`.
+  `request("GET", "/x/{}".format(…))`. An optional `$ref`to an object becomes a Go pointer, and a`$ref` to a nullable object is nullable in every language. In a Go REQUEST
+model (any schema a request body reaches) an optional boolean, or a number
+whose bounds admit 0, is a pointer (`swarmy.Ptr(false)`; omitempty would drop
+it), and an optional nullable field is `swarmy.Nullable[T]`+`omitzero`(unset is left out,`swarmy.Null[T]()`sends`null`): a nil pointer would
+send `null` and clear what the caller never named. The Terraform
+provider has its OWN hand-written client
+(`terraform-provider-swarmy/internal/client/\*`) and keeps a copy of the spec
+(`terraform-provider-swarmy/openapi.json`), refreshed with the contract.
+Provider/SDK auth is `Authorization: Bearer swk\_…`.
 - **Terraform resources ride existing routes**: `swarmy_service` applies image,
   env and command changes through one `PATCH /services/{id}` polled to
   convergence (a replica change alone stays a scale; a 412 lists each
@@ -164,34 +162,34 @@ adapter contract.
   Terraform is recreated); `swarmy_api_key` reads by listing `GET /api-keys`
   (there is no per-key GET) and drops a key revoked outside Terraform.
 - **Pagination envelope**: list endpoints return `{ data: [...], next_cursor:
-  string | null }` via `listEnvelope(item, name)` (`dto.ts`). Cursor is opaque;
+string | null }` via `listEnvelope(item, name)` (`dto.ts`). Cursor is opaque;
   today several lists return `next_cursor: null` (full page) — keep the envelope
   even so, so pagination can arrive without a contract break.
 
 ## File map
 
-| Concern | Where |
-|---|---|
-| REST sub-app assembly, auth boundary, spec/docs mount | `packages/api-rest/src/app.ts` |
-| Host injection contract (`RestDeps`, `ResolvedApiKey`) | `packages/api-rest/src/deps.ts` |
-| Bearer-key auth + `requireScope` + `RestEnv` | `packages/api-rest/src/middleware.ts` |
-| Idempotency-Key replay middleware | `packages/api-rest/src/idempotency.ts` |
-| RFC 9457 problem mapper (`trpcErrorToProblem`) | `packages/api-rest/src/problem.ts` |
-| Deprecation marker + `Deprecation`/`Sunset` headers | `packages/api-rest/src/deprecation.ts` |
-| `run()` — call service, encode, map errors | `packages/api-rest/src/respond.ts` |
-| Resource routes (one module per resource) | `packages/api-rest/src/routes/*` |
-| CLI/MCP developer routes (`/me`, env, logs + SSE, previews, telemetry) | `routes/devx.ts` over `@swarmy/trpc/devx` |
-| Public DTOs (snake_case Zod) | `packages/api-rest/src/dto.ts`, `dto-extra.ts` |
-| view→DTO mappers (camel→snake) | `packages/api-rest/src/mappers.ts`, `mappers-extra.ts` |
-| Committed spec artifact + dumper | `packages/api-rest/openapi.json`, `src/bin/dump-openapi.ts` |
-| Key→OrgContext seam | `packages/trpc/src/apiKeyContext.ts` |
-| Key lifecycle (mint/hash/list/revoke) | `packages/trpc/src/services/apiKeys.service.ts` |
-| Dashboard key management router | `packages/trpc/src/routers/apiKeys.ts` |
-| `/api/v1` mount + dep wiring | `apps/api/src/index.ts` |
-| SDKs (generated models + hand-written resources) | `sdks/go`, `sdks/python`, `sdks/typescript`; generator `scripts/gen-sdks.ts` |
+| Concern                                                                     | Where                                                                                                               |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| REST sub-app assembly, auth boundary, spec/docs mount                       | `packages/api-rest/src/app.ts`                                                                                      |
+| Host injection contract (`RestDeps`, `ResolvedApiKey`)                      | `packages/api-rest/src/deps.ts`                                                                                     |
+| Bearer-key auth + `requireScope` + `RestEnv`                                | `packages/api-rest/src/middleware.ts`                                                                               |
+| Idempotency-Key replay middleware                                           | `packages/api-rest/src/idempotency.ts`                                                                              |
+| RFC 9457 problem mapper (`trpcErrorToProblem`)                              | `packages/api-rest/src/problem.ts`                                                                                  |
+| Deprecation marker + `Deprecation`/`Sunset` headers                         | `packages/api-rest/src/deprecation.ts`                                                                              |
+| `run()` — call service, encode, map errors                                  | `packages/api-rest/src/respond.ts`                                                                                  |
+| Resource routes (one module per resource)                                   | `packages/api-rest/src/routes/*`                                                                                    |
+| CLI/MCP developer routes (`/me`, env, logs + SSE, previews, telemetry)      | `routes/devx.ts` over `@swarmy/trpc/devx`                                                                           |
+| Public DTOs (snake_case Zod)                                                | `packages/api-rest/src/dto.ts`, `dto-extra.ts`                                                                      |
+| view→DTO mappers (camel→snake)                                              | `packages/api-rest/src/mappers.ts`, `mappers-extra.ts`                                                              |
+| Committed spec artifact + dumper                                            | `packages/api-rest/openapi.json`, `src/bin/dump-openapi.ts`                                                         |
+| Key→OrgContext seam                                                         | `packages/trpc/src/apiKeyContext.ts`                                                                                |
+| Key lifecycle (mint/hash/list/revoke)                                       | `packages/trpc/src/services/apiKeys.service.ts`                                                                     |
+| Dashboard key management router                                             | `packages/trpc/src/routers/apiKeys.ts`                                                                              |
+| `/api/v1` mount + dep wiring                                                | `apps/api/src/index.ts`                                                                                             |
+| SDKs (generated models + hand-written resources)                            | `sdks/go`, `sdks/python`, `sdks/typescript`; generator `scripts/gen-sdks.ts`                                        |
 | Terraform provider (own client + resources, incl. `resource_join_token.go`) | `terraform-provider-swarmy/internal/{client,provider}/*`, examples `terraform-provider-swarmy/examples/resources/*` |
-| Join tokens + service update routes | `packages/api-rest/src/routes/{join-tokens,services}.ts` |
-| App-scoped key guard (org-wide routes refused) | `packages/api-rest/src/app-scope.ts` |
+| Join tokens + service update routes                                         | `packages/api-rest/src/routes/{join-tokens,services}.ts`                                                            |
+| App-scoped key guard (org-wide routes refused)                              | `packages/api-rest/src/app-scope.ts`                                                                                |
 
 ## Adding a REST endpoint (the recipe)
 
@@ -205,16 +203,16 @@ adapter contract.
 3. **Mapper** in `mappers.ts`/`mappers-extra.ts`: view/service-result → DTO. This
    is the only place camelCase→snake_case happens.
 4. **Route** in `routes/<resource>.ts`: a `createRoute({ method, path, tags,
-   security:[{ bearerApiKey:[] }], middleware:[requireScope('read'|'write')],
-   request, responses })`, handler = `(c) => run(c, () => theService(c.get(
-   'orgCtx'), input), status)`. Async mutation → `202` + `DeploymentRefDto`.
+security:[{ bearerApiKey:[] }], middleware:[requireScope('read'|'write')],
+request, responses })`, handler = `(c) => run(c, () => theService(c.get(
+'orgCtx'), input), status)`. Async mutation → `202` + `DeploymentRefDto`.
    Register the module in `buildResourceApp` (`app.ts`) if it's new.
 5. **Regenerate the spec**: `bun run --filter @swarmy/api-rest openapi:dump` and
    commit `packages/api-rest/openapi.json` — this is the codegen input, so its
    diff IS the public-contract review.
 6. **SDK methods**: `bun run gen:sdks`, then add the route's method to each of
    `sdks/{go,python,typescript}` with a test, until `bun run
-   scripts/check-sdk-parity.ts` passes (`--table` prints route × SDK).
+scripts/check-sdk-parity.ts` passes (`--table` prints route × SDK).
 7. **Verify**: `bun --filter @swarmy/api-rest typecheck` and the package tests
    (`idempotency.test.ts`, `mappers-extra.test.ts`). Round-trip a call with a
    real key: `curl -H 'Authorization: Bearer swk_…' localhost:3021/api/v1/nodes`

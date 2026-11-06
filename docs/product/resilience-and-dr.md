@@ -6,8 +6,8 @@ for the how.**
 ## The feeling we are building
 
 Someone running a real workload on swarmy should be able to answer, at any
-moment, one uncomfortable question — *"if this node died right now, what would I
-lose, and can I actually get it back?"* — without waiting for the outage to find
+moment, one uncomfortable question — _"if this node died right now, what would I
+lose, and can I actually get it back?"_ — without waiting for the outage to find
 out:
 
 1. They open a stack's **Backups** tab and see it in plain words: "storefront is
@@ -22,13 +22,13 @@ out:
    run lands in the audit log.
 4. Weeks later the box actually dies. A new node joins, DR reconciliation restores
    the stranded volume's latest snapshot onto it, and the service comes back. Or
-   the *controller* dies — they stand a new one up, paste their restore passphrase,
+   the _controller_ dies — they stand a new one up, paste their restore passphrase,
    and it **re-adopts the existing swarm** because every agent's reconnect
    credential was in the backed-up brain.
 
 No untested backups sitting in a bucket you hope works. No "restore runbook" that
 was last exercised at install time. It should feel like your recovery story is a
-thing you *rehearse* — a drill you can fire on a quiet Tuesday — not a thing you
+thing you _rehearse_ — a drill you can fire on a quiet Tuesday — not a thing you
 discover is broken at 3am. **An unrestored backup is a hope, not a plan.**
 
 ## How it works (the backup + drill path)
@@ -57,13 +57,13 @@ Four ideas, one story:
 
 - **restic is the whole backup primitive.** Encrypted-at-source, deduplicated,
   incremental, a plain repo any operator can restore by hand with the restic
-  binary and the password — *with or without swarmy running*. Volume backups, DB
+  binary and the password — _with or without swarmy running_. Volume backups, DB
   dumps, and the controller's own brain all land in the same restic catalog with
   different sources. One mechanism, not three.
 - **Retention is enforced, not just displayed.** A retention window (per-stack
   `swarmy.backup.retentionDays` label for volumes; the DB backup schedule's own
-  `retentionDays`) makes each *successful* backup run `restic forget
-  --keep-within <N>d --prune`, scoped to that source's tags so one cluster's
+  `retentionDays`) makes each _successful_ backup run `restic forget
+--keep-within <N>d --prune`, scoped to that source's tags so one cluster's
   prune can never eat another's snapshots. A retention failure never fails the
   backup that just succeeded — it is reported separately — and every prune that
   removes snapshots writes an audit row with counts. No window set = keep
@@ -71,14 +71,14 @@ Four ideas, one story:
 - **Backups run where the data is; the controller only orchestrates.** The agent
   launches the sidecar against its local Docker socket (see the `agent-handlers`
   skill); the controller decrypts credentials just-in-time and dispatches. The one
-  exception is the *controller's own* backup, which must never leave the
+  exception is the _controller's own_ backup, which must never leave the
   controller and must work before any agent exists — so it runs controller-side.
 - **Resilience is a plain list, not a score.** Pure checks over live Docker-truth
   signals produce a severity-ranked list of what isn't protected yet — each with
   what could be lost and a fix link. Fix it and it leaves the list. (A 0–100
   score and letter grade were removed in 2026-09: a number hid the why.)
 - **Drills are the product.** A backup you have never restored is untested. swarmy
-  makes restoring *safe to rehearse*: throwaway clusters,
+  makes restoring _safe to rehearse_: throwaway clusters,
   integrity checks — all confirmed in the UI, admin-only, and every outcome
   written to the audit log so "last tested" means something.
 
@@ -111,15 +111,15 @@ Four ideas, one story:
   and never touch a node's disk — they arrive over the authenticated WS as command
   env and die with the sidecar.
 - **Drill outcomes are NOT a new model.** Each run writes one `resilience.drill`
-  audit row whose metadata *is* the drill result view; "last tested" reads those
+  audit row whose metadata _is_ the drill result view; "last tested" reads those
   rows back (with a small in-memory cache so a lost write never blanks the page).
 
 ## Resilience & DR behaviour (what the promise commits us to)
 
 - **The list is honest and derived.** Checks over live signals: single-
   replica services, cache/DB with no standby, object-store replication factor,
-  backup recency (crit at >7 days or none), no off-site copy, *restore never
-  tested*, ingress on one node, geo-DNS single-region on a multi-region estate,
+  backup recency (crit at >7 days or none), no off-site copy, _restore never
+  tested_, ingress on one node, geo-DNS single-region on a multi-region estate,
   controller-backup recency. Nothing is shown as "fine" that you can't explain.
 - **Backups are encrypted, deduplicated, and portable.** restic at source means
   the target — even another operator's node over the mesh — only ever sees
@@ -220,7 +220,7 @@ Four ideas, one story:
   (`SWARMY_SECRET_KEY`, `BETTER_AUTH_SECRET`) + a compatibility manifest — sealed
   with a **user-held restore passphrase** (zero-knowledge; shown once, "write this
   down"). `telemetry.db` is never in the bundle, so metric history does not survive a restore.
-  Because every agent's reconnect credential is a *hashed* session secret in that
+  Because every agent's reconnect credential is a _hashed_ session secret in that
   snapshot, **a controller restored on a fresh box re-adopts the existing swarm** —
   agents dial back out and reconnect, no re-enrollment.
 - **DR reconciliation is automatic but bounded.** When a node that hosted a
@@ -229,7 +229,7 @@ Four ideas, one story:
   the backup interval, RTO is the restore time, and swarmy shows both rather than
   over-promising "HA".
 - **Drills are safe by construction and gated.** The restore drill only ever
-  touches a throwaway `drill-<ts>` cluster and cleans it up on success *or*
+  touches a throwaway `drill-<ts>` cluster and cleans it up on success _or_
   failure; backup-verify is read-only. All are admin-only, confirmed in the UI, and
   audited. A running drill streams its steps as they start and end
   (`resilience.drillProgress`, in memory): the DR drill card on Backups shows
@@ -243,7 +243,7 @@ Four ideas, one story:
   engines that replay a WAL/redo log recover from it, but it is not a
   transaction-consistent dump. So compose MySQL/MariaDB/Postgres/MongoDB/Redis/Valkey
   also get a logical dump on the same schedule (`mysqldump
-  --single-transaction` / `mariadb-dump`, `pg_dump -Fc` per database,
+--single-transaction` / `mariadb-dump`, `pg_dump -Fc` per database,
   `mongodump --archive`, Redis
   `BGSAVE` + the finished RDB) into the same restic repo, with one-click
   restore — as a copy by default, in place behind a typed confirm and a
@@ -275,19 +275,19 @@ Four ideas, one story:
 
 ## Failure modes (designed, not accidental)
 
-| Failure | Behaviour |
-|---|---|
-| A backup target is down when a scheduled backup fires | The `Snapshot` row is marked `FAILED` with the error; the schedule's `nextRunAt` still advances; backup recency puts it on the "what isn't protected yet" list until a good run lands. |
-| Node holding a `local` volume dies | Past the grace window, `dr-reconcile` restores the volume's latest snapshot (by `Snapshot.hostNodeId`) onto a healthy manager and writes a `RestoreOperation` — recovery to the last backup, not zero-RPO. |
-| The controller's node dies (replicated store) | Swarm starts the controller on another manager. Its empty volume is restored from the replica before the DB opens, it takes the lease once the old one has been silent for 60 s, and agents re-adopt. Up to about 1 s of writes is lost. |
-| The controller is partitioned from the managers | It can't renew (no raft quorum on its side), so it stops writing and exits within 52 s, without a final sync. The majority side's new controller can take over only after 60 s. If the old side still shipped after the new one's restore, the new one's pre-replication check sees it and restores again. No two lineages are ever interleaved. |
-| The replica (Garage) is down at boot | With a local file: keep it, start without replicating, and retry the check every 15 s. With an empty volume: exit and let Swarm retry. Never start empty. |
-| Controller (the brain) is lost entirely | Stand up a new controller, stop the controller and run the standalone `restore` entrypoint with the target coords + user-held passphrase; it puts the snapshot in place as `control.db` (the old file kept as `control.db.pre-restore-<ts>`), applies newer migrations, and the agents re-adopt via their hashed session secrets. Disaster recovery uses the CLI (the dashboard is down); in-place rollback uses the UI. |
-| Restore passphrase is lost | The controller-state bundle is unreadable — by design (zero-knowledge). swarmy cannot recover it; the setup flow gates on "I've stored it" for exactly this reason. |
-| Restore drill fails midway | The throwaway `drill-<ts>` cluster is destroyed regardless; the drill is recorded `failed` with the step that broke; nothing on the real cluster was touched (preconditions throw before anything is created). |
-| DB backup of a live Postgres | For managed Postgres, logical engines dump a transactionally-consistent point-in-time; `snapshot-from-replica` takes it off a read replica for zero primary load. A compose MySQL/MariaDB/Postgres/Mongo/Redis/Valkey also gets a logical dump; only a compose DB whose credentials can't be resolved (e.g. a random root password and no app user) is volume-only. |
-| Logical dump of a compose DB fails | Audited as a failed `appdb.backup`, shown on the stack's Databases card; the volume copy from the same schedule still ran. An in-place restore whose safety dump fails changes nothing. |
-| In-place managed-Postgres restore, and the pre-restore backup fails | The restore is refused before anything is touched, with the reason. Fix it and retry, or restore with `skipSafetyBackup: true` (audited). |
+| Failure                                                             | Behaviour                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A backup target is down when a scheduled backup fires               | The `Snapshot` row is marked `FAILED` with the error; the schedule's `nextRunAt` still advances; backup recency puts it on the "what isn't protected yet" list until a good run lands.                                                                                                                                                                                                                                   |
+| Node holding a `local` volume dies                                  | Past the grace window, `dr-reconcile` restores the volume's latest snapshot (by `Snapshot.hostNodeId`) onto a healthy manager and writes a `RestoreOperation` — recovery to the last backup, not zero-RPO.                                                                                                                                                                                                               |
+| The controller's node dies (replicated store)                       | Swarm starts the controller on another manager. Its empty volume is restored from the replica before the DB opens, it takes the lease once the old one has been silent for 60 s, and agents re-adopt. Up to about 1 s of writes is lost.                                                                                                                                                                                 |
+| The controller is partitioned from the managers                     | It can't renew (no raft quorum on its side), so it stops writing and exits within 52 s, without a final sync. The majority side's new controller can take over only after 60 s. If the old side still shipped after the new one's restore, the new one's pre-replication check sees it and restores again. No two lineages are ever interleaved.                                                                         |
+| The replica (Garage) is down at boot                                | With a local file: keep it, start without replicating, and retry the check every 15 s. With an empty volume: exit and let Swarm retry. Never start empty.                                                                                                                                                                                                                                                                |
+| Controller (the brain) is lost entirely                             | Stand up a new controller, stop the controller and run the standalone `restore` entrypoint with the target coords + user-held passphrase; it puts the snapshot in place as `control.db` (the old file kept as `control.db.pre-restore-<ts>`), applies newer migrations, and the agents re-adopt via their hashed session secrets. Disaster recovery uses the CLI (the dashboard is down); in-place rollback uses the UI. |
+| Restore passphrase is lost                                          | The controller-state bundle is unreadable — by design (zero-knowledge). swarmy cannot recover it; the setup flow gates on "I've stored it" for exactly this reason.                                                                                                                                                                                                                                                      |
+| Restore drill fails midway                                          | The throwaway `drill-<ts>` cluster is destroyed regardless; the drill is recorded `failed` with the step that broke; nothing on the real cluster was touched (preconditions throw before anything is created).                                                                                                                                                                                                           |
+| DB backup of a live Postgres                                        | For managed Postgres, logical engines dump a transactionally-consistent point-in-time; `snapshot-from-replica` takes it off a read replica for zero primary load. A compose MySQL/MariaDB/Postgres/Mongo/Redis/Valkey also gets a logical dump; only a compose DB whose credentials can't be resolved (e.g. a random root password and no app user) is volume-only.                                                      |
+| Logical dump of a compose DB fails                                  | Audited as a failed `appdb.backup`, shown on the stack's Databases card; the volume copy from the same schedule still ran. An in-place restore whose safety dump fails changes nothing.                                                                                                                                                                                                                                  |
+| In-place managed-Postgres restore, and the pre-restore backup fails | The restore is refused before anything is touched, with the reason. Fix it and retry, or restore with `skipSafetyBackup: true` (audited).                                                                                                                                                                                                                                                                                |
 
 ## Explicitly rejected
 
@@ -310,9 +310,9 @@ Four ideas, one story:
 - **Running the controller's own backup on an agent.** It contains the
   controller's secrets and must work before any agent exists — so it runs
   controller-side, the one deliberate exception to "backups run where the data is".
-- **Claiming "HA" for scheduled backups.** restic gives *recoverability* (RPO =
-  interval, RTO = restore time), CSI gives *availability*, Garage gives *off-node
-  durability* — three distinct guarantees. We show the real numbers, not a green
+- **Claiming "HA" for scheduled backups.** restic gives _recoverability_ (RPO =
+  interval, RTO = restore time), CSI gives _availability_, Garage gives _off-node
+  durability_ — three distinct guarantees. We show the real numbers, not a green
   "highly available" badge.
 - **A drill that mutates production.** The restore drill never restores over a
   live cluster; it clones. Safe-to-rehearse is the point — a drill you are afraid
@@ -325,17 +325,17 @@ Four ideas, one story:
   timestamptz) with many concurrent writers, and ran embedded Postgres (PGlite)
   instead. Checked against the code (`plans/epic-docker-native-state.md` §1),
   those reasons did not hold:
-  - *Concurrent writers:* PGlite was already single-connection; its adapter ran
+  - _Concurrent writers:_ PGlite was already single-connection; its adapter ran
     every transaction one at a time. SQLite in WAL mode (one writer, many
     readers) is the same model or better.
-  - *Dialect:* Prisma's SQLite provider supports `Json`, `enum` and `BigInt`.
+  - _Dialect:_ Prisma's SQLite provider supports `Json`, `enum` and `BigInt`.
     Two `String[]` columns became `Json`, the `@db.*` annotations were dropped,
     and 5 raw-SQL call sites were ported.
-  - *What PGlite cost:* at least 128 MiB of WASM memory, an initdb peak near
+  - _What PGlite cost:_ at least 128 MiB of WASM memory, an initdb peak near
     1 GiB (worked around with an image-baked template), a 597-line in-repo
     Prisma adapter, and only logical `INSERT` dumps. No continuous replication
     meant the controller was pinned to one host.
-  - *What SQLite gives:* a few MB of memory, `VACUUM INTO` hot snapshots for the
+  - _What SQLite gives:_ a few MB of memory, `VACUUM INTO` hot snapshots for the
     bundle, and Litestream WAL shipping to Garage, which is what lets the
     controller move between managers (shipped in P3).
 

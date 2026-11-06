@@ -15,7 +15,7 @@ the exact file they came with:
    idle `cdn-edge`, and an **OTEL** on/off toggle in the corner. Ports, images,
    replicas, and edges are all readable at a glance.
 2. They hit **Import compose**, paste their file, and watch it resolve into cards
-   — mapped fields filled in, lossy/unsupported keys flagged but *preserved*, not
+   — mapped fields filled in, lossy/unsupported keys flagged but _preserved_, not
    dropped. Or they start from a **blueprint** ("one form, one Deploy") and get a
    parameterised app wired to managed data + ingress in a few steps.
 3. They **Deploy** (one coral CTA). The change runs the admission pipeline first;
@@ -25,7 +25,7 @@ the exact file they came with:
 4. The **Releases tab** watches the new release against the stack's health for a
    window and **auto-rolls-back** if it degrades. For a risky change they run a
    **canary**: `stable 90% / canary 10% · 9m left of 15m · rolls back over 5%
-   errors · live on shop.northwind.dev` → **Promote now** or **Abort**.
+errors · live on shop.northwind.dev` → **Promote now** or **Abort**.
 5. Any time, **Export compose** or **View as `docker service create`** hands back
    an artifact that runs on vanilla Docker Swarm. The stack keeps running if
    swarmy vanishes. No lock-in was ever taken.
@@ -59,7 +59,7 @@ compose YAML ─composeToModels─▶ ServiceModel[] (canonical, @swarmy/core/co
 Four ideas, one story:
 
 - **One canonical model, three projections.** compose, the Swarm `ServiceSpec`,
-  and the GUI form are all *views* of a single Zod `ServiceModel`
+  and the GUI form are all _views_ of a single Zod `ServiceModel`
   (`@swarmy/core/compose`). Import parses compose → model; export serialises model
   → compose; deploy projects model → wire spec. There is no swarmy-only format in
   the middle — which is why "the exact stack runs without swarmy" is a guarantee,
@@ -80,7 +80,7 @@ Four ideas, one story:
 - **Live services, replicas, and stack membership are Docker truth**, read from
   the hub's inventory each time — never a DB mirror. Stack membership is the
   `com.docker.stack.namespace` / `swarmy.stack` label; `swarmy.managed=true` marks
-  a swarmy-deployed service. A "deployment" is *synthesised* from replica
+  a swarmy-deployed service. A "deployment" is _synthesised_ from replica
   convergence (`deployment.service.ts`), not a persisted row.
 - **Release policy is stack-level Docker labels**: the health gate
   (`swarmy.deploy.safety` — `{windowSec, autoRollback}` JSON) and deploy strategy
@@ -175,7 +175,7 @@ Four ideas, one story:
 - **Releases are history + diff.** The Releases tab lists deploys (image ref,
   `+N services`, actor, status `deploying|healthy|rolled back|superseded`); opening
   one shows its image digests and a **compose diff** against the previous deploy,
-  with one-click **Rollback** (redeploy that release's compose as a *new* release,
+  with one-click **Rollback** (redeploy that release's compose as a _new_ release,
   audited).
 - **Health-gated deploys.** Turn on a gate (watch window 30–3600s + optional
   auto-rollback) and the deploy-safety worker judges each new release against the
@@ -242,7 +242,7 @@ service inspect` shows only the secret's name.
   (`cat /run/secrets/<KEY>` via exec — swarmy keeps no copy), and every reveal is
   audited (`authz.permit:secrets.read` + `secrets.reveal`).
 - **Delivery.** `env` (default — apps just work): the agent wraps the container
-  in a tiny POSIX shim (a value-free swarm *config*) that exports each
+  in a tiny POSIX shim (a value-free swarm _config_) that exports each
   `/run/secrets/<KEY>` as `$KEY` and `exec`s the image's own entrypoint +
   command; the spec carries only `SWARMY_SECRET_ENV=<names>`. Needs `/bin/sh` —
   the agent probes the image and refuses a shell-less one with the fix. `file`:
@@ -260,23 +260,23 @@ service inspect` shows only the secret's name.
 
 ## Failure modes (designed, not accidental)
 
-| Failure | Behaviour |
-|---|---|
-| Controller DB wiped mid-rollout | Release *history* is lost, but the gate/strategy/canary labels live on the stack's Docker objects — the workers keep judging and can still auto-rollback. The stack keeps running. |
-| Health gate never gets health data | `unknown` health waits up to 2× the window, then passes (benefit of the doubt) — a gate must never wedge a release forever. |
-| Canary's stable service disappears | `canaryStatus` skips it (nothing to compare or promote onto); no phantom rollout. |
-| Deploy blocked by a guardrail | Refused before dispatch with a plain-words reason; an admin may override (member cannot, for `block`), and the override is on the record. |
-| Imported compose uses non-Swarm keys (`build`, `network_mode`) | Import-and-warn: kept in passthrough, shown as lossy/info, not sent to the agent. Export re-emits them. Deploy still succeeds for the mapped surface. |
-| Compose service with `build:` but no `image:` | Stack deploy refuses it up front (400, nothing dispatched) — Swarm cannot build; push an image or use a git build. |
-| Stack deployed under the old bare-name scheme | Next deploy migrates it to `<stack>_<svc>` (new first, legacy removed after; port clashes removed first), reusing any legacy named volume by mount target. |
-| Secret var delivered as env on a shell-less image | The agent's `/bin/sh` probe refuses the deploy with the fix ("switch X to file delivery") — no tasks that die at start. |
-| Secret var rotation fails its health gate | The rollback points at the previous version, which the GC keeps (converged + past the gate window before any removal). |
-| Promote onto a live service | Full spec rebuilt from `service.inspect` before the image swap, so env/mounts/secrets/ports/placement are carried, never silently dropped. |
+| Failure                                                        | Behaviour                                                                                                                                                                          |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Controller DB wiped mid-rollout                                | Release _history_ is lost, but the gate/strategy/canary labels live on the stack's Docker objects — the workers keep judging and can still auto-rollback. The stack keeps running. |
+| Health gate never gets health data                             | `unknown` health waits up to 2× the window, then passes (benefit of the doubt) — a gate must never wedge a release forever.                                                        |
+| Canary's stable service disappears                             | `canaryStatus` skips it (nothing to compare or promote onto); no phantom rollout.                                                                                                  |
+| Deploy blocked by a guardrail                                  | Refused before dispatch with a plain-words reason; an admin may override (member cannot, for `block`), and the override is on the record.                                          |
+| Imported compose uses non-Swarm keys (`build`, `network_mode`) | Import-and-warn: kept in passthrough, shown as lossy/info, not sent to the agent. Export re-emits them. Deploy still succeeds for the mapped surface.                              |
+| Compose service with `build:` but no `image:`                  | Stack deploy refuses it up front (400, nothing dispatched) — Swarm cannot build; push an image or use a git build.                                                                 |
+| Stack deployed under the old bare-name scheme                  | Next deploy migrates it to `<stack>_<svc>` (new first, legacy removed after; port clashes removed first), reusing any legacy named volume by mount target.                         |
+| Secret var delivered as env on a shell-less image              | The agent's `/bin/sh` probe refuses the deploy with the fix ("switch X to file delivery") — no tasks that die at start.                                                            |
+| Secret var rotation fails its health gate                      | The rollback points at the previous version, which the GC keeps (converged + past the gate window before any removal).                                                             |
+| Promote onto a live service                                    | Full spec rebuilt from `service.inspect` before the image swap, so env/mounts/secrets/ports/placement are carried, never silently dropped.                                         |
 
 ## Explicitly rejected
 
-- **A swarmy-only manifest format.** The canonical model is a *superset of what
-  compose and Swarm can both express*, and compose is always exportable. A
+- **A swarmy-only manifest format.** The canonical model is a _superset of what
+  compose and Swarm can both express_, and compose is always exportable. A
   proprietary format would trap config and break the unopinionated promise.
 - **A generic JSON-Schema-to-form dump.** compose's `oneOf` unions and its ~40
   Swarm-meaningless keys make an auto-generated form surface fields that silently
@@ -284,7 +284,7 @@ service inspect` shows only the secret's name.
   instead.
 - **Persisting live service/deployment state in the DB.** Replicas and convergence
   are read from Docker each time; a `Deployment` row would drift. Only swarmy's own
-  *history* (`Release`) is stored — see the `docker-native-storage` skill.
+  _history_ (`Release`) is stored — see the `docker-native-storage` skill.
 - **Storing release policy in the DB.** Health gate, strategy, and canary are stack
   behaviour → they ride Docker labels so they survive a database loss. "Stored on
   the stack itself, so it survives anything."
@@ -295,7 +295,7 @@ service inspect` shows only the secret's name.
 ## Implementation map
 
 The end-to-end shape (model → agent → service → router → UI) is the
-`add-feature-slice` skill; where release policy *lives* is the
+`add-feature-slice` skill; where release policy _lives_ is the
 `docker-native-storage` skill; the agent deploy dispatch is `agent-handlers`. Key
 homes:
 

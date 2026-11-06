@@ -5,8 +5,8 @@ skill for the how.**
 
 ## The feeling we are building
 
-Someone running a team on swarmy should never wonder *who can do what*, *what
-production will let them ship*, or *what actually happened*. The answer is
+Someone running a team on swarmy should never wonder _who can do what_, _what
+production will let them ship_, or _what actually happened_. The answer is
 always one of three screens, and all three read like plain English:
 
 1. They open **Settings → Access** ("Run the team.") and see the org, its
@@ -61,7 +61,7 @@ Four ideas, one story:
   impossible. Policies never widen the tenant boundary, only narrow within it.
 - **Roles are an attribute, not the gate.** The principal carries
   `{ userId, orgId, role, memberId, teamIds, attributes }` from the `Member` row.
-  The *seeded* default policy set reproduces today's `owner`/`admin`/`member`
+  The _seeded_ default policy set reproduces today's `owner`/`admin`/`member`
   semantics exactly — an org that never opens the policy UI behaves precisely as
   it always did. ABAC is additive: behaviour only diverges when an admin writes a
   custom policy or grants a per-resource relation.
@@ -79,7 +79,7 @@ Four ideas, one story:
 - **"Which stack is production" is a Docker node/service label**
   (`swarmy.env=production`, stamped on every service of the stack via
   `service.updateLabels`, read from live inventory). The guardrails evaluator
-  detects prod from live labels *or* the incoming specs, so a deploy that stamps
+  detects prod from live labels _or_ the incoming specs, so a deploy that stamps
   the label counts as prod immediately. No `Stack.isProduction` column to drift.
 - **Per-node cost is a label on the node** (`swarmy.node.cost` — "swarmy stores
   it on the node itself"), so the Cost page's per-stack breakdown survives with
@@ -92,7 +92,7 @@ Four ideas, one story:
   `ResourceGrant` (ReBAC edges), `GuardrailConfig` / `ExposureConfig` (rule
   toggles + the master switches), identity rows (`Organization`, `SsoProvider`,
   `AuthProviderConfig`, `OAuthClient`, `ApiKey`, `JoinToken`), and the append-only
-  `AuditLog`. Everything about *the swarm* is derived from Docker.
+  `AuditLog`. Everything about _the swarm_ is derived from Docker.
 
 ## Governance behaviour (what the promise commits us to)
 
@@ -107,7 +107,7 @@ Four ideas, one story:
   what gets recorded, so the audit row names a real reason.
 - **ReBAC without a graph database.** A `ResourceGrant` gives a member or team a
   relation (`owner` ⊇ `operator` ⊇ `viewer`) on one resource; the seeded
-  `operator-resource-ops` policy lets an operator run safe ops on *that* resource
+  `operator-resource-ops` policy lets an operator run safe ops on _that_ resource
   without org-wide rights (production included). Behaviour-neutral for orgs with
   no grants.
 - **Rules are attribute-based and read as sentences.** (Owner direction
@@ -220,25 +220,25 @@ Four ideas, one story:
   call get the identical decision and the identical `authz.permit|deny:<action>`
   audit row. The governed actions:
 
-  | Action | Covers |
-  |---|---|
-  | `service.remove` / `stack.remove` / `node.remove` | removing a service, a stack or preview env, a node |
-  | `service.scale` / `service.restart` / `node.drain` | scale (incl. to 0), restart, drain/cordon |
-  | `data.destroy` | managed cache/search/vector/queue teardown or drain, bucket/key delete, a bucket's lifecycle (expiry) rules, object store disable, cluster-volume deregister, a moved volume's old copy |
-  | `data.configure` | a bucket's CORS rules (which websites a browser may fetch it from) |
-  | `data.restore` | volume, DB, cache, search and controller restores (they overwrite live data); putting back an earlier version of a cluster config document (`swarmKv.revert`) |
-  | `data.failover` | confirming a managed-DB failover that may lose the last writes (see `managed-data.md`) |
-  | `backup.remove` | removing a backup target or a backup schedule |
-  | `node.disk.format` | formatting a blank added disk on a server (typed last 4 of the serial; also off per server with `swarmy.node.diskFormat=false`) |
-  | `secret.delete` | deleting or pruning a secret/config family; removing an AI-gateway provider (and its stored key) |
-  | `alert.remove` / `statuspage.remove` / `webhook.remove` / `job.remove` / `ai.remove` | removing an alert channel or rule, a status page, an inbound or outbound webhook endpoint, a scheduled job; revoking an AI-gateway key, route or an app's AI grant |
-  | `dns.remove` / `ingress.remove` / `ingress.write` | geo-DNS zone/record removal; Cloudflare tunnel delete; domain removal |
-  | `token.revoke` / `member.write` / `policy.write` / `authconfig.write` / `cicd.remove` | API key / OAuth client / join token / direct-connect revoke; grants + invitations; policy, SSO and git-repo removal |
-  | `service.deploy` / `stack.deploy` / `service.configure` | create a service, deploy/redeploy a compose stack, add an app to a stack, connect apps; edit a service or its scale-to-zero (env-aware, see above) |
-  | `secrets.read` | revealing the swarm unlock key or a git webhook secret |
-  | `mesh.connect` | joining an app stack's mesh network from a client (group sync reads `whoCan`) |
-  | `rum.remove` / `mesh.revoke` / `savedquery.remove` | erasing a visitor's analytics and replays (GDPR); revoking a person's private-network grant or device; deleting a saved studio query (members keep this one) |
-  | `mesh.rules` | adding or removing a private-network access rule on Mesh settings (one NetBird group may reach another on some ports; swarmy's own rules are never changed there) |
+  | Action                                                                                | Covers                                                                                                                                                                                  |
+  | ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `service.remove` / `stack.remove` / `node.remove`                                     | removing a service, a stack or preview env, a node                                                                                                                                      |
+  | `service.scale` / `service.restart` / `node.drain`                                    | scale (incl. to 0), restart, drain/cordon                                                                                                                                               |
+  | `data.destroy`                                                                        | managed cache/search/vector/queue teardown or drain, bucket/key delete, a bucket's lifecycle (expiry) rules, object store disable, cluster-volume deregister, a moved volume's old copy |
+  | `data.configure`                                                                      | a bucket's CORS rules (which websites a browser may fetch it from)                                                                                                                      |
+  | `data.restore`                                                                        | volume, DB, cache, search and controller restores (they overwrite live data); putting back an earlier version of a cluster config document (`swarmKv.revert`)                           |
+  | `data.failover`                                                                       | confirming a managed-DB failover that may lose the last writes (see `managed-data.md`)                                                                                                  |
+  | `backup.remove`                                                                       | removing a backup target or a backup schedule                                                                                                                                           |
+  | `node.disk.format`                                                                    | formatting a blank added disk on a server (typed last 4 of the serial; also off per server with `swarmy.node.diskFormat=false`)                                                         |
+  | `secret.delete`                                                                       | deleting or pruning a secret/config family; removing an AI-gateway provider (and its stored key)                                                                                        |
+  | `alert.remove` / `statuspage.remove` / `webhook.remove` / `job.remove` / `ai.remove`  | removing an alert channel or rule, a status page, an inbound or outbound webhook endpoint, a scheduled job; revoking an AI-gateway key, route or an app's AI grant                      |
+  | `dns.remove` / `ingress.remove` / `ingress.write`                                     | geo-DNS zone/record removal; Cloudflare tunnel delete; domain removal                                                                                                                   |
+  | `token.revoke` / `member.write` / `policy.write` / `authconfig.write` / `cicd.remove` | API key / OAuth client / join token / direct-connect revoke; grants + invitations; policy, SSO and git-repo removal                                                                     |
+  | `service.deploy` / `stack.deploy` / `service.configure`                               | create a service, deploy/redeploy a compose stack, add an app to a stack, connect apps; edit a service or its scale-to-zero (env-aware, see above)                                      |
+  | `secrets.read`                                                                        | revealing the swarm unlock key or a git webhook secret                                                                                                                                  |
+  | `mesh.connect`                                                                        | joining an app stack's mesh network from a client (group sync reads `whoCan`)                                                                                                           |
+  | `rum.remove` / `mesh.revoke` / `savedquery.remove`                                    | erasing a visitor's analytics and replays (GDPR); revoking a person's private-network grant or device; deleting a saved studio query (members keep this one)                            |
+  | `mesh.rules`                                                                          | adding or removing a private-network access rule on Mesh settings (one NetBird group may reach another on some ports; swarmy's own rules are never changed there)                       |
 
   **Seeded defaults: owners and admins can do all of it (no lockout, even for an
   org whose defaults were persisted before these actions existed — their `*`
@@ -268,18 +268,18 @@ Four ideas, one story:
 
 ## Failure modes (designed, not accidental)
 
-| Failure | Behaviour |
-|---|---|
-| Caller is not a member of the active org | `orgProcedure` throws `FORBIDDEN` before any resolver or query runs — the tenant wall, not a policy decision. |
-| No stored policies for the org | The engine loads the seeded defaults verbatim; behaviour is exactly today's role model. The gate can never be *empty*. |
-| Stored `rulesJson` is malformed / has unknown ids | Parsed over the defaults; bad entries dropped, missing rules fall back. A corrupt config can never brick admission. |
-| Cedar (`cedar-wasm`) absent or throws at runtime | Transparent fallback to the JSON engine; the decision is identical for the supported document shape. |
-| Audit write fails (DB hiccup) | `writeAudit` swallows the error — a logging failure never rolls back or blocks the underlying mutation. |
-| A `block` guardrail fires on a prod deploy | The deploy is refused with the exact rule + plain-words reason; an admin may override (on `/services/new`, with a required reason), and the block *and* the override are both audited. |
-| You switch to another org | The switch re-issues the session cookies and hands them to the browser, so the next request already reads the new org (it used to show the previous org for up to the 60 s cookie cache). |
-| A rule change would leave no owner able to change rules | Refused with `POLICY_LOCKOUT`; nothing is written. |
-| A session is signed out or revoked | Access tokens issued before it are refused, its OAuth grants are deleted, and forward-auth drops that user's cached permits. |
-| System actor (worker/webhook/GC) mutates | It writes an `AuditLog` row with `actorType:'system'` — automation is on the record exactly like a human. |
+| Failure                                                 | Behaviour                                                                                                                                                                                 |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Caller is not a member of the active org                | `orgProcedure` throws `FORBIDDEN` before any resolver or query runs — the tenant wall, not a policy decision.                                                                             |
+| No stored policies for the org                          | The engine loads the seeded defaults verbatim; behaviour is exactly today's role model. The gate can never be _empty_.                                                                    |
+| Stored `rulesJson` is malformed / has unknown ids       | Parsed over the defaults; bad entries dropped, missing rules fall back. A corrupt config can never brick admission.                                                                       |
+| Cedar (`cedar-wasm`) absent or throws at runtime        | Transparent fallback to the JSON engine; the decision is identical for the supported document shape.                                                                                      |
+| Audit write fails (DB hiccup)                           | `writeAudit` swallows the error — a logging failure never rolls back or blocks the underlying mutation.                                                                                   |
+| A `block` guardrail fires on a prod deploy              | The deploy is refused with the exact rule + plain-words reason; an admin may override (on `/services/new`, with a required reason), and the block _and_ the override are both audited.    |
+| You switch to another org                               | The switch re-issues the session cookies and hands them to the browser, so the next request already reads the new org (it used to show the previous org for up to the 60 s cookie cache). |
+| A rule change would leave no owner able to change rules | Refused with `POLICY_LOCKOUT`; nothing is written.                                                                                                                                        |
+| A session is signed out or revoked                      | Access tokens issued before it are refused, its OAuth grants are deleted, and forward-auth drops that user's cached permits.                                                              |
+| System actor (worker/webhook/GC) mutates                | It writes an `AuditLog` row with `actorType:'system'` — automation is on the record exactly like a human.                                                                                 |
 
 ## Explicitly rejected
 
@@ -287,7 +287,7 @@ Four ideas, one story:
   moment someone re-labels a service. Prod is the `swarmy.env` label, read live —
   see `docker-native-storage`.
 - **Roles as the authorization gate.** A fixed `owner/admin/member` matrix can't
-  express "operator on *this* stack" or "members may restart only `tier=web`".
+  express "operator on _this_ stack" or "members may restart only `tier=web`".
   Roles become one attribute among many; the policy engine is the gate.
 - **A second, separate audit path for background jobs.** One `writeAudit` writer,
   `actorType` distinguishes user/apikey/system/agent. Two writers means one of
@@ -303,7 +303,7 @@ Four ideas, one story:
   Overkill and an extra network hop in the auth path. Cedar's entity-parent ReBAC
   plus a handful of `ResourceGrant` edges covers "an org's nodes/stacks/services."
 - **Silently dropping the audit on deny.** A denied request is the most valuable
-  security signal there is; `abacProcedure` audits *every* deny, not just permits.
+  security signal there is; `abacProcedure` audits _every_ deny, not just permits.
 - **Removing an exposure/guardrail violation automatically.** swarmy alerts and
   refuses new violating deploys, but never edits your running swarm out from under
   you — "the fix is always yours to make."

@@ -21,15 +21,15 @@ never like a certificate project.
    real — no ACME account to create, no `acme.json` to babysit.
 3. They have three ingress nodes behind a load balancer. They flip **HA** once:
    "run on multiple nodes with shared certificates." A cert issued on one node is
-   instantly served by all of them; a fourth node joins and serves the *existing*
+   instantly served by all of them; a fourth node joins and serves the _existing_
    cert with zero re-issuance. They never learn the words "ACME account."
 4. They have **no public IP** — a homelab behind CGNAT. They pick **Cloudflare
    Tunnel**, paste one scoped API token, and their app is on the internet with
    real HTTPS and zero inbound ports. The connector dials out, exactly like the
    agent does.
 5. Separately, on **Exposure**, they see every service audited into **PUBLIC**,
-   **PRIVATE**, **MANAGED INTERNAL** — and one red banner: *"1 exposure
-   violation needs you."* A managed Postgres is publishing 5432 to the world.
+   **PRIVATE**, **MANAGED INTERNAL** — and one red banner: _"1 exposure
+   violation needs you."_ A managed Postgres is publishing 5432 to the world.
    swarmy names it, tells them how to fix it, and — in v1 — **never pulls the
    port itself. The fix is always yours to make.**
 
@@ -68,18 +68,18 @@ Four ideas, one story:
   array on the Docker service. Docker is the source of truth; swarmy renders from
   it and can always show you the exact config before it applies.
 - **Drivers are pure; the agent applies.** A driver is `render(config) →
-  RenderedConfig` with no IO. The controller renders, `DriverDispatch.sendToNode`
+RenderedConfig` with no IO. The controller renders, `DriverDispatch.sendToNode`
   ships the payload down the node's outbound WebSocket, and the agent writes the
   files and reloads. The same seam serves a vhost proxy (Caddy) and a tunnel
   connector (cloudflared) — the latter just carries a
   `connector` Swarm-service spec instead of vhost files. See the
   `scaffold-ingress-driver` skill.
 - **Automatic HTTPS is the product, and it survives node death.** Caddy is the
-  recommended default because `example.com { reverse_proxy web:3000 }` *is* an
+  recommended default because `example.com { reverse_proxy web:3000 }` _is_ an
   HTTPS site. Edge-per-node shares one ACME account + one cert pool across every
   Caddy via swarmy's own object storage (Garage bucket `swarmy-edge-certs`), so
   N ingress nodes cost 1× issuance, not N×, and any edge can answer any challenge.
-  The bucket is a *replica*, never a dependency: each edge serves from its own
+  The bucket is a _replica_, never a dependency: each edge serves from its own
   volume first (`storage swarmy`) and syncs with Garage in the background, so
   no boot path waits on Garage — or on the mesh Garage is reached over — to
   serve TLS (QA-066).
@@ -110,7 +110,7 @@ Four ideas, one story:
 - **The exposure verdict is derived every time, never stored.** `auditExposure`
   classifies each live service on read; the only persisted thing is the rule
   toggles.
-- **Direction (adopted 2026-07): exposure is *declared*, not just inferred.**
+- **Direction (adopted 2026-07): exposure is _declared_, not just inferred.**
   A service may carry an intent — `swarmy.expose` ∈
   `public | tunnel | private | mesh` (a service label, Docker truth; `EXPOSE_LABEL`)
   — chosen on the service page or the Exposure table. Admission enforces
@@ -121,7 +121,7 @@ Four ideas, one story:
   default on, silences it). The audit carries drift detection: declared ≠
   observed is itself a violation (declared `tunnel` served by a non-cloudflared
   driver included), and "declared public but unreachable" surfaces as a warning.
-  The inferred classifier stays — it is the *observed* half of the comparison.
+  The inferred classifier stays — it is the _observed_ half of the comparison.
   The renderers consult the intent too: the controller copies a service's mode
   onto each of its routes and one pure rule (`routeChannel`) decides which
   driver may carry it. A `private` or `mesh` service gets no public route from
@@ -157,7 +157,7 @@ Four ideas, one story:
 - **Per-route protections render into driver syntax, best-effort.** Rate limit
   (sliding window, keyed by IP or header), IP allow/deny CIDRs, country rules,
   body-size cap, bot/scanner blocking, required headers, and a password.
-  Renderers translate what they can and `validate()` *warns* about what a given
+  Renderers translate what they can and `validate()` _warns_ about what a given
   driver can't express — render never throws.
 - **Country rules work out of the box.** swarmy's Caddy build bundles DB-IP
   Country Lite (CC BY 4.0, attributed in the UI). An org setting
@@ -211,7 +211,7 @@ Four ideas, one story:
 - **Exposure alerts, it does not amputate (v1).** Rules — no public ports on
   managed data, no public UDP, warn on new published ports — surface on the
   Safety page's Exposure section and, when **"Block violating deploys"** (`enforce`) is on, refuse
-  the *next deploy* through admission (warn-severity is overridable; block is
+  the _next deploy_ through admission (warn-severity is overridable; block is
   not). swarmy never removes a live port by itself. The fix is always yours.
 
 ## Custom domains: DNS first, then a certificate
@@ -311,8 +311,8 @@ honest lifecycle, shown on the row in plain words:
   pruned when the host stops being routed) — not a `Domain` model and not a
   label, so a DNS check never rewrites a service spec. Routes stay on the
   label. Implementation: pure `packages/ingress/src/{domain-verify,www,
-  auto-address}.ts`; `packages/trpc/src/services/{domain-verify,auto-address}
-  .service.ts`, `domain-checks.store.ts`; the `domain-verify` worker (30s,
+auto-address}.ts`; `packages/trpc/src/services/{domain-verify,auto-address}
+.service.ts`, `domain-checks.store.ts`; the `domain-verify` worker (30s,
   per-host backoff).
 
 ## Service-to-service networking (inside the swarm)
@@ -320,13 +320,13 @@ honest lifecycle, shown on the row in plain words:
 The flip side of exposure is who can reach a service from INSIDE the cluster.
 Least privilege, by network:
 
-| Network | Who is on it | What resolves |
-|---|---|---|
-| `<app>_default` (one per app) | every service of that app | short compose names: `db:5432`, `api:8080`, `tasks.api` |
-| `<app>_<db>-net` & co (one per managed resource) | the resource + the app services attached to it | its service name, already in the injected `DATABASE_URL` / `REDIS_URL` / … |
-| `swarmy-link-<hash>` (one per connected app PAIR) | every app service of exactly two apps of one org | `<service>.<app>` (`api.billing:8080`) and `<app>_<service>` |
-| `swarmy` (shared platform) | edge Caddy, OTel collector, Garage, and the app services that are routed / observed / bucket-attached | `<app>_<service>` (the edge's upstream), `swarmy-garage:3900`, `swarmy-otel-collector:4317` — **no user aliases** |
-| `swarmy-control` (private) | controller (embedded store), ClickHouse + the trusted bridges (edge, cloudflared, collector, node-#1 agent) | never reachable from an app |
+| Network                                           | Who is on it                                                                                                | What resolves                                                                                                     |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `<app>_default` (one per app)                     | every service of that app                                                                                   | short compose names: `db:5432`, `api:8080`, `tasks.api`                                                           |
+| `<app>_<db>-net` & co (one per managed resource)  | the resource + the app services attached to it                                                              | its service name, already in the injected `DATABASE_URL` / `REDIS_URL` / …                                        |
+| `swarmy-link-<hash>` (one per connected app PAIR) | every app service of exactly two apps of one org                                                            | `<service>.<app>` (`api.billing:8080`) and `<app>_<service>`                                                      |
+| `swarmy` (shared platform)                        | edge Caddy, OTel collector, Garage, and the app services that are routed / observed / bucket-attached       | `<app>_<service>` (the edge's upstream), `swarmy-garage:3900`, `swarmy-otel-collector:4317` — **no user aliases** |
+| `swarmy-control` (private)                        | controller (embedded store), ClickHouse + the trusted bridges (edge, cloudflared, collector, node-#1 agent) | never reachable from an app                                                                                       |
 
 - **Apps are isolated by default; connecting them is explicit.** "Connect
   apps" (`stacks.connect`, swarmy.yaml `connect: [billing]`) creates a private
@@ -359,18 +359,18 @@ Least privilege, by network:
 
 ## Failure modes (designed, not accidental)
 
-| Failure | Behaviour |
-|---|---|
-| Ingress node dies (edge-per-node) | Its certs are in the shared object-storage pool; a surviving edge already serves them and geo-DNS sheds the dead node. No re-issuance, no rate-limit hit. |
-| Object storage (cert replica) blips | Served certs come from the edge's own volume — the request path is unaffected, and so is a restart. Writes land locally and sync when Garage is back; a host with no local cert yet is issued via ACME directly. |
+| Failure                                                                                  | Behaviour                                                                                                                                                                                                                            |
+| ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Ingress node dies (edge-per-node)                                                        | Its certs are in the shared object-storage pool; a surviving edge already serves them and geo-DNS sheds the dead node. No re-issuance, no rate-limit hit.                                                                            |
+| Object storage (cert replica) blips                                                      | Served certs come from the edge's own volume — the request path is unaffected, and so is a restart. Writes land locally and sync when Garage is back; a host with no local cert yet is issued via ACME directly.                     |
 | The mesh-control / controller node reboots (Garage has no quorum until the mesh is back) | Its edge loads the mesh and dashboard certificates from its own volume, NetBird clients reconnect through it, the mesh comes up, Garage regains quorum, the sync resumes. No manual step (QA-066 — previously a permanent deadlock). |
-| Custom domain not yet registered points at the swarm | `/ingress/ask` returns 403 → Caddy declines to issue. No ACME spend on domains that aren't yours. |
-| Custom domain added before its DNS record exists | Withheld from the render and denied by `/ingress/ask` until public DNS points at an edge; the row says exactly which record to create. No failed ACME orders, no rate-limit burn. |
-| Cloudflare Tunnel: connector or CF blips | Connector dials out and reconnects; no inbound port to fail. Routing rules are declarative server-side, re-pushed idempotently on the next sync. |
-| A driver can't express a protection (e.g. rate limit on `none`) | `validate()` warns; `render` still emits a working config for what it *can* do. Degraded, never broken. |
-| A route's password reference can't be resolved | The route answers 503 (fail closed), never open. |
-| A service declared `private`/`mesh` still has a route | No driver renders it; `validate()` warns and the exposure page shows a warning until the route is removed. |
-| Managed database publishes a port | Audited as a `public-port` violation, alerted on the Safety page, and (if enforce is on) the next deploy is refused — but the running port is left in place for the operator to remove. |
+| Custom domain not yet registered points at the swarm                                     | `/ingress/ask` returns 403 → Caddy declines to issue. No ACME spend on domains that aren't yours.                                                                                                                                    |
+| Custom domain added before its DNS record exists                                         | Withheld from the render and denied by `/ingress/ask` until public DNS points at an edge; the row says exactly which record to create. No failed ACME orders, no rate-limit burn.                                                    |
+| Cloudflare Tunnel: connector or CF blips                                                 | Connector dials out and reconnects; no inbound port to fail. Routing rules are declarative server-side, re-pushed idempotently on the next sync.                                                                                     |
+| A driver can't express a protection (e.g. rate limit on `none`)                          | `validate()` warns; `render` still emits a working config for what it _can_ do. Degraded, never broken.                                                                                                                              |
+| A route's password reference can't be resolved                                           | The route answers 503 (fail closed), never open.                                                                                                                                                                                     |
+| A service declared `private`/`mesh` still has a route                                    | No driver renders it; `validate()` warns and the exposure page shows a warning until the route is removed.                                                                                                                           |
+| Managed database publishes a port                                                        | Audited as a `public-port` violation, alerted on the Safety page, and (if enforce is on) the next deploy is refused — but the running port is left in place for the operator to remove.                                              |
 
 ## Explicitly rejected
 

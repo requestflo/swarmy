@@ -27,11 +27,11 @@ The boards (68-board canvas + the Calm Layers R-boards) are the visual source.
 
 ## Calm Layers: three depths (non-negotiable)
 
-| Depth | Shows | Rule |
-|---|---|---|
-| **Summary** | A sentence headline, a lede with the numbers, the one next action | No glossary words (see Voice) |
-| **Controls** | The forms and knobs, technical detail inline as mono `Tech` lines | Replaces every `Advanced ▸` and `Raw` toggle |
-| **Code** | `CodeView`: the exact swarmy.yaml / CLI / REST, with where it lives ("opens a PR" / "dashboard setting") | Only real commands and paths |
+| Depth        | Shows                                                                                                    | Rule                                         |
+| ------------ | -------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| **Summary**  | A sentence headline, a lede with the numbers, the one next action                                        | No glossary words (see Voice)                |
+| **Controls** | The forms and knobs, technical detail inline as mono `Tech` lines                                        | Replaces every `Advanced ▸` and `Raw` toggle |
+| **Code**     | `CodeView`: the exact swarmy.yaml / CLI / REST, with where it lives ("opens a PR" / "dashboard setting") | Only real commands and paths                 |
 
 - **Depth adds detail; it never rearranges the page.** Summary content stays
   where it is at Controls and Code. The Code view goes at the top of the aside.
@@ -55,7 +55,7 @@ The boards (68-board canvas + the Calm Layers R-boards) are the visual source.
    Lists are `CalmRow`s (dot · name/host · sentence · tech · status word) inside
    one section — never per-row cards.
 5. **Aside** (400px on xl): facts, `AlreadyOn` lines ("Backups · 14 of 14 at
-   03:00" — each a link to *change*), "Worth doing next", and the `CodeView`
+   03:00" — each a link to _change_), "Worth doing next", and the `CodeView`
    at Code depth.
 
 Pages outside a tabbed row use `CalmPage`. Pages in a tabbed row (Network,
@@ -127,12 +127,12 @@ numbers, crumbs, eyebrows, tech lines and code. No serif, no italics.
 Talk like a calm, sharp colleague: "Three apps are calm. analytics is slow."
 "Put back v41 — your data isn't touched and it takes about 40 seconds."
 
-| At Summary say | Only at Controls/Code |
-|---|---|
+| At Summary say                      | Only at Controls/Code                 |
+| ----------------------------------- | ------------------------------------- |
 | app · server · address · front door | stack · node · route/ingress · driver |
 | copies · standby copy · switch-over | replicas · replica · failover/promote |
-| private network | mesh IP, overlay, WireGuard |
-| saved / backed up · put back vN | snapshot, restic, PITR · rollback |
+| private network                     | mesh IP, overlay, WireGuard           |
+| saved / backed up · put back vN     | snapshot, restic, PITR · rollback     |
 
 CTAs: "Deploy an app", "Add a server", "Add a domain", "Put back v41".
 

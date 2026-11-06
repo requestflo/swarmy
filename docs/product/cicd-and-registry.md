@@ -8,13 +8,13 @@ skill for the how.**
 Someone who has a swarm and a git repo should never leave swarmy to ship. No
 GitHub Actions runner to configure, no Docker Hub account, no `docker push`, no
 copying an image tag back into a deploy field. The `/ci` workspace opens on a
-coral **"4 repos wired."** and the promise underneath it: *"Connect a repo with a
+coral **"4 repos wired."** and the promise underneath it: _"Connect a repo with a
 swarmy.yaml, build on your nodes, push to a registry that lives inside the swarm.
-No external CI."*
+No external CI."_
 
 1. They flip on the **in-swarm registry** — one toggle stands up a single
-   `registry:2` service on the `swarmy` overlay. *"Every node pulls over the
-   network — never public."* No credentials to a third party, no public
+   `registry:2` service on the `swarmy` overlay. _"Every node pulls over the
+   network — never public."_ No credentials to a third party, no public
    surface.
 2. They **connect a repo** through the New app wizard (GitHub App, GitLab OAuth,
    Gitea / Forgejo, or a generic SSH URL). The repo's swarmy.yaml describes the
@@ -25,13 +25,13 @@ No external CI."*
    freshly-built digest**, no tag typed anywhere.
 4. Every successful build is **CVE-scanned by Trivy automatically**; with
    signing on, images are **cosign-signed** and the org can refuse to deploy
-   anything unsigned or critical. *"Only deploy signed images — valid cosign
-   signature. Fails closed."*
+   anything unsigned or critical. _"Only deploy signed images — valid cosign
+   signature. Fails closed."_
 5. Open a pull request and it gets **its own throwaway copy at
-   `pr-<N>.your-domain`**; merge or abandon it and *"merged or stale previews
-   tear themselves down."*
-6. Disks never fill: GC *"reclaims disk — but never deletes a digest that's
-   running in prod."*
+   `pr-<N>.your-domain`**; merge or abandon it and _"merged or stale previews
+   tear themselves down."_
+6. Disks never fill: GC _"reclaims disk — but never deletes a digest that's
+   running in prod."_
 
 It should feel like the swarm grew a CI pipeline of its own — because it did.
 The controller still never touches a node's Docker socket; a build is just a
@@ -161,7 +161,7 @@ Four ideas, one story:
 - **Every successful build is scanned, and optionally signed.** Trivy runs
   fire-and-forget on the building node; it never delays or fails the build.
   Counts land on an `ImageScan` (critical/high/medium/low, `passed|failed|
-  error`). With signing enabled, cosign signs the pushed digest with the org key.
+error`). With signing enabled, cosign signs the pushed digest with the org key.
 - **Admission gates deploys, not builds.** With `blockCriticalCves`, a deploy of
   an org-registry image with critical CVEs is **blocked** (`images/critical-cves`)
   and a never-scanned image **warns** (`images/unscanned`). With
@@ -247,18 +247,18 @@ Four ideas, one story:
 
 ## Failure modes (designed, not accidental)
 
-| Failure | Behaviour |
-|---|---|
-| No builder node online | `triggerBuild` fails fast (no `Build` row) with an actionable message: which builder is offline, or how to enable one (Builder role / `SWARMY_ALLOW_BUILD=true`). Never dispatched to a non-builder node. |
-| Railpack can't plan the repo | `railpack prepare` exits 1 (transient exit 75 is retried): the build fails with Railpack's own reason and "add a Dockerfile, or set build.start". |
-| Build cache missing or registry cache export fails | Cold build (import is skipped with a log line); `ignore-error` on export means the build still succeeds. |
-| Build fails (bad Dockerfile, clone error) | Non-zero build exit → `commandResult` failed → `Build` row `FAILED`, full log retained in the live viewer; nothing is deployed. |
-| GC racing a running service | The pinned set is computed from LIVE running digests each cycle, so a digest in use is never in the remove set; the agent ALSO refuses to delete a pinned digest (defence in depth) and `repoPrefix`-scopes to swarmy-pushed images only. |
-| Registry node down | Enable status shows `online:false`; builds can't push and fail cleanly. The registry is cache-rebuildable — you can always rebuild from git (S3 storage documented for anyone who needs HA). |
-| Webhook with a bad signature | HMAC/token verification fails → `401`, no build. Pings and non-watched branches are acknowledged and ignored. |
-| A signed push is replayed (redelivered, or captured and resent) | A delivery id or body seen in the last 7 days is acknowledged and dropped; an older replay of a replaced commit is refused at the plan (`stale`). Nothing rolls back. |
-| An OAuth/App callback arrives from a browser that didn't start it | Refused: the bind cookie is missing or doesn't match the signed state, so nothing is linked to the org. |
-| Unsigned / critical-CVE image at deploy | Admission blocks with a plain-words reason and an audited override path; signing-not-verifiable fails closed rather than waving it through. |
+| Failure                                                           | Behaviour                                                                                                                                                                                                                                 |
+| ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No builder node online                                            | `triggerBuild` fails fast (no `Build` row) with an actionable message: which builder is offline, or how to enable one (Builder role / `SWARMY_ALLOW_BUILD=true`). Never dispatched to a non-builder node.                                 |
+| Railpack can't plan the repo                                      | `railpack prepare` exits 1 (transient exit 75 is retried): the build fails with Railpack's own reason and "add a Dockerfile, or set build.start".                                                                                         |
+| Build cache missing or registry cache export fails                | Cold build (import is skipped with a log line); `ignore-error` on export means the build still succeeds.                                                                                                                                  |
+| Build fails (bad Dockerfile, clone error)                         | Non-zero build exit → `commandResult` failed → `Build` row `FAILED`, full log retained in the live viewer; nothing is deployed.                                                                                                           |
+| GC racing a running service                                       | The pinned set is computed from LIVE running digests each cycle, so a digest in use is never in the remove set; the agent ALSO refuses to delete a pinned digest (defence in depth) and `repoPrefix`-scopes to swarmy-pushed images only. |
+| Registry node down                                                | Enable status shows `online:false`; builds can't push and fail cleanly. The registry is cache-rebuildable — you can always rebuild from git (S3 storage documented for anyone who needs HA).                                              |
+| Webhook with a bad signature                                      | HMAC/token verification fails → `401`, no build. Pings and non-watched branches are acknowledged and ignored.                                                                                                                             |
+| A signed push is replayed (redelivered, or captured and resent)   | A delivery id or body seen in the last 7 days is acknowledged and dropped; an older replay of a replaced commit is refused at the plan (`stale`). Nothing rolls back.                                                                     |
+| An OAuth/App callback arrives from a browser that didn't start it | Refused: the bind cookie is missing or doesn't match the signed state, so nothing is linked to the org.                                                                                                                                   |
+| Unsigned / critical-CVE image at deploy                           | Admission blocks with a plain-words reason and an audited override path; signing-not-verifiable fails closed rather than waving it through.                                                                                               |
 
 ## Explicitly rejected
 
@@ -288,22 +288,23 @@ registry service, the scan/sign path, and previews fit together. Key homes:
 `packages/trpc/src/services/cicd.service.ts` (repos, build core, registry
 enable, GC policy, live logs), `packages/trpc/src/services/image-gc.service.ts`
 (pinned-set + plan execution), `packages/trpc/src/services/registryPolicy.service.ts`
-+ `admission-images.ts` (Trivy scan, cosign sign/verify, admission),
-`packages/trpc/src/services/apps.service.ts` (swarmy.yaml plans, incl. previews),
-`packages/trpc/src/routers/{cicd,registryPolicy,apps}.ts` (the tRPC surface),
-`apps/agent/src/handlers/{build,prune}.ts` +
-`packages/core/src/protocol/build.ts` (the agent capability),
-`apps/api/src/webhooks.ts` (the git webhook receiver; durable dedupe in
-`webhook-dedupe.ts`, the stale-push rule in
-`packages/trpc/src/services/apps/stale-commit.ts`), the git providers
-(`packages/trpc/src/services/git-providers/*`, Gitea in `git-gitea.service.ts`,
-the browser bind in `git-browser-bind.ts`), environments and conversion
-(`services/apps/{clone,env-secrets,env-layers,convert}.ts` over
-`packages/app-config/src/{clone-env,env-layers,from-compose}.ts`), the repo scan
-(`packages/app-config/src/scan/*`, `services/git-scan.ts`),
-`apps/api/src/workers/{image-gc,app-reconcile}.ts` (the background sweeps),
-`packages/db/prisma/schema/cicd.prisma` (the models),
-`apps/app/src/routes/_authed/ci.tsx` (the `/ci` workspace), the Branch previews
-page (`routes/_authed/stacks/$name.config.previews.tsx` →
-`components/gitops/previews/*`), and the MCP server's tool registry
-(`packages/devkit/src/mcp/server.ts`).
+
+- `admission-images.ts` (Trivy scan, cosign sign/verify, admission),
+  `packages/trpc/src/services/apps.service.ts` (swarmy.yaml plans, incl. previews),
+  `packages/trpc/src/routers/{cicd,registryPolicy,apps}.ts` (the tRPC surface),
+  `apps/agent/src/handlers/{build,prune}.ts` +
+  `packages/core/src/protocol/build.ts` (the agent capability),
+  `apps/api/src/webhooks.ts` (the git webhook receiver; durable dedupe in
+  `webhook-dedupe.ts`, the stale-push rule in
+  `packages/trpc/src/services/apps/stale-commit.ts`), the git providers
+  (`packages/trpc/src/services/git-providers/*`, Gitea in `git-gitea.service.ts`,
+  the browser bind in `git-browser-bind.ts`), environments and conversion
+  (`services/apps/{clone,env-secrets,env-layers,convert}.ts` over
+  `packages/app-config/src/{clone-env,env-layers,from-compose}.ts`), the repo scan
+  (`packages/app-config/src/scan/*`, `services/git-scan.ts`),
+  `apps/api/src/workers/{image-gc,app-reconcile}.ts` (the background sweeps),
+  `packages/db/prisma/schema/cicd.prisma` (the models),
+  `apps/app/src/routes/_authed/ci.tsx` (the `/ci` workspace), the Branch previews
+  page (`routes/_authed/stacks/$name.config.previews.tsx` →
+  `components/gitops/previews/*`), and the MCP server's tool registry
+  (`packages/devkit/src/mcp/server.ts`).

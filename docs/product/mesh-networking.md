@@ -10,17 +10,17 @@ default is `none`, and swarmy provisions no network. But the moment their nodes
 live in different clouds, behind NAT, at home, or on a DR box, turning on a
 private encrypted network between them should be one toggle and one paste:
 
-1. In **Networking** they see the honest default: *"None · default — swarmy
-   provisions no mesh."* They pick **NetBird** ("Zero-trust WireGuard mesh. Any
+1. In **Networking** they see the honest default: _"None · default — swarmy
+   provisions no mesh."_ They pick **NetBird** ("Zero-trust WireGuard mesh. Any
    node, any cloud, behind NAT — no inbound ports") and flip **Enable mesh**.
 2. They point the mesh at a control plane — **Managed by swarmy** or an
-   **external** NetBird URL — and paste a service token. It is *"stored
-   encrypted, used server-side only";* they never see it again.
+   **external** NetBird URL — and paste a service token. It is _"stored
+   encrypted, used server-side only";_ they never see it again.
 3. They pick a node and hit **Enroll**. swarmy mints a **single-use, short-TTL
    setup key**, the agent installs the WireGuard client, and the node joins —
-   *no inbound ports, no firewall edits, and the key never touches disk.*
+   _no inbound ports, no firewall edits, and the key never touches disk._
 4. The peer appears in the list: hostname, **mesh IP** (`100.92.0.x`), last
-   handshake, `connected`. The headline flips to *"4 peers meshed."* The
+   handshake, `connected`. The headline flips to _"4 peers meshed."_ The
    **Private network** page draws it as a map: servers behind NAT sit behind
    their router, and each link reads direct or through a relay.
 5. Later, someone needs Postgres from their laptop. On the app's **Access** tab
@@ -60,7 +60,7 @@ Four ideas, one story:
 - **The mesh reuses the agent's dial-out; it never opens an inbound port.** There
   is no new controller→node path. `applyMesh` rides the same outbound WebSocket
   and command envelope every other capability uses, and the WireGuard client
-  itself dials *out* to the control plane. A node behind NAT joins with zero
+  itself dials _out_ to the control plane. A node behind NAT joins with zero
   ports open — the whole point.
 - **The driver renders; the agent applies.** The controller-side driver produces
   a driver-agnostic `RenderedMesh` (the mesh analog of ingress's
@@ -73,7 +73,7 @@ Four ideas, one story:
   the sidecar's env var only. Nothing mesh-secret is ever written to the node's
   filesystem.
 - **People access is the same mesh, exposed the other way.** Instead of joining
-  a *node* forever, a person's laptop joins with their SSO identity and reaches
+  a _node_ forever, a person's laptop joins with their SSO identity and reaches
   exactly the app services they were granted (per-port, optional TTL), through a
   per-stack access router. One mesh, two doors. (An older ephemeral-key "direct
   connect" was removed in 2026-09 — people access replaces it.)
@@ -89,7 +89,7 @@ Four ideas, one story:
 - **Mesh membership and access are swarmy's OWN identity/access, so they live in
   the DB; peers do not.** Unlike node roles or cost (which are Docker labels),
   the mesh's grants and control-plane credentials are swarmy's access-control
-  and audit surface — exactly what the DB is *for*. `MeshConfig` (org-scoped
+  and audit surface — exactly what the DB is _for_. `MeshConfig` (org-scoped
   1:1, `driver` default `NONE`, `enabled` default `false`, encrypted
   control-plane token) and `MeshRoute` (people-access grants, `expiresAt`,
   `createdById`) are swarmy state, not swarm state. Peers are NOT stored: their
@@ -147,14 +147,14 @@ Four ideas, one story:
 
 ## Failure modes (designed, not accidental)
 
-| Failure | Behaviour |
-|---|---|
-| Control plane unreachable at enroll | The driver falls back to an opaque single-use key so a fresh/unconfigured org still enrolls; `status()` reports "control plane unreachable" instead of throwing. |
-| `applyMesh` fails on the node | The live peer is marked `FAILED` and `mesh.peer.enrollFailed` is audited; the error surfaces to the admin. No half-joined ghost. |
-| Node opts out of mesh (`SWARMY_ALLOW_MESH=false`) | The executor rejects `applyMesh` with `E_MESH_DISABLED`; the rest of the agent is unaffected. |
-| Agent silent but control plane knows | Reconcile can fall back to `reconcileFromControlPlane` (NetBird `/api/peers`) so liveness isn't lost when the node's own reporter is quiet. |
+| Failure                                               | Behaviour                                                                                                                                                                                                                                                        |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Control plane unreachable at enroll                   | The driver falls back to an opaque single-use key so a fresh/unconfigured org still enrolls; `status()` reports "control plane unreachable" instead of throwing.                                                                                                 |
+| `applyMesh` fails on the node                         | The live peer is marked `FAILED` and `mesh.peer.enrollFailed` is audited; the error surfaces to the admin. No half-joined ghost.                                                                                                                                 |
+| Node opts out of mesh (`SWARMY_ALLOW_MESH=false`)     | The executor rejects `applyMesh` with `E_MESH_DISABLED`; the rest of the agent is unaffected.                                                                                                                                                                    |
+| Agent silent but control plane knows                  | Reconcile can fall back to `reconcileFromControlPlane` (NetBird `/api/peers`) so liveness isn't lost when the node's own reporter is quiet.                                                                                                                      |
 | The node that runs the self-hosted control plane dies | Established tunnels keep working. With **relays on front doors** on (Mesh settings, or `--mesh-relay-on-edges`), every public edge runs NetBird's relay + STUN, so pairs that need a relay keep it too; otherwise they lose it until the control plane is moved. |
-| A person's access grant TTL elapses | The TTL is optional. An expired grant stops counting at once (the access checks skip it), and the 30 s people-access reconcile deletes it, audits `mesh.access.grant.expired`, and re-renders the routers. |
+| A person's access grant TTL elapses                   | The TTL is optional. An expired grant stops counting at once (the access checks skip it), and the 30 s people-access reconcile deletes it, audits `mesh.access.grant.expired`, and re-renders the routers.                                                       |
 
 ## Explicitly rejected
 

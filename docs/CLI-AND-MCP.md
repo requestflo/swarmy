@@ -35,12 +35,12 @@ Check that the code matches your terminal, then approve. The CLI receives a
 new API key named `CLI · <hostname>`, which you can revoke any time in
 Settings → API keys.
 
-| Scope | What it allows | Who can grant it |
-|---|---|---|
-| `read` (default) | See apps, services, logs, and env with secret values hidden | Any member |
-| `deploy` | Everything `read` allows, plus ship: deploy, trial-deploy previews, change env, scale, restart, promote, confirm held steps. No settings, no removal | Admins and owners, as a **Deploy** key from Settings → API keys |
-| `write` | Everything `deploy` allows, plus settings and removal: toggle telemetry, remove a stack, and every other change | Admins and owners |
-| `secrets.read` | Read secret values (`env pull --include-secrets`); every read is audited | Admins and owners |
+| Scope            | What it allows                                                                                                                                       | Who can grant it                                                |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `read` (default) | See apps, services, logs, and env with secret values hidden                                                                                          | Any member                                                      |
+| `deploy`         | Everything `read` allows, plus ship: deploy, trial-deploy previews, change env, scale, restart, promote, confirm held steps. No settings, no removal | Admins and owners, as a **Deploy** key from Settings → API keys |
+| `write`          | Everything `deploy` allows, plus settings and removal: toggle telemetry, remove a stack, and every other change                                      | Admins and owners                                               |
+| `secrets.read`   | Read secret values (`env pull --include-secrets`); every read is audited                                                                             | Admins and owners                                               |
 
 Ask for more with `swarmy login --scope read,write` (or `read,secrets.read`).
 The device login asks only for `read`, `write` and `secrets.read`. For a
@@ -60,25 +60,25 @@ Other ways to sign in:
 
 ## Commands
 
-| Command | What it does |
-|---|---|
-| `swarmy check [path]` | Runs locally and deploys nothing (see below) |
-| `swarmy link [app]` | Links this checkout to an app (matched by git remote when omitted). Writes `.swarmy/link.json` |
-| `swarmy deploy [--branch b]` | Plans and applies a branch head, like a push. Destructive steps wait for confirmation in the dashboard |
-| `swarmy deploy --preview` | Builds the current branch as a throwaway preview with its own URL |
-| `swarmy status` | Shows each environment with its stack, last deploy, drift, services and replicas, and previews |
-| `swarmy logs [service] [-f] [-n 200] [--since 15m]` | Shows recent logs, or follows them (`-f`, streamed over SSE) |
-| `swarmy env` / `env ls` | Lists env vars. Secret values show as `<secret>` |
-| `swarmy env pull [.env]` | Writes plain vars to a mode-600 `.env`. Secrets are written as comments without values, unless you pass `--include-secrets` with a `secrets.read` key |
-| `swarmy env push [.env] [--secret K,…] [--prune]` | Merges a `.env` into the service and rolls it out. Keys that are already secret stay secret, and `--secret` makes new ones secret (write-only Docker secrets) |
-| `swarmy run -- <cmd>` | Runs a local command with the service's env injected (secrets only with `--include-secrets`) |
-| `swarmy open [--dashboard]` | Opens the app's domain from `swarmy.yaml`, or its dashboard page |
+| Command                                                                                                         | What it does                                                                                                                                                                                                                                         |
+| --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `swarmy check [path]`                                                                                           | Runs locally and deploys nothing (see below)                                                                                                                                                                                                         |
+| `swarmy link [app]`                                                                                             | Links this checkout to an app (matched by git remote when omitted). Writes `.swarmy/link.json`                                                                                                                                                       |
+| `swarmy deploy [--branch b]`                                                                                    | Plans and applies a branch head, like a push. Destructive steps wait for confirmation in the dashboard                                                                                                                                               |
+| `swarmy deploy --preview`                                                                                       | Builds the current branch as a throwaway preview with its own URL                                                                                                                                                                                    |
+| `swarmy status`                                                                                                 | Shows each environment with its stack, last deploy, drift, services and replicas, and previews                                                                                                                                                       |
+| `swarmy logs [service] [-f] [-n 200] [--since 15m]`                                                             | Shows recent logs, or follows them (`-f`, streamed over SSE)                                                                                                                                                                                         |
+| `swarmy env` / `env ls`                                                                                         | Lists env vars. Secret values show as `<secret>`                                                                                                                                                                                                     |
+| `swarmy env pull [.env]`                                                                                        | Writes plain vars to a mode-600 `.env`. Secrets are written as comments without values, unless you pass `--include-secrets` with a `secrets.read` key                                                                                                |
+| `swarmy env push [.env] [--secret K,…] [--prune]`                                                               | Merges a `.env` into the service and rolls it out. Keys that are already secret stay secret, and `--secret` makes new ones secret (write-only Docker secrets)                                                                                        |
+| `swarmy run -- <cmd>`                                                                                           | Runs a local command with the service's env injected (secrets only with `--include-secrets`)                                                                                                                                                         |
+| `swarmy open [--dashboard]`                                                                                     | Opens the app's domain from `swarmy.yaml`, or its dashboard page                                                                                                                                                                                     |
 | `swarmy sourcemaps upload <dir\|files…> [--release v \| --no-release] [--url-prefix ~/] [--ext js,map,mjs,cjs]` | Uploads bundles and source maps for error tracking (walks `*.js`/`*.map`; each is named `<url-prefix><relative path>`; batched under 15 MB). The release defaults to `$SENTRY_RELEASE`, then `git rev-parse HEAD`. Needs a `write` key from an admin |
-| `swarmy errors dsn` | Prints the app's Sentry-compatible DSN |
-| `swarmy errors rotate-key` | Rotates the DSN key; the old one stops at once. Redeploy to deliver the new one |
-| `swarmy explain "<error>"` | Explains an error message; you can also pipe logs into it |
-| `swarmy whoami` / `logout` | Show who you are signed in as / forget the stored key |
-| `swarmy mcp [--read-only]` | Runs the MCP server over stdio |
+| `swarmy errors dsn`                                                                                             | Prints the app's Sentry-compatible DSN                                                                                                                                                                                                               |
+| `swarmy errors rotate-key`                                                                                      | Rotates the DSN key; the old one stops at once. Redeploy to deliver the new one                                                                                                                                                                      |
+| `swarmy explain "<error>"`                                                                                      | Explains an error message; you can also pipe logs into it                                                                                                                                                                                            |
+| `swarmy whoami` / `logout`                                                                                      | Show who you are signed in as / forget the stored key                                                                                                                                                                                                |
+| `swarmy mcp [--read-only]`                                                                                      | Runs the MCP server over stdio                                                                                                                                                                                                                       |
 
 Every command accepts `--json` for machine-readable output and `--controller`
 to pick a controller. Exit codes: `0` success, `1` failure, `2` usage or
@@ -114,25 +114,25 @@ pre-push hook.
 
 Read-only tools are always available:
 
-| Tool | Purpose |
-|---|---|
-| `check_repo` | "Will this work on swarmy?" Runs `check` against a local path (stdio), or against file contents you pass (HTTP) |
-| `list_apps` | Lists apps, their environments and stacks, latest plan status, previews, and drift |
-| `app_status` | Shows one environment's services (replicas, status, last Swarm error), latest plan (held, failed and config issues), drift, and previews |
-| `logs` | Returns a service's recent log lines |
-| `env` | Returns a service's env. It never reveals secret values |
-| `explain_error` | Explains an error text, or reads a service's last error and logs and explains them |
+| Tool            | Purpose                                                                                                                                  |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `check_repo`    | "Will this work on swarmy?" Runs `check` against a local path (stdio), or against file contents you pass (HTTP)                          |
+| `list_apps`     | Lists apps, their environments and stacks, latest plan status, previews, and drift                                                       |
+| `app_status`    | Shows one environment's services (replicas, status, last Swarm error), latest plan (held, failed and config issues), drift, and previews |
+| `logs`          | Returns a service's recent log lines                                                                                                     |
+| `env`           | Returns a service's env. It never reveals secret values                                                                                  |
+| `explain_error` | Explains an error text, or reads a service's last error and logs and explains them                                                       |
 
 Mutating tools are registered only when `--read-only` is not set, and each
 needs the scope its REST route needs (`write` includes `deploy`):
 
-| Tool | Needs | Purpose |
-|---|---|---|
-| `deploy` | `deploy` | Plans and applies a branch head. Destructive steps stay held for confirmation |
-| `trial_deploy` | `deploy` | Deploys a branch as a preview; production is untouched |
-| `env_set` | `deploy` | Sets, rotates or removes env vars (plain or secret) with a rolling update |
-| `telemetry_toggle` | `write` | Turns OpenTelemetry on or off for a stack (admin). Sampling is tail-based at the collector. Session replay and analytics will join this tool when they ship |
-| `remove_stack` | `write` | Removes one app environment (a stack). Its data is kept unless `delete_data` is true. The model must pass the stack name back as `confirm` after you agree |
+| Tool               | Needs    | Purpose                                                                                                                                                     |
+| ------------------ | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `deploy`           | `deploy` | Plans and applies a branch head. Destructive steps stay held for confirmation                                                                               |
+| `trial_deploy`     | `deploy` | Deploys a branch as a preview; production is untouched                                                                                                      |
+| `env_set`          | `deploy` | Sets, rotates or removes env vars (plain or secret) with a rolling update                                                                                   |
+| `telemetry_toggle` | `write`  | Turns OpenTelemetry on or off for a stack (admin). Sampling is tail-based at the collector. Session replay and analytics will join this tool when they ship |
+| `remove_stack`     | `write`  | Removes one app environment (a stack). Its data is kept unless `delete_data` is true. The model must pass the stack name back as `confirm` after you agree  |
 
 The server is **read-only by default**. A `read` key cannot even see the
 mutating tools, and a Deploy key sees the shipping tools but not
@@ -220,25 +220,25 @@ or remote:
 
 These are all in the OpenAPI spec at `/api/v1/docs`, under the Developer tag:
 
-| Endpoint | What it does |
-|---|---|
-| `GET /me` | Who this credential acts as, and its scopes |
+| Endpoint                                     | What it does                                                                                                             |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `GET /me`                                    | Who this credential acts as, and its scopes                                                                              |
 | `GET /services/{id}/env?reveal_secrets=true` | A service's env. Secrets are revealed only with the `secrets.read` scope and an ABAC permit, and every reveal is audited |
-| `PATCH /services/{id}/env` | Merge-patches env with `set`, `secrets` and `unset`, then rolls out (`202`) |
-| `GET /services/{id}/logs` | Recent log lines |
-| `GET /services/{id}/logs/stream` | Follows logs as Server-Sent Events |
-| `GET /deployments/{id}` | A deployment's status |
-| `POST /apps/{repoId}/previews` | Creates a trial preview |
-| `GET /stacks/{id}/telemetry` | Whether telemetry is on for a stack |
-| `GET /stacks/{id}/errors` | Error tracking status and the DSN |
-| `POST /stacks/{id}/errors/rotate-key` | Rotates the DSN key (admin) |
-| `PUT /stacks/{id}/telemetry` | Turns telemetry on or off |
+| `PATCH /services/{id}/env`                   | Merge-patches env with `set`, `secrets` and `unset`, then rolls out (`202`)                                              |
+| `GET /services/{id}/logs`                    | Recent log lines                                                                                                         |
+| `GET /services/{id}/logs/stream`             | Follows logs as Server-Sent Events                                                                                       |
+| `GET /deployments/{id}`                      | A deployment's status                                                                                                    |
+| `POST /apps/{repoId}/previews`               | Creates a trial preview                                                                                                  |
+| `GET /stacks/{id}/telemetry`                 | Whether telemetry is on for a stack                                                                                      |
+| `GET /stacks/{id}/errors`                    | Error tracking status and the DSN                                                                                        |
+| `POST /stacks/{id}/errors/rotate-key`        | Rotates the DSN key (admin)                                                                                              |
+| `PUT /stacks/{id}/telemetry`                 | Turns telemetry on or off                                                                                                |
 
 The device flow endpoints are public, as RFC 8628 requires:
 
-| Endpoint | What it does |
-|---|---|
-| `POST /api/cli/device/code` | Starts a login and returns the device and user codes |
-| `POST /api/cli/device/token` | Polled by the CLI until the login is approved |
+| Endpoint                     | What it does                                         |
+| ---------------------------- | ---------------------------------------------------- |
+| `POST /api/cli/device/code`  | Starts a login and returns the device and user codes |
+| `POST /api/cli/device/token` | Polled by the CLI until the login is approved        |
 
 Pending logins live only in controller memory and expire after 10 minutes.

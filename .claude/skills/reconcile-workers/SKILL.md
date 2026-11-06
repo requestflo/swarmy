@@ -64,16 +64,16 @@ and a worker is what continuously drives Docker toward the labels.
 ## Contracts between the layers
 
 - **Worker → pure core**: the reconcile fn takes `{ db, hub, orgId,
-  lastSignature?, converge? }` and returns a skip-aware result the worker gates
+lastSignature?, converge? }` and returns a skip-aware result the worker gates
   on — e.g. `reconcileDnsOrg(...)` → `{ push: { skipped, signature, zones,
-  pushed, failed }, providerSynced? }`. The worker stores `signature` only when
+pushed, failed }, providerSynced? }`. The worker stores `signature` only when
   `!skipped`. Cheap push every tick; expensive full re-converge (spec drift, new
   service creation) every N ticks behind a `converge: tick % CONVERGE_EVERY === 1`
   flag (`dns-reconcile` re-converges the swarmy-dns global service ~every 5 min).
 - **Worker → hub**: `hub.liveInventory(orgId)` for desired state,
   `hub.managerNode(orgId)` for a write target (a connected swarm manager; may be
   `undefined` → skip the org this tick), `hub.dispatch(nodeId, '<CommandName>',
-  payload)` to converge. The `CommandName` and its wire type are the ones the
+payload)` to converge. The `CommandName` and its wire type are the ones the
   agent executor handles (`skill("agent-handlers")`); a worker never hand-rolls a
   wire frame.
 - **Worker → audit/alerts**: `systemContext(deps, orgId)` then the org-scoped
@@ -84,20 +84,20 @@ and a worker is what continuously drives Docker toward the labels.
 
 ## File map
 
-| Concern | Where |
-|---|---|
-| Central registration (`startWorkers` + stop fns) | `apps/api/src/workers/index.ts` |
-| Reference worker (compose→signature→push, org-from-DB, converge cadence) | `apps/api/src/workers/dns-reconcile.ts` |
-| Managed-service reference (pure `.core.ts` + system-actor audit/alerts) | `apps/api/src/workers/manageddb-reconcile.ts` + `manageddb-reconcile.core.ts` |
-| Docker-truth loop, org-from-`store.nodeOrg`, no DB | `apps/api/src/workers/scale-to-zero.ts` (pure `sleepDecision` / `lastEdgeRequestMs` in `scale-to-zero.core.ts`: idle = neither the activator nor the hub's `EdgeTrafficRing` saw a request to one of the service's routed hosts for the idle window) |
-| Materialise siblings + signature-gated ingress re-render | `apps/api/src/workers/region-reconcile.ts` |
-| Diff/render in trpc, worker holds only the per-org last-set | `apps/api/src/workers/ingress-reconcile.ts` |
-| Data-plane converge + `INFO`-stat stamping + alerts | `apps/api/src/workers/{cache,search,vector,queue}-reconcile.ts` |
-| Simplest shape (pure DB scheduler, no hub) | `apps/api/src/workers/retention.ts` |
-| Hub surface (`liveInventory`/`managerNode`/`dispatch`) | `packages/trpc/src/hub/types.ts` (impl `apps/api/src/gateway/index.ts`) |
-| Per-org org set (`store.nodeOrg`) | `apps/api/src/gateway/store.ts` |
-| Reconcile-logic homes (imported, not inlined) | `@swarmy/trpc` (`reconcileDnsOrg`, `reconcileColdIngress`, `reapplyIngressForOrg`, `siblingSetSignature`) + co-located `*-reconcile.core.ts` |
-| System-actor seams | `@swarmy/trpc` (`systemContext`, `fireEvent`, `recordIncidentEvent`, `writeAudit`) |
+| Concern                                                                  | Where                                                                                                                                                                                                                                                |
+| ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Central registration (`startWorkers` + stop fns)                         | `apps/api/src/workers/index.ts`                                                                                                                                                                                                                      |
+| Reference worker (compose→signature→push, org-from-DB, converge cadence) | `apps/api/src/workers/dns-reconcile.ts`                                                                                                                                                                                                              |
+| Managed-service reference (pure `.core.ts` + system-actor audit/alerts)  | `apps/api/src/workers/manageddb-reconcile.ts` + `manageddb-reconcile.core.ts`                                                                                                                                                                        |
+| Docker-truth loop, org-from-`store.nodeOrg`, no DB                       | `apps/api/src/workers/scale-to-zero.ts` (pure `sleepDecision` / `lastEdgeRequestMs` in `scale-to-zero.core.ts`: idle = neither the activator nor the hub's `EdgeTrafficRing` saw a request to one of the service's routed hosts for the idle window) |
+| Materialise siblings + signature-gated ingress re-render                 | `apps/api/src/workers/region-reconcile.ts`                                                                                                                                                                                                           |
+| Diff/render in trpc, worker holds only the per-org last-set              | `apps/api/src/workers/ingress-reconcile.ts`                                                                                                                                                                                                          |
+| Data-plane converge + `INFO`-stat stamping + alerts                      | `apps/api/src/workers/{cache,search,vector,queue}-reconcile.ts`                                                                                                                                                                                      |
+| Simplest shape (pure DB scheduler, no hub)                               | `apps/api/src/workers/retention.ts`                                                                                                                                                                                                                  |
+| Hub surface (`liveInventory`/`managerNode`/`dispatch`)                   | `packages/trpc/src/hub/types.ts` (impl `apps/api/src/gateway/index.ts`)                                                                                                                                                                              |
+| Per-org org set (`store.nodeOrg`)                                        | `apps/api/src/gateway/store.ts`                                                                                                                                                                                                                      |
+| Reconcile-logic homes (imported, not inlined)                            | `@swarmy/trpc` (`reconcileDnsOrg`, `reconcileColdIngress`, `reapplyIngressForOrg`, `siblingSetSignature`) + co-located `*-reconcile.core.ts`                                                                                                         |
+| System-actor seams                                                       | `@swarmy/trpc` (`systemContext`, `fireEvent`, `recordIncidentEvent`, `writeAudit`)                                                                                                                                                                   |
 
 ## Adding a reconcile worker (the recipe)
 
@@ -112,7 +112,7 @@ and a worker is what continuously drives Docker toward the labels.
    org, `.catch(() => undefined)` every dispatch, and return the interval
    teardown. Defer the first run if it needs a warm hub.
 3. **Converge via the hub**: `hub.dispatch(hub.managerNode(orgId)!, '<CommandName>',
-   payload)` — the command must already exist in the executor
+payload)` — the command must already exist in the executor
    (`skill("agent-handlers")`); if it doesn't, add it there first.
 4. **Audit side-effects**: if the tick fires alerts / incidents / remediating
    deploys, bind `systemContext(deps, orgId)` and go through the shared seams —
