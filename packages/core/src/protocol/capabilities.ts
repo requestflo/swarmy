@@ -48,6 +48,13 @@ export const AGENT_CAPABILITY = {
   snapshotLs: 'snapshotLs',
   /** Stream one file or folder out of a volume backup (`snapshotDump` + the `stream*` credit frames). */
   snapshotDump: 'snapshotDump',
+  /**
+   * Not a command: `snapshotLs` / `snapshotDump` pull their restic image the
+   * way `helperImageMirror` sidecars do (the mirrored copy with
+   * `registryAuth`, then `fallbackImage`). An agent with `helperImageMirror`
+   * but not this one would pull a mirrored read image without the login.
+   */
+  snapshotReadMirror: 'snapshotReadMirror',
 } as const;
 export type AgentCapability = (typeof AGENT_CAPABILITY)[keyof typeof AGENT_CAPABILITY];
 
@@ -64,6 +71,7 @@ export const AGENT_CAPABILITIES: readonly AgentCapability[] = [
   AGENT_CAPABILITY.helperImageMirror,
   AGENT_CAPABILITY.snapshotLs,
   AGENT_CAPABILITY.snapshotDump,
+  AGENT_CAPABILITY.snapshotReadMirror,
 ];
 
 /**

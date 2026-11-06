@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { CommandId, MessageId } from './primitives';
 import { ResticRepo, SnapshotRef } from './backup';
+import { imageFallbackFields } from './helper-pull';
 import { STREAM_CHUNK_BYTES, STREAM_MAX_CHUNK_BYTES, STREAM_MAX_CREDIT } from './stream';
 import { SNAPSHOT_DATA_ROOT, SNAPSHOT_PATH_RE } from '../snapshot-path';
 
@@ -9,7 +10,10 @@ import { SNAPSHOT_DATA_ROOT, SNAPSHOT_PATH_RE } from '../snapshot-path';
  * `snapshotLs` is a read-only command (`restic ls`); `snapshotDump` starts a
  * credit-flow stream (`stream.ts`) of `restic dump`. Both are additive agent
  * capabilities: the controller sends them only to an agent that advertised
- * them (`AGENT_CAPABILITY.snapshotLs` / `.snapshotDump`).
+ * them (`AGENT_CAPABILITY.snapshotLs` / `.snapshotDump`). Their restic image
+ * comes from the in-cluster mirror like every backup sidecar's
+ * (`helper-pull.ts`: `fallbackImage` + `registryAuth`), only for an agent
+ * that advertises `snapshotReadMirror`.
  */
 
 export { SNAPSHOT_DATA_ROOT, SNAPSHOT_PATH_RE };
@@ -28,6 +32,7 @@ export const SnapshotLsPayload = z.object({
   /** Most children returned; past it the result says `truncated`. */
   limit: z.number().int().min(1).max(5000).default(500),
   image: z.string().optional(),
+  ...imageFallbackFields,
   network: z.string().optional(),
 });
 export type SnapshotLsPayload = z.infer<typeof SnapshotLsPayload>;
@@ -69,6 +74,7 @@ export const SnapshotDumpPayload = z.object({
   /** Stop with `E_TOO_LARGE` past this many bytes (the agent also applies its own ceiling). */
   maxBytes: z.number().int().positive(),
   image: z.string().optional(),
+  ...imageFallbackFields,
   network: z.string().optional(),
 });
 export type SnapshotDumpPayload = z.infer<typeof SnapshotDumpPayload>;
