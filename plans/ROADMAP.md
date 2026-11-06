@@ -255,9 +255,9 @@ server and the BuildKit registry cache. What is left (none launch-blocking):
 
 - The Release workflow is manual until launch; restore `push: branches: [main]`
   afterwards.
-- DCO sign-off: an enforcing workflow is ready on its own branch, unmerged —
-  existing commits carry no `Signed-off-by`, so turning it on means a
-  `git rebase --signoff` the owner makes.
+- Done 2026-11-06: the DCO workflow (`.github/workflows/dco.yml`) is on main.
+  It checks pull requests only (history on main and direct pushes are not
+  re-checked), so every commit in a PR now needs `git commit -s`.
 
 ## Deferred (not blocking launch)
 
