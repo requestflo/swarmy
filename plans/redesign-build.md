@@ -167,8 +167,9 @@ mode renders with no console errors, a pathspec commit.
   order and Telemetry's per-app switch, with every curl body's fields checked
   against its route's request schema.
   ⌘K "put back" shows `releases.rollback` for the same reason.
-- Per-app swarmy.yaml from git: the app Code view shows the live spec as
-  compose (read-only); there is no stack-spec query yet.
+- Per-app swarmy.yaml from git: since 2026-11-11 a git app's Overview Code
+  view leads with the swarmy.yaml it deploys from (`apps.configFile`, read at
+  Code depth only), then the live spec as compose. Editing stays on Source.
 - ⌘K intents are a fixed grammar (lib/intents.ts); free-form questions
   ("why is X slow") jump to the page with the answer rather than answering.
 

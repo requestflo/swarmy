@@ -2,6 +2,7 @@ import type { InvService } from '@swarmy/core';
 import { curl, toYaml, withHeader, type CodeTab } from '@/components/calm';
 import { statusLines } from '@/components/apps/estate-code';
 import type { AppItem } from '@/components/apps/use-apps';
+import type { ConfigFileView } from '../source/use-config-file';
 
 type Yaml = Parameters<typeof toYaml>[0];
 
@@ -40,8 +41,10 @@ export function liveCompose(app: AppItem): string {
   return withHeader(`${app.name} · live spec, as swarmy sees it in Docker`, toYaml({ services }));
 }
 
-export function appCodeTabs(app: AppItem, stackId: string | null): CodeTab[] {
+/** A git app's swarmy.yaml leads, read from the commit swarmy last planned; the live spec follows. */
+export function appCodeTabs(app: AppItem, stackId: string | null, yaml?: ConfigFileView): CodeTab[] {
   const tabs: CodeTab[] = [
+    ...(yaml?.text != null ? [{ label: 'swarmy.yaml', code: withHeader(`${yaml.path} @ ${yaml.sha.slice(0, 7)} · what ${app.name} deploys from (edit it on Source)`, yaml.text) }] : []),
     { label: 'compose', code: liveCompose(app) },
     { label: 'CLI', code: withHeader(`in ${app.name}'s linked repo`, ['$ swarmy status', ...statusLines(app)].join('\n')) },
   ];

@@ -119,8 +119,10 @@ server and the BuildKit registry cache. What is left (none launch-blocking):
 - Viewer / Developer roles (board 48 shows them) — an owner decision; today's
   roles are owner · admin · member plus per-app grants.
 - The 2026-09 security review is closed except M13 (terminal access to
-  services that mount secrets — a product decision) and M16 (registry
-  credentials on the unencrypted routing mesh) — `security-review-2026-09.md`.
+  services that mount secrets — a product decision). M16 (registry
+  credentials on the unencrypted routing mesh) is fixed with a per-node
+  forwarder on the encrypted overlay, still to be verified on a real
+  multi-node swarm — `security-review-2026-09.md`.
 - Done 2026-10-24: every config-level and remaining role-gated delete runs the
   policy gate; agent ↔ controller version skew is judged on register; the
   config preview seals tunnel tokens and credentials (it returned them to any

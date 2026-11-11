@@ -13,6 +13,7 @@ import { appCodeTabs } from './app-code';
 import { AppFacts } from './app-facts';
 import { AppWorthDoing } from './app-worth-doing';
 import { useAppFacts } from './use-app-facts';
+import { useAppYaml } from './use-app-yaml';
 
 /**
  * The app's Overview tab (RApp / AppCanvas): "How it is built" — the live
@@ -34,6 +35,7 @@ export function AppOverviewTab({
   const f = useAppFacts(stack);
   const app = [...a.apps, ...a.platform].find((x) => x.name === stack);
   const [compose, setCompose] = React.useState(false);
+  const yaml = useAppYaml(stack);
 
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_400px] xl:grid-rows-[auto_1fr] xl:gap-x-6">
@@ -44,7 +46,12 @@ export function AppOverviewTab({
         ) : null}
         {app ? (
           <>
-            <CodeView title="How it is built, as code" tabs={appCodeTabs(app, f.stackId)} source="readonly" />
+            <CodeView
+              title="How it is built, as code"
+              tabs={appCodeTabs(app, f.stackId, yaml)}
+              source="readonly"
+              {...(yaml ? { note: 'swarmy.yaml is read from the repo at the commit swarmy last planned; edit it on Source. compose is the live spec, as Docker runs it.' } : {})}
+            />
             <AppWorthDoing app={app} f={f} />
           </>
         ) : null}
