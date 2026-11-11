@@ -74,7 +74,7 @@ export function TelemetryPage(): React.JSX.Element {
           <TelemetryRedaction rules={s.redaction} onChange={(redaction) => draft.change((c) => ({ ...c, redaction }))} />
         </div>
         <div className="flex min-w-0 flex-col gap-5">
-          <CodeView title="Telemetry as code" tabs={telemetryCode(s)} source="readonly" note="Dashboard setting · no REST yet. The processors are rendered from these settings by the same code the collector config uses." />
+          <CodeView title="Telemetry as code" tabs={telemetryCode(s)} source="readonly" note="Which apps send telemetry is PUT /api/v1/stacks/{id}/telemetry; the rest is a dashboard setting with no REST route yet. The processors are rendered from these settings by the same code the collector config uses." />
           <TelemetryKeep s={s} change={draft.change} />
           <TelemetryForecast f={forecast.data} p={projection} s={s} />
           <TelemetryApply draft={draft} view={view.data} quiet={!suiteOn} />

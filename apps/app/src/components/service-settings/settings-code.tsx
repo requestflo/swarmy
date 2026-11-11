@@ -10,7 +10,7 @@ function sourceNote(git: StackAppMatch | null | undefined, serviceId: string): s
   if (git) {
     return `Lives in ${git.app.configPath} (${git.app.fullName ?? git.app.url}). Applying here changes the running part now; the next deploy from git puts swarmy.yaml back.`;
   }
-  return `Dashboard setting, applied to the live part. Copies are also POST /api/v1/services/${serviceId}/scale; the other settings have no REST route yet.`;
+  return `Dashboard setting, applied to the live part. Over REST: copies are POST /api/v1/services/${serviceId}/scale; size, restart and update order are PATCH /api/v1/services/${serviceId} (resources, restart_policy, update_order).`;
 }
 
 /**

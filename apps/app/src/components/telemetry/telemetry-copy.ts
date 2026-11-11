@@ -4,7 +4,7 @@ import {
   type TelemetryProjection,
   type TelemetrySettings,
 } from '@swarmy/core';
-import { toYaml, type CodeTab } from '@/components/calm';
+import { curl, toYaml, type CodeTab } from '@/components/calm';
 
 /** Decimal gigabytes, the way disks are sold ("38.2 GB"). */
 export function gb(n: number | null | undefined, digits = 1): string {
@@ -46,7 +46,7 @@ export function forecastLine(
   return `${share} + ${s.retention.tracesDays} d: ~${Math.round(p.totalBytes / 1e9)} GB in ${p.days} days${free}`;
 }
 
-/** The Code depth: the rendered collector processors and the settings document. */
+/** The Code depth: the rendered collector processors, the settings document, and the per-app switch (the one REST route). */
 export function telemetryCode(s: TelemetrySettings): CodeTab[] {
   return [
     { label: 'collector processors', code: `# otel/opentelemetry-collector-contrib · rendered by swarmy\n${telemetryProcessorsYaml(s)}` },
@@ -58,6 +58,16 @@ export function telemetryCode(s: TelemetrySettings): CodeTab[] {
         `ALTER TABLE otel.otel_traces MODIFY TTL toDateTime(Timestamp) + toIntervalDay(${s.retention.tracesDays})`,
         `ALTER TABLE otel.otel_logs MODIFY TTL toDateTime(Timestamp) + toIntervalDay(${s.retention.logsDays})`,
         `ALTER TABLE otel.otel_metrics_* MODIFY TTL toDateTime(TimeUnix) + toIntervalDay(${s.retention.metricsDays})`,
+      ].join('\n'),
+    },
+    {
+      label: 'per app',
+      code: [
+        '# Which apps send telemetry: one switch per app (an admin or owner key).',
+        '# The next deploy of the app adds or removes its OTEL_* env.',
+        '# ($STACK_ID is the app’s id from GET /api/v1/stacks.)',
+        curl('PUT', '/stacks/$STACK_ID/telemetry', { enabled: true }),
+        curl('GET', '/stacks/$STACK_ID/telemetry'),
       ].join('\n'),
     },
   ];

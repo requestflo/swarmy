@@ -162,7 +162,10 @@ mode renders with no console errors, a pathspec commit.
 - Code views without a public API (cost, platform, status pages, quiet hours)
   are read-only JSON/labels; they gain REST when it exists. Alerts, incidents,
   access rules and guardrails show curl and Terraform since 2026-11-06, checked
-  against `openapi.json` and the provider by `calm/code-honesty.test.ts`.
+  against `openapi.json` and the provider by `calm/code-honesty.test.ts`; since
+  2026-11-11 also Scaling's size and sleep, the part settings, the rollout
+  order and Telemetry's per-app switch, with every curl body's fields checked
+  against its route's request schema.
   ⌘K "put back" shows `releases.rollback` for the same reason.
 - Per-app swarmy.yaml from git: the app Code view shows the live spec as
   compose (read-only); there is no stack-spec query yet.

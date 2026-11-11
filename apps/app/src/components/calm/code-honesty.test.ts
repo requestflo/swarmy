@@ -1,12 +1,14 @@
 import { describe, expect, test } from 'bun:test';
 import { existsSync, readFileSync } from 'node:fs';
-import type { AlertRuleView, GuardrailsConfigView, IncidentDetailView, NotificationChannelView } from '@swarmy/core';
+import { defaultTelemetrySettings, type AlertRuleView, type GuardrailsConfigView, type IncidentDetailView, type NotificationChannelView } from '@swarmy/core';
 import { activityCode } from '../activity/activity-code';
 import { accessCode } from '../access/access-code';
 import type { PolicyRow } from '../access/use-policy-editor';
 import { alertsCode } from '../alerts/alerts-code';
+import { scalingPageCode } from '../app-tabs/scaling/scaling-code';
 import { guardrailsCode } from '../guardrails/guardrails-code';
 import { incidentCode } from '../incidents/incident-code';
+import { telemetryCode } from '../telemetry/telemetry-copy';
 import type { CodeTab } from './code-view';
 
 /**
@@ -15,13 +17,51 @@ import type { CodeTab } from './code-view';
  * the committed spec and the provider's source.
  */
 const ROOT = new URL('../../../../../', import.meta.url).pathname;
-const spec = JSON.parse(readFileSync(`${ROOT}packages/api-rest/openapi.json`, 'utf8')) as { paths: Record<string, Record<string, unknown>> };
+type Schema = { $ref?: string; properties?: Record<string, Schema>; additionalProperties?: unknown; items?: Schema; anyOf?: Schema[]; oneOf?: Schema[] };
+type Op = { requestBody?: { content?: { 'application/json'?: { schema?: Schema } } } };
+const spec = JSON.parse(readFileSync(`${ROOT}packages/api-rest/openapi.json`, 'utf8')) as {
+  paths: Record<string, Record<string, Op>>;
+  components: { schemas: Record<string, Schema> };
+};
 
-function routeExists(method: string, path: string): boolean {
+function operation(method: string, path: string): Op | undefined {
   const clean = path.split('?')[0] ?? path;
-  return Object.entries(spec.paths).some(
+  const hit = Object.entries(spec.paths).find(
     ([tpl, ops]) => method.toLowerCase() in ops && new RegExp(`^${tpl.replace(/\{[^}]+\}/g, '[^/]+')}$`).test(clean),
   );
+  return hit?.[1][method.toLowerCase()];
+}
+const routeExists = (method: string, path: string): boolean => operation(method, path) !== undefined;
+
+const deref = (s: Schema | undefined): Schema | undefined => (s?.$ref ? spec.components.schemas[s.$ref.split('/').pop() ?? ''] : s);
+
+/** Keys in `body` the request schema doesn't name (nested objects followed; free-form maps skipped). */
+function unknownKeys(body: unknown, schema: Schema | undefined, at = ''): string[] {
+  const s = deref(schema);
+  if (!s || body === null || typeof body !== 'object') return [];
+  const variants = s.anyOf ?? s.oneOf;
+  if (variants) {
+    const tries = variants.map((v) => unknownKeys(body, v, at));
+    return tries.find((t) => t.length === 0) ?? tries[0] ?? [];
+  }
+  if (Array.isArray(body)) return body.flatMap((b, i) => unknownKeys(b, s.items, `${at}[${i}].`));
+  if (!s.properties) return [];
+  return Object.entries(body).flatMap(([k, v]) =>
+    k in s.properties! ? unknownKeys(v, s.properties![k], `${at}${k}.`) : s.additionalProperties ? [] : [`${at}${k}`],
+  );
+}
+
+/** Every `curl … -d '<json>'` body with its method and path. */
+function bodies(tabs: CodeTab[]): Array<{ call: string; body: unknown }> {
+  const out: Array<{ call: string; body: unknown }> = [];
+  for (const { code } of tabs) {
+    for (const chunk of code.split('curl -X ').slice(1)) {
+      const head = /^(GET|POST|PUT|PATCH|DELETE) "?https:\/\/swarmy\.example\.com\/api\/v1(\/[^\s"\\]*)/.exec(chunk);
+      const d = /^ {2}-d '(.*)'$/m.exec(chunk);
+      if (head && d?.[1]) out.push({ call: `${head[1]} ${head[2]}`, body: JSON.parse(d[1].replace(/'\\''/g, "'")) as unknown });
+    }
+  }
+  return out;
 }
 
 function calls(tabs: CodeTab[]): string[] {
@@ -82,6 +122,13 @@ const pages: Record<string, CodeTab[]> = {
   access: accessCode(policies, []),
   incident: incidentCode(incident),
   activity: activityCode([]),
+  scaling: scalingPageCode(
+    'shop',
+    { inv: { id: 'svc_1', replicas: { desired: 2, running: 2 }, mode: 'replicated', labels: {} } as never, name: 'web', limits: { cpus: 0.5, memoryBytes: 512 * 1024 ** 2 }, sleepSec: 900 },
+    null,
+  ),
+  'scaling (always on, no size)': scalingPageCode('shop', { inv: { id: 'svc_1', replicas: { desired: 1, running: 1 }, mode: 'replicated', labels: {} } as never, name: 'web', limits: undefined, sleepSec: null }, null),
+  telemetry: telemetryCode(defaultTelemetrySettings()),
 };
 
 describe('Code views print only real routes and resources', () => {
@@ -91,10 +138,28 @@ describe('Code views print only real routes and resources', () => {
       expect(found.length).toBeGreaterThan(0);
       expect(found.filter((c) => !routeExists(c.split(' ')[0] ?? '', c.split(' ')[1] ?? ''))).toEqual([]);
     });
+    test(`${page}: every body names only fields its route takes`, () => {
+      const wrong = bodies(tabs).flatMap(({ call, body }) => {
+        const [method = '', path = ''] = call.split(' ');
+        const schema = operation(method, path)?.requestBody?.content?.['application/json']?.schema;
+        return unknownKeys(body, schema).map((k) => `${call}: ${k}`);
+      });
+      expect(wrong).toEqual([]);
+    });
     test(`${page}: every Terraform attribute is the provider's`, () => {
       expect(tfAttrs(tabs).filter((a) => !tfExists(a))).toEqual([]);
     });
   }
+});
+
+describe('the checks themselves', () => {
+  test('find the bodies, and flag a field the route does not take, however deep', () => {
+    expect(bodies(pages.scaling ?? []).map((b) => b.call)).toEqual(['POST /services/svc_1/scale', 'PATCH /services/svc_1', 'PATCH /services/svc_1']);
+    const schema = operation('PATCH', '/services/svc_1')?.requestBody?.content?.['application/json']?.schema;
+    expect(unknownKeys({ resources: { limits: { memory: 1 } }, sleep: true }, schema)).toEqual(['resources.limits.memory', 'sleep']);
+    expect(unknownKeys({ set_labels: { 'any.label': 'x' } }, schema)).toEqual([]);
+    expect(routeExists('PATCH', '/stacks/x/telemetry')).toBe(false);
+  });
 });
 
 describe('the Terraform reads right', () => {

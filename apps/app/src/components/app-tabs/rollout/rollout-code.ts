@@ -42,4 +42,4 @@ export function rolloutCode(
 }
 
 export const ROLLOUT_NOTE =
-  'What swarmy runs now. Saving the health check here updates the live service (services.update healthcheck); copy the block into your compose file so the next compose deploy keeps it. Start-first/stop-first, the watch and canaries are dashboard settings with no REST route yet.';
+  'What swarmy runs now. Saving the health check here updates the live service (services.update healthcheck); copy the block into your compose file so the next compose deploy keeps it. Start-first/stop-first is also PATCH /api/v1/services/{id} (update_order); the watch and canaries are dashboard settings with no REST route yet.';
