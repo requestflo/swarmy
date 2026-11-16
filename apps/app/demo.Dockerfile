@@ -40,9 +40,11 @@ RUN bun install --filter @swarmy/app --ignore-scripts
 # @swarmy/trpc is imported for its AppRouter type only, which Vite erases, so
 # its source (and the Prisma client behind it) isn't needed.
 COPY packages/abac packages/abac
+COPY packages/app-auth packages/app-auth
 COPY packages/app-config packages/app-config
 COPY packages/auth packages/auth
 COPY packages/core packages/core
+COPY packages/dns packages/dns
 COPY packages/templates packages/templates
 COPY packages/ui packages/ui
 COPY apps/app apps/app
