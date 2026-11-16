@@ -5,10 +5,10 @@
  * Caddy does); without it, the 90-day rule of thumb from the expiry alone.
  */
 import type { Tone } from '@/components/calm/tone';
-import type { CertFacts } from './cert-facts-model';
+import { utcDay, type CertFacts } from './cert-facts-model';
 import { renewsIn } from './cert-model';
 
-const day = (iso: string): string => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+const day = (iso: string): string => utcDay(iso);
 
 /** The line under the issuer: "renews itself in 29 days" / "renewing now". */
 export function renewsLine(facts: CertFacts | null, expiresAt: string | null, now = Date.now()): { text: string; tone: Tone } | null {

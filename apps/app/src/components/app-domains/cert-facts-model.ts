@@ -9,8 +9,19 @@ import type { AppRouter } from '@swarmy/trpc';
 export type CertFacts = inferOutput<TRPCOptionsProxy<AppRouter>['ingress']['certFacts']>;
 export type CertFact = NonNullable<CertFacts['cert']>;
 
-const day = (iso: string, year: boolean): string =>
-  new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', ...(year ? { year: 'numeric' } : {}), timeZone: 'UTC' });
+const MONTH = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * "23 Sep" / "23 Sep 2026" (UTC). A fixed month table, not `toLocaleDateString`:
+ * the runtime's locale data decides between "Sep" and "Sept" for en-GB, so the
+ * same date read differently in different browsers (and failed the tests on CI).
+ */
+export const utcDay = (iso: string, year = false): string => {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return 'Invalid Date';
+  return `${d.getUTCDate()} ${MONTH[d.getUTCMonth()]}${year ? ` ${d.getUTCFullYear()}` : ''}`;
+};
+const day = utcDay;
 
 /** "issued 23 Sep · expires 22 Dec 2026" (the issue year only when it differs). */
 export function issuedLine(notBefore: string, notAfter: string): string {
