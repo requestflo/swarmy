@@ -263,13 +263,22 @@ pg_sql() {  # pg_sql SQL → runs in the primary's container against db `app`
     psql -h 127.0.0.1 -U postgres -d app -v ON_ERROR_STOP=1 -tAc "$1"
 }
 pg_has_row() { [ "$(pg_sql "SELECT v FROM e2e_persist WHERE v = '$(get pg_marker)'")" = "$(get pg_marker)" ]; }
-check_7() {  # managed Postgres data survives a task reschedule
-  local svc="${STACK}_pg-primary" out pw marker="row-${RUN_ID}"
-  out="$(trpc_mutate db.provision "$(jq -cn --arg s "$STACK" '{stack:$s, name:"pg", replicas:0}')")"
+# db.provision never returns the password; db.revealPassword is the one path
+# that does, and it reads it from a running member, so call it once one is up.
+pg_reveal() {
+  local out pw
+  out="$(trpc_mutate db.revealPassword "$(jq -cn --arg s "$STACK" '{stack:$s, cluster:"pg"}')")" || return 1
   pw="$(jq -r '.password // empty' <<<"$out")"
-  [ -n "$pw" ] || { log "db.provision returned no password"; return 1; }
-  put pg_pw "$pw"; put pg_marker "$marker"
+  [ -n "$pw" ] || return 1
+  put pg_pw "$pw"
+}
+check_7() {  # managed Postgres data survives a task reschedule
+  local svc="${STACK}_pg-primary" out marker="row-${RUN_ID}"
+  out="$(trpc_mutate db.provision "$(jq -cn --arg s "$STACK" '{stack:$s, name:"pg", replicas:0}')")"
+  if jq -e 'has("password")' <<<"$out" >/dev/null; then log "db.provision returned the password"; return 1; fi
+  put pg_marker "$marker"
   poll 300 5 "$svc running 1/1" service_ready "$svc"
+  poll 60 3 "db.revealPassword returns the password" pg_reveal
 
   docker service inspect "$svc" --format '{{json .Spec.TaskTemplate.ContainerSpec.Mounts}}' \
     | jq -e 'any(.[]?; .Target == "/var/lib/postgresql/data" and .Type == "volume")' >/dev/null \
