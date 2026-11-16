@@ -120,7 +120,7 @@ RUN set -eu; mkdir -p /out; \
 FROM --platform=$BUILDPLATFORM oven/bun:1.3.14-alpine AS nodeimages
 WORKDIR /app
 ARG SWARMY_BUNDLE_NODE_IMAGES=1
-COPY packages/core/src/system-images.ts packages/core/src/image-archive.ts packages/core/src/tar.ts packages/core/src/
+COPY packages/core/src/system-images.ts packages/core/src/system-images-data.ts packages/core/src/image-archive.ts packages/core/src/tar.ts packages/core/src/
 COPY scripts/fetch-node-images.ts scripts/
 RUN set -eu; mkdir -p /out; \
   if [ "$SWARMY_BUNDLE_NODE_IMAGES" = "0" ]; then echo "node images skipped"; exit 0; fi; \
