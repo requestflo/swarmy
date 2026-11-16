@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { OrgContext } from '../context';
 import {
   inviteLink,
@@ -26,6 +26,17 @@ interface Fake {
   audits: Array<{ action: string; targetId: string | null; metadata: Record<string, unknown> }>;
   createCalls: Array<{ email: string; role: string; organizationId: string }>;
 }
+
+// The links below come from the request's Origin, which only wins when no
+// controller address is configured. Don't inherit one from the shell, a .env
+// or an earlier test file in this process.
+const prevPublicUrl = process.env.CONTROLLER_PUBLIC_URL;
+beforeAll(() => {
+  delete process.env.CONTROLLER_PUBLIC_URL;
+});
+afterAll(() => {
+  if (prevPublicUrl !== undefined) process.env.CONTROLLER_PUBLIC_URL = prevPublicUrl;
+});
 
 const HOUR = 3_600_000;
 const inviter = { id: 'u1', name: 'Ada', email: 'ada@example.com' };
