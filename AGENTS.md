@@ -25,6 +25,15 @@ over this summary. All records: [`docs/RECORDS.md`](docs/RECORDS.md). How they w
 When sources disagree: an Accepted record, then the product doc, then the skill, then the
 plan. `plans/ROADMAP.md` is the open-work list.
 
+## Talking to the founder
+
+- Write in plain English: full sentences and everyday words, no shorthand. Say what
+  happened, what it means, and what you need from the founder.
+- Every time you mention a record or pull request, follow its number with what it is:
+  "DR-043 (a shell into a service with secrets needs `secrets.read`)", "PR #15 (the agent
+  rules and the review process)". Record titles are in `docs/RECORDS.md`; PR titles come
+  from `gh pr view`. This applies in chat, PR comments and commit messages alike.
+
 ## Paramount: configurable by default
 
 - BR-098: works with a sensible default and no setup, and a team can change any behaviour
