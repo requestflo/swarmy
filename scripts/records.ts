@@ -162,7 +162,7 @@ export function parseDecision(
 export function citedIds(text: string): string[] {
   const prose = text
     .replace(/```[\s\S]*?```/g, '')
-    .replace(/~~~[\s\S]*?~~~/g, '')
+    .replace(/^~~~[\s\S]*?^~~~/gm, '')
     .replace(/`[^`\n]*`/g, '');
   return [...new Set([...prose.matchAll(ID_RE)].map((m) => m[0]))];
 }
@@ -204,7 +204,8 @@ export function checkRecords(input: {
       const n = byId.get(newer);
       if (!n) continue; // reported as a missing citation below
       // Superseded is set only when the replacement is accepted (docs/decisions/README.md).
-      if (r.status === 'Superseded' && n.status !== 'Accepted') {
+      // The replacement may since have been superseded or deprecated itself; that's a chain.
+      if (r.status === 'Superseded' && (n.status === 'Proposed' || n.status === 'Rejected')) {
         errors.push({
           file: r.file,
           message: `${r.id} is Superseded by ${newer}, which is ${n.status}, not Accepted`,

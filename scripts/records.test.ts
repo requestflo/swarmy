@@ -148,6 +148,7 @@ describe('citedIds', () => {
       'Per BR-012 and DR-007. Trailer `Refs: BR-999`.\n```\nid: DR-061\n```\nAlso NFR-020.';
     expect(citedIds(text)).toEqual(['BR-012', 'DR-007', 'NFR-020']);
     expect(citedIds('See DR-002.\n~~~\nsupersedes: DR-999\n~~~\n')).toEqual(['DR-002']);
+    expect(citedIds('A `~~~` fence, then BR-404.\n~~~\nDR-999\n~~~\n')).toEqual(['BR-404']);
   });
 });
 
@@ -182,6 +183,16 @@ describe('checkRecords', () => {
         checkRecords({ ...none, records: [replaced, replacement] }).errors.map((e) => e.message),
       ).toEqual([`DR-021 is Superseded by DR-061, which is ${status}, not Accepted`]);
     }
+  });
+
+  it('follows a chain: the replacement may itself be superseded later', () => {
+    const first = rec('DR-010', { status: 'Superseded', fields: { 'superseded-by': 'DR-020' } });
+    const second = rec('DR-020', {
+      status: 'Superseded',
+      fields: { supersedes: 'DR-010', 'superseded-by': 'DR-030' },
+    });
+    const third = rec('DR-030', { status: 'Accepted', fields: { supersedes: 'DR-020' } });
+    expect(checkRecords({ ...none, records: [first, second, third] }).errors).toEqual([]);
   });
 
   it('lets a Proposed replacement name the record it would replace', () => {
