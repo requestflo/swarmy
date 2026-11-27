@@ -132,6 +132,7 @@ is defined below. To run the app under test locally, see `skill("run-local")`.
 | Demo smoke (built dashboard, no API/DB) | `apps/e2e/demo-smoke.ts` |
 | Headline self-host e2e (real install → ONLINE → deploy → HTTPS) | `scripts/e2e-smoke.sh`, `.github/workflows/e2e.yml` |
 | CI gates | `.github/workflows/{ci,e2e,e2e-cluster,pr-title,release,images}.yml` |
+| Requirement and decision records (DR-001): parse, unique IDs, cited IDs exist, index current | `scripts/records.ts` + `scripts/records.test.ts`, the `records` job in `ci.yml` |
 | Conventional-commit rules (scopes = workspaces) | `commitlint.config.mjs` |
 
 ## Adding a test (the recipe)
