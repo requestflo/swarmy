@@ -144,6 +144,7 @@ Access, observability and AI
 | A new package or app in the monorepo                    | `new-workspace`                             |
 | Running it locally                                      | `run-local`                                 |
 | Tests and CI gates                                      | `testing-conventions`                       |
+| Reviewing or merging a pull request                     | `review-and-merge`                          |
 
 ## Commands
 
@@ -157,4 +158,7 @@ Access, observability and AI
   squash-merge makes it the release note.
 - Every commit is signed off (`git commit -s`, DCO) and cites records in a trailer,
   for example `Refs: BR-037, DR-046`.
-- `docs/decisions/` and `docs/requirements/` need the founder's review.
+- Review a pull request against `REVIEW.md` and merge it only through the gate in the
+  `review-and-merge` skill: CI green, review posted, nothing blocking left.
+- A change that sets a record to Accepted or Rejected, or changes an Accepted record,
+  waits for the founder.
