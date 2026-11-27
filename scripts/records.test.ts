@@ -1,10 +1,16 @@
 import { describe, expect, it } from 'bun:test';
 import {
+  applyToolEdit,
+  bashWritesRecords,
+  guardQuestion,
   checkRecords,
   citedIds,
+  guardReasons,
+  isRecordFile,
   parseDecision,
   parseRequirements,
   renderIndex,
+  sessionSummary,
   type RecordEntry,
 } from './records';
 
@@ -270,5 +276,135 @@ describe('renderIndex', () => {
       '| NFR-001 | NFR-001 | Proposed | [requirements/nfr-a.md](requirements/nfr-a.md) |',
       '| DR-002 | DR-002 | Accepted | [decisions/002-x.md](decisions/002-x.md) |',
     ]);
+  });
+});
+
+describe('applyToolEdit', () => {
+  it('applies Write, Edit and MultiEdit inputs the way the tools do', () => {
+    expect(applyToolEdit('old', { content: 'new' })).toBe('new');
+    expect(applyToolEdit('a b a', { old_string: 'a', new_string: 'c' })).toBe('c b a');
+    expect(applyToolEdit('a b a', { old_string: 'a', new_string: 'c', replace_all: true })).toBe(
+      'c b c',
+    );
+    expect(
+      applyToolEdit('a b', {
+        edits: [
+          { old_string: 'a', new_string: 'x' },
+          { old_string: 'b', new_string: 'y' },
+        ],
+      }),
+    ).toBe('x y');
+    expect(applyToolEdit('a b', { old_string: 'z', new_string: 'y' })).toBeNull();
+    // An Edit with an empty old_string creates a missing file.
+    expect(applyToolEdit('', { old_string: '', new_string: 'new file' })).toBe('new file');
+    expect(applyToolEdit('a', { old_string: '', new_string: 'x' })).toBeNull();
+  });
+});
+
+describe('guardReasons (DR-001: only the founder accepts, rejects or rewrites an Accepted record)', () => {
+  it('only watches record files', () => {
+    expect(isRecordFile('docs/requirements/br-sample.md')).toBe(true);
+    expect(isRecordFile('docs/decisions/007-enrolment.md')).toBe(true);
+    expect(isRecordFile('docs/decisions/README.md')).toBe(false);
+    expect(isRecordFile('docs/requirements/README.md')).toBe(false);
+    expect(guardReasons('AGENTS.md', '', '- Status: Accepted')).toEqual([]);
+  });
+
+  it('asks when a record becomes Accepted or Rejected', () => {
+    const after = BR_TEXT.replace(
+      '- Status: Proposed\n- Revision: 2',
+      '- Status: Accepted\n- Revision: 2',
+    );
+    expect(guardReasons(BR_FILE, BR_TEXT, after)).toEqual([
+      'sets BR-002 to Accepted; only the founder accepts or rejects records',
+    ]);
+    const rejected = DR_TEXT.replace('status: accepted', 'status: rejected');
+    expect(guardReasons(DR_FILE, DR_TEXT, rejected)).toEqual([
+      'sets DR-007 to Rejected; only the founder accepts or rejects records',
+    ]);
+  });
+
+  it('asks when an Accepted record changes or disappears', () => {
+    const reworded = BR_TEXT.replace(
+      'Config lives on Docker labels',
+      'Config lives in the database',
+    );
+    expect(guardReasons(BR_FILE, BR_TEXT, reworded)[0]).toStartWith('changes Accepted BR-001;');
+    const dropped = BR_TEXT.slice(BR_TEXT.indexOf('## BR-002'));
+    expect(guardReasons(BR_FILE, BR_TEXT, dropped)).toEqual([
+      'removes Accepted BR-001; IDs are never reused or dropped',
+    ]);
+  });
+
+  it('lets a Proposed record change freely, and lets a new Proposed record be added', () => {
+    const edited = BR_TEXT.replace('show it online', 'show it online within a minute');
+    expect(guardReasons(BR_FILE, BR_TEXT, edited)).toEqual([]);
+    const added = `${BR_TEXT}\n## BR-003\n\n- Status: Proposed\n- Revision: 1\n\nWHEN x, THE SYSTEM SHALL y.\n`;
+    expect(guardReasons(BR_FILE, BR_TEXT, added)).toEqual([]);
+  });
+});
+
+describe('guardQuestion (DR-001)', () => {
+  it('asks when an Edit creates a record that is already Accepted', () => {
+    const q = guardQuestion('docs/decisions/007-enrolment.md', '', {
+      old_string: '',
+      new_string: DR_TEXT,
+    });
+    expect(q).toStartWith('DR-001: this edit sets DR-007 to Accepted');
+  });
+
+  it("asks when it can't preview the edit, and stays quiet off the records", () => {
+    expect(guardQuestion(BR_FILE, BR_TEXT, { old_string: 'missing', new_string: 'x' })).toContain(
+      "can't preview",
+    );
+    expect(guardQuestion('AGENTS.md', '', { content: '- Status: Accepted' })).toBeNull();
+    expect(
+      guardQuestion(BR_FILE, BR_TEXT, { old_string: 'online.', new_string: 'up.' }),
+    ).toBeNull();
+  });
+});
+
+describe('bashWritesRecords (DR-001: Bash edits reach the guard too)', () => {
+  it('flags in-place edits, redirects and scripts on record paths', () => {
+    for (const cmd of [
+      "sed -i '' 's/status: proposed/status: accepted/' docs/decisions/041-x.md",
+      'perl -pi -e s/Proposed/Accepted/ docs/requirements/br-a.md',
+      'echo x > docs/decisions/099-x.md',
+      'cat x | tee docs/requirements/br-a.md',
+      'git checkout main -- docs/decisions',
+      'python3 -c \'open("docs/decisions/x.md","w")\'',
+      'cd docs && sed -i s/a/b/ decisions/041-x.md',
+      'cd docs/decisions && ed 041-x.md',
+      "sed --in-place 's/a/b/' docs/requirements/br-a.md",
+      'dd if=/tmp/x of=docs/decisions/041-x.md',
+    ]) {
+      expect([cmd, bashWritesRecords(cmd)]).toEqual([cmd, true]);
+    }
+  });
+
+  it('lets reads and unrelated writes through', () => {
+    for (const cmd of [
+      'grep -n Status docs/requirements/br-a.md',
+      'cat docs/decisions/001-x.md 2>&1 | head',
+      'ls docs/decisions >/dev/null',
+      'sed -i "" s/a/b/ apps/app/src/x.ts',
+      'bun run scripts/records.ts index',
+      'grep -n "a -> b" docs/decisions/041-x.md',
+    ]) {
+      expect([cmd, bashWritesRecords(cmd)]).toEqual([cmd, false]);
+    }
+  });
+});
+
+describe('sessionSummary', () => {
+  it('tallies records and lists the open decisions', () => {
+    const text = sessionSummary([
+      rec('BR-001', { status: 'Accepted' }),
+      rec('BR-002'),
+      rec('DR-041'),
+      rec('DR-047'),
+    ]);
+    expect(text).toContain('1 Accepted, 3 Proposed');
+    expect(text).toContain('Open decisions waiting on the founder: DR-041, DR-047.');
   });
 });
