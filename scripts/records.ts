@@ -44,7 +44,12 @@ export const INSTRUCTION_LINE_LIMIT = 200;
 
 const ID_RE = /\b(BR|NFR|DR)-(\d{3})\b/g;
 const REQ_HEADING = /^## ((BR|NFR)-\d{3})(?: · (.+?))?\s*$/;
-const FIELD = /^- ([A-Z][A-Za-z ]*): (.+)$/;
+const FIELD = /^- ([A-Z][A-Za-z -]*): (.+)$/;
+
+/** CRLF checkouts parse the same as LF ones. */
+function lf(text: string): string {
+  return text.replace(/\r\n?/g, '\n');
+}
 
 function toStatus(raw: string | undefined): Status | undefined {
   if (!raw) return undefined;
@@ -65,7 +70,9 @@ export function parseRequirements(
   const records: RecordEntry[] = [];
   const problems: Problem[] = [];
   const expected: Kind = /(^|\/)nfr-[^/]+\.md$/.test(file) ? 'NFR' : 'BR';
-  const sections = text.split(/^(?=## )/m).filter((s) => s.startsWith('## '));
+  const sections = lf(text)
+    .split(/^(?=## )/m)
+    .filter((s) => s.startsWith('## '));
   for (const section of sections) {
     const lines = section.trimEnd().split('\n');
     const head = REQ_HEADING.exec(lines[0] ?? '');
@@ -115,12 +122,14 @@ export function parseDecision(
   text: string,
 ): { record?: RecordEntry; problems: Problem[] } {
   const problems: Problem[] = [];
-  const fm = /^---\n([\s\S]*?)\n---\n/.exec(text);
+  const src = lf(text);
+  const fm = /^---\n([\s\S]*?)\n---\n/.exec(src);
   if (!fm) return { problems: [{ file, message: 'has no front matter between --- lines' }] };
   const fields: Record<string, string> = {};
   for (const line of fm[1]!.split('\n')) {
     const kv = /^([a-z][a-z-]*):\s*(.*?)\s*(#.*)?$/.exec(line);
-    if (kv) fields[kv[1]!] = kv[2]!;
+    // YAML reads `status: "accepted"` the same as `status: accepted`.
+    if (kv) fields[kv[1]!] = kv[2]!.replace(/^(["'])(.*)\1$/, '$2');
   }
   for (const key of ['id', 'status', 'date', 'decision-makers']) {
     if (!fields[key]) problems.push({ file, message: `front matter has no ${key}` });
@@ -137,7 +146,7 @@ export function parseDecision(
   if (id && !name.startsWith(`${id.slice(3)}-`)) {
     problems.push({ file, message: `file name must start with ${id.slice(3)}- to match ${id}` });
   }
-  const rest = text.slice(fm[0].length);
+  const rest = src.slice(fm[0].length);
   const h1 = /^# (DR-\d{3}): (.+)$/m.exec(rest);
   if (!h1) problems.push({ file, message: 'has no "# DR-NNN: Title" heading' });
   else if (id && h1[1] !== id)
@@ -151,7 +160,10 @@ export function parseDecision(
 
 /** IDs cited in prose. Fenced code and inline code are skipped: they hold examples, not citations. */
 export function citedIds(text: string): string[] {
-  const prose = text.replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]*`/g, '');
+  const prose = text
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/^~~~[\s\S]*?^~~~/gm, '')
+    .replace(/`[^`\n]*`/g, '');
   return [...new Set([...prose.matchAll(ID_RE)].map((m) => m[0]))];
 }
 
@@ -191,6 +203,14 @@ export function checkRecords(input: {
     for (const newer of supersededBy) {
       const n = byId.get(newer);
       if (!n) continue; // reported as a missing citation below
+      // Superseded is set only when the replacement is accepted (docs/decisions/README.md).
+      // The replacement may since have been superseded or deprecated itself; that's a chain.
+      if (r.status === 'Superseded' && (n.status === 'Proposed' || n.status === 'Rejected')) {
+        errors.push({
+          file: r.file,
+          message: `${r.id} is Superseded by ${newer}, which is ${n.status}, not Accepted`,
+        });
+      }
       if (!linkFields(n).supersedes.includes(r.id)) {
         errors.push({
           file: r.file,
@@ -238,7 +258,7 @@ export function checkRecords(input: {
   }
   for (const f of input.instructions) {
     const lines = f.text.trimEnd().split('\n').length;
-    if (lines > INSTRUCTION_LINE_LIMIT) {
+    if (lines >= INSTRUCTION_LINE_LIMIT) {
       errors.push({
         file: f.path,
         message: `${lines} lines; instruction files stay under ${INSTRUCTION_LINE_LIMIT}`,
@@ -260,7 +280,8 @@ function shortTitle(r: RecordEntry): string {
   if (r.title) return r.title;
   const text = r.body.replace(/\s+/g, ' ').trim();
   if (text.length <= 80) return text;
-  return `${text.slice(0, text.lastIndexOf(' ', 79))} …`;
+  const cut = text.lastIndexOf(' ', 79);
+  return `${text.slice(0, cut > 0 ? cut : 79)} …`;
 }
 
 /** The generated index, docs/RECORDS.md. Links are relative to docs/. */
@@ -435,13 +456,20 @@ function instructionFiles(): SourceFile[] {
     .map((p) => ({ path: p, text: readFileSync(join(ROOT, p), 'utf8') }));
 }
 
+/** The two READMEs explain the records and cite them, so their citations are checked too. */
+function readmes(): SourceFile[] {
+  return ['docs/decisions/README.md', 'docs/requirements/README.md']
+    .filter((p) => existsSync(join(ROOT, p)))
+    .map((p) => ({ path: p, text: readFileSync(join(ROOT, p), 'utf8') }));
+}
+
 function runCheck(): { count: number; failures: Problem[]; warnings: Problem[] } {
   const { records, problems, files } = load();
   const instructions = instructionFiles();
   const indexAbs = join(ROOT, INDEX_PATH);
   const { errors, warnings } = checkRecords({
     records,
-    citing: [...files, ...instructions],
+    citing: [...files, ...instructions, ...readmes()],
     instructions,
     index: { path: INDEX_PATH, text: existsSync(indexAbs) ? readFileSync(indexAbs, 'utf8') : '' },
   });
