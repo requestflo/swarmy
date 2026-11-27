@@ -68,19 +68,20 @@ If any of these fails, don't merge. Say which one failed and what would clear it
 gh pr merge <n> --squash --subject "<PR title> (#<n>)"
 ```
 
-- Never pass `--admin`, never make a merge commit, and never push to `main`.
-- **Stacked PRs.** Before deleting the merged branch, retarget each open PR that was based
-  on it, and rebase it so it carries only its own commits:
+- Never pass `--admin`, never merge a PR any way but squash, and never push to `main`.
+- **Stacked PRs.** Retarget each open PR that was based on the merged branch, then merge
+  `main` into it. Don't rebase and force-push: that rewrites history others may hold.
 
   ```bash
   gh pr edit <child> --base main
-  git fetch origin
-  git rebase --onto origin/main <old head of the merged branch> <child branch>
-  git push --force-with-lease origin <child branch>
+  git fetch origin && git switch <child branch>
+  git merge --signoff origin/main   # keep both sides' changes when resolving conflicts
+  git push origin <child branch>
   ```
 
-  Then delete the merged branch: `git push origin --delete <branch>`.
+  The child's squash merge flattens the merge commit away.
 
+- Leave the merged branch in place; delete branches only when the founder asks.
 - Finish with `git switch main && git pull --ff-only`.
 
 ## 7. Report
