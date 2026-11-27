@@ -293,6 +293,100 @@ export function renderIndex(records: RecordEntry[]): string {
 }
 
 // ---------------------------------------------------------------------------------------
+// Session hooks (.claude/settings.json). Pure parts first.
+
+/** The input of an Edit, MultiEdit or Write tool call, as a PreToolUse hook receives it. */
+export interface ToolEdit {
+  content?: string;
+  old_string?: string;
+  new_string?: string;
+  replace_all?: boolean;
+  edits?: { old_string: string; new_string: string; replace_all?: boolean }[];
+}
+
+/** The file's text after the tool call, or null when an edit wouldn't apply. */
+export function applyToolEdit(current: string, input: ToolEdit): string | null {
+  if (typeof input.content === 'string') return input.content;
+  const edits = input.edits ?? [
+    {
+      old_string: input.old_string ?? '',
+      new_string: input.new_string ?? '',
+      replace_all: input.replace_all,
+    },
+  ];
+  let text = current;
+  for (const e of edits) {
+    if (!e.old_string || !text.includes(e.old_string)) return null;
+    text = e.replace_all
+      ? text.split(e.old_string).join(e.new_string)
+      : text.replace(e.old_string, () => e.new_string);
+  }
+  return text;
+}
+
+/** True for a repo-relative path that holds records. */
+export function isRecordFile(path: string): boolean {
+  return (
+    /^docs\/requirements\/(br|nfr)-[^/]+\.md$/.test(path) ||
+    (/^docs\/decisions\/[^/]+\.md$/.test(path) && !path.endsWith('/README.md'))
+  );
+}
+
+function recordsIn(path: string, text: string): Map<string, RecordEntry> {
+  const list = path.startsWith('docs/decisions/')
+    ? [parseDecision(path, text).record].filter((r): r is RecordEntry => r !== undefined)
+    : parseRequirements(path, text).records;
+  return new Map(list.map((r) => [r.id, r]));
+}
+
+function sameRecord(a: RecordEntry, b: RecordEntry): boolean {
+  return (
+    a.title === b.title &&
+    a.body === b.body &&
+    JSON.stringify(a.fields) === JSON.stringify(b.fields)
+  );
+}
+
+/**
+ * Why a change to a record file needs the founder (DR-001), or [] when it doesn't: it sets a
+ * record to Accepted or Rejected, or it changes a record that is already Accepted.
+ */
+export function guardReasons(path: string, before: string, after: string): string[] {
+  if (!isRecordFile(path)) return [];
+  const was = recordsIn(path, before);
+  const now = recordsIn(path, after);
+  const reasons: string[] = [];
+  for (const [id, r] of now) {
+    const old = was.get(id);
+    if ((r.status === 'Accepted' || r.status === 'Rejected') && old?.status !== r.status) {
+      reasons.push(`sets ${id} to ${r.status}; only the founder accepts or rejects records`);
+    } else if (old?.status === 'Accepted' && !sameRecord(old, r)) {
+      reasons.push(
+        `changes Accepted ${id}; beyond typo and link fixes, implemented-in notes or marking it Superseded, it changes only through a superseding record`,
+      );
+    }
+  }
+  for (const [id, r] of was) {
+    if (r.status === 'Accepted' && !now.has(id))
+      reasons.push(`removes Accepted ${id}; IDs are never reused or dropped`);
+  }
+  return reasons;
+}
+
+/** What a session learns at start: the tally and the decisions waiting on the founder. */
+export function sessionSummary(records: RecordEntry[]): string {
+  const accepted = records.filter((r) => r.status === 'Accepted').length;
+  const proposed = records.filter((r) => r.status === 'Proposed');
+  const open = proposed.filter((r) => r.kind === 'DR').map((r) => r.id);
+  return [
+    `swarmy records (DR-001): ${accepted} Accepted, ${proposed.length} Proposed. Accepted records bind; read AGENTS.md and the Accepted records for your area (docs/RECORDS.md) before planning.`,
+    open.length > 0 ? `Open decisions waiting on the founder: ${open.join(', ')}.` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+// ---------------------------------------------------------------------------------------
 // CLI
 
 const ROOT = join(import.meta.dir, '..');
@@ -341,21 +435,8 @@ function instructionFiles(): SourceFile[] {
     .map((p) => ({ path: p, text: readFileSync(join(ROOT, p), 'utf8') }));
 }
 
-function main(command: string): number {
+function runCheck(): { count: number; failures: Problem[]; warnings: Problem[] } {
   const { records, problems, files } = load();
-  if (command === 'index') {
-    if (problems.length > 0) {
-      for (const p of problems) console.error(`${p.file}: ${p.message}`);
-      return 1;
-    }
-    writeFileSync(join(ROOT, INDEX_PATH), renderIndex(records));
-    console.log(`${INDEX_PATH}: ${records.length} records`);
-    return 0;
-  }
-  if (command !== 'check') {
-    console.error('usage: bun run scripts/records.ts check | index');
-    return 2;
-  }
   const instructions = instructionFiles();
   const indexAbs = join(ROOT, INDEX_PATH);
   const { errors, warnings } = checkRecords({
@@ -364,18 +445,107 @@ function main(command: string): number {
     instructions,
     index: { path: INDEX_PATH, text: existsSync(indexAbs) ? readFileSync(indexAbs, 'utf8') : '' },
   });
-  const all = [...problems, ...errors];
-  if (warnings.length > 0)
-    console.log(
-      `${warnings.length} warning(s); the first: ${warnings[0]!.file}: ${warnings[0]!.message}`,
-    );
-  for (const p of all) console.error(`${p.file}: ${p.message}`);
-  if (all.length > 0) {
-    console.error(`records check failed: ${all.length} problem(s)`);
-    return 1;
-  }
-  console.log(`records check passed: ${records.length} records`);
-  return 0;
+  return { count: records.length, failures: [...problems, ...errors], warnings };
 }
 
-if (import.meta.main) process.exit(main(process.argv[2] ?? 'check'));
+/** Paths whose uncommitted changes make the Stop hook run the check. */
+const WATCHED = [
+  'docs/decisions',
+  'docs/requirements',
+  INDEX_PATH,
+  'AGENTS.md',
+  'CLAUDE.md',
+  '.claude/rules',
+];
+
+async function readHookInput(): Promise<Record<string, unknown>> {
+  try {
+    return JSON.parse(await Bun.stdin.text()) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+async function main(command: string): Promise<number> {
+  switch (command) {
+    case 'check': {
+      const { count, failures, warnings } = runCheck();
+      if (warnings.length > 0) {
+        console.log(
+          `${warnings.length} warning(s); the first: ${warnings[0]!.file}: ${warnings[0]!.message}`,
+        );
+      }
+      for (const p of failures) console.error(`${p.file}: ${p.message}`);
+      if (failures.length > 0) {
+        console.error(`records check failed: ${failures.length} problem(s)`);
+        return 1;
+      }
+      console.log(`records check passed: ${count} records`);
+      return 0;
+    }
+    case 'index': {
+      const { records, problems } = load();
+      for (const p of problems) console.error(`${p.file}: ${p.message}`);
+      if (problems.length > 0) return 1;
+      writeFileSync(join(ROOT, INDEX_PATH), renderIndex(records));
+      console.log(`${INDEX_PATH}: ${records.length} records`);
+      return 0;
+    }
+    // SessionStart: stdout becomes context for the session.
+    case 'hook-session': {
+      console.log(sessionSummary(load().records));
+      return 0;
+    }
+    // PreToolUse on Edit|MultiEdit|Write: ask the person before a change only the founder makes.
+    case 'hook-guard': {
+      const input = await readHookInput();
+      const tool = (input.tool_input ?? {}) as ToolEdit & { file_path?: string };
+      if (!tool.file_path) return 0;
+      const path = relative(ROOT, tool.file_path);
+      if (!isRecordFile(path)) return 0;
+      const before = existsSync(tool.file_path) ? readFileSync(tool.file_path, 'utf8') : '';
+      const after = applyToolEdit(before, tool);
+      if (after === null) return 0; // the edit won't apply; the tool reports that itself
+      const reasons = guardReasons(path, before, after);
+      if (reasons.length === 0) return 0;
+      console.log(
+        JSON.stringify({
+          hookSpecificOutput: {
+            hookEventName: 'PreToolUse',
+            permissionDecision: 'ask',
+            permissionDecisionReason: `DR-001: this edit ${reasons.join('; ')}. Approve only if the founder asked for it.`,
+          },
+        }),
+      );
+      return 0;
+    }
+    // Stop: when records or instruction files changed, the check must pass before the session ends.
+    case 'hook-stop': {
+      const input = await readHookInput();
+      const changed = Bun.spawnSync(['git', 'status', '--porcelain', '--', ...WATCHED], {
+        cwd: ROOT,
+      });
+      if (changed.stdout.toString().trim() === '') return 0;
+      const { failures } = runCheck();
+      if (failures.length === 0) return 0;
+      const list = failures
+        .slice(0, 5)
+        .map((p) => `${p.file}: ${p.message}`)
+        .join('; ');
+      const reason = `The records check fails (${failures.length}): ${list}. Fix it, then run bun run scripts/records.ts check.`;
+      console.log(
+        JSON.stringify(
+          input.stop_hook_active ? { systemMessage: reason } : { decision: 'block', reason },
+        ),
+      );
+      return 0;
+    }
+    default:
+      console.error(
+        'usage: bun run scripts/records.ts check | index | hook-session | hook-guard | hook-stop',
+      );
+      return 2;
+  }
+}
+
+if (import.meta.main) process.exit(await main(process.argv[2] ?? 'check'));

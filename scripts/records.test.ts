@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'bun:test';
 import {
+  applyToolEdit,
   checkRecords,
   citedIds,
+  guardReasons,
+  isRecordFile,
   parseDecision,
   parseRequirements,
   renderIndex,
+  sessionSummary,
   type RecordEntry,
 } from './records';
 
@@ -212,5 +216,80 @@ describe('renderIndex', () => {
       '| NFR-001 | NFR-001 | Proposed | [requirements/nfr-a.md](requirements/nfr-a.md) |',
       '| DR-002 | DR-002 | Accepted | [decisions/002-x.md](decisions/002-x.md) |',
     ]);
+  });
+});
+
+describe('applyToolEdit', () => {
+  it('applies Write, Edit and MultiEdit inputs the way the tools do', () => {
+    expect(applyToolEdit('old', { content: 'new' })).toBe('new');
+    expect(applyToolEdit('a b a', { old_string: 'a', new_string: 'c' })).toBe('c b a');
+    expect(applyToolEdit('a b a', { old_string: 'a', new_string: 'c', replace_all: true })).toBe(
+      'c b c',
+    );
+    expect(
+      applyToolEdit('a b', {
+        edits: [
+          { old_string: 'a', new_string: 'x' },
+          { old_string: 'b', new_string: 'y' },
+        ],
+      }),
+    ).toBe('x y');
+    expect(applyToolEdit('a b', { old_string: 'z', new_string: 'y' })).toBeNull();
+  });
+});
+
+describe('guardReasons (DR-001: only the founder accepts, rejects or rewrites an Accepted record)', () => {
+  it('only watches record files', () => {
+    expect(isRecordFile('docs/requirements/br-sample.md')).toBe(true);
+    expect(isRecordFile('docs/decisions/007-enrolment.md')).toBe(true);
+    expect(isRecordFile('docs/decisions/README.md')).toBe(false);
+    expect(isRecordFile('docs/requirements/README.md')).toBe(false);
+    expect(guardReasons('AGENTS.md', '', '- Status: Accepted')).toEqual([]);
+  });
+
+  it('asks when a record becomes Accepted or Rejected', () => {
+    const after = BR_TEXT.replace(
+      '- Status: Proposed\n- Revision: 2',
+      '- Status: Accepted\n- Revision: 2',
+    );
+    expect(guardReasons(BR_FILE, BR_TEXT, after)).toEqual([
+      'sets BR-002 to Accepted; only the founder accepts or rejects records',
+    ]);
+    const rejected = DR_TEXT.replace('status: accepted', 'status: rejected');
+    expect(guardReasons(DR_FILE, DR_TEXT, rejected)).toEqual([
+      'sets DR-007 to Rejected; only the founder accepts or rejects records',
+    ]);
+  });
+
+  it('asks when an Accepted record changes or disappears', () => {
+    const reworded = BR_TEXT.replace(
+      'Config lives on Docker labels',
+      'Config lives in the database',
+    );
+    expect(guardReasons(BR_FILE, BR_TEXT, reworded)[0]).toStartWith('changes Accepted BR-001;');
+    const dropped = BR_TEXT.slice(BR_TEXT.indexOf('## BR-002'));
+    expect(guardReasons(BR_FILE, BR_TEXT, dropped)).toEqual([
+      'removes Accepted BR-001; IDs are never reused or dropped',
+    ]);
+  });
+
+  it('lets a Proposed record change freely, and lets a new Proposed record be added', () => {
+    const edited = BR_TEXT.replace('show it online', 'show it online within a minute');
+    expect(guardReasons(BR_FILE, BR_TEXT, edited)).toEqual([]);
+    const added = `${BR_TEXT}\n## BR-003\n\n- Status: Proposed\n- Revision: 1\n\nWHEN x, THE SYSTEM SHALL y.\n`;
+    expect(guardReasons(BR_FILE, BR_TEXT, added)).toEqual([]);
+  });
+});
+
+describe('sessionSummary', () => {
+  it('tallies records and lists the open decisions', () => {
+    const text = sessionSummary([
+      rec('BR-001', { status: 'Accepted' }),
+      rec('BR-002'),
+      rec('DR-041'),
+      rec('DR-047'),
+    ]);
+    expect(text).toContain('1 Accepted, 3 Proposed');
+    expect(text).toContain('Open decisions waiting on the founder: DR-041, DR-047.');
   });
 });

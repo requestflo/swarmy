@@ -1,0 +1,11 @@
+# DR-001: only the founder accepts or rejects a record, so changes to the records
+# need the founder's review. Enforced once main's branch protection turns on
+# "Require review from Code Owners".
+/docs/decisions/     @virus2016
+/docs/requirements/  @virus2016
+/docs/RECORDS.md     @virus2016
+/AGENTS.md           @virus2016
+/CLAUDE.md           @virus2016
+/.claude/rules/      @virus2016
+/.claude/settings.json @virus2016
+/.github/CODEOWNERS  @virus2016
