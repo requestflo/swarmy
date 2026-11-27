@@ -1,6 +1,6 @@
 ---
 id: DR-056
-status: proposed
+status: accepted
 date: 2026-11-27
 decision-makers: founder
 ---
@@ -28,8 +28,8 @@ merge Claude makes.
 
 ## Decision Outcome
 
-Chosen option: Claude reviews and merges, because work keeps moving while the gate keeps
-the founder's calls with the founder.
+Chosen 27 Nov 2026: Claude reviews and merges, because work keeps moving while the gate
+keeps the founder's calls with the founder.
 
 - `REVIEW.md` is the spec, and the `review-and-merge` skill is the procedure.
 - Claude merges only when the pull request isn't a draft and targets `main`, every CI check

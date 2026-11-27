@@ -130,6 +130,11 @@ Access, observability and AI
 - DR-043: a shell into a service that mounts secrets needs `secrets.read` as well as
   `terminal.open`, and those recordings are encrypted at rest.
 
+How work lands
+
+- DR-056: Claude reviews each pull request against `REVIEW.md` and squash-merges it when
+  the gate in the `review-and-merge` skill passes; record status changes wait for the founder.
+
 ## Which skill to load
 
 | You're touching                                         | Skill                                       |
@@ -168,6 +173,6 @@ Access, observability and AI
 - Every commit is signed off (`git commit -s`, DCO) and cites records in a trailer,
   for example `Refs: BR-037, DR-046`.
 - Review a pull request against `REVIEW.md` and merge it only through the gate in the
-  `review-and-merge` skill: CI green, review posted, nothing blocking left.
+  `review-and-merge` skill: CI green, review posted, nothing blocking left (DR-056).
 - A change that sets a record to Accepted or Rejected, or changes an Accepted record,
   waits for the founder.
