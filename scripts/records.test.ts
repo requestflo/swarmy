@@ -57,6 +57,8 @@ function rec(id: string, extra: Partial<RecordEntry> = {}): RecordEntry {
   };
 }
 
+// Every test here proves the DR-001 record system: the rules live in docs/decisions/README.md.
+
 describe('parseRequirements', () => {
   it('reads each heading, its fields and its text', () => {
     const { records, problems } = parseRequirements(BR_FILE, BR_TEXT);
@@ -78,6 +80,20 @@ describe('parseRequirements', () => {
       'BR-004 has an unknown status "Maybe"',
       'BR-004 needs a Revision field holding a whole number from 1',
     ]);
+  });
+
+  it('reads a CRLF checkout the same as LF', () => {
+    const lf = parseRequirements(BR_FILE, BR_TEXT);
+    const crlf = parseRequirements(BR_FILE, BR_TEXT.replace(/\n/g, '\r\n'));
+    expect(crlf).toEqual(lf);
+  });
+
+  it('reads a hyphenated field name', () => {
+    const text =
+      '## BR-005\n\n- Status: Proposed\n- Superseded-by: BR-006\n- Revision: 1\n\nText.\n';
+    const { records, problems } = parseRequirements(BR_FILE, text);
+    expect(problems).toEqual([]);
+    expect(records[0]!.fields['superseded-by']).toBe('BR-006');
   });
 
   it('keeps NFRs in nfr- files and requires their Target', () => {
@@ -103,6 +119,16 @@ describe('parseDecision', () => {
     ]);
   });
 
+  it('reads CRLF files and quoted values the way YAML does', () => {
+    const quoted = DR_TEXT.replace('status: accepted', 'status: "accepted"').replace(
+      'id: DR-007',
+      "id: 'DR-007'",
+    );
+    const { record, problems } = parseDecision(DR_FILE, quoted.replace(/\n/g, '\r\n'));
+    expect(problems).toEqual([]);
+    expect([record?.id, record?.status]).toEqual(['DR-007', 'Accepted']);
+  });
+
   it('refuses a file whose name or heading disagrees with its id', () => {
     const { record, problems } = parseDecision(
       'docs/decisions/008-enrolment.md',
@@ -121,6 +147,7 @@ describe('citedIds', () => {
     const text =
       'Per BR-012 and DR-007. Trailer `Refs: BR-999`.\n```\nid: DR-061\n```\nAlso NFR-020.';
     expect(citedIds(text)).toEqual(['BR-012', 'DR-007', 'NFR-020']);
+    expect(citedIds('See DR-002.\n~~~\nsupersedes: DR-999\n~~~\n')).toEqual(['DR-002']);
   });
 });
 
@@ -147,6 +174,16 @@ describe('checkRecords', () => {
     expect(checkRecords({ ...none, records: [done, replacement] }).errors).toEqual([]);
   });
 
+  it('marks a record Superseded only when its replacement is Accepted', () => {
+    const replaced = rec('DR-021', { status: 'Superseded', fields: { 'superseded-by': 'DR-061' } });
+    for (const status of ['Proposed', 'Rejected'] as const) {
+      const replacement = rec('DR-061', { status, fields: { supersedes: 'DR-021' } });
+      expect(
+        checkRecords({ ...none, records: [replaced, replacement] }).errors.map((e) => e.message),
+      ).toEqual([`DR-021 is Superseded by DR-061, which is ${status}, not Accepted`]);
+    }
+  });
+
   it('lets a Proposed replacement name the record it would replace', () => {
     const proposal = rec('DR-061', { fields: { supersedes: 'DR-021' } });
     expect(
@@ -164,13 +201,15 @@ describe('checkRecords', () => {
   });
 
   it('keeps instruction files under 200 lines', () => {
-    const text = Array.from({ length: 201 }, (_, i) => `line ${i}`).join('\n');
+    const text = Array.from({ length: 200 }, (_, i) => `line ${i}`).join('\n');
     const { errors } = checkRecords({
       ...none,
       records: [],
       instructions: [{ path: 'AGENTS.md', text }],
     });
-    expect(errors.map((e) => e.message)).toEqual(['201 lines; instruction files stay under 200']);
+    expect(errors.map((e) => e.message)).toEqual(['200 lines; instruction files stay under 200']);
+    const ok = { path: 'AGENTS.md', text: text.split('\n').slice(1).join('\n') };
+    expect(checkRecords({ ...none, records: [], instructions: [ok] }).errors).toEqual([]);
   });
 
   it('fails when the index is stale and passes when it matches', () => {
@@ -197,6 +236,14 @@ describe('checkRecords', () => {
 });
 
 describe('renderIndex', () => {
+  it('cuts an untitled record with no spaces to 79 characters', () => {
+    const body = 'x'.repeat(200);
+    const index = renderIndex([
+      rec('BR-001', { title: '', body, file: 'docs/requirements/br-a.md' }),
+    ]);
+    expect(index).toContain(`| BR-001 | ${'x'.repeat(79)} … | Proposed |`);
+  });
+
   it('sorts BR, NFR then DR by number and tallies statuses', () => {
     const index = renderIndex([
       rec('DR-002', { status: 'Accepted', file: 'docs/decisions/002-x.md' }),
