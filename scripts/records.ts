@@ -414,17 +414,36 @@ export function guardQuestion(path: string, before: string, tool: ToolEdit): str
   return `DR-001: this edit ${reasons.join('; ')}. Approve only if the founder asked for it.`;
 }
 
+/** A record path in a command, written from the repo root, from docs/, or as a bare file name. */
+const RECORD_PATH =
+  /\bdocs\/(decisions|requirements)\b|\b(decisions|requirements)\/|\b(br|nfr)-[a-z0-9-]+\.md\b|\b\d{3}-[a-z0-9-]+\.md\b/;
+
+/** Shell forms that write a file. */
+const SHELL_WRITE = new RegExp(
+  [
+    '\\bsed\\b[^|;&]*\\s(-[a-zA-Z]*i|--in-place)',
+    '\\bperl\\b[^|;&]*\\s-[a-zA-Z]*i',
+    '\\bawk\\b[^|;&]*-i\\s*inplace',
+    '>',
+    '\\b(tee|mv|cp|rm|ln|dd|ed|ex|vi|vim|install|truncate|patch)\\b',
+    '\\bgit\\s+(checkout|restore|apply|mv|rm|reset|stash|am|cherry-pick|revert)\\b',
+    '\\b(python3?|node|bun|deno|ruby)\\b',
+  ].join('|'),
+);
+
 /**
  * True when a shell command may write to the records: it names a record path and holds a
  * write (in-place edit, redirect, tee, move, copy, delete, git restore, or a script runner).
- * Reads such as `grep` or `cat` don't count, and neither do `2>&1` or `>/dev/null`.
+ * Reads such as `grep` or `cat` don't count, and neither do `2>&1`, `>/dev/null`, `->` or `=>`.
+ * Text matching can't see every write; the Stop hook reports status changes however made.
  */
 export function bashWritesRecords(command: string): boolean {
-  if (!/docs\/(decisions|requirements)\b/.test(command)) return false;
-  const cmd = command.replace(/\d*>&\d/g, '').replace(/\d*>>?\s*\/dev\/null/g, '');
-  return /(\bsed\b[^|;&]*\s-[a-zA-Z]*i|\bperl\b[^|;&]*\s-[a-zA-Z]*i|>|\btee\b|\bmv\b|\bcp\b|\brm\b|\btruncate\b|\bgit\s+(checkout|restore|apply|mv|rm|reset|stash)\b|\bpython3?\b|\bnode\b|\bbun\b|\bruby\b|\bpatch\b)/.test(
-    cmd,
-  );
+  if (!RECORD_PATH.test(command)) return false;
+  const cmd = command
+    .replace(/\d*>&\d/g, '')
+    .replace(/\d*>>?\s*\/dev\/null/g, '')
+    .replace(/[-=]>/g, '');
+  return SHELL_WRITE.test(cmd);
 }
 
 /** What a session learns at start: the tally and the decisions waiting on the founder. */
@@ -529,6 +548,49 @@ function git(args: string[]): string {
   return out.exitCode === 0 ? out.stdout.toString().trim() : '';
 }
 
+/**
+ * Record changes on this branch (committed or not, against the merge-base with main) that only
+ * the founder makes, as one line for the person, or '' when there are none.
+ */
+function founderChanges(base: string): string {
+  const paths = new Set(
+    [
+      git([
+        'diff',
+        '--name-only',
+        ...(base ? [base] : ['HEAD']),
+        '--',
+        'docs/decisions',
+        'docs/requirements',
+      ]),
+      git([
+        'ls-files',
+        '--others',
+        '--exclude-standard',
+        '--',
+        'docs/decisions',
+        'docs/requirements',
+      ]),
+    ]
+      .join('\n')
+      .split('\n')
+      .filter(isRecordFile),
+  );
+  const reasons: string[] = [];
+  for (const path of paths) {
+    const before = git(['show', `${base || 'HEAD'}:${path}`]);
+    let after = '';
+    try {
+      after = readFileSync(join(ROOT, path), 'utf8');
+    } catch {
+      // Deleted on this branch.
+    }
+    reasons.push(...guardReasons(path, before, after));
+  }
+  if (reasons.length === 0) return '';
+  return `DR-001: this branch ${reasons.join('; ')}. Fine if you asked for it; otherwise revert it.`;
+}
+
 /** Paths whose changes, uncommitted or on this branch, make the Stop hook run the check. */
 const WATCHED = [
   'docs/decisions',
@@ -588,8 +650,16 @@ async function main(command: string): Promise<number> {
             "DR-001: this command may write to docs/decisions or docs/requirements. Approve only if it doesn't set a record to Accepted or Rejected or change an Accepted record, or the founder asked for it.";
         }
       } else if (tool.file_path) {
-        const before = existsSync(tool.file_path) ? readFileSync(tool.file_path, 'utf8') : '';
-        question = guardQuestion(repoPath(tool.file_path), before, tool);
+        const path = repoPath(tool.file_path);
+        if (isRecordFile(path)) {
+          let before = '';
+          try {
+            before = readFileSync(tool.file_path, 'utf8');
+          } catch {
+            // A new file: nothing to compare against.
+          }
+          question = guardQuestion(path, before, tool);
+        }
       }
       if (question === null) return 0;
       console.log(
@@ -610,16 +680,27 @@ async function main(command: string): Promise<number> {
       const base = git(['merge-base', 'origin/main', 'HEAD']);
       const committed = base ? git(['diff', '--name-only', base, 'HEAD', '--', ...WATCHED]) : '';
       if (uncommitted === '' && committed === '') return 0;
+      // However a record was edited (Edit, Bash or anything else), tell the person when this
+      // branch sets one to Accepted or Rejected or changes an Accepted one (DR-001).
+      const notice = founderChanges(base);
       const { failures } = runCheck();
-      if (failures.length === 0) return 0;
+      if (failures.length === 0) {
+        if (notice) console.log(JSON.stringify({ systemMessage: notice }));
+        return 0;
+      }
       const list = failures
         .slice(0, 5)
         .map((p) => `${p.file}: ${p.message}`)
         .join('; ');
       const reason = `The records check fails (${failures.length}): ${list}. Fix it, then run bun run scripts/records.ts check.`;
+      const systemMessage = [notice, input.stop_hook_active ? reason : '']
+        .filter(Boolean)
+        .join(' ');
       console.log(
         JSON.stringify(
-          input.stop_hook_active ? { systemMessage: reason } : { decision: 'block', reason },
+          input.stop_hook_active
+            ? { systemMessage }
+            : { decision: 'block', reason, ...(notice ? { systemMessage: notice } : {}) },
         ),
       );
       return 0;

@@ -373,6 +373,10 @@ describe('bashWritesRecords (DR-001: Bash edits reach the guard too)', () => {
       'cat x | tee docs/requirements/br-a.md',
       'git checkout main -- docs/decisions',
       'python3 -c \'open("docs/decisions/x.md","w")\'',
+      'cd docs && sed -i s/a/b/ decisions/041-x.md',
+      'cd docs/decisions && ed 041-x.md',
+      "sed --in-place 's/a/b/' docs/requirements/br-a.md",
+      'dd if=/tmp/x of=docs/decisions/041-x.md',
     ]) {
       expect([cmd, bashWritesRecords(cmd)]).toEqual([cmd, true]);
     }
@@ -385,6 +389,7 @@ describe('bashWritesRecords (DR-001: Bash edits reach the guard too)', () => {
       'ls docs/decisions >/dev/null',
       'sed -i "" s/a/b/ apps/app/src/x.ts',
       'bun run scripts/records.ts index',
+      'grep -n "a -> b" docs/decisions/041-x.md',
     ]) {
       expect([cmd, bashWritesRecords(cmd)]).toEqual([cmd, false]);
     }
