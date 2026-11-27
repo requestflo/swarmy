@@ -9,8 +9,8 @@
  * the check enforces are in docs/decisions/README.md. Everything above `main` is pure so
  * records.test.ts can drive it with inline fixtures.
  */
-import { readdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { readdirSync, readFileSync, writeFileSync, existsSync, realpathSync } from 'node:fs';
+import { basename, dirname, join, relative } from 'node:path';
 
 export const STATUSES = ['Proposed', 'Accepted', 'Rejected', 'Superseded', 'Deprecated'] as const;
 export type Status = (typeof STATUSES)[number];
@@ -337,6 +337,11 @@ export function applyToolEdit(current: string, input: ToolEdit): string | null {
   ];
   let text = current;
   for (const e of edits) {
+    // An Edit with an empty old_string on a missing or empty file creates it.
+    if (e.old_string === '' && text === '') {
+      text = e.new_string;
+      continue;
+    }
     if (!e.old_string || !text.includes(e.old_string)) return null;
     text = e.replace_all
       ? text.split(e.old_string).join(e.new_string)
@@ -394,6 +399,34 @@ export function guardReasons(path: string, before: string, after: string): strin
   return reasons;
 }
 
+/**
+ * The question the PreToolUse guard asks before an Edit, MultiEdit or Write to a record file,
+ * or null when the edit needs no one's say. An edit it can't preview is asked about too.
+ */
+export function guardQuestion(path: string, before: string, tool: ToolEdit): string | null {
+  if (!isRecordFile(path)) return null;
+  const after = applyToolEdit(before, tool);
+  if (after === null) {
+    return `DR-001: the guard can't preview this edit to ${path}. Approve only if it doesn't set a record to Accepted or Rejected or change an Accepted record, or the founder asked for it.`;
+  }
+  const reasons = guardReasons(path, before, after);
+  if (reasons.length === 0) return null;
+  return `DR-001: this edit ${reasons.join('; ')}. Approve only if the founder asked for it.`;
+}
+
+/**
+ * True when a shell command may write to the records: it names a record path and holds a
+ * write (in-place edit, redirect, tee, move, copy, delete, git restore, or a script runner).
+ * Reads such as `grep` or `cat` don't count, and neither do `2>&1` or `>/dev/null`.
+ */
+export function bashWritesRecords(command: string): boolean {
+  if (!/docs\/(decisions|requirements)\b/.test(command)) return false;
+  const cmd = command.replace(/\d*>&\d/g, '').replace(/\d*>>?\s*\/dev\/null/g, '');
+  return /(\bsed\b[^|;&]*\s-[a-zA-Z]*i|\bperl\b[^|;&]*\s-[a-zA-Z]*i|>|\btee\b|\bmv\b|\bcp\b|\brm\b|\btruncate\b|\bgit\s+(checkout|restore|apply|mv|rm|reset|stash)\b|\bpython3?\b|\bnode\b|\bbun\b|\bruby\b|\bpatch\b)/.test(
+    cmd,
+  );
+}
+
 /** What a session learns at start: the tally and the decisions waiting on the founder. */
 export function sessionSummary(records: RecordEntry[]): string {
   const accepted = records.filter((r) => r.status === 'Accepted').length;
@@ -410,7 +443,7 @@ export function sessionSummary(records: RecordEntry[]): string {
 // ---------------------------------------------------------------------------------------
 // CLI
 
-const ROOT = join(import.meta.dir, '..');
+const ROOT = realpathSync(join(import.meta.dir, '..'));
 const INDEX_PATH = 'docs/RECORDS.md';
 
 function readSources(dir: string, match: (name: string) => boolean): SourceFile[] {
@@ -476,7 +509,27 @@ function runCheck(): { count: number; failures: Problem[]; warnings: Problem[] }
   return { count: records.length, failures: [...problems, ...errors], warnings };
 }
 
-/** Paths whose uncommitted changes make the Stop hook run the check. */
+/** A tool's file path relative to the repo, through any symlink in it (macOS /tmp included). */
+function repoPath(file: string): string {
+  let real = file;
+  try {
+    real = realpathSync(file);
+  } catch {
+    try {
+      real = join(realpathSync(dirname(file)), basename(file));
+    } catch {
+      // Neither the file nor its folder exists yet; keep the path as given.
+    }
+  }
+  return relative(ROOT, real);
+}
+
+function git(args: string[]): string {
+  const out = Bun.spawnSync(['git', ...args], { cwd: ROOT });
+  return out.exitCode === 0 ? out.stdout.toString().trim() : '';
+}
+
+/** Paths whose changes, uncommitted or on this branch, make the Stop hook run the check. */
 const WATCHED = [
   'docs/decisions',
   'docs/requirements',
@@ -524,24 +577,27 @@ async function main(command: string): Promise<number> {
       console.log(sessionSummary(load().records));
       return 0;
     }
-    // PreToolUse on Edit|MultiEdit|Write: ask the person before a change only the founder makes.
+    // PreToolUse on Edit|MultiEdit|Write|Bash: ask the person before a change only the founder makes.
     case 'hook-guard': {
       const input = await readHookInput();
-      const tool = (input.tool_input ?? {}) as ToolEdit & { file_path?: string };
-      if (!tool.file_path) return 0;
-      const path = relative(ROOT, tool.file_path);
-      if (!isRecordFile(path)) return 0;
-      const before = existsSync(tool.file_path) ? readFileSync(tool.file_path, 'utf8') : '';
-      const after = applyToolEdit(before, tool);
-      if (after === null) return 0; // the edit won't apply; the tool reports that itself
-      const reasons = guardReasons(path, before, after);
-      if (reasons.length === 0) return 0;
+      const tool = (input.tool_input ?? {}) as ToolEdit & { file_path?: string; command?: string };
+      let question: string | null = null;
+      if (typeof tool.command === 'string') {
+        if (bashWritesRecords(tool.command)) {
+          question =
+            "DR-001: this command may write to docs/decisions or docs/requirements. Approve only if it doesn't set a record to Accepted or Rejected or change an Accepted record, or the founder asked for it.";
+        }
+      } else if (tool.file_path) {
+        const before = existsSync(tool.file_path) ? readFileSync(tool.file_path, 'utf8') : '';
+        question = guardQuestion(repoPath(tool.file_path), before, tool);
+      }
+      if (question === null) return 0;
       console.log(
         JSON.stringify({
           hookSpecificOutput: {
             hookEventName: 'PreToolUse',
             permissionDecision: 'ask',
-            permissionDecisionReason: `DR-001: this edit ${reasons.join('; ')}. Approve only if the founder asked for it.`,
+            permissionDecisionReason: question,
           },
         }),
       );
@@ -550,10 +606,10 @@ async function main(command: string): Promise<number> {
     // Stop: when records or instruction files changed, the check must pass before the session ends.
     case 'hook-stop': {
       const input = await readHookInput();
-      const changed = Bun.spawnSync(['git', 'status', '--porcelain', '--', ...WATCHED], {
-        cwd: ROOT,
-      });
-      if (changed.stdout.toString().trim() === '') return 0;
+      const uncommitted = git(['status', '--porcelain', '--', ...WATCHED]);
+      const base = git(['merge-base', 'origin/main', 'HEAD']);
+      const committed = base ? git(['diff', '--name-only', base, 'HEAD', '--', ...WATCHED]) : '';
+      if (uncommitted === '' && committed === '') return 0;
       const { failures } = runCheck();
       if (failures.length === 0) return 0;
       const list = failures

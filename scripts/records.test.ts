@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'bun:test';
 import {
   applyToolEdit,
+  bashWritesRecords,
+  guardQuestion,
   checkRecords,
   citedIds,
   guardReasons,
@@ -293,6 +295,9 @@ describe('applyToolEdit', () => {
       }),
     ).toBe('x y');
     expect(applyToolEdit('a b', { old_string: 'z', new_string: 'y' })).toBeNull();
+    // An Edit with an empty old_string creates a missing file.
+    expect(applyToolEdit('', { old_string: '', new_string: 'new file' })).toBe('new file');
+    expect(applyToolEdit('a', { old_string: '', new_string: 'x' })).toBeNull();
   });
 });
 
@@ -336,6 +341,53 @@ describe('guardReasons (DR-001: only the founder accepts, rejects or rewrites an
     expect(guardReasons(BR_FILE, BR_TEXT, edited)).toEqual([]);
     const added = `${BR_TEXT}\n## BR-003\n\n- Status: Proposed\n- Revision: 1\n\nWHEN x, THE SYSTEM SHALL y.\n`;
     expect(guardReasons(BR_FILE, BR_TEXT, added)).toEqual([]);
+  });
+});
+
+describe('guardQuestion (DR-001)', () => {
+  it('asks when an Edit creates a record that is already Accepted', () => {
+    const q = guardQuestion('docs/decisions/007-enrolment.md', '', {
+      old_string: '',
+      new_string: DR_TEXT,
+    });
+    expect(q).toStartWith('DR-001: this edit sets DR-007 to Accepted');
+  });
+
+  it("asks when it can't preview the edit, and stays quiet off the records", () => {
+    expect(guardQuestion(BR_FILE, BR_TEXT, { old_string: 'missing', new_string: 'x' })).toContain(
+      "can't preview",
+    );
+    expect(guardQuestion('AGENTS.md', '', { content: '- Status: Accepted' })).toBeNull();
+    expect(
+      guardQuestion(BR_FILE, BR_TEXT, { old_string: 'online.', new_string: 'up.' }),
+    ).toBeNull();
+  });
+});
+
+describe('bashWritesRecords (DR-001: Bash edits reach the guard too)', () => {
+  it('flags in-place edits, redirects and scripts on record paths', () => {
+    for (const cmd of [
+      "sed -i '' 's/status: proposed/status: accepted/' docs/decisions/041-x.md",
+      'perl -pi -e s/Proposed/Accepted/ docs/requirements/br-a.md',
+      'echo x > docs/decisions/099-x.md',
+      'cat x | tee docs/requirements/br-a.md',
+      'git checkout main -- docs/decisions',
+      'python3 -c \'open("docs/decisions/x.md","w")\'',
+    ]) {
+      expect([cmd, bashWritesRecords(cmd)]).toEqual([cmd, true]);
+    }
+  });
+
+  it('lets reads and unrelated writes through', () => {
+    for (const cmd of [
+      'grep -n Status docs/requirements/br-a.md',
+      'cat docs/decisions/001-x.md 2>&1 | head',
+      'ls docs/decisions >/dev/null',
+      'sed -i "" s/a/b/ apps/app/src/x.ts',
+      'bun run scripts/records.ts index',
+    ]) {
+      expect([cmd, bashWritesRecords(cmd)]).toEqual([cmd, false]);
+    }
   });
 });
 
